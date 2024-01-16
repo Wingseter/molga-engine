@@ -431,6 +431,11 @@ FodyWeavers.xsd
 # JetBrains Rider
 *.sln.iml
 
+# Wingseter Added
+!molgaEngine/include/*
+!molgaEngine/dll/*
+!molgaEngine/lib/*
+
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
 
