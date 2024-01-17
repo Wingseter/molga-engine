@@ -3,6 +3,7 @@
 
 #include "framework.h"
 #include "molgaTester.h"
+#include "molgaEngine.h"
 
 #define MAX_LOADSTRING 100
 
@@ -95,20 +96,28 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
-   hInst = hInstance; // 인스턴스 핸들을 전역 변수에 저장합니다.
+    hInst = hInstance; // 인스턴스 핸들을 전역 변수에 저장합니다.
 
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
+    // MolgaEngine 라이브러리를 사용하여 윈도우 생성
+    if (!InitializeWindow(800, 600, "MolgaEngine Window")) {
+        MessageBox(NULL, L"윈도우 생성 실패", L"오류", MB_ICONERROR);
+        return FALSE;
+    }
 
-   if (!hWnd)
-   {
-      return FALSE;
-   }
+    // 이 부분은 MolgaEngine 라이브러리의 윈도우 핸들을 반환한다고 가정합니다.
+    // 실제 라이브러리 구현에 따라 다를 수 있습니다.
+    HWND hWnd = GetMolgaEngineWindowHandle();
 
-   ShowWindow(hWnd, nCmdShow);
-   UpdateWindow(hWnd);
+    if (!hWnd)
+    {
+        MessageBox(NULL, L"윈도우 핸들을 얻는 데 실패했습니다.", L"오류", MB_ICONERROR);
+        return FALSE;
+    }
 
-   return TRUE;
+    ShowWindow(hWnd, nCmdShow);
+    UpdateWindow(hWnd);
+
+    return TRUE;
 }
 
 //
