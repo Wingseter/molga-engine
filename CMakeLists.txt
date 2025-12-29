@@ -12,6 +12,8 @@ add_executable(molga_engine
     src/Time.cpp
     src/Input.cpp
     src/Camera2D.cpp
+    src/SpriteSheet.cpp
+    src/Animation.cpp
 )
 
 add_subdirectory(external/glfw)

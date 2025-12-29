@@ -2,6 +2,7 @@
 #define MOLGA_SPRITE_H
 
 #include "linmath.h"
+#include "SpriteSheet.h"
 
 class Texture;
 
@@ -15,6 +16,8 @@ public:
     void SetRotation(float degrees);
     void SetColor(float r, float g, float b, float a = 1.0f);
     void SetTexture(Texture* texture);
+    void SetUV(float u0, float v0, float u1, float v1);
+    void SetFrame(const Frame& frame);
 
     void GetModelMatrix(mat4x4 out);
 
@@ -22,6 +25,7 @@ public:
     float width, height;
     float rotation;
     float color[4];
+    float uv[4];  // u0, v0, u1, v1
     Texture* texture;
 };
 

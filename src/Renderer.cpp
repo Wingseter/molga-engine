@@ -90,6 +90,7 @@ void Renderer::DrawSprite(Sprite* sprite) {
 
     currentShader->SetMat4("model", (float*)model);
     currentShader->SetVec4("uColor", sprite->color[0], sprite->color[1], sprite->color[2], sprite->color[3]);
+    currentShader->SetVec4("uUV", sprite->uv[0], sprite->uv[1], sprite->uv[2], sprite->uv[3]);
 
     if (sprite->texture) {
         currentShader->SetBool("useTexture", true);
