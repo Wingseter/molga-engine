@@ -12,6 +12,11 @@ Sprite::Sprite(Texture* texture)
     color[1] = 1.0f;
     color[2] = 1.0f;
     color[3] = 1.0f;
+    // Default UV: full texture
+    uv[0] = 0.0f;
+    uv[1] = 0.0f;
+    uv[2] = 1.0f;
+    uv[3] = 1.0f;
 }
 
 Sprite::~Sprite() {
@@ -41,6 +46,20 @@ void Sprite::SetColor(float r, float g, float b, float a) {
 
 void Sprite::SetTexture(Texture* texture) {
     this->texture = texture;
+}
+
+void Sprite::SetUV(float u0, float v0, float u1, float v1) {
+    uv[0] = u0;
+    uv[1] = v0;
+    uv[2] = u1;
+    uv[3] = v1;
+}
+
+void Sprite::SetFrame(const Frame& frame) {
+    uv[0] = frame.u0;
+    uv[1] = frame.v0;
+    uv[2] = frame.u1;
+    uv[3] = frame.v1;
 }
 
 void Sprite::GetModelMatrix(mat4x4 out) {
