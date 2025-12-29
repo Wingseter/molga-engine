@@ -14,6 +14,7 @@ add_executable(molga_engine
     src/Camera2D.cpp
     src/SpriteSheet.cpp
     src/Animation.cpp
+    src/Collision.cpp
 )
 
 add_subdirectory(external/glfw)

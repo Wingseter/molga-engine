@@ -3,6 +3,7 @@
 
 #include "linmath.h"
 #include "SpriteSheet.h"
+#include "Collision.h"
 
 class Texture;
 
@@ -20,6 +21,11 @@ public:
     void SetFrame(const Frame& frame);
 
     void GetModelMatrix(mat4x4 out);
+
+    // Collision
+    AABB GetAABB() const;
+    Circle GetBoundingCircle() const;
+    bool CollidesWith(const Sprite& other) const;
 
     float x, y;
     float width, height;

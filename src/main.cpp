@@ -11,6 +11,7 @@
 #include "Time.h"
 #include "Input.h"
 #include "Camera2D.h"
+#include "Collision.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
@@ -68,25 +69,31 @@ int main() {
     player.SetSize(50.0f, 50.0f);
     player.SetColor(0.2f, 0.8f, 0.3f, 1.0f);  // Green
 
-    // World objects (spread out to show camera movement)
-    Sprite obstacles[9];
-    float colors[][3] = {
-        {1.0f, 0.5f, 0.2f}, {0.3f, 0.5f, 0.9f}, {0.9f, 0.2f, 0.5f},
-        {0.5f, 0.9f, 0.2f}, {0.2f, 0.9f, 0.9f}, {0.9f, 0.9f, 0.2f},
-        {0.6f, 0.3f, 0.8f}, {0.8f, 0.6f, 0.3f}, {0.3f, 0.8f, 0.6f}
-    };
-    int idx = 0;
-    for (int row = 0; row < 3; row++) {
-        for (int col = 0; col < 3; col++) {
-            obstacles[idx].SetPosition(col * 400.0f + 100.0f, row * 400.0f + 100.0f);
-            obstacles[idx].SetSize(80.0f, 80.0f);
-            obstacles[idx].SetColor(colors[idx][0], colors[idx][1], colors[idx][2]);
-            idx++;
-        }
-    }
+    // Obstacles
+    const int NUM_OBSTACLES = 5;
+    Sprite obstacles[NUM_OBSTACLES];
+    obstacles[0].SetPosition(200.0f, 200.0f);
+    obstacles[0].SetSize(80.0f, 80.0f);
+    obstacles[0].SetColor(1.0f, 0.5f, 0.2f, 1.0f);
+
+    obstacles[1].SetPosition(500.0f, 150.0f);
+    obstacles[1].SetSize(100.0f, 60.0f);
+    obstacles[1].SetColor(0.3f, 0.5f, 0.9f, 1.0f);
+
+    obstacles[2].SetPosition(350.0f, 400.0f);
+    obstacles[2].SetSize(70.0f, 70.0f);
+    obstacles[2].SetColor(0.9f, 0.2f, 0.5f, 1.0f);
+
+    obstacles[3].SetPosition(100.0f, 350.0f);
+    obstacles[3].SetSize(90.0f, 50.0f);
+    obstacles[3].SetColor(0.5f, 0.9f, 0.2f, 1.0f);
+
+    obstacles[4].SetPosition(600.0f, 400.0f);
+    obstacles[4].SetSize(60.0f, 100.0f);
+    obstacles[4].SetColor(0.9f, 0.9f, 0.2f, 1.0f);
 
     const float moveSpeed = 200.0f;
-    const float cameraSpeed = 300.0f;
+    int collisionCount = 0;
 
     // render loop
     while (!glfwWindowShouldClose(window)) {
@@ -95,18 +102,14 @@ int main() {
         Input::Update();
         float dt = Time::GetDeltaTime();
 
-        // Update window title
-        std::ostringstream title;
-        title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS())
-              << " | Cam: (" << static_cast<int>(camera.GetX())
-              << ", " << static_cast<int>(camera.GetY())
-              << ") Zoom: " << camera.GetZoom();
-        glfwSetWindowTitle(window, title.str().c_str());
-
         // Input handling
         if (Input::GetKey(GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, true);
         }
+
+        // Store old position for collision resolution
+        float oldX = player.x;
+        float oldY = player.y;
 
         // Player movement with WASD
         float dx = 0.0f, dy = 0.0f;
@@ -118,32 +121,43 @@ int main() {
         player.x += dx * moveSpeed * dt;
         player.y += dy * moveSpeed * dt;
 
-        // Camera follows player (with offset to center)
+        // Collision detection and resolution
+        collisionCount = 0;
+        for (int i = 0; i < NUM_OBSTACLES; i++) {
+            CollisionResult result = Collision::CheckAABBWithResult(player.GetAABB(), obstacles[i].GetAABB());
+            if (result.collided) {
+                collisionCount++;
+                // Push player out of obstacle
+                player.x -= result.overlapX;
+                player.y -= result.overlapY;
+                // Flash player red on collision
+                player.SetColor(1.0f, 0.3f, 0.3f, 1.0f);
+            }
+        }
+
+        // Reset color if no collision
+        if (collisionCount == 0) {
+            player.SetColor(0.2f, 0.8f, 0.3f, 1.0f);
+        }
+
+        // Update window title
+        std::ostringstream title;
+        title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS())
+              << " | Collisions: " << collisionCount;
+        glfwSetWindowTitle(window, title.str().c_str());
+
+        // Camera follows player
         float targetCamX = player.x - SCR_WIDTH / 2.0f + player.width / 2.0f;
         float targetCamY = player.y - SCR_HEIGHT / 2.0f + player.height / 2.0f;
         camera.SetPosition(targetCamX, targetCamY);
 
         // Camera zoom with Q/E
-        if (Input::GetKey(GLFW_KEY_Q)) {
-            camera.Zoom(1.0f - dt);
-        }
-        if (Input::GetKey(GLFW_KEY_E)) {
-            camera.Zoom(1.0f + dt);
-        }
+        if (Input::GetKey(GLFW_KEY_Q)) camera.Zoom(1.0f - dt);
+        if (Input::GetKey(GLFW_KEY_E)) camera.Zoom(1.0f + dt);
 
         // Camera zoom with scroll
         float scroll = Input::GetScrollY();
-        if (scroll != 0.0f) {
-            camera.Zoom(1.0f + scroll * 0.1f);
-        }
-
-        // Camera rotation with Z/X
-        if (Input::GetKey(GLFW_KEY_Z)) {
-            camera.SetRotation(camera.GetRotation() - 60.0f * dt);
-        }
-        if (Input::GetKey(GLFW_KEY_X)) {
-            camera.SetRotation(camera.GetRotation() + 60.0f * dt);
-        }
+        if (scroll != 0.0f) camera.Zoom(1.0f + scroll * 0.1f);
 
         // Reset camera with R
         if (Input::GetKeyDown(GLFW_KEY_R)) {
@@ -155,7 +169,7 @@ int main() {
         renderer.Clear(0.2f, 0.3f, 0.3f, 1.0f);
 
         renderer.Begin(&shader, &camera);
-        for (int i = 0; i < 9; i++) {
+        for (int i = 0; i < NUM_OBSTACLES; i++) {
             renderer.DrawSprite(&obstacles[i]);
         }
         renderer.DrawSprite(&player);
