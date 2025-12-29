@@ -2,9 +2,11 @@
 #include "Shader.h"
 #include "Sprite.h"
 #include "Texture.h"
+#include "Camera2D.h"
 
 Renderer::Renderer() : VAO(0), VBO(0), EBO(0), currentShader(nullptr) {
     mat4x4_identity(projection);
+    mat4x4_identity(view);
 }
 
 Renderer::~Renderer() {
@@ -63,10 +65,21 @@ void Renderer::SetProjection(float left, float right, float bottom, float top) {
     mat4x4_ortho(projection, left, right, bottom, top, -1.0f, 1.0f);
 }
 
-void Renderer::Begin(Shader* shader) {
+void Renderer::Begin(Shader* shader, Camera2D* camera) {
     currentShader = shader;
     currentShader->Use();
-    currentShader->SetMat4("projection", (float*)projection);
+
+    if (camera) {
+        camera->GetProjectionMatrix(projection);
+        camera->GetViewMatrix(view);
+    } else {
+        mat4x4_identity(view);
+    }
+
+    // Combine projection and view into one matrix
+    mat4x4 projView;
+    mat4x4_mul(projView, projection, view);
+    currentShader->SetMat4("projection", (float*)projView);
 }
 
 void Renderer::DrawSprite(Sprite* sprite) {
