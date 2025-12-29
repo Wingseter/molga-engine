@@ -2,11 +2,13 @@
 #include <GLFW/glfw3.h>
 
 #include <iostream>
+#include <sstream>
 
 #include "Shader.h"
 #include "Texture.h"
 #include "Sprite.h"
 #include "Renderer.h"
+#include "Time.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
@@ -46,6 +48,9 @@ int main() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // Initialize time system
+    Time::Init();
+
     // Initialize renderer
     Renderer renderer;
     renderer.Init();
@@ -64,7 +69,6 @@ int main() {
     sprite2.SetPosition(250.0f, 150.0f);
     sprite2.SetSize(80.0f, 80.0f);
     sprite2.SetColor(0.2f, 0.8f, 0.3f, 1.0f);  // Green
-    sprite2.SetRotation(45.0f);
 
     Sprite sprite3;
     sprite3.SetPosition(400.0f, 200.0f);
@@ -72,13 +76,23 @@ int main() {
     sprite3.SetColor(0.3f, 0.5f, 0.9f, 1.0f);  // Blue
 
     float rotation = 0.0f;
+    const float rotationSpeed = 90.0f;  // degrees per second
 
     // render loop
     while (!glfwWindowShouldClose(window)) {
+        // Update time
+        Time::Update();
+        float dt = Time::GetDeltaTime();
+
+        // Update window title with FPS
+        std::ostringstream title;
+        title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS());
+        glfwSetWindowTitle(window, title.str().c_str());
+
         processInput(window);
 
-        // Update rotation
-        rotation += 1.0f;
+        // Update rotation using deltaTime (frame-independent)
+        rotation += rotationSpeed * dt;
         sprite2.SetRotation(rotation);
 
         // Render
