@@ -9,9 +9,9 @@
 #include "Sprite.h"
 #include "Renderer.h"
 #include "Time.h"
+#include "Input.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow* window);
 
 // settings
 const unsigned int SCR_WIDTH = 800;
@@ -48,8 +48,9 @@ int main() {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // Initialize time system
+    // Initialize systems
     Time::Init();
+    Input::Init(window);
 
     // Initialize renderer
     Renderer renderer;
@@ -59,49 +60,77 @@ int main() {
     // Load shader
     Shader shader("src/Shaders/default.vert", "src/Shaders/default.frag");
 
-    // Create sprites without texture (color only)
-    Sprite sprite1;
-    sprite1.SetPosition(100.0f, 100.0f);
-    sprite1.SetSize(100.0f, 100.0f);
-    sprite1.SetColor(1.0f, 0.5f, 0.2f, 1.0f);  // Orange
+    // Player sprite (controllable)
+    Sprite player;
+    player.SetPosition(400.0f, 300.0f);
+    player.SetSize(50.0f, 50.0f);
+    player.SetColor(0.2f, 0.8f, 0.3f, 1.0f);  // Green
 
-    Sprite sprite2;
-    sprite2.SetPosition(250.0f, 150.0f);
-    sprite2.SetSize(80.0f, 80.0f);
-    sprite2.SetColor(0.2f, 0.8f, 0.3f, 1.0f);  // Green
+    // Static sprites
+    Sprite obstacle1;
+    obstacle1.SetPosition(100.0f, 100.0f);
+    obstacle1.SetSize(80.0f, 80.0f);
+    obstacle1.SetColor(1.0f, 0.5f, 0.2f, 1.0f);  // Orange
 
-    Sprite sprite3;
-    sprite3.SetPosition(400.0f, 200.0f);
-    sprite3.SetSize(120.0f, 60.0f);
-    sprite3.SetColor(0.3f, 0.5f, 0.9f, 1.0f);  // Blue
+    Sprite obstacle2;
+    obstacle2.SetPosition(600.0f, 400.0f);
+    obstacle2.SetSize(80.0f, 80.0f);
+    obstacle2.SetColor(0.3f, 0.5f, 0.9f, 1.0f);  // Blue
 
-    float rotation = 0.0f;
-    const float rotationSpeed = 90.0f;  // degrees per second
+    const float moveSpeed = 200.0f;  // pixels per second
 
     // render loop
     while (!glfwWindowShouldClose(window)) {
-        // Update time
+        // Update systems
         Time::Update();
+        Input::Update();
         float dt = Time::GetDeltaTime();
 
         // Update window title with FPS
         std::ostringstream title;
-        title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS());
+        title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS())
+              << " | Mouse: (" << static_cast<int>(Input::GetMouseX())
+              << ", " << static_cast<int>(Input::GetMouseY()) << ")";
         glfwSetWindowTitle(window, title.str().c_str());
 
-        processInput(window);
+        // Input handling
+        if (Input::GetKey(GLFW_KEY_ESCAPE)) {
+            glfwSetWindowShouldClose(window, true);
+        }
 
-        // Update rotation using deltaTime (frame-independent)
-        rotation += rotationSpeed * dt;
-        sprite2.SetRotation(rotation);
+        // Player movement with WASD
+        float dx = 0.0f, dy = 0.0f;
+        if (Input::GetKey(GLFW_KEY_W) || Input::GetKey(GLFW_KEY_UP))    dy -= 1.0f;
+        if (Input::GetKey(GLFW_KEY_S) || Input::GetKey(GLFW_KEY_DOWN))  dy += 1.0f;
+        if (Input::GetKey(GLFW_KEY_A) || Input::GetKey(GLFW_KEY_LEFT))  dx -= 1.0f;
+        if (Input::GetKey(GLFW_KEY_D) || Input::GetKey(GLFW_KEY_RIGHT)) dx += 1.0f;
+
+        player.x += dx * moveSpeed * dt;
+        player.y += dy * moveSpeed * dt;
+
+        // Change color on mouse click
+        if (Input::GetMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT)) {
+            player.SetColor(1.0f, 0.0f, 0.0f, 1.0f);  // Red
+        }
+        if (Input::GetMouseButtonUp(GLFW_MOUSE_BUTTON_LEFT)) {
+            player.SetColor(0.2f, 0.8f, 0.3f, 1.0f);  // Green
+        }
+
+        // Scale with scroll
+        float scroll = Input::GetScrollY();
+        if (scroll != 0.0f) {
+            float scale = 1.0f + scroll * 0.1f;
+            player.width *= scale;
+            player.height *= scale;
+        }
 
         // Render
         renderer.Clear(0.2f, 0.3f, 0.3f, 1.0f);
 
         renderer.Begin(&shader);
-        renderer.DrawSprite(&sprite1);
-        renderer.DrawSprite(&sprite2);
-        renderer.DrawSprite(&sprite3);
+        renderer.DrawSprite(&obstacle1);
+        renderer.DrawSprite(&obstacle2);
+        renderer.DrawSprite(&player);
         renderer.End();
 
         glfwSwapBuffers(window);
@@ -110,11 +139,6 @@ int main() {
 
     glfwTerminate();
     return 0;
-}
-
-void processInput(GLFWwindow* window) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, true);
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
