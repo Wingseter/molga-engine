@@ -10,6 +10,7 @@ add_executable(molga_engine
     src/Sprite.cpp
     src/Renderer.cpp
     src/Time.cpp
+    src/Input.cpp
 )
 
 add_subdirectory(external/glfw)
