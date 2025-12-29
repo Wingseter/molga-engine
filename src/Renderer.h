@@ -6,6 +6,7 @@
 
 class Shader;
 class Sprite;
+class Camera2D;
 
 class Renderer {
 public:
@@ -16,7 +17,7 @@ public:
     void Clear(float r, float g, float b, float a = 1.0f);
     void SetViewport(int width, int height);
 
-    void Begin(Shader* shader);
+    void Begin(Shader* shader, Camera2D* camera = nullptr);
     void DrawSprite(Sprite* sprite);
     void End();
 
@@ -28,6 +29,7 @@ private:
     unsigned int EBO;
     Shader* currentShader;
     mat4x4 projection;
+    mat4x4 view;
 
     void SetupQuadBuffers();
 };
