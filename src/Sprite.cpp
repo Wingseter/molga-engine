@@ -83,3 +83,16 @@ void Sprite::GetModelMatrix(mat4x4 out) {
     // Scale to size
     mat4x4_scale_aniso(out, out, width, height, 1.0f);
 }
+
+AABB Sprite::GetAABB() const {
+    return {x, y, width, height};
+}
+
+Circle Sprite::GetBoundingCircle() const {
+    float radius = std::sqrt(width * width + height * height) * 0.5f;
+    return {x + width * 0.5f, y + height * 0.5f, radius};
+}
+
+bool Sprite::CollidesWith(const Sprite& other) const {
+    return Collision::CheckAABB(GetAABB(), other.GetAABB());
+}
