@@ -162,6 +162,19 @@ depend:
 .PHONY : depend
 
 #=============================================================================
+# Target rules for targets named imgui
+
+# Build rule for target.
+imgui: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 imgui
+.PHONY : imgui
+
+# fast build rule for target.
+imgui/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/build
+.PHONY : imgui/fast
+
+#=============================================================================
 # Target rules for targets named molga_engine
 
 # Build rule for target.
@@ -249,6 +262,150 @@ external/glad/src/glad.s: external/glad/src/glad.c.s
 external/glad/src/glad.c.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/glad.dir/build.make CMakeFiles/glad.dir/external/glad/src/glad.c.s
 .PHONY : external/glad/src/glad.c.s
+
+external/imgui/backends/imgui_impl_glfw.o: external/imgui/backends/imgui_impl_glfw.cpp.o
+.PHONY : external/imgui/backends/imgui_impl_glfw.o
+
+# target to build an object file
+external/imgui/backends/imgui_impl_glfw.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/backends/imgui_impl_glfw.cpp.o
+.PHONY : external/imgui/backends/imgui_impl_glfw.cpp.o
+
+external/imgui/backends/imgui_impl_glfw.i: external/imgui/backends/imgui_impl_glfw.cpp.i
+.PHONY : external/imgui/backends/imgui_impl_glfw.i
+
+# target to preprocess a source file
+external/imgui/backends/imgui_impl_glfw.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/backends/imgui_impl_glfw.cpp.i
+.PHONY : external/imgui/backends/imgui_impl_glfw.cpp.i
+
+external/imgui/backends/imgui_impl_glfw.s: external/imgui/backends/imgui_impl_glfw.cpp.s
+.PHONY : external/imgui/backends/imgui_impl_glfw.s
+
+# target to generate assembly for a file
+external/imgui/backends/imgui_impl_glfw.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/backends/imgui_impl_glfw.cpp.s
+.PHONY : external/imgui/backends/imgui_impl_glfw.cpp.s
+
+external/imgui/backends/imgui_impl_opengl3.o: external/imgui/backends/imgui_impl_opengl3.cpp.o
+.PHONY : external/imgui/backends/imgui_impl_opengl3.o
+
+# target to build an object file
+external/imgui/backends/imgui_impl_opengl3.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/backends/imgui_impl_opengl3.cpp.o
+.PHONY : external/imgui/backends/imgui_impl_opengl3.cpp.o
+
+external/imgui/backends/imgui_impl_opengl3.i: external/imgui/backends/imgui_impl_opengl3.cpp.i
+.PHONY : external/imgui/backends/imgui_impl_opengl3.i
+
+# target to preprocess a source file
+external/imgui/backends/imgui_impl_opengl3.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/backends/imgui_impl_opengl3.cpp.i
+.PHONY : external/imgui/backends/imgui_impl_opengl3.cpp.i
+
+external/imgui/backends/imgui_impl_opengl3.s: external/imgui/backends/imgui_impl_opengl3.cpp.s
+.PHONY : external/imgui/backends/imgui_impl_opengl3.s
+
+# target to generate assembly for a file
+external/imgui/backends/imgui_impl_opengl3.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/backends/imgui_impl_opengl3.cpp.s
+.PHONY : external/imgui/backends/imgui_impl_opengl3.cpp.s
+
+external/imgui/imgui.o: external/imgui/imgui.cpp.o
+.PHONY : external/imgui/imgui.o
+
+# target to build an object file
+external/imgui/imgui.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui.cpp.o
+.PHONY : external/imgui/imgui.cpp.o
+
+external/imgui/imgui.i: external/imgui/imgui.cpp.i
+.PHONY : external/imgui/imgui.i
+
+# target to preprocess a source file
+external/imgui/imgui.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui.cpp.i
+.PHONY : external/imgui/imgui.cpp.i
+
+external/imgui/imgui.s: external/imgui/imgui.cpp.s
+.PHONY : external/imgui/imgui.s
+
+# target to generate assembly for a file
+external/imgui/imgui.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui.cpp.s
+.PHONY : external/imgui/imgui.cpp.s
+
+external/imgui/imgui_draw.o: external/imgui/imgui_draw.cpp.o
+.PHONY : external/imgui/imgui_draw.o
+
+# target to build an object file
+external/imgui/imgui_draw.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_draw.cpp.o
+.PHONY : external/imgui/imgui_draw.cpp.o
+
+external/imgui/imgui_draw.i: external/imgui/imgui_draw.cpp.i
+.PHONY : external/imgui/imgui_draw.i
+
+# target to preprocess a source file
+external/imgui/imgui_draw.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_draw.cpp.i
+.PHONY : external/imgui/imgui_draw.cpp.i
+
+external/imgui/imgui_draw.s: external/imgui/imgui_draw.cpp.s
+.PHONY : external/imgui/imgui_draw.s
+
+# target to generate assembly for a file
+external/imgui/imgui_draw.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_draw.cpp.s
+.PHONY : external/imgui/imgui_draw.cpp.s
+
+external/imgui/imgui_tables.o: external/imgui/imgui_tables.cpp.o
+.PHONY : external/imgui/imgui_tables.o
+
+# target to build an object file
+external/imgui/imgui_tables.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_tables.cpp.o
+.PHONY : external/imgui/imgui_tables.cpp.o
+
+external/imgui/imgui_tables.i: external/imgui/imgui_tables.cpp.i
+.PHONY : external/imgui/imgui_tables.i
+
+# target to preprocess a source file
+external/imgui/imgui_tables.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_tables.cpp.i
+.PHONY : external/imgui/imgui_tables.cpp.i
+
+external/imgui/imgui_tables.s: external/imgui/imgui_tables.cpp.s
+.PHONY : external/imgui/imgui_tables.s
+
+# target to generate assembly for a file
+external/imgui/imgui_tables.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_tables.cpp.s
+.PHONY : external/imgui/imgui_tables.cpp.s
+
+external/imgui/imgui_widgets.o: external/imgui/imgui_widgets.cpp.o
+.PHONY : external/imgui/imgui_widgets.o
+
+# target to build an object file
+external/imgui/imgui_widgets.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_widgets.cpp.o
+.PHONY : external/imgui/imgui_widgets.cpp.o
+
+external/imgui/imgui_widgets.i: external/imgui/imgui_widgets.cpp.i
+.PHONY : external/imgui/imgui_widgets.i
+
+# target to preprocess a source file
+external/imgui/imgui_widgets.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_widgets.cpp.i
+.PHONY : external/imgui/imgui_widgets.cpp.i
+
+external/imgui/imgui_widgets.s: external/imgui/imgui_widgets.cpp.s
+.PHONY : external/imgui/imgui_widgets.s
+
+# target to generate assembly for a file
+external/imgui/imgui_widgets.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/imgui.dir/build.make CMakeFiles/imgui.dir/external/imgui/imgui_widgets.cpp.s
+.PHONY : external/imgui/imgui_widgets.cpp.s
 
 src/Animation.o: src/Animation.cpp.o
 .PHONY : src/Animation.o
@@ -346,6 +503,270 @@ src/Collision.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Collision.cpp.s
 .PHONY : src/Collision.cpp.s
 
+src/Core/Application.o: src/Core/Application.cpp.o
+.PHONY : src/Core/Application.o
+
+# target to build an object file
+src/Core/Application.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o
+.PHONY : src/Core/Application.cpp.o
+
+src/Core/Application.i: src/Core/Application.cpp.i
+.PHONY : src/Core/Application.i
+
+# target to preprocess a source file
+src/Core/Application.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Application.cpp.i
+.PHONY : src/Core/Application.cpp.i
+
+src/Core/Application.s: src/Core/Application.cpp.s
+.PHONY : src/Core/Application.s
+
+# target to generate assembly for a file
+src/Core/Application.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s
+.PHONY : src/Core/Application.cpp.s
+
+src/Core/SceneSerializer.o: src/Core/SceneSerializer.cpp.o
+.PHONY : src/Core/SceneSerializer.o
+
+# target to build an object file
+src/Core/SceneSerializer.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o
+.PHONY : src/Core/SceneSerializer.cpp.o
+
+src/Core/SceneSerializer.i: src/Core/SceneSerializer.cpp.i
+.PHONY : src/Core/SceneSerializer.i
+
+# target to preprocess a source file
+src/Core/SceneSerializer.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.i
+.PHONY : src/Core/SceneSerializer.cpp.i
+
+src/Core/SceneSerializer.s: src/Core/SceneSerializer.cpp.s
+.PHONY : src/Core/SceneSerializer.s
+
+# target to generate assembly for a file
+src/Core/SceneSerializer.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.s
+.PHONY : src/Core/SceneSerializer.cpp.s
+
+src/ECS/Components/BoxCollider2D.o: src/ECS/Components/BoxCollider2D.cpp.o
+.PHONY : src/ECS/Components/BoxCollider2D.o
+
+# target to build an object file
+src/ECS/Components/BoxCollider2D.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o
+.PHONY : src/ECS/Components/BoxCollider2D.cpp.o
+
+src/ECS/Components/BoxCollider2D.i: src/ECS/Components/BoxCollider2D.cpp.i
+.PHONY : src/ECS/Components/BoxCollider2D.i
+
+# target to preprocess a source file
+src/ECS/Components/BoxCollider2D.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.i
+.PHONY : src/ECS/Components/BoxCollider2D.cpp.i
+
+src/ECS/Components/BoxCollider2D.s: src/ECS/Components/BoxCollider2D.cpp.s
+.PHONY : src/ECS/Components/BoxCollider2D.s
+
+# target to generate assembly for a file
+src/ECS/Components/BoxCollider2D.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.s
+.PHONY : src/ECS/Components/BoxCollider2D.cpp.s
+
+src/ECS/Components/SpriteRenderer.o: src/ECS/Components/SpriteRenderer.cpp.o
+.PHONY : src/ECS/Components/SpriteRenderer.o
+
+# target to build an object file
+src/ECS/Components/SpriteRenderer.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o
+.PHONY : src/ECS/Components/SpriteRenderer.cpp.o
+
+src/ECS/Components/SpriteRenderer.i: src/ECS/Components/SpriteRenderer.cpp.i
+.PHONY : src/ECS/Components/SpriteRenderer.i
+
+# target to preprocess a source file
+src/ECS/Components/SpriteRenderer.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.i
+.PHONY : src/ECS/Components/SpriteRenderer.cpp.i
+
+src/ECS/Components/SpriteRenderer.s: src/ECS/Components/SpriteRenderer.cpp.s
+.PHONY : src/ECS/Components/SpriteRenderer.s
+
+# target to generate assembly for a file
+src/ECS/Components/SpriteRenderer.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.s
+.PHONY : src/ECS/Components/SpriteRenderer.cpp.s
+
+src/ECS/Components/Transform.o: src/ECS/Components/Transform.cpp.o
+.PHONY : src/ECS/Components/Transform.o
+
+# target to build an object file
+src/ECS/Components/Transform.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o
+.PHONY : src/ECS/Components/Transform.cpp.o
+
+src/ECS/Components/Transform.i: src/ECS/Components/Transform.cpp.i
+.PHONY : src/ECS/Components/Transform.i
+
+# target to preprocess a source file
+src/ECS/Components/Transform.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.i
+.PHONY : src/ECS/Components/Transform.cpp.i
+
+src/ECS/Components/Transform.s: src/ECS/Components/Transform.cpp.s
+.PHONY : src/ECS/Components/Transform.s
+
+# target to generate assembly for a file
+src/ECS/Components/Transform.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.s
+.PHONY : src/ECS/Components/Transform.cpp.s
+
+src/ECS/GameObject.o: src/ECS/GameObject.cpp.o
+.PHONY : src/ECS/GameObject.o
+
+# target to build an object file
+src/ECS/GameObject.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o
+.PHONY : src/ECS/GameObject.cpp.o
+
+src/ECS/GameObject.i: src/ECS/GameObject.cpp.i
+.PHONY : src/ECS/GameObject.i
+
+# target to preprocess a source file
+src/ECS/GameObject.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.i
+.PHONY : src/ECS/GameObject.cpp.i
+
+src/ECS/GameObject.s: src/ECS/GameObject.cpp.s
+.PHONY : src/ECS/GameObject.s
+
+# target to generate assembly for a file
+src/ECS/GameObject.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.s
+.PHONY : src/ECS/GameObject.cpp.s
+
+src/Editor/Editor.o: src/Editor/Editor.cpp.o
+.PHONY : src/Editor/Editor.o
+
+# target to build an object file
+src/Editor/Editor.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o
+.PHONY : src/Editor/Editor.cpp.o
+
+src/Editor/Editor.i: src/Editor/Editor.cpp.i
+.PHONY : src/Editor/Editor.i
+
+# target to preprocess a source file
+src/Editor/Editor.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.i
+.PHONY : src/Editor/Editor.cpp.i
+
+src/Editor/Editor.s: src/Editor/Editor.cpp.s
+.PHONY : src/Editor/Editor.s
+
+# target to generate assembly for a file
+src/Editor/Editor.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.s
+.PHONY : src/Editor/Editor.cpp.s
+
+src/Editor/EditorState.o: src/Editor/EditorState.cpp.o
+.PHONY : src/Editor/EditorState.o
+
+# target to build an object file
+src/Editor/EditorState.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o
+.PHONY : src/Editor/EditorState.cpp.o
+
+src/Editor/EditorState.i: src/Editor/EditorState.cpp.i
+.PHONY : src/Editor/EditorState.i
+
+# target to preprocess a source file
+src/Editor/EditorState.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.i
+.PHONY : src/Editor/EditorState.cpp.i
+
+src/Editor/EditorState.s: src/Editor/EditorState.cpp.s
+.PHONY : src/Editor/EditorState.s
+
+# target to generate assembly for a file
+src/Editor/EditorState.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.s
+.PHONY : src/Editor/EditorState.cpp.s
+
+src/Editor/ImGuiLayer.o: src/Editor/ImGuiLayer.cpp.o
+.PHONY : src/Editor/ImGuiLayer.o
+
+# target to build an object file
+src/Editor/ImGuiLayer.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o
+.PHONY : src/Editor/ImGuiLayer.cpp.o
+
+src/Editor/ImGuiLayer.i: src/Editor/ImGuiLayer.cpp.i
+.PHONY : src/Editor/ImGuiLayer.i
+
+# target to preprocess a source file
+src/Editor/ImGuiLayer.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.i
+.PHONY : src/Editor/ImGuiLayer.cpp.i
+
+src/Editor/ImGuiLayer.s: src/Editor/ImGuiLayer.cpp.s
+.PHONY : src/Editor/ImGuiLayer.s
+
+# target to generate assembly for a file
+src/Editor/ImGuiLayer.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.s
+.PHONY : src/Editor/ImGuiLayer.cpp.s
+
+src/Editor/Windows/HierarchyWindow.o: src/Editor/Windows/HierarchyWindow.cpp.o
+.PHONY : src/Editor/Windows/HierarchyWindow.o
+
+# target to build an object file
+src/Editor/Windows/HierarchyWindow.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o
+.PHONY : src/Editor/Windows/HierarchyWindow.cpp.o
+
+src/Editor/Windows/HierarchyWindow.i: src/Editor/Windows/HierarchyWindow.cpp.i
+.PHONY : src/Editor/Windows/HierarchyWindow.i
+
+# target to preprocess a source file
+src/Editor/Windows/HierarchyWindow.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.i
+.PHONY : src/Editor/Windows/HierarchyWindow.cpp.i
+
+src/Editor/Windows/HierarchyWindow.s: src/Editor/Windows/HierarchyWindow.cpp.s
+.PHONY : src/Editor/Windows/HierarchyWindow.s
+
+# target to generate assembly for a file
+src/Editor/Windows/HierarchyWindow.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.s
+.PHONY : src/Editor/Windows/HierarchyWindow.cpp.s
+
+src/Editor/Windows/InspectorWindow.o: src/Editor/Windows/InspectorWindow.cpp.o
+.PHONY : src/Editor/Windows/InspectorWindow.o
+
+# target to build an object file
+src/Editor/Windows/InspectorWindow.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o
+.PHONY : src/Editor/Windows/InspectorWindow.cpp.o
+
+src/Editor/Windows/InspectorWindow.i: src/Editor/Windows/InspectorWindow.cpp.i
+.PHONY : src/Editor/Windows/InspectorWindow.i
+
+# target to preprocess a source file
+src/Editor/Windows/InspectorWindow.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.i
+.PHONY : src/Editor/Windows/InspectorWindow.cpp.i
+
+src/Editor/Windows/InspectorWindow.s: src/Editor/Windows/InspectorWindow.cpp.s
+.PHONY : src/Editor/Windows/InspectorWindow.s
+
+# target to generate assembly for a file
+src/Editor/Windows/InspectorWindow.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s
+.PHONY : src/Editor/Windows/InspectorWindow.cpp.s
+
 src/Input.o: src/Input.cpp.o
 .PHONY : src/Input.o
 
@@ -394,6 +815,30 @@ src/Particle.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.s
 .PHONY : src/Particle.cpp.s
 
+src/Platform/Platform.o: src/Platform/Platform.cpp.o
+.PHONY : src/Platform/Platform.o
+
+# target to build an object file
+src/Platform/Platform.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o
+.PHONY : src/Platform/Platform.cpp.o
+
+src/Platform/Platform.i: src/Platform/Platform.cpp.i
+.PHONY : src/Platform/Platform.i
+
+# target to preprocess a source file
+src/Platform/Platform.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.i
+.PHONY : src/Platform/Platform.cpp.i
+
+src/Platform/Platform.s: src/Platform/Platform.cpp.s
+.PHONY : src/Platform/Platform.s
+
+# target to generate assembly for a file
+src/Platform/Platform.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.s
+.PHONY : src/Platform/Platform.cpp.s
+
 src/Renderer.o: src/Renderer.cpp.o
 .PHONY : src/Renderer.o
 
@@ -441,6 +886,126 @@ src/Scene.s: src/Scene.cpp.s
 src/Scene.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.s
 .PHONY : src/Scene.cpp.s
+
+src/Scenes/GameScene.o: src/Scenes/GameScene.cpp.o
+.PHONY : src/Scenes/GameScene.o
+
+# target to build an object file
+src/Scenes/GameScene.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o
+.PHONY : src/Scenes/GameScene.cpp.o
+
+src/Scenes/GameScene.i: src/Scenes/GameScene.cpp.i
+.PHONY : src/Scenes/GameScene.i
+
+# target to preprocess a source file
+src/Scenes/GameScene.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.i
+.PHONY : src/Scenes/GameScene.cpp.i
+
+src/Scenes/GameScene.s: src/Scenes/GameScene.cpp.s
+.PHONY : src/Scenes/GameScene.s
+
+# target to generate assembly for a file
+src/Scenes/GameScene.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s
+.PHONY : src/Scenes/GameScene.cpp.s
+
+src/Scenes/MenuScene.o: src/Scenes/MenuScene.cpp.o
+.PHONY : src/Scenes/MenuScene.o
+
+# target to build an object file
+src/Scenes/MenuScene.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o
+.PHONY : src/Scenes/MenuScene.cpp.o
+
+src/Scenes/MenuScene.i: src/Scenes/MenuScene.cpp.i
+.PHONY : src/Scenes/MenuScene.i
+
+# target to preprocess a source file
+src/Scenes/MenuScene.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.i
+.PHONY : src/Scenes/MenuScene.cpp.i
+
+src/Scenes/MenuScene.s: src/Scenes/MenuScene.cpp.s
+.PHONY : src/Scenes/MenuScene.s
+
+# target to generate assembly for a file
+src/Scenes/MenuScene.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.s
+.PHONY : src/Scenes/MenuScene.cpp.s
+
+src/Scripting/BuiltinScripts.o: src/Scripting/BuiltinScripts.cpp.o
+.PHONY : src/Scripting/BuiltinScripts.o
+
+# target to build an object file
+src/Scripting/BuiltinScripts.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o
+.PHONY : src/Scripting/BuiltinScripts.cpp.o
+
+src/Scripting/BuiltinScripts.i: src/Scripting/BuiltinScripts.cpp.i
+.PHONY : src/Scripting/BuiltinScripts.i
+
+# target to preprocess a source file
+src/Scripting/BuiltinScripts.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.i
+.PHONY : src/Scripting/BuiltinScripts.cpp.i
+
+src/Scripting/BuiltinScripts.s: src/Scripting/BuiltinScripts.cpp.s
+.PHONY : src/Scripting/BuiltinScripts.s
+
+# target to generate assembly for a file
+src/Scripting/BuiltinScripts.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.s
+.PHONY : src/Scripting/BuiltinScripts.cpp.s
+
+src/Scripting/Script.o: src/Scripting/Script.cpp.o
+.PHONY : src/Scripting/Script.o
+
+# target to build an object file
+src/Scripting/Script.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o
+.PHONY : src/Scripting/Script.cpp.o
+
+src/Scripting/Script.i: src/Scripting/Script.cpp.i
+.PHONY : src/Scripting/Script.i
+
+# target to preprocess a source file
+src/Scripting/Script.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.i
+.PHONY : src/Scripting/Script.cpp.i
+
+src/Scripting/Script.s: src/Scripting/Script.cpp.s
+.PHONY : src/Scripting/Script.s
+
+# target to generate assembly for a file
+src/Scripting/Script.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.s
+.PHONY : src/Scripting/Script.cpp.s
+
+src/Scripting/ScriptManager.o: src/Scripting/ScriptManager.cpp.o
+.PHONY : src/Scripting/ScriptManager.o
+
+# target to build an object file
+src/Scripting/ScriptManager.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o
+.PHONY : src/Scripting/ScriptManager.cpp.o
+
+src/Scripting/ScriptManager.i: src/Scripting/ScriptManager.cpp.i
+.PHONY : src/Scripting/ScriptManager.i
+
+# target to preprocess a source file
+src/Scripting/ScriptManager.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.i
+.PHONY : src/Scripting/ScriptManager.cpp.i
+
+src/Scripting/ScriptManager.s: src/Scripting/ScriptManager.cpp.s
+.PHONY : src/Scripting/ScriptManager.s
+
+# target to generate assembly for a file
+src/Scripting/ScriptManager.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.s
+.PHONY : src/Scripting/ScriptManager.cpp.s
 
 src/Shader.o: src/Shader.cpp.o
 .PHONY : src/Shader.o
@@ -650,10 +1215,29 @@ help:
 	@echo "... update_mappings"
 	@echo "... glad"
 	@echo "... glfw"
+	@echo "... imgui"
 	@echo "... molga_engine"
 	@echo "... external/glad/src/glad.o"
 	@echo "... external/glad/src/glad.i"
 	@echo "... external/glad/src/glad.s"
+	@echo "... external/imgui/backends/imgui_impl_glfw.o"
+	@echo "... external/imgui/backends/imgui_impl_glfw.i"
+	@echo "... external/imgui/backends/imgui_impl_glfw.s"
+	@echo "... external/imgui/backends/imgui_impl_opengl3.o"
+	@echo "... external/imgui/backends/imgui_impl_opengl3.i"
+	@echo "... external/imgui/backends/imgui_impl_opengl3.s"
+	@echo "... external/imgui/imgui.o"
+	@echo "... external/imgui/imgui.i"
+	@echo "... external/imgui/imgui.s"
+	@echo "... external/imgui/imgui_draw.o"
+	@echo "... external/imgui/imgui_draw.i"
+	@echo "... external/imgui/imgui_draw.s"
+	@echo "... external/imgui/imgui_tables.o"
+	@echo "... external/imgui/imgui_tables.i"
+	@echo "... external/imgui/imgui_tables.s"
+	@echo "... external/imgui/imgui_widgets.o"
+	@echo "... external/imgui/imgui_widgets.i"
+	@echo "... external/imgui/imgui_widgets.s"
 	@echo "... src/Animation.o"
 	@echo "... src/Animation.i"
 	@echo "... src/Animation.s"
@@ -666,18 +1250,69 @@ help:
 	@echo "... src/Collision.o"
 	@echo "... src/Collision.i"
 	@echo "... src/Collision.s"
+	@echo "... src/Core/Application.o"
+	@echo "... src/Core/Application.i"
+	@echo "... src/Core/Application.s"
+	@echo "... src/Core/SceneSerializer.o"
+	@echo "... src/Core/SceneSerializer.i"
+	@echo "... src/Core/SceneSerializer.s"
+	@echo "... src/ECS/Components/BoxCollider2D.o"
+	@echo "... src/ECS/Components/BoxCollider2D.i"
+	@echo "... src/ECS/Components/BoxCollider2D.s"
+	@echo "... src/ECS/Components/SpriteRenderer.o"
+	@echo "... src/ECS/Components/SpriteRenderer.i"
+	@echo "... src/ECS/Components/SpriteRenderer.s"
+	@echo "... src/ECS/Components/Transform.o"
+	@echo "... src/ECS/Components/Transform.i"
+	@echo "... src/ECS/Components/Transform.s"
+	@echo "... src/ECS/GameObject.o"
+	@echo "... src/ECS/GameObject.i"
+	@echo "... src/ECS/GameObject.s"
+	@echo "... src/Editor/Editor.o"
+	@echo "... src/Editor/Editor.i"
+	@echo "... src/Editor/Editor.s"
+	@echo "... src/Editor/EditorState.o"
+	@echo "... src/Editor/EditorState.i"
+	@echo "... src/Editor/EditorState.s"
+	@echo "... src/Editor/ImGuiLayer.o"
+	@echo "... src/Editor/ImGuiLayer.i"
+	@echo "... src/Editor/ImGuiLayer.s"
+	@echo "... src/Editor/Windows/HierarchyWindow.o"
+	@echo "... src/Editor/Windows/HierarchyWindow.i"
+	@echo "... src/Editor/Windows/HierarchyWindow.s"
+	@echo "... src/Editor/Windows/InspectorWindow.o"
+	@echo "... src/Editor/Windows/InspectorWindow.i"
+	@echo "... src/Editor/Windows/InspectorWindow.s"
 	@echo "... src/Input.o"
 	@echo "... src/Input.i"
 	@echo "... src/Input.s"
 	@echo "... src/Particle.o"
 	@echo "... src/Particle.i"
 	@echo "... src/Particle.s"
+	@echo "... src/Platform/Platform.o"
+	@echo "... src/Platform/Platform.i"
+	@echo "... src/Platform/Platform.s"
 	@echo "... src/Renderer.o"
 	@echo "... src/Renderer.i"
 	@echo "... src/Renderer.s"
 	@echo "... src/Scene.o"
 	@echo "... src/Scene.i"
 	@echo "... src/Scene.s"
+	@echo "... src/Scenes/GameScene.o"
+	@echo "... src/Scenes/GameScene.i"
+	@echo "... src/Scenes/GameScene.s"
+	@echo "... src/Scenes/MenuScene.o"
+	@echo "... src/Scenes/MenuScene.i"
+	@echo "... src/Scenes/MenuScene.s"
+	@echo "... src/Scripting/BuiltinScripts.o"
+	@echo "... src/Scripting/BuiltinScripts.i"
+	@echo "... src/Scripting/BuiltinScripts.s"
+	@echo "... src/Scripting/Script.o"
+	@echo "... src/Scripting/Script.i"
+	@echo "... src/Scripting/Script.s"
+	@echo "... src/Scripting/ScriptManager.o"
+	@echo "... src/Scripting/ScriptManager.i"
+	@echo "... src/Scripting/ScriptManager.s"
 	@echo "... src/Shader.o"
 	@echo "... src/Shader.i"
 	@echo "... src/Shader.s"

@@ -2,11 +2,7 @@
 #define MOLGA_SPRITESHEET_H
 
 #include "Texture.h"
-
-struct Frame {
-    float u0, v0;  // top-left UV
-    float u1, v1;  // bottom-right UV
-};
+#include "Common/Types.h"
 
 class SpriteSheet {
 public:

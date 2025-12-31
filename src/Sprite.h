@@ -2,8 +2,7 @@
 #define MOLGA_SPRITE_H
 
 #include "linmath.h"
-#include "SpriteSheet.h"
-#include "Collision.h"
+#include "SpriteSheet.h"  // Includes Common/Types.h
 
 class Texture;
 
