@@ -132,14 +132,36 @@ int main() {
         Input::Update();
         float dt = Time::GetDeltaTime();
 
-        // Update title
+        // Get editor state
+        EditorState& editorState = EditorState::Get();
+
+        // Update title with mode indicator
         std::ostringstream title;
         title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS())
               << " | Scene: " << SceneManager::GetCurrentSceneName();
+        if (editorState.IsEditMode()) {
+            title << " [EDIT]";
+        } else if (editorState.IsPlayMode()) {
+            title << " [PLAYING]";
+        } else if (editorState.IsPaused()) {
+            title << " [PAUSED]";
+        }
         glfwSetWindowTitle(window, title.str().c_str());
 
-        // Update and render current scene
-        SceneManager::Update(dt);
+        // Only update scene and game objects in Play mode
+        if (editorState.IsPlayMode()) {
+            float scaledDt = dt * editorState.GetTimeScale();
+            SceneManager::Update(scaledDt);
+
+            // Update ECS GameObjects scripts
+            for (auto& obj : g_editorObjects) {
+                if (obj && obj->IsActive()) {
+                    obj->Update(scaledDt);
+                }
+            }
+        }
+
+        // Always render (even in Edit mode)
         SceneManager::Render(g_renderer, g_shader, g_camera);
 
         // Render ECS GameObjects
