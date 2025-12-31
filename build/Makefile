@@ -815,6 +815,30 @@ src/Particle.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.s
 .PHONY : src/Particle.cpp.s
 
+src/Platform/Platform.o: src/Platform/Platform.cpp.o
+.PHONY : src/Platform/Platform.o
+
+# target to build an object file
+src/Platform/Platform.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o
+.PHONY : src/Platform/Platform.cpp.o
+
+src/Platform/Platform.i: src/Platform/Platform.cpp.i
+.PHONY : src/Platform/Platform.i
+
+# target to preprocess a source file
+src/Platform/Platform.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.i
+.PHONY : src/Platform/Platform.cpp.i
+
+src/Platform/Platform.s: src/Platform/Platform.cpp.s
+.PHONY : src/Platform/Platform.s
+
+# target to generate assembly for a file
+src/Platform/Platform.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.s
+.PHONY : src/Platform/Platform.cpp.s
+
 src/Renderer.o: src/Renderer.cpp.o
 .PHONY : src/Renderer.o
 
@@ -862,6 +886,54 @@ src/Scene.s: src/Scene.cpp.s
 src/Scene.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.s
 .PHONY : src/Scene.cpp.s
+
+src/Scenes/GameScene.o: src/Scenes/GameScene.cpp.o
+.PHONY : src/Scenes/GameScene.o
+
+# target to build an object file
+src/Scenes/GameScene.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o
+.PHONY : src/Scenes/GameScene.cpp.o
+
+src/Scenes/GameScene.i: src/Scenes/GameScene.cpp.i
+.PHONY : src/Scenes/GameScene.i
+
+# target to preprocess a source file
+src/Scenes/GameScene.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.i
+.PHONY : src/Scenes/GameScene.cpp.i
+
+src/Scenes/GameScene.s: src/Scenes/GameScene.cpp.s
+.PHONY : src/Scenes/GameScene.s
+
+# target to generate assembly for a file
+src/Scenes/GameScene.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s
+.PHONY : src/Scenes/GameScene.cpp.s
+
+src/Scenes/MenuScene.o: src/Scenes/MenuScene.cpp.o
+.PHONY : src/Scenes/MenuScene.o
+
+# target to build an object file
+src/Scenes/MenuScene.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o
+.PHONY : src/Scenes/MenuScene.cpp.o
+
+src/Scenes/MenuScene.i: src/Scenes/MenuScene.cpp.i
+.PHONY : src/Scenes/MenuScene.i
+
+# target to preprocess a source file
+src/Scenes/MenuScene.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.i
+.PHONY : src/Scenes/MenuScene.cpp.i
+
+src/Scenes/MenuScene.s: src/Scenes/MenuScene.cpp.s
+.PHONY : src/Scenes/MenuScene.s
+
+# target to generate assembly for a file
+src/Scenes/MenuScene.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.s
+.PHONY : src/Scenes/MenuScene.cpp.s
 
 src/Scripting/BuiltinScripts.o: src/Scripting/BuiltinScripts.cpp.o
 .PHONY : src/Scripting/BuiltinScripts.o
@@ -1217,12 +1289,21 @@ help:
 	@echo "... src/Particle.o"
 	@echo "... src/Particle.i"
 	@echo "... src/Particle.s"
+	@echo "... src/Platform/Platform.o"
+	@echo "... src/Platform/Platform.i"
+	@echo "... src/Platform/Platform.s"
 	@echo "... src/Renderer.o"
 	@echo "... src/Renderer.i"
 	@echo "... src/Renderer.s"
 	@echo "... src/Scene.o"
 	@echo "... src/Scene.i"
 	@echo "... src/Scene.s"
+	@echo "... src/Scenes/GameScene.o"
+	@echo "... src/Scenes/GameScene.i"
+	@echo "... src/Scenes/GameScene.s"
+	@echo "... src/Scenes/MenuScene.o"
+	@echo "... src/Scenes/MenuScene.i"
+	@echo "... src/Scenes/MenuScene.s"
 	@echo "... src/Scripting/BuiltinScripts.o"
 	@echo "... src/Scripting/BuiltinScripts.i"
 	@echo "... src/Scripting/BuiltinScripts.s"

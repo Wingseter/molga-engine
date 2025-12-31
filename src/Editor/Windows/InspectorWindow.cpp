@@ -40,7 +40,7 @@ void InspectorWindow::OnGUI() {
 
     ImGui::Separator();
 
-    // Draw all components
+    // Draw all components using their OnInspectorGUI
     for (const auto& comp : target->GetComponents()) {
         DrawComponent(comp.get());
     }
@@ -75,10 +75,7 @@ void InspectorWindow::OnGUI() {
                 if (ImGui::MenuItem(scriptName.c_str())) {
                     Script* script = ScriptManager::Get().CreateScript(scriptName);
                     if (script) {
-                        script->SetGameObject(target);
-                        script->OnAttach();
-                        // Note: We'd need a way to add raw Script* to GameObject
-                        // For now, this shows the concept
+                        target->AddComponentRaw(script);
                     }
                 }
             }
@@ -111,128 +108,8 @@ void InspectorWindow::DrawComponent(Component* component) {
     }
 
     if (open) {
-        if (typeName == "Transform") {
-            DrawTransformComponent();
-        } else if (typeName == "SpriteRenderer") {
-            DrawSpriteRendererComponent();
-        } else if (typeName == "BoxCollider2D") {
-            DrawBoxCollider2DComponent();
-        } else if (typeName == "Script") {
-            DrawScriptComponent(component);
-        }
+        // Use the component's own OnInspectorGUI method
+        component->OnInspectorGUI();
         ImGui::TreePop();
-    }
-}
-
-void InspectorWindow::DrawTransformComponent() {
-    Transform* transform = target->GetComponent<Transform>();
-    if (!transform) return;
-
-    // Position
-    float pos[2] = { transform->GetX(), transform->GetY() };
-    if (ImGui::DragFloat2("Position", pos, 0.5f)) {
-        transform->SetPosition(pos[0], pos[1]);
-    }
-
-    // Rotation
-    float rotation = transform->GetRotation();
-    if (ImGui::DragFloat("Rotation", &rotation, 0.5f)) {
-        transform->SetRotation(rotation);
-    }
-
-    // Scale
-    Vector2 scale = transform->GetScale();
-    float scaleArr[2] = { scale.x, scale.y };
-    if (ImGui::DragFloat2("Scale", scaleArr, 0.01f)) {
-        transform->SetScale(scaleArr[0], scaleArr[1]);
-    }
-}
-
-void InspectorWindow::DrawSpriteRendererComponent() {
-    SpriteRenderer* spriteRenderer = target->GetComponent<SpriteRenderer>();
-    if (!spriteRenderer) return;
-
-    // Size
-    float size[2] = { spriteRenderer->GetWidth(), spriteRenderer->GetHeight() };
-    if (ImGui::DragFloat2("Size", size, 0.5f)) {
-        spriteRenderer->SetSize(size[0], size[1]);
-    }
-
-    // Color
-    Color c = spriteRenderer->GetColor();
-    float color[4] = { c.r, c.g, c.b, c.a };
-    if (ImGui::ColorEdit4("Color", color)) {
-        spriteRenderer->SetColor(color[0], color[1], color[2], color[3]);
-    }
-
-    // Flip
-    bool flipX = spriteRenderer->GetFlipX();
-    bool flipY = spriteRenderer->GetFlipY();
-    if (ImGui::Checkbox("Flip X", &flipX)) {
-        spriteRenderer->SetFlipX(flipX);
-    }
-    ImGui::SameLine();
-    if (ImGui::Checkbox("Flip Y", &flipY)) {
-        spriteRenderer->SetFlipY(flipY);
-    }
-
-    // Sorting order
-    int sortingOrder = spriteRenderer->GetSortingOrder();
-    if (ImGui::InputInt("Sorting Order", &sortingOrder)) {
-        spriteRenderer->SetSortingOrder(sortingOrder);
-    }
-}
-
-void InspectorWindow::DrawBoxCollider2DComponent() {
-    BoxCollider2D* collider = target->GetComponent<BoxCollider2D>();
-    if (!collider) return;
-
-    // Size
-    Vector2 size = collider->GetSize();
-    float sizeArr[2] = { size.x, size.y };
-    if (ImGui::DragFloat2("Size", sizeArr, 0.5f)) {
-        collider->SetSize(sizeArr[0], sizeArr[1]);
-    }
-
-    // Offset
-    Vector2 offset = collider->GetOffset();
-    float offsetArr[2] = { offset.x, offset.y };
-    if (ImGui::DragFloat2("Offset", offsetArr, 0.5f)) {
-        collider->SetOffset(offsetArr[0], offsetArr[1]);
-    }
-
-    // Is Trigger
-    bool isTrigger = collider->IsTrigger();
-    if (ImGui::Checkbox("Is Trigger", &isTrigger)) {
-        collider->SetTrigger(isTrigger);
-    }
-}
-
-void InspectorWindow::DrawScriptComponent(Component* component) {
-    Script* script = dynamic_cast<Script*>(component);
-    if (!script) return;
-
-    ImGui::Text("Script: %s", script->GetScriptName());
-
-    // Show script-specific properties based on type
-    if (strcmp(script->GetScriptName(), "PlayerController") == 0) {
-        PlayerController* pc = dynamic_cast<PlayerController*>(script);
-        if (pc) {
-            ImGui::DragFloat("Move Speed", &pc->moveSpeed, 1.0f, 0.0f, 1000.0f);
-        }
-    }
-    else if (strcmp(script->GetScriptName(), "Rotator") == 0) {
-        Rotator* rot = dynamic_cast<Rotator*>(script);
-        if (rot) {
-            ImGui::DragFloat("Rotation Speed", &rot->rotationSpeed, 1.0f, -360.0f, 360.0f);
-        }
-    }
-    else if (strcmp(script->GetScriptName(), "Oscillator") == 0) {
-        Oscillator* osc = dynamic_cast<Oscillator*>(script);
-        if (osc) {
-            ImGui::DragFloat("Amplitude", &osc->amplitude, 1.0f, 0.0f, 500.0f);
-            ImGui::DragFloat("Frequency", &osc->frequency, 0.1f, 0.0f, 10.0f);
-            ImGui::Checkbox("Horizontal", &osc->horizontal);
-        }
     }
 }

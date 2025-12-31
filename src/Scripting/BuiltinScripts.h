@@ -5,6 +5,7 @@
 #include "../Input.h"
 #include "../ECS/Components/Transform.h"
 #include <GLFW/glfw3.h>
+#include <imgui.h>
 
 // Example: Player Controller Script
 class PlayerController : public Script {
@@ -29,6 +30,10 @@ public:
         if (Input::GetKey(GLFW_KEY_D) || Input::GetKey(GLFW_KEY_RIGHT)) dx += 1.0f;
 
         transform->Translate(dx * moveSpeed * dt, dy * moveSpeed * dt);
+    }
+
+    void OnInspectorGUI() override {
+        ImGui::DragFloat("Move Speed", &moveSpeed, 1.0f, 0.0f, 1000.0f);
     }
 };
 

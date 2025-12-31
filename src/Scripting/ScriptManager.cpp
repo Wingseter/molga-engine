@@ -1,18 +1,8 @@
 #include "ScriptManager.h"
 #include "Script.h"
+#include "../Platform/Platform.h"
 #include <iostream>
-
-#ifdef _WIN32
-    #include <windows.h>
-    #define LOAD_LIBRARY(path) LoadLibraryA(path)
-    #define GET_PROC(handle, name) GetProcAddress((HMODULE)handle, name)
-    #define CLOSE_LIBRARY(handle) FreeLibrary((HMODULE)handle)
-#else
-    #include <dlfcn.h>
-    #define LOAD_LIBRARY(path) dlopen(path, RTLD_NOW)
-    #define GET_PROC(handle, name) dlsym(handle, name)
-    #define CLOSE_LIBRARY(handle) dlclose(handle)
-#endif
+#include <algorithm>
 
 ScriptManager& ScriptManager::Get() {
     static ScriptManager instance;
@@ -53,15 +43,10 @@ bool ScriptManager::LoadScriptLibrary(const std::string& path) {
         return true;
     }
 
-    void* handle = LOAD_LIBRARY(path.c_str());
+    void* handle = Platform::LoadDynamicLibrary(path.c_str());
     if (!handle) {
-#ifdef _WIN32
         std::cerr << "[ScriptManager] Failed to load library: " << path
-                  << " (Error: " << GetLastError() << ")" << std::endl;
-#else
-        std::cerr << "[ScriptManager] Failed to load library: " << path
-                  << " (" << dlerror() << ")" << std::endl;
-#endif
+                  << " (" << Platform::GetDynamicLibraryError() << ")" << std::endl;
         return false;
     }
 
@@ -70,7 +55,9 @@ bool ScriptManager::LoadScriptLibrary(const std::string& path) {
 
     // Look for RegisterScripts function
     using RegisterFunc = void(*)();
-    RegisterFunc registerFunc = (RegisterFunc)GET_PROC(handle, "RegisterScripts");
+    RegisterFunc registerFunc = reinterpret_cast<RegisterFunc>(
+        Platform::GetSymbol(handle, "RegisterScripts"));
+
     if (registerFunc) {
         registerFunc();
         std::cout << "[ScriptManager] Loaded and registered scripts from: " << path << std::endl;
@@ -84,7 +71,7 @@ bool ScriptManager::LoadScriptLibrary(const std::string& path) {
 void ScriptManager::UnloadScriptLibrary(const std::string& path) {
     auto it = libraryHandles.find(path);
     if (it != libraryHandles.end()) {
-        CLOSE_LIBRARY(it->second);
+        Platform::CloseDynamicLibrary(it->second);
         libraryHandles.erase(it);
 
         // Remove from loaded libraries list

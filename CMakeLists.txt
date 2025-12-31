@@ -46,6 +46,9 @@ add_executable(molga_engine
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp
+    src/Platform/Platform.cpp
+    src/Scenes/MenuScene.cpp
+    src/Scenes/GameScene.cpp
 )
 
 add_subdirectory(external/glfw)
@@ -73,3 +76,10 @@ target_link_libraries(molga_engine glad glfw imgui)
 if(APPLE)
     target_link_libraries(molga_engine "-framework CoreAudio" "-framework AudioToolbox")
 endif()
+
+# Copy assets to build directory
+add_custom_command(TARGET molga_engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:molga_engine>/assets
+    COMMENT "Copying assets to build directory"
+)

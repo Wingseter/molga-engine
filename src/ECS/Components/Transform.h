@@ -2,34 +2,7 @@
 #define MOLGA_TRANSFORM_COMPONENT_H
 
 #include "../Component.h"
-#include <cmath>
-
-struct Vector2 {
-    float x = 0.0f;
-    float y = 0.0f;
-
-    Vector2() = default;
-    Vector2(float x, float y) : x(x), y(y) {}
-
-    Vector2 operator+(const Vector2& other) const { return Vector2(x + other.x, y + other.y); }
-    Vector2 operator-(const Vector2& other) const { return Vector2(x - other.x, y - other.y); }
-    Vector2 operator*(float scalar) const { return Vector2(x * scalar, y * scalar); }
-    Vector2& operator+=(const Vector2& other) { x += other.x; y += other.y; return *this; }
-    Vector2& operator-=(const Vector2& other) { x -= other.x; y -= other.y; return *this; }
-
-    float Length() const { return std::sqrt(x * x + y * y); }
-    Vector2 Normalized() const {
-        float len = Length();
-        return len > 0.0f ? Vector2(x / len, y / len) : Vector2(0, 0);
-    }
-
-    static Vector2 Zero() { return Vector2(0, 0); }
-    static Vector2 One() { return Vector2(1, 1); }
-    static Vector2 Up() { return Vector2(0, -1); }
-    static Vector2 Down() { return Vector2(0, 1); }
-    static Vector2 Left() { return Vector2(-1, 0); }
-    static Vector2 Right() { return Vector2(1, 0); }
-};
+#include "../../Common/Types.h"
 
 class Transform : public Component {
 public:
@@ -71,6 +44,13 @@ public:
 
     // Get world scale
     Vector2 GetWorldScale() const;
+
+    // Serialization
+    void Serialize(nlohmann::json& j) const override;
+    void Deserialize(const nlohmann::json& j) override;
+
+    // Editor GUI
+    void OnInspectorGUI() override;
 
 private:
     Vector2 position;

@@ -18,10 +18,6 @@ public:
 
 private:
     void DrawComponent(Component* component);
-    void DrawTransformComponent();
-    void DrawSpriteRendererComponent();
-    void DrawBoxCollider2DComponent();
-    void DrawScriptComponent(Component* component);
 
     GameObject* target = nullptr;
 };

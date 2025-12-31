@@ -33,6 +33,13 @@ public:
     bool CheckCollision(const BoxCollider2D* other) const;
     CollisionResult CheckCollisionWithResult(const BoxCollider2D* other) const;
 
+    // Serialization
+    void Serialize(nlohmann::json& j) const override;
+    void Deserialize(const nlohmann::json& j) override;
+
+    // Editor GUI
+    void OnInspectorGUI() override;
+
 private:
     Vector2 size = Vector2(32.0f, 32.0f);
     Vector2 offset = Vector2::Zero();

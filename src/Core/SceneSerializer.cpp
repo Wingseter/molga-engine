@@ -1,80 +1,27 @@
 #include "SceneSerializer.h"
 #include "../ECS/GameObject.h"
+#include "../ECS/Component.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include "../ECS/Components/BoxCollider2D.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
+#include <functional>
+#include <unordered_map>
 
 using json = nlohmann::json;
 
-// Local helper functions
-static void SerializeTransform(json& j, const Transform* transform) {
-    j["position"] = { transform->GetX(), transform->GetY() };
-    j["rotation"] = transform->GetRotation();
-    j["scale"] = { transform->GetScale().x, transform->GetScale().y };
-}
+// Component factory for deserialization
+using ComponentFactory = std::function<Component*(GameObject*)>;
 
-static void SerializeSpriteRenderer(json& j, const SpriteRenderer* sr) {
-    const Color& c = sr->GetColor();
-    j["color"] = { c.r, c.g, c.b, c.a };
-    j["size"] = { sr->GetWidth(), sr->GetHeight() };
-    j["flipX"] = sr->GetFlipX();
-    j["flipY"] = sr->GetFlipY();
-    j["sortingOrder"] = sr->GetSortingOrder();
-    j["texturePath"] = sr->GetTexturePath();
-}
-
-static void SerializeBoxCollider2D(json& j, const BoxCollider2D* col) {
-    j["size"] = { col->GetSize().x, col->GetSize().y };
-    j["offset"] = { col->GetOffset().x, col->GetOffset().y };
-    j["isTrigger"] = col->IsTrigger();
-}
-
-static void DeserializeTransform(const json& j, Transform* transform) {
-    if (j.contains("position") && j["position"].is_array()) {
-        transform->SetPosition(j["position"][0], j["position"][1]);
-    }
-    if (j.contains("rotation")) {
-        transform->SetRotation(j["rotation"]);
-    }
-    if (j.contains("scale") && j["scale"].is_array()) {
-        transform->SetScale(j["scale"][0], j["scale"][1]);
-    }
-}
-
-static void DeserializeSpriteRenderer(const json& j, SpriteRenderer* sr) {
-    if (j.contains("color") && j["color"].is_array()) {
-        sr->SetColor(j["color"][0], j["color"][1], j["color"][2], j["color"][3]);
-    }
-    if (j.contains("size") && j["size"].is_array()) {
-        sr->SetSize(j["size"][0], j["size"][1]);
-    }
-    if (j.contains("flipX")) {
-        sr->SetFlipX(j["flipX"]);
-    }
-    if (j.contains("flipY")) {
-        sr->SetFlipY(j["flipY"]);
-    }
-    if (j.contains("sortingOrder")) {
-        sr->SetSortingOrder(j["sortingOrder"]);
-    }
-    if (j.contains("texturePath")) {
-        sr->SetTexturePath(j["texturePath"]);
-    }
-}
-
-static void DeserializeBoxCollider2D(const json& j, BoxCollider2D* col) {
-    if (j.contains("size") && j["size"].is_array()) {
-        col->SetSize(j["size"][0], j["size"][1]);
-    }
-    if (j.contains("offset") && j["offset"].is_array()) {
-        col->SetOffset(j["offset"][0], j["offset"][1]);
-    }
-    if (j.contains("isTrigger")) {
-        col->SetTrigger(j["isTrigger"]);
-    }
+static std::unordered_map<std::string, ComponentFactory>& GetComponentFactories() {
+    static std::unordered_map<std::string, ComponentFactory> factories = {
+        {"Transform", [](GameObject* obj) { return obj->AddComponent<Transform>(); }},
+        {"SpriteRenderer", [](GameObject* obj) { return obj->AddComponent<SpriteRenderer>(); }},
+        {"BoxCollider2D", [](GameObject* obj) { return obj->AddComponent<BoxCollider2D>(); }}
+    };
+    return factories;
 }
 
 bool SceneSerializer::SaveScene(const std::string& filepath,
@@ -95,27 +42,13 @@ bool SceneSerializer::SaveScene(const std::string& filepath,
 
         json componentsArray = json::array();
 
-        // Serialize Transform
-        if (auto* transform = obj->GetComponent<Transform>()) {
-            json compJson;
-            compJson["type"] = "Transform";
-            SerializeTransform(compJson, transform);
-            componentsArray.push_back(compJson);
-        }
+        // Serialize all components using the component interface
+        for (const auto& comp : obj->GetComponents()) {
+            if (!comp) continue;
 
-        // Serialize SpriteRenderer
-        if (auto* sr = obj->GetComponent<SpriteRenderer>()) {
             json compJson;
-            compJson["type"] = "SpriteRenderer";
-            SerializeSpriteRenderer(compJson, sr);
-            componentsArray.push_back(compJson);
-        }
-
-        // Serialize BoxCollider2D
-        if (auto* col = obj->GetComponent<BoxCollider2D>()) {
-            json compJson;
-            compJson["type"] = "BoxCollider2D";
-            SerializeBoxCollider2D(compJson, col);
+            compJson["type"] = comp->GetTypeName();
+            comp->Serialize(compJson);
             componentsArray.push_back(compJson);
         }
 
@@ -165,6 +98,8 @@ bool SceneSerializer::LoadScene(const std::string& filepath,
         return false;
     }
 
+    auto& factories = GetComponentFactories();
+
     for (const auto& objJson : sceneJson["gameObjects"]) {
         std::string name = objJson.value("name", "GameObject");
         bool active = objJson.value("active", true);
@@ -172,22 +107,19 @@ bool SceneSerializer::LoadScene(const std::string& filepath,
         auto obj = std::make_shared<GameObject>(name);
         obj->SetActive(active);
 
-        // Load components
+        // Load components using factory and deserialize
         if (objJson.contains("components")) {
             for (const auto& compJson : objJson["components"]) {
                 std::string type = compJson.value("type", "");
 
-                if (type == "Transform") {
-                    auto* transform = obj->AddComponent<Transform>();
-                    DeserializeTransform(compJson, transform);
-                }
-                else if (type == "SpriteRenderer") {
-                    auto* sr = obj->AddComponent<SpriteRenderer>();
-                    DeserializeSpriteRenderer(compJson, sr);
-                }
-                else if (type == "BoxCollider2D") {
-                    auto* col = obj->AddComponent<BoxCollider2D>();
-                    DeserializeBoxCollider2D(compJson, col);
+                auto factoryIt = factories.find(type);
+                if (factoryIt != factories.end()) {
+                    Component* comp = factoryIt->second(obj.get());
+                    if (comp) {
+                        comp->Deserialize(compJson);
+                    }
+                } else {
+                    std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
                 }
             }
         }
@@ -210,24 +142,13 @@ std::string SceneSerializer::SerializeGameObject(const GameObject* obj) {
 
     json componentsArray = json::array();
 
-    if (auto* transform = obj->GetComponent<Transform>()) {
-        json compJson;
-        compJson["type"] = "Transform";
-        SerializeTransform(compJson, transform);
-        componentsArray.push_back(compJson);
-    }
+    // Serialize all components using the component interface
+    for (const auto& comp : obj->GetComponents()) {
+        if (!comp) continue;
 
-    if (auto* sr = obj->GetComponent<SpriteRenderer>()) {
         json compJson;
-        compJson["type"] = "SpriteRenderer";
-        SerializeSpriteRenderer(compJson, sr);
-        componentsArray.push_back(compJson);
-    }
-
-    if (auto* col = obj->GetComponent<BoxCollider2D>()) {
-        json compJson;
-        compJson["type"] = "BoxCollider2D";
-        SerializeBoxCollider2D(compJson, col);
+        compJson["type"] = comp->GetTypeName();
+        comp->Serialize(compJson);
         componentsArray.push_back(compJson);
     }
 
@@ -248,21 +169,20 @@ std::shared_ptr<GameObject> SceneSerializer::DeserializeGameObject(const std::st
     auto obj = std::make_shared<GameObject>(name);
     obj->SetActive(objJson.value("active", true));
 
+    auto& factories = GetComponentFactories();
+
     if (objJson.contains("components")) {
         for (const auto& compJson : objJson["components"]) {
             std::string type = compJson.value("type", "");
 
-            if (type == "Transform") {
-                auto* transform = obj->AddComponent<Transform>();
-                DeserializeTransform(compJson, transform);
-            }
-            else if (type == "SpriteRenderer") {
-                auto* sr = obj->AddComponent<SpriteRenderer>();
-                DeserializeSpriteRenderer(compJson, sr);
-            }
-            else if (type == "BoxCollider2D") {
-                auto* col = obj->AddComponent<BoxCollider2D>();
-                DeserializeBoxCollider2D(compJson, col);
+            auto factoryIt = factories.find(type);
+            if (factoryIt != factories.end()) {
+                Component* comp = factoryIt->second(obj.get());
+                if (comp) {
+                    comp->Deserialize(compJson);
+                }
+            } else {
+                std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
             }
         }
     }

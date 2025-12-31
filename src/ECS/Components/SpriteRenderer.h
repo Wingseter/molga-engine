@@ -2,32 +2,13 @@
 #define MOLGA_SPRITE_RENDERER_COMPONENT_H
 
 #include "../Component.h"
-#include "Transform.h"
+#include "../../Common/Types.h"
 #include <string>
 
 class Texture;
 class Renderer;
 class Shader;
 class Camera2D;
-
-struct Color {
-    float r = 1.0f;
-    float g = 1.0f;
-    float b = 1.0f;
-    float a = 1.0f;
-
-    Color() = default;
-    Color(float r, float g, float b, float a = 1.0f) : r(r), g(g), b(b), a(a) {}
-
-    static Color White() { return Color(1, 1, 1, 1); }
-    static Color Black() { return Color(0, 0, 0, 1); }
-    static Color Red() { return Color(1, 0, 0, 1); }
-    static Color Green() { return Color(0, 1, 0, 1); }
-    static Color Blue() { return Color(0, 0, 1, 1); }
-    static Color Yellow() { return Color(1, 1, 0, 1); }
-    static Color Cyan() { return Color(0, 1, 1, 1); }
-    static Color Magenta() { return Color(1, 0, 1, 1); }
-};
 
 class SpriteRenderer : public Component {
 public:
@@ -66,6 +47,13 @@ public:
 
     // Render using external renderer
     void RenderSprite(Renderer* renderer, Shader* shader, Camera2D* camera);
+
+    // Serialization
+    void Serialize(nlohmann::json& j) const override;
+    void Deserialize(const nlohmann::json& j) override;
+
+    // Editor GUI
+    void OnInspectorGUI() override;
 
 private:
     Texture* texture = nullptr;

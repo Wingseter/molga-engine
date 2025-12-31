@@ -11,7 +11,9 @@ class Input;
 // Users inherit from this class to create custom behaviors
 class Script : public Component {
 public:
-    COMPONENT_TYPE(Script)
+    // Override to return script name instead of "Script"
+    std::string GetTypeName() const override { return GetScriptName(); }
+    static std::string StaticTypeName() { return "Script"; }
 
     virtual ~Script() = default;
 
@@ -48,6 +50,9 @@ public:
 
     // Script name for identification
     virtual const char* GetScriptName() const { return "Script"; }
+
+    // Inspector GUI - can be overridden in derived scripts
+    void OnInspectorGUI() override;
 
     // Has Start been called?
     bool HasStarted() const { return started; }

@@ -1,5 +1,9 @@
 #include "Transform.h"
 #include "../GameObject.h"
+#include <nlohmann/json.hpp>
+#include <imgui.h>
+
+using json = nlohmann::json;
 
 Vector2 Transform::GetWorldPosition() const {
     Vector2 worldPos = position;
@@ -54,4 +58,39 @@ Vector2 Transform::GetWorldScale() const {
     }
 
     return worldScale;
+}
+
+void Transform::Serialize(nlohmann::json& j) const {
+    j["position"] = { position.x, position.y };
+    j["rotation"] = rotation;
+    j["scale"] = { scale.x, scale.y };
+}
+
+void Transform::Deserialize(const nlohmann::json& j) {
+    if (j.contains("position") && j["position"].is_array()) {
+        SetPosition(j["position"][0], j["position"][1]);
+    }
+    if (j.contains("rotation")) {
+        SetRotation(j["rotation"]);
+    }
+    if (j.contains("scale") && j["scale"].is_array()) {
+        SetScale(j["scale"][0], j["scale"][1]);
+    }
+}
+
+void Transform::OnInspectorGUI() {
+    float pos[2] = { position.x, position.y };
+    if (ImGui::DragFloat2("Position", pos, 0.5f)) {
+        SetPosition(pos[0], pos[1]);
+    }
+
+    float rot = rotation;
+    if (ImGui::DragFloat("Rotation", &rot, 0.5f)) {
+        SetRotation(rot);
+    }
+
+    float scaleArr[2] = { scale.x, scale.y };
+    if (ImGui::DragFloat2("Scale", scaleArr, 0.01f)) {
+        SetScale(scaleArr[0], scaleArr[1]);
+    }
 }

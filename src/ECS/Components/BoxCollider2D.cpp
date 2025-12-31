@@ -1,5 +1,9 @@
 #include "BoxCollider2D.h"
 #include "../GameObject.h"
+#include <nlohmann/json.hpp>
+#include <imgui.h>
+
+using json = nlohmann::json;
 
 AABB BoxCollider2D::GetWorldAABB() const {
     AABB aabb;
@@ -39,4 +43,39 @@ CollisionResult BoxCollider2D::CheckCollisionWithResult(const BoxCollider2D* oth
     AABB b = other->GetWorldAABB();
 
     return Collision::CheckAABBWithResult(a, b);
+}
+
+void BoxCollider2D::Serialize(nlohmann::json& j) const {
+    j["size"] = { size.x, size.y };
+    j["offset"] = { offset.x, offset.y };
+    j["isTrigger"] = isTrigger;
+}
+
+void BoxCollider2D::Deserialize(const nlohmann::json& j) {
+    if (j.contains("size") && j["size"].is_array()) {
+        SetSize(j["size"][0], j["size"][1]);
+    }
+    if (j.contains("offset") && j["offset"].is_array()) {
+        SetOffset(j["offset"][0], j["offset"][1]);
+    }
+    if (j.contains("isTrigger")) {
+        SetTrigger(j["isTrigger"]);
+    }
+}
+
+void BoxCollider2D::OnInspectorGUI() {
+    float sizeArr[2] = { size.x, size.y };
+    if (ImGui::DragFloat2("Size", sizeArr, 0.5f)) {
+        SetSize(sizeArr[0], sizeArr[1]);
+    }
+
+    float offsetArr[2] = { offset.x, offset.y };
+    if (ImGui::DragFloat2("Offset", offsetArr, 0.5f)) {
+        SetOffset(offsetArr[0], offsetArr[1]);
+    }
+
+    bool trigger = isTrigger;
+    if (ImGui::Checkbox("Is Trigger", &trigger)) {
+        SetTrigger(trigger);
+    }
 }
