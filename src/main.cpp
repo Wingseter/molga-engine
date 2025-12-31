@@ -18,6 +18,7 @@
 #include "UI.h"
 #include "Audio.h"
 #include "Scene.h"
+#include "Particle.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
@@ -153,6 +154,13 @@ public:
         uiManager.AddElement(&staminaBar);
 
         playerStamina = 1.0f;
+
+        // Setup particle emitters
+        fireEmitter.SetConfig(ParticlePresets::Fire());
+        fireEmitter.SetPosition(400.0f, 300.0f);
+        fireEmitter.Start();
+
+        sparkEmitter.SetConfig(ParticlePresets::Spark());
     }
 
     void OnExit() override {
@@ -217,6 +225,16 @@ public:
         playerStamina = std::max(0.0f, std::min(1.0f, playerStamina));
         staminaBar.SetValue(playerStamina);
 
+        // Particle effects: F for spark burst at player position
+        if (Input::GetKeyDown(GLFW_KEY_F)) {
+            sparkEmitter.SetPosition(player.x + player.width / 2, player.y + player.height / 2);
+            sparkEmitter.Burst(30);
+        }
+
+        // Update particles
+        fireEmitter.Update(dt);
+        sparkEmitter.Update(dt);
+
         uiManager.Update(dt);
     }
 
@@ -240,6 +258,10 @@ public:
 
         renderer->End();
 
+        // Render particles
+        fireEmitter.Render(renderer, shader, camera);
+        sparkEmitter.Render(renderer, shader, camera);
+
         // Render UI
         uiManager.Render(renderer, shader, static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
     }
@@ -255,6 +277,9 @@ private:
     UIManager uiManager;
     ProgressBar healthBar;
     ProgressBar staminaBar;
+
+    ParticleEmitter fireEmitter;
+    ParticleEmitter sparkEmitter;
 };
 
 // ============ Main ============

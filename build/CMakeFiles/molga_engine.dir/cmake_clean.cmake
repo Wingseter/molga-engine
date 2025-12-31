@@ -9,6 +9,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/molga_engine.dir/src/Collision.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Input.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Input.cpp.o.d"
+  "CMakeFiles/molga_engine.dir/src/Particle.cpp.o"
+  "CMakeFiles/molga_engine.dir/src/Particle.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Scene.cpp.o"

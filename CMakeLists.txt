@@ -19,6 +19,7 @@ add_executable(molga_engine
     src/UI.cpp
     src/Audio.cpp
     src/Scene.cpp
+    src/Particle.cpp
 )
 
 add_subdirectory(external/glfw)
