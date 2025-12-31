@@ -26,6 +26,9 @@
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
 #include "ECS/Components/BoxCollider2D.h"
+#include "Scripting/Script.h"
+#include "Scripting/ScriptManager.h"
+#include "Scripting/BuiltinScripts.h"
 #include <imgui.h>
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -332,6 +335,9 @@ int main() {
     g_renderer->Init();
     g_shader = new Shader("src/Shaders/default.vert", "src/Shaders/default.frag");
     g_camera = new Camera2D(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+
+    // Initialize Scripting
+    RegisterBuiltinScripts();
 
     // Initialize Editor
     Editor::Get().Init();

@@ -863,6 +863,78 @@ src/Scene.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.s
 .PHONY : src/Scene.cpp.s
 
+src/Scripting/BuiltinScripts.o: src/Scripting/BuiltinScripts.cpp.o
+.PHONY : src/Scripting/BuiltinScripts.o
+
+# target to build an object file
+src/Scripting/BuiltinScripts.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o
+.PHONY : src/Scripting/BuiltinScripts.cpp.o
+
+src/Scripting/BuiltinScripts.i: src/Scripting/BuiltinScripts.cpp.i
+.PHONY : src/Scripting/BuiltinScripts.i
+
+# target to preprocess a source file
+src/Scripting/BuiltinScripts.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.i
+.PHONY : src/Scripting/BuiltinScripts.cpp.i
+
+src/Scripting/BuiltinScripts.s: src/Scripting/BuiltinScripts.cpp.s
+.PHONY : src/Scripting/BuiltinScripts.s
+
+# target to generate assembly for a file
+src/Scripting/BuiltinScripts.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.s
+.PHONY : src/Scripting/BuiltinScripts.cpp.s
+
+src/Scripting/Script.o: src/Scripting/Script.cpp.o
+.PHONY : src/Scripting/Script.o
+
+# target to build an object file
+src/Scripting/Script.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o
+.PHONY : src/Scripting/Script.cpp.o
+
+src/Scripting/Script.i: src/Scripting/Script.cpp.i
+.PHONY : src/Scripting/Script.i
+
+# target to preprocess a source file
+src/Scripting/Script.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.i
+.PHONY : src/Scripting/Script.cpp.i
+
+src/Scripting/Script.s: src/Scripting/Script.cpp.s
+.PHONY : src/Scripting/Script.s
+
+# target to generate assembly for a file
+src/Scripting/Script.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.s
+.PHONY : src/Scripting/Script.cpp.s
+
+src/Scripting/ScriptManager.o: src/Scripting/ScriptManager.cpp.o
+.PHONY : src/Scripting/ScriptManager.o
+
+# target to build an object file
+src/Scripting/ScriptManager.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o
+.PHONY : src/Scripting/ScriptManager.cpp.o
+
+src/Scripting/ScriptManager.i: src/Scripting/ScriptManager.cpp.i
+.PHONY : src/Scripting/ScriptManager.i
+
+# target to preprocess a source file
+src/Scripting/ScriptManager.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.i
+.PHONY : src/Scripting/ScriptManager.cpp.i
+
+src/Scripting/ScriptManager.s: src/Scripting/ScriptManager.cpp.s
+.PHONY : src/Scripting/ScriptManager.s
+
+# target to generate assembly for a file
+src/Scripting/ScriptManager.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.s
+.PHONY : src/Scripting/ScriptManager.cpp.s
+
 src/Shader.o: src/Shader.cpp.o
 .PHONY : src/Shader.o
 
@@ -1151,6 +1223,15 @@ help:
 	@echo "... src/Scene.o"
 	@echo "... src/Scene.i"
 	@echo "... src/Scene.s"
+	@echo "... src/Scripting/BuiltinScripts.o"
+	@echo "... src/Scripting/BuiltinScripts.i"
+	@echo "... src/Scripting/BuiltinScripts.s"
+	@echo "... src/Scripting/Script.o"
+	@echo "... src/Scripting/Script.i"
+	@echo "... src/Scripting/Script.s"
+	@echo "... src/Scripting/ScriptManager.o"
+	@echo "... src/Scripting/ScriptManager.i"
+	@echo "... src/Scripting/ScriptManager.s"
 	@echo "... src/Shader.o"
 	@echo "... src/Shader.i"
 	@echo "... src/Shader.s"

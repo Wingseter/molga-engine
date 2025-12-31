@@ -21,6 +21,7 @@ private:
     void DrawTransformComponent();
     void DrawSpriteRendererComponent();
     void DrawBoxCollider2DComponent();
+    void DrawScriptComponent(Component* component);
 
     GameObject* target = nullptr;
 };

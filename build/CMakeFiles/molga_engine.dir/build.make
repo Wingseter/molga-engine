@@ -450,6 +450,48 @@ CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.s"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Core/SceneSerializer.cpp -o CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.s
 
+CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scripting/Script.cpp
+CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scripting/Script.cpp
+
+CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Scripting/Script.cpp > CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Scripting/Script.cpp -o CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scripting/ScriptManager.cpp
+CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_29) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scripting/ScriptManager.cpp
+
+CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Scripting/ScriptManager.cpp > CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Scripting/ScriptManager.cpp -o CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scripting/BuiltinScripts.cpp
+CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_30) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scripting/BuiltinScripts.cpp
+
+CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Scripting/BuiltinScripts.cpp > CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Scripting/BuiltinScripts.cpp -o CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.s
+
 # Object files for target molga_engine
 molga_engine_OBJECTS = \
 "CMakeFiles/molga_engine.dir/src/main.cpp.o" \
@@ -478,7 +520,10 @@ molga_engine_OBJECTS = \
 "CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o"
+"CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o"
 
 # External object files for target molga_engine
 molga_engine_EXTERNAL_OBJECTS =
@@ -510,13 +555,16 @@ molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/build.make
 molga_engine: libglad.a
 molga_engine: external/glfw/src/libglfw3.a
 molga_engine: libimgui.a
 molga_engine: external/glfw/src/libglfw3.a
 molga_engine: CMakeFiles/molga_engine.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Linking CXX executable molga_engine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_31) "Linking CXX executable molga_engine"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/molga_engine.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.

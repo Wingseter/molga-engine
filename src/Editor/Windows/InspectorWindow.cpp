@@ -4,6 +4,9 @@
 #include "../../ECS/Components/Transform.h"
 #include "../../ECS/Components/SpriteRenderer.h"
 #include "../../ECS/Components/BoxCollider2D.h"
+#include "../../Scripting/Script.h"
+#include "../../Scripting/ScriptManager.h"
+#include "../../Scripting/BuiltinScripts.h"
 #include <imgui.h>
 
 InspectorWindow::InspectorWindow()
@@ -65,6 +68,25 @@ void InspectorWindow::OnGUI() {
                 target->AddComponent<BoxCollider2D>();
             }
         }
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Scripts")) {
+            auto scripts = ScriptManager::Get().GetRegisteredScripts();
+            for (const auto& scriptName : scripts) {
+                if (ImGui::MenuItem(scriptName.c_str())) {
+                    Script* script = ScriptManager::Get().CreateScript(scriptName);
+                    if (script) {
+                        script->SetGameObject(target);
+                        script->OnAttach();
+                        // Note: We'd need a way to add raw Script* to GameObject
+                        // For now, this shows the concept
+                    }
+                }
+            }
+            if (scripts.empty()) {
+                ImGui::TextDisabled("No scripts registered");
+            }
+            ImGui::EndMenu();
+        }
         ImGui::EndPopup();
     }
 
@@ -95,6 +117,8 @@ void InspectorWindow::DrawComponent(Component* component) {
             DrawSpriteRendererComponent();
         } else if (typeName == "BoxCollider2D") {
             DrawBoxCollider2DComponent();
+        } else if (typeName == "Script") {
+            DrawScriptComponent(component);
         }
         ImGui::TreePop();
     }
@@ -181,5 +205,34 @@ void InspectorWindow::DrawBoxCollider2DComponent() {
     bool isTrigger = collider->IsTrigger();
     if (ImGui::Checkbox("Is Trigger", &isTrigger)) {
         collider->SetTrigger(isTrigger);
+    }
+}
+
+void InspectorWindow::DrawScriptComponent(Component* component) {
+    Script* script = dynamic_cast<Script*>(component);
+    if (!script) return;
+
+    ImGui::Text("Script: %s", script->GetScriptName());
+
+    // Show script-specific properties based on type
+    if (strcmp(script->GetScriptName(), "PlayerController") == 0) {
+        PlayerController* pc = dynamic_cast<PlayerController*>(script);
+        if (pc) {
+            ImGui::DragFloat("Move Speed", &pc->moveSpeed, 1.0f, 0.0f, 1000.0f);
+        }
+    }
+    else if (strcmp(script->GetScriptName(), "Rotator") == 0) {
+        Rotator* rot = dynamic_cast<Rotator*>(script);
+        if (rot) {
+            ImGui::DragFloat("Rotation Speed", &rot->rotationSpeed, 1.0f, -360.0f, 360.0f);
+        }
+    }
+    else if (strcmp(script->GetScriptName(), "Oscillator") == 0) {
+        Oscillator* osc = dynamic_cast<Oscillator*>(script);
+        if (osc) {
+            ImGui::DragFloat("Amplitude", &osc->amplitude, 1.0f, 0.0f, 500.0f);
+            ImGui::DragFloat("Frequency", &osc->frequency, 0.1f, 0.0f, 10.0f);
+            ImGui::Checkbox("Horizontal", &osc->horizontal);
+        }
     }
 }
