@@ -534,6 +534,20 @@ CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Scenes/GameScene.cpp -o CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s
 
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_34) "Building CXX object CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o -MF CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o.d -o CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp
+
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp > CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i
+
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp -o CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s
+
 # Object files for target molga_engine
 molga_engine_OBJECTS = \
 "CMakeFiles/molga_engine.dir/src/main.cpp.o" \
@@ -568,7 +582,8 @@ molga_engine_OBJECTS = \
 "CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o"
+"CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o"
 
 # External object files for target molga_engine
 molga_engine_EXTERNAL_OBJECTS =
@@ -606,13 +621,14 @@ molga_engine: CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/build.make
 molga_engine: libglad.a
 molga_engine: external/glfw/src/libglfw3.a
 molga_engine: libimgui.a
 molga_engine: external/glfw/src/libglfw3.a
 molga_engine: CMakeFiles/molga_engine.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_34) "Linking CXX executable molga_engine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_35) "Linking CXX executable molga_engine"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/molga_engine.dir/link.txt --verbose=$(VERBOSE)
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold "Copying assets to build directory"
 	/opt/homebrew/bin/cmake -E copy_directory /Users/kwon/Workspace/C/molga-engine/assets /Users/kwon/Workspace/C/molga-engine/build/assets

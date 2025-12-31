@@ -36,6 +36,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/kwon/Workspace/C/molga-engine/src/Shader.cpp" "CMakeFiles/molga_engine.dir/src/Shader.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Shader.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Sprite.cpp" "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/SpriteSheet.cpp" "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp" "CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Texture.cpp" "CMakeFiles/molga_engine.dir/src/Texture.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Texture.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Tilemap.cpp" "CMakeFiles/molga_engine.dir/src/Tilemap.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Tilemap.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Time.cpp" "CMakeFiles/molga_engine.dir/src/Time.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Time.cpp.o.d"

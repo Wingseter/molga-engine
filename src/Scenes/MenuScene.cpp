@@ -4,6 +4,7 @@
 #include "../Camera2D.h"
 #include "../Input.h"
 #include "../Sprite.h"
+#include "../TextRenderer.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include <GLFW/glfw3.h>
@@ -86,4 +87,34 @@ void MenuScene::Render(Renderer* renderer, Shader* shader, Camera2D* camera) {
     }
 
     renderer->End();
+
+    // Render text labels
+    TextRenderer& textRenderer = TextRenderer::Get();
+
+    // Title text - centered on title background
+    float titleScale = 4.0f;
+    std::string titleText = "MOLGA ENGINE";
+    float titleWidth = textRenderer.GetTextWidth(titleText, titleScale);
+    float titleX = screenWidth / 2.0f - titleWidth / 2.0f;
+    textRenderer.RenderText(renderer, shader, titleText, titleX, 165.0f, titleScale, Color::White());
+
+    // Start button text - centered on button
+    float buttonScale = 3.0f;
+    std::string startText = "Start";
+    float startWidth = textRenderer.GetTextWidth(startText, buttonScale);
+    float startX = screenWidth / 2.0f - startWidth / 2.0f;
+    textRenderer.RenderText(renderer, shader, startText, startX, 312.0f, buttonScale, Color::White());
+
+    // Quit button text - centered on button
+    std::string quitText = "Quit";
+    float quitWidth = textRenderer.GetTextWidth(quitText, buttonScale);
+    float quitX = screenWidth / 2.0f - quitWidth / 2.0f;
+    textRenderer.RenderText(renderer, shader, quitText, quitX, 382.0f, buttonScale, Color::White());
+
+    // Instructions text
+    float instrScale = 2.0f;
+    std::string instrText = "Press ENTER or SPACE to start";
+    float instrWidth = textRenderer.GetTextWidth(instrText, instrScale);
+    float instrX = screenWidth / 2.0f - instrWidth / 2.0f;
+    textRenderer.RenderText(renderer, shader, instrText, instrX, 500.0f, instrScale, Color(0.7f, 0.7f, 0.7f, 1.0f));
 }

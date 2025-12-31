@@ -23,6 +23,7 @@
 #include "Scripting/BuiltinScripts.h"
 #include "Scenes/MenuScene.h"
 #include "Scenes/GameScene.h"
+#include "TextRenderer.h"
 #include <imgui.h>
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -80,6 +81,9 @@ int main() {
 
     // Initialize Scripting
     RegisterBuiltinScripts();
+
+    // Initialize Text Renderer
+    TextRenderer::Get().Init();
 
     // Initialize Editor
     Editor::Get().Init();
@@ -163,6 +167,7 @@ int main() {
     g_editorObjects.clear();
     ImGuiLayer::Shutdown();
     SceneManager::Clear();
+    TextRenderer::Get().Shutdown();
     delete g_camera;
     delete g_shader;
     delete g_renderer;

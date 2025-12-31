@@ -1079,6 +1079,30 @@ src/SpriteSheet.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.s
 .PHONY : src/SpriteSheet.cpp.s
 
+src/TextRenderer.o: src/TextRenderer.cpp.o
+.PHONY : src/TextRenderer.o
+
+# target to build an object file
+src/TextRenderer.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o
+.PHONY : src/TextRenderer.cpp.o
+
+src/TextRenderer.i: src/TextRenderer.cpp.i
+.PHONY : src/TextRenderer.i
+
+# target to preprocess a source file
+src/TextRenderer.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i
+.PHONY : src/TextRenderer.cpp.i
+
+src/TextRenderer.s: src/TextRenderer.cpp.s
+.PHONY : src/TextRenderer.s
+
+# target to generate assembly for a file
+src/TextRenderer.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s
+.PHONY : src/TextRenderer.cpp.s
+
 src/Texture.o: src/Texture.cpp.o
 .PHONY : src/Texture.o
 
@@ -1322,6 +1346,9 @@ help:
 	@echo "... src/SpriteSheet.o"
 	@echo "... src/SpriteSheet.i"
 	@echo "... src/SpriteSheet.s"
+	@echo "... src/TextRenderer.o"
+	@echo "... src/TextRenderer.i"
+	@echo "... src/TextRenderer.s"
 	@echo "... src/Texture.o"
 	@echo "... src/Texture.i"
 	@echo "... src/Texture.s"
