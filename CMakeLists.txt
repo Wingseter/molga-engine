@@ -42,6 +42,7 @@ add_executable(molga_engine
     src/Editor/Editor.cpp
     src/Editor/Windows/HierarchyWindow.cpp
     src/Editor/Windows/InspectorWindow.cpp
+    src/Core/SceneSerializer.cpp
 )
 
 add_subdirectory(external/glfw)

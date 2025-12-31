@@ -32,6 +32,14 @@ public:
     // Create new GameObject
     std::shared_ptr<GameObject> CreateGameObject(const std::string& name = "GameObject");
 
+    // Scene file operations
+    void NewScene();
+    void SaveScene();
+    void SaveSceneAs();
+    void OpenScene();
+
+    const std::string& GetCurrentScenePath() const { return currentScenePath; }
+
 private:
     Editor() = default;
     Editor(const Editor&) = delete;
@@ -48,6 +56,9 @@ private:
     bool showStats = true;
     bool showHierarchy = true;
     bool showInspector = true;
+
+    std::string currentScenePath;
+    bool sceneModified = false;
 };
 
 #endif // MOLGA_EDITOR_H

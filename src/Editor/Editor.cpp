@@ -5,8 +5,10 @@
 #include "../ECS/GameObject.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
+#include "../Core/SceneSerializer.h"
 #include "../Time.h"
 #include <imgui.h>
+#include <iostream>
 
 Editor& Editor::Get() {
     static Editor instance;
@@ -60,13 +62,16 @@ void Editor::RenderMenuBar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
-                // TODO: New scene
+                NewScene();
             }
             if (ImGui::MenuItem("Open Scene", "Ctrl+O")) {
-                // TODO: Open scene
+                OpenScene();
             }
             if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
-                // TODO: Save scene
+                SaveScene();
+            }
+            if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) {
+                SaveSceneAs();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -177,6 +182,74 @@ std::shared_ptr<GameObject> Editor::CreateGameObject(const std::string& name) {
     auto obj = std::make_shared<GameObject>(name);
     obj->AddComponent<Transform>();
     gameObjects->push_back(obj);
+    sceneModified = true;
 
     return obj;
+}
+
+void Editor::NewScene() {
+    if (!gameObjects) return;
+
+    gameObjects->clear();
+    currentScenePath.clear();
+    sceneModified = false;
+
+    if (hierarchyWindow) {
+        hierarchyWindow->SetSelectedObject(nullptr);
+    }
+    if (inspectorWindow) {
+        inspectorWindow->SetTarget(nullptr);
+    }
+
+    std::cout << "[Editor] New scene created" << std::endl;
+}
+
+void Editor::SaveScene() {
+    if (!gameObjects) return;
+
+    if (currentScenePath.empty()) {
+        SaveSceneAs();
+        return;
+    }
+
+    if (SceneSerializer::SaveScene(currentScenePath, *gameObjects)) {
+        sceneModified = false;
+    }
+}
+
+void Editor::SaveSceneAs() {
+    if (!gameObjects) return;
+
+    // Simple file path input (in a real editor, use native file dialog)
+    static char pathBuffer[256] = "scene.json";
+    static bool showSaveDialog = false;
+
+    showSaveDialog = true;
+
+    // For now, use a default path
+    currentScenePath = "scene.json";
+    if (SceneSerializer::SaveScene(currentScenePath, *gameObjects)) {
+        sceneModified = false;
+        std::cout << "[Editor] Scene saved to: " << currentScenePath << std::endl;
+    }
+}
+
+void Editor::OpenScene() {
+    if (!gameObjects) return;
+
+    // For now, use a default path
+    std::string filepath = "scene.json";
+
+    if (SceneSerializer::LoadScene(filepath, *gameObjects)) {
+        currentScenePath = filepath;
+        sceneModified = false;
+
+        if (hierarchyWindow) {
+            hierarchyWindow->SetSelectedObject(nullptr);
+            hierarchyWindow->SetGameObjects(gameObjects);
+        }
+        if (inspectorWindow) {
+            inspectorWindow->SetTarget(nullptr);
+        }
+    }
 }

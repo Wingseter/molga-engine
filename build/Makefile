@@ -527,6 +527,30 @@ src/Core/Application.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s
 .PHONY : src/Core/Application.cpp.s
 
+src/Core/SceneSerializer.o: src/Core/SceneSerializer.cpp.o
+.PHONY : src/Core/SceneSerializer.o
+
+# target to build an object file
+src/Core/SceneSerializer.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o
+.PHONY : src/Core/SceneSerializer.cpp.o
+
+src/Core/SceneSerializer.i: src/Core/SceneSerializer.cpp.i
+.PHONY : src/Core/SceneSerializer.i
+
+# target to preprocess a source file
+src/Core/SceneSerializer.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.i
+.PHONY : src/Core/SceneSerializer.cpp.i
+
+src/Core/SceneSerializer.s: src/Core/SceneSerializer.cpp.s
+.PHONY : src/Core/SceneSerializer.s
+
+# target to generate assembly for a file
+src/Core/SceneSerializer.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.s
+.PHONY : src/Core/SceneSerializer.cpp.s
+
 src/ECS/Components/BoxCollider2D.o: src/ECS/Components/BoxCollider2D.cpp.o
 .PHONY : src/ECS/Components/BoxCollider2D.o
 
@@ -1085,6 +1109,9 @@ help:
 	@echo "... src/Core/Application.o"
 	@echo "... src/Core/Application.i"
 	@echo "... src/Core/Application.s"
+	@echo "... src/Core/SceneSerializer.o"
+	@echo "... src/Core/SceneSerializer.i"
+	@echo "... src/Core/SceneSerializer.s"
 	@echo "... src/ECS/Components/BoxCollider2D.o"
 	@echo "... src/ECS/Components/BoxCollider2D.i"
 	@echo "... src/ECS/Components/BoxCollider2D.s"
