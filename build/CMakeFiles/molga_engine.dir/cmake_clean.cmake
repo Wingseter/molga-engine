@@ -55,6 +55,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o"
   "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o.d"
+  "CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o"
+  "CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Texture.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Texture.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Tilemap.cpp.o"

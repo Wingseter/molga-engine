@@ -23,6 +23,7 @@
 #include "Scripting/BuiltinScripts.h"
 #include "Scenes/MenuScene.h"
 #include "Scenes/GameScene.h"
+#include "TextRenderer.h"
 #include <imgui.h>
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
@@ -35,6 +36,7 @@ const unsigned int SCR_HEIGHT = 600;
 Renderer* g_renderer = nullptr;
 Shader* g_shader = nullptr;
 Camera2D* g_camera = nullptr;
+GLFWwindow* g_window = nullptr;
 
 // Editor scene objects
 std::vector<std::shared_ptr<GameObject>> g_editorObjects;
@@ -55,6 +57,7 @@ int main() {
         glfwTerminate();
         return -1;
     }
+    g_window = window;  // Store global reference for quit functionality
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
@@ -80,6 +83,9 @@ int main() {
 
     // Initialize Scripting
     RegisterBuiltinScripts();
+
+    // Initialize Text Renderer
+    TextRenderer::Get().Init();
 
     // Initialize Editor
     Editor::Get().Init();
@@ -126,14 +132,36 @@ int main() {
         Input::Update();
         float dt = Time::GetDeltaTime();
 
-        // Update title
+        // Get editor state
+        EditorState& editorState = EditorState::Get();
+
+        // Update title with mode indicator
         std::ostringstream title;
         title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS())
               << " | Scene: " << SceneManager::GetCurrentSceneName();
+        if (editorState.IsEditMode()) {
+            title << " [EDIT]";
+        } else if (editorState.IsPlayMode()) {
+            title << " [PLAYING]";
+        } else if (editorState.IsPaused()) {
+            title << " [PAUSED]";
+        }
         glfwSetWindowTitle(window, title.str().c_str());
 
-        // Update and render current scene
-        SceneManager::Update(dt);
+        // Only update scene and game objects in Play mode
+        if (editorState.IsPlayMode()) {
+            float scaledDt = dt * editorState.GetTimeScale();
+            SceneManager::Update(scaledDt);
+
+            // Update ECS GameObjects scripts
+            for (auto& obj : g_editorObjects) {
+                if (obj && obj->IsActive()) {
+                    obj->Update(scaledDt);
+                }
+            }
+        }
+
+        // Always render (even in Edit mode)
         SceneManager::Render(g_renderer, g_shader, g_camera);
 
         // Render ECS GameObjects
@@ -163,6 +191,7 @@ int main() {
     g_editorObjects.clear();
     ImGuiLayer::Shutdown();
     SceneManager::Clear();
+    TextRenderer::Get().Shutdown();
     delete g_camera;
     delete g_shader;
     delete g_renderer;

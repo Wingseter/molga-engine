@@ -78,3 +78,11 @@ void GameObject::Render() {
         }
     }
 }
+
+Component* GameObject::AddComponentRaw(Component* component) {
+    if (!component) return nullptr;
+    component->SetGameObject(this);
+    component->OnAttach();
+    components.push_back(std::unique_ptr<Component>(component));
+    return component;
+}

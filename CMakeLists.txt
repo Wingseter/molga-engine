@@ -49,6 +49,7 @@ add_executable(molga_engine
     src/Platform/Platform.cpp
     src/Scenes/MenuScene.cpp
     src/Scenes/GameScene.cpp
+    src/TextRenderer.cpp
 )
 
 add_subdirectory(external/glfw)

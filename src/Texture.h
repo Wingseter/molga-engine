@@ -6,6 +6,7 @@
 class Texture {
 public:
     Texture(const char* imagePath);
+    Texture(int width, int height, unsigned char* data, int channels = 4);
     ~Texture();
 
     void Bind(unsigned int slot = 0) const;
@@ -16,6 +17,8 @@ public:
     unsigned int GetID() const { return textureID; }
 
 private:
+    void CreateFromData(int w, int h, unsigned char* data, int ch);
+
     unsigned int textureID;
     int width;
     int height;

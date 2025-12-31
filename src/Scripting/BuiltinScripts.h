@@ -51,6 +51,10 @@ public:
         float currentRot = transform->GetRotation();
         transform->SetRotation(currentRot + rotationSpeed * dt);
     }
+
+    void OnInspectorGUI() override {
+        ImGui::DragFloat("Rotation Speed", &rotationSpeed, 1.0f, -360.0f, 360.0f);
+    }
 };
 
 // Example: Oscillator Script (moves back and forth)
@@ -81,6 +85,12 @@ public:
         } else {
             transform->SetPosition(startPosition.x, startPosition.y + offset);
         }
+    }
+
+    void OnInspectorGUI() override {
+        ImGui::DragFloat("Amplitude", &amplitude, 1.0f, 0.0f, 500.0f);
+        ImGui::DragFloat("Frequency", &frequency, 0.1f, 0.0f, 10.0f);
+        ImGui::Checkbox("Horizontal", &horizontal);
     }
 
 private:

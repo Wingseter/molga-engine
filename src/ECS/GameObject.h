@@ -74,13 +74,7 @@ public:
     }
 
     // Add component from raw pointer (takes ownership)
-    Component* AddComponentRaw(Component* component) {
-        if (!component) return nullptr;
-        component->SetGameObject(this);
-        component->OnAttach();
-        components.push_back(std::unique_ptr<Component>(component));
-        return component;
-    }
+    Component* AddComponentRaw(Component* component);
 
     // Get all components
     const std::vector<std::unique_ptr<Component>>& GetComponents() const { return components; }

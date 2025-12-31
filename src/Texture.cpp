@@ -13,26 +13,43 @@ Texture::Texture(const char* imagePath) : textureID(0), width(0), height(0), cha
         return;
     }
 
-    GLenum format = GL_RGB;
-    if (channels == 1)
+    CreateFromData(width, height, data, channels);
+    stbi_image_free(data);
+}
+
+Texture::Texture(int w, int h, unsigned char* data, int ch)
+    : textureID(0), width(0), height(0), channels(0) {
+    CreateFromData(w, h, data, ch);
+}
+
+void Texture::CreateFromData(int w, int h, unsigned char* data, int ch) {
+    width = w;
+    height = h;
+    channels = ch;
+
+    GLenum format = GL_RGBA;
+    GLenum internalFormat = GL_RGBA;
+    if (channels == 1) {
         format = GL_RED;
-    else if (channels == 3)
+        internalFormat = GL_RED;
+    } else if (channels == 3) {
         format = GL_RGB;
-    else if (channels == 4)
+        internalFormat = GL_RGB;
+    } else if (channels == 4) {
         format = GL_RGBA;
+        internalFormat = GL_RGBA;
+    }
 
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, data);
 
-    stbi_image_free(data);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
