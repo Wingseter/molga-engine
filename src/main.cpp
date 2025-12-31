@@ -161,20 +161,24 @@ int main() {
             }
         }
 
-        // Always render (even in Edit mode)
-        SceneManager::Render(g_renderer, g_shader, g_camera);
-
-        // Render ECS GameObjects
-        g_renderer->Begin(g_shader, g_camera);
-        for (auto& obj : g_editorObjects) {
-            if (obj && obj->IsActive()) {
-                auto sr = obj->GetComponent<SpriteRenderer>();
-                if (sr) {
-                    sr->RenderSprite(g_renderer, g_shader, g_camera);
+        // Render based on editor mode
+        if (editorState.IsEditMode()) {
+            // Edit mode: Render editor scene with g_editorObjects
+            g_renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
+            g_renderer->Begin(g_shader, g_camera);
+            for (auto& obj : g_editorObjects) {
+                if (obj && obj->IsActive()) {
+                    auto sr = obj->GetComponent<SpriteRenderer>();
+                    if (sr) {
+                        sr->RenderSprite(g_renderer, g_shader, g_camera);
+                    }
                 }
             }
+            g_renderer->End();
+        } else {
+            // Play/Pause mode: Render game scene
+            SceneManager::Render(g_renderer, g_shader, g_camera);
         }
-        g_renderer->End();
 
         // ImGui Editor UI
         ImGuiLayer::BeginFrame();
