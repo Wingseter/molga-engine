@@ -1,0 +1,34 @@
+
+# Consider dependencies only in project.
+set(CMAKE_DEPENDS_IN_PROJECT_ONLY OFF)
+
+# The set of languages for which implicit dependencies are needed:
+set(CMAKE_DEPENDS_LANGUAGES
+  )
+
+# The set of dependency files which are needed:
+set(CMAKE_DEPENDS_DEPENDENCY_FILES
+  "/Users/kwon/Workspace/C/molga-engine/src/Animation.cpp" "CMakeFiles/molga_engine.dir/src/Animation.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Animation.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Camera2D.cpp" "CMakeFiles/molga_engine.dir/src/Camera2D.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Camera2D.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Collision.cpp" "CMakeFiles/molga_engine.dir/src/Collision.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Collision.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Input.cpp" "CMakeFiles/molga_engine.dir/src/Input.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Input.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Renderer.cpp" "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Shader.cpp" "CMakeFiles/molga_engine.dir/src/Shader.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Shader.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Sprite.cpp" "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/SpriteSheet.cpp" "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Texture.cpp" "CMakeFiles/molga_engine.dir/src/Texture.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Texture.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Tilemap.cpp" "CMakeFiles/molga_engine.dir/src/Tilemap.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Tilemap.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Time.cpp" "CMakeFiles/molga_engine.dir/src/Time.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Time.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/main.cpp" "CMakeFiles/molga_engine.dir/src/main.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/main.cpp.o.d"
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_LINKED_INFO_FILES
+  )
+
+# Targets to which this target links which contain Fortran sources.
+set(CMAKE_Fortran_TARGET_FORWARD_LINKED_INFO_FILES
+  )
+
+# Fortran module output directory.
+set(CMAKE_Fortran_TARGET_MODULE_DIR "")
