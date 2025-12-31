@@ -151,16 +151,16 @@ external/glfw/src/clean: external/glfw/src/CMakeFiles/update_mappings.dir/clean
 # Target rules for target CMakeFiles/molga_engine.dir
 
 # All Build rule for target.
-CMakeFiles/molga_engine.dir/all: CMakeFiles/glad.dir/all
 CMakeFiles/molga_engine.dir/all: external/glfw/src/CMakeFiles/glfw.dir/all
+CMakeFiles/molga_engine.dir/all: CMakeFiles/glad.dir/all
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=25,26,27,28,29,30,31,32,33,34,35,36,37,38,39 "Built target molga_engine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40 "Built target molga_engine"
 .PHONY : CMakeFiles/molga_engine.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/molga_engine.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /Users/kwon/Workspace/C/molga-engine/build/CMakeFiles 39
+	$(CMAKE_COMMAND) -E cmake_progress_start /Users/kwon/Workspace/C/molga-engine/build/CMakeFiles 40
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/molga_engine.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /Users/kwon/Workspace/C/molga-engine/build/CMakeFiles 0
 .PHONY : CMakeFiles/molga_engine.dir/rule
@@ -172,7 +172,7 @@ molga_engine: CMakeFiles/molga_engine.dir/rule
 # codegen rule for target.
 CMakeFiles/molga_engine.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=25,26,27,28,29,30,31,32,33,34,35,36,37,38,39 "Finished codegen for target molga_engine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40 "Finished codegen for target molga_engine"
 .PHONY : CMakeFiles/molga_engine.dir/codegen
 
 # clean rule for target.
@@ -283,7 +283,7 @@ external/glfw/src/CMakeFiles/glfw.dir/clean:
 external/glfw/src/CMakeFiles/update_mappings.dir/all:
 	$(MAKE) $(MAKESILENT) -f external/glfw/src/CMakeFiles/update_mappings.dir/build.make external/glfw/src/CMakeFiles/update_mappings.dir/depend
 	$(MAKE) $(MAKESILENT) -f external/glfw/src/CMakeFiles/update_mappings.dir/build.make external/glfw/src/CMakeFiles/update_mappings.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=40 "Built target update_mappings"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=41 "Built target update_mappings"
 .PHONY : external/glfw/src/CMakeFiles/update_mappings.dir/all
 
 # Build rule for subdir invocation for target.
@@ -300,7 +300,7 @@ update_mappings: external/glfw/src/CMakeFiles/update_mappings.dir/rule
 # codegen rule for target.
 external/glfw/src/CMakeFiles/update_mappings.dir/codegen:
 	$(MAKE) $(MAKESILENT) -f external/glfw/src/CMakeFiles/update_mappings.dir/build.make external/glfw/src/CMakeFiles/update_mappings.dir/codegen
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=40 "Finished codegen for target update_mappings"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=41 "Finished codegen for target update_mappings"
 .PHONY : external/glfw/src/CMakeFiles/update_mappings.dir/codegen
 
 # clean rule for target.

@@ -11,6 +11,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/molga_engine.dir/src/Input.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o.d"
+  "CMakeFiles/molga_engine.dir/src/Scene.cpp.o"
+  "CMakeFiles/molga_engine.dir/src/Scene.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Shader.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Shader.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o"

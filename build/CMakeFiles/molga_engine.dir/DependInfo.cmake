@@ -14,6 +14,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/kwon/Workspace/C/molga-engine/src/Collision.cpp" "CMakeFiles/molga_engine.dir/src/Collision.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Collision.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Input.cpp" "CMakeFiles/molga_engine.dir/src/Input.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Input.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Renderer.cpp" "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Renderer.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Scene.cpp" "CMakeFiles/molga_engine.dir/src/Scene.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Scene.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Shader.cpp" "CMakeFiles/molga_engine.dir/src/Shader.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Shader.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Sprite.cpp" "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Sprite.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/SpriteSheet.cpp" "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o.d"

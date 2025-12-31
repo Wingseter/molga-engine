@@ -18,6 +18,7 @@ add_executable(molga_engine
     src/Tilemap.cpp
     src/UI.cpp
     src/Audio.cpp
+    src/Scene.cpp
 )
 
 add_subdirectory(external/glfw)
