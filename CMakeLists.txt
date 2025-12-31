@@ -16,6 +16,7 @@ add_executable(molga_engine
     src/Animation.cpp
     src/Collision.cpp
     src/Tilemap.cpp
+    src/UI.cpp
 )
 
 add_subdirectory(external/glfw)

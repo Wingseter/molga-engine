@@ -21,6 +21,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/molga_engine.dir/src/Tilemap.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Time.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Time.cpp.o.d"
+  "CMakeFiles/molga_engine.dir/src/UI.cpp.o"
+  "CMakeFiles/molga_engine.dir/src/UI.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/main.cpp.o"
   "CMakeFiles/molga_engine.dir/src/main.cpp.o.d"
   "molga_engine"

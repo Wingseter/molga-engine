@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 
 #include "Shader.h"
 #include "Texture.h"
@@ -13,6 +14,7 @@
 #include "Camera2D.h"
 #include "Collision.h"
 #include "Tilemap.h"
+#include "UI.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
@@ -123,6 +125,61 @@ int main() {
 
     const float moveSpeed = 200.0f;
 
+    // UI Setup
+    UIManager uiManager;
+
+    // Health bar
+    ProgressBar healthBar;
+    healthBar.SetPosition(10.0f, 10.0f);
+    healthBar.SetSize(200.0f, 20.0f);
+    healthBar.SetFillColor(0.8f, 0.2f, 0.2f, 1.0f);  // Red
+    healthBar.SetBackgroundColor(0.3f, 0.1f, 0.1f, 1.0f);
+    uiManager.AddElement(&healthBar);
+
+    // Stamina bar
+    ProgressBar staminaBar;
+    staminaBar.SetPosition(10.0f, 35.0f);
+    staminaBar.SetSize(150.0f, 15.0f);
+    staminaBar.SetFillColor(0.2f, 0.6f, 0.8f, 1.0f);  // Blue
+    staminaBar.SetBackgroundColor(0.1f, 0.2f, 0.3f, 1.0f);
+    uiManager.AddElement(&staminaBar);
+
+    // Panel background for buttons
+    Panel buttonPanel;
+    buttonPanel.SetPosition(static_cast<float>(SCR_WIDTH) - 110.0f, 10.0f);
+    buttonPanel.SetSize(100.0f, 70.0f);
+    buttonPanel.SetColor(0.1f, 0.1f, 0.15f, 0.8f);
+    buttonPanel.SetBorderColor(0.4f, 0.4f, 0.5f, 1.0f);
+    buttonPanel.SetBorderWidth(2.0f);
+    uiManager.AddElement(&buttonPanel);
+
+    // Heal button
+    Button healButton;
+    healButton.SetPosition(static_cast<float>(SCR_WIDTH) - 100.0f, 20.0f);
+    healButton.SetSize(80.0f, 25.0f);
+    healButton.SetColor(0.2f, 0.5f, 0.2f, 1.0f);
+    healButton.SetHoverColor(0.3f, 0.6f, 0.3f, 1.0f);
+    healButton.SetPressedColor(0.1f, 0.4f, 0.1f, 1.0f);
+    healButton.SetOnClick([&healthBar]() {
+        healthBar.SetValue(1.0f);
+    });
+    uiManager.AddElement(&healButton);
+
+    // Damage button
+    Button damageButton;
+    damageButton.SetPosition(static_cast<float>(SCR_WIDTH) - 100.0f, 50.0f);
+    damageButton.SetSize(80.0f, 25.0f);
+    damageButton.SetColor(0.5f, 0.2f, 0.2f, 1.0f);
+    damageButton.SetHoverColor(0.6f, 0.3f, 0.3f, 1.0f);
+    damageButton.SetPressedColor(0.4f, 0.1f, 0.1f, 1.0f);
+    damageButton.SetOnClick([&healthBar]() {
+        healthBar.SetValue(healthBar.value - 0.1f);
+    });
+    uiManager.AddElement(&damageButton);
+
+    float playerHealth = 1.0f;
+    float playerStamina = 1.0f;
+
     // render loop
     while (!glfwWindowShouldClose(window)) {
         Time::Update();
@@ -175,6 +232,19 @@ int main() {
             camera.SetRotation(0.0f);
         }
 
+        // Update stamina (drains when moving, regenerates when still)
+        bool isMoving = (dx != 0.0f || dy != 0.0f);
+        if (isMoving) {
+            playerStamina -= 0.2f * dt;
+        } else {
+            playerStamina += 0.3f * dt;
+        }
+        playerStamina = std::max(0.0f, std::min(1.0f, playerStamina));
+        staminaBar.SetValue(playerStamina);
+
+        // Update UI
+        uiManager.Update(dt);
+
         // Update title
         std::ostringstream title;
         title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS())
@@ -208,6 +278,9 @@ int main() {
         renderer.DrawSprite(&player);
 
         renderer.End();
+
+        // Render UI (after game world, before swap)
+        uiManager.Render(&renderer, &shader, static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
 
         glfwSwapBuffers(window);
         glfwPollEvents();
