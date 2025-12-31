@@ -21,6 +21,17 @@ void MenuScene::OnExit() {
 }
 
 void MenuScene::CreateUI() {
+    // Calculate button positions
+    startBtnX = screenWidth / 2.0f - 100.0f;
+    startBtnY = 300.0f;
+    startBtnW = 200.0f;
+    startBtnH = 50.0f;
+
+    quitBtnX = screenWidth / 2.0f - 100.0f;
+    quitBtnY = 370.0f;
+    quitBtnW = 200.0f;
+    quitBtnH = 50.0f;
+
     // Title background
     auto titleBg = std::make_shared<GameObject>("TitleBackground");
     auto transform = titleBg->AddComponent<Transform>();
@@ -33,26 +44,88 @@ void MenuScene::CreateUI() {
     // Start button
     auto startBtn = std::make_shared<GameObject>("StartButton");
     transform = startBtn->AddComponent<Transform>();
-    transform->SetPosition(screenWidth / 2.0f - 100.0f, 300.0f);
+    transform->SetPosition(startBtnX, startBtnY);
     sprite = startBtn->AddComponent<SpriteRenderer>();
-    sprite->SetSize(200.0f, 50.0f);
+    sprite->SetSize(startBtnW, startBtnH);
     sprite->SetColor(0.3f, 0.6f, 0.3f, 1.0f);
     gameObjects.push_back(startBtn);
 
     // Quit button
     auto quitBtn = std::make_shared<GameObject>("QuitButton");
     transform = quitBtn->AddComponent<Transform>();
-    transform->SetPosition(screenWidth / 2.0f - 100.0f, 370.0f);
+    transform->SetPosition(quitBtnX, quitBtnY);
     sprite = quitBtn->AddComponent<SpriteRenderer>();
-    sprite->SetSize(200.0f, 50.0f);
+    sprite->SetSize(quitBtnW, quitBtnH);
     sprite->SetColor(0.6f, 0.3f, 0.3f, 1.0f);
     gameObjects.push_back(quitBtn);
 }
 
+bool MenuScene::IsPointInButton(float px, float py, float bx, float by, float bw, float bh) {
+    return px >= bx && px <= bx + bw && py >= by && py <= by + bh;
+}
+
 void MenuScene::Update(float dt) {
-    // Press ENTER or SPACE to start game
+    float mouseX = Input::GetMouseX();
+    float mouseY = Input::GetMouseY();
+
+    // Check hover states
+    startHovered = IsPointInButton(mouseX, mouseY, startBtnX, startBtnY, startBtnW, startBtnH);
+    quitHovered = IsPointInButton(mouseX, mouseY, quitBtnX, quitBtnY, quitBtnW, quitBtnH);
+
+    // Update button colors based on hover/selected state
+    for (auto& obj : gameObjects) {
+        if (obj->GetName() == "StartButton") {
+            auto sr = obj->GetComponent<SpriteRenderer>();
+            if (sr) {
+                if (startHovered || selectedButton == 0) {
+                    sr->SetColor(0.4f, 0.8f, 0.4f, 1.0f);  // Bright green when hovered/selected
+                } else {
+                    sr->SetColor(0.3f, 0.6f, 0.3f, 1.0f);  // Normal green
+                }
+            }
+        } else if (obj->GetName() == "QuitButton") {
+            auto sr = obj->GetComponent<SpriteRenderer>();
+            if (sr) {
+                if (quitHovered || selectedButton == 1) {
+                    sr->SetColor(0.8f, 0.4f, 0.4f, 1.0f);  // Bright red when hovered/selected
+                } else {
+                    sr->SetColor(0.6f, 0.3f, 0.3f, 1.0f);  // Normal red
+                }
+            }
+        }
+    }
+
+    // Keyboard navigation
+    if (Input::GetKeyDown(GLFW_KEY_UP) || Input::GetKeyDown(GLFW_KEY_W)) {
+        selectedButton = 0;
+    }
+    if (Input::GetKeyDown(GLFW_KEY_DOWN) || Input::GetKeyDown(GLFW_KEY_S)) {
+        selectedButton = 1;
+    }
+
+    // Keyboard activation
     if (Input::GetKeyDown(GLFW_KEY_ENTER) || Input::GetKeyDown(GLFW_KEY_SPACE)) {
-        SceneManager::ChangeScene("Game");
+        if (selectedButton == 0) {
+            SceneManager::ChangeScene("Game");
+        } else if (selectedButton == 1) {
+            // Request quit - will be handled by main loop
+            extern GLFWwindow* g_window;
+            if (g_window) {
+                glfwSetWindowShouldClose(g_window, true);
+            }
+        }
+    }
+
+    // Mouse click
+    if (Input::GetMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT)) {
+        if (startHovered) {
+            SceneManager::ChangeScene("Game");
+        } else if (quitHovered) {
+            extern GLFWwindow* g_window;
+            if (g_window) {
+                glfwSetWindowShouldClose(g_window, true);
+            }
+        }
     }
 
     // Update all game objects

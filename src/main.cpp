@@ -36,6 +36,7 @@ const unsigned int SCR_HEIGHT = 600;
 Renderer* g_renderer = nullptr;
 Shader* g_shader = nullptr;
 Camera2D* g_camera = nullptr;
+GLFWwindow* g_window = nullptr;
 
 // Editor scene objects
 std::vector<std::shared_ptr<GameObject>> g_editorObjects;
@@ -56,6 +57,7 @@ int main() {
         glfwTerminate();
         return -1;
     }
+    g_window = window;  // Store global reference for quit functionality
     glfwMakeContextCurrent(window);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
