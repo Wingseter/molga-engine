@@ -1,6 +1,8 @@
 file(REMOVE_RECURSE
   "CMakeFiles/molga_engine.dir/src/Animation.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Animation.cpp.o.d"
+  "CMakeFiles/molga_engine.dir/src/Audio.cpp.o"
+  "CMakeFiles/molga_engine.dir/src/Audio.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Camera2D.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Camera2D.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Collision.cpp.o"

@@ -9,6 +9,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/kwon/Workspace/C/molga-engine/src/Animation.cpp" "CMakeFiles/molga_engine.dir/src/Animation.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Animation.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Audio.cpp" "CMakeFiles/molga_engine.dir/src/Audio.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Audio.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Camera2D.cpp" "CMakeFiles/molga_engine.dir/src/Camera2D.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Camera2D.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Collision.cpp" "CMakeFiles/molga_engine.dir/src/Collision.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Collision.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Input.cpp" "CMakeFiles/molga_engine.dir/src/Input.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Input.cpp.o.d"

@@ -4,7 +4,7 @@
 # compile C with /Library/Developer/CommandLineTools/usr/bin/cc
 C_DEFINES = 
 
-C_INCLUDES = -I/Users/kwon/Workspace/C/molga-engine/external/glad/include -I/Users/kwon/Workspace/C/molga-engine/external/stb
+C_INCLUDES = -I/Users/kwon/Workspace/C/molga-engine/external/glad/include -I/Users/kwon/Workspace/C/molga-engine/external/stb -I/Users/kwon/Workspace/C/molga-engine/external/miniaudio
 
 C_FLAGSarm64 =  -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
 
