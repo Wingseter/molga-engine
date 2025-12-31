@@ -274,6 +274,30 @@ src/Animation.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Animation.cpp.s
 .PHONY : src/Animation.cpp.s
 
+src/Audio.o: src/Audio.cpp.o
+.PHONY : src/Audio.o
+
+# target to build an object file
+src/Audio.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Audio.cpp.o
+.PHONY : src/Audio.cpp.o
+
+src/Audio.i: src/Audio.cpp.i
+.PHONY : src/Audio.i
+
+# target to preprocess a source file
+src/Audio.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Audio.cpp.i
+.PHONY : src/Audio.cpp.i
+
+src/Audio.s: src/Audio.cpp.s
+.PHONY : src/Audio.s
+
+# target to generate assembly for a file
+src/Audio.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Audio.cpp.s
+.PHONY : src/Audio.cpp.s
+
 src/Camera2D.o: src/Camera2D.cpp.o
 .PHONY : src/Camera2D.o
 
@@ -585,6 +609,9 @@ help:
 	@echo "... src/Animation.o"
 	@echo "... src/Animation.i"
 	@echo "... src/Animation.s"
+	@echo "... src/Audio.o"
+	@echo "... src/Audio.i"
+	@echo "... src/Audio.s"
 	@echo "... src/Camera2D.o"
 	@echo "... src/Camera2D.i"
 	@echo "... src/Camera2D.s"

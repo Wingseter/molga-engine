@@ -15,6 +15,7 @@
 #include "Collision.h"
 #include "Tilemap.h"
 #include "UI.h"
+#include "Audio.h"
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
@@ -56,6 +57,7 @@ int main() {
     // Initialize systems
     Time::Init();
     Input::Init(window);
+    Audio::Init();
 
     // Initialize renderer and camera
     Renderer renderer;
@@ -286,6 +288,7 @@ int main() {
         glfwPollEvents();
     }
 
+    Audio::Shutdown();
     glfwTerminate();
     return 0;
 }

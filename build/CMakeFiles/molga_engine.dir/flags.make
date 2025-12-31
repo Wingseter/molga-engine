@@ -4,7 +4,7 @@
 # compile CXX with /Library/Developer/CommandLineTools/usr/bin/c++
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/Users/kwon/Workspace/C/molga-engine/external/glad/include -I/Users/kwon/Workspace/C/molga-engine/external/stb -I/Users/kwon/Workspace/C/molga-engine/external/glfw/include
+CXX_INCLUDES = -I/Users/kwon/Workspace/C/molga-engine/external/glad/include -I/Users/kwon/Workspace/C/molga-engine/external/stb -I/Users/kwon/Workspace/C/molga-engine/external/miniaudio -I/Users/kwon/Workspace/C/molga-engine/external/glfw/include
 
 CXX_FLAGSarm64 = -std=gnu++17 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
 
