@@ -370,6 +370,30 @@ src/Input.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Input.cpp.s
 .PHONY : src/Input.cpp.s
 
+src/Particle.o: src/Particle.cpp.o
+.PHONY : src/Particle.o
+
+# target to build an object file
+src/Particle.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.o
+.PHONY : src/Particle.cpp.o
+
+src/Particle.i: src/Particle.cpp.i
+.PHONY : src/Particle.i
+
+# target to preprocess a source file
+src/Particle.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.i
+.PHONY : src/Particle.cpp.i
+
+src/Particle.s: src/Particle.cpp.s
+.PHONY : src/Particle.s
+
+# target to generate assembly for a file
+src/Particle.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.s
+.PHONY : src/Particle.cpp.s
+
 src/Renderer.o: src/Renderer.cpp.o
 .PHONY : src/Renderer.o
 
@@ -393,6 +417,30 @@ src/Renderer.s: src/Renderer.cpp.s
 src/Renderer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Renderer.cpp.s
 .PHONY : src/Renderer.cpp.s
+
+src/Scene.o: src/Scene.cpp.o
+.PHONY : src/Scene.o
+
+# target to build an object file
+src/Scene.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.o
+.PHONY : src/Scene.cpp.o
+
+src/Scene.i: src/Scene.cpp.i
+.PHONY : src/Scene.i
+
+# target to preprocess a source file
+src/Scene.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.i
+.PHONY : src/Scene.cpp.i
+
+src/Scene.s: src/Scene.cpp.s
+.PHONY : src/Scene.s
+
+# target to generate assembly for a file
+src/Scene.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.s
+.PHONY : src/Scene.cpp.s
 
 src/Shader.o: src/Shader.cpp.o
 .PHONY : src/Shader.o
@@ -621,9 +669,15 @@ help:
 	@echo "... src/Input.o"
 	@echo "... src/Input.i"
 	@echo "... src/Input.s"
+	@echo "... src/Particle.o"
+	@echo "... src/Particle.i"
+	@echo "... src/Particle.s"
 	@echo "... src/Renderer.o"
 	@echo "... src/Renderer.i"
 	@echo "... src/Renderer.s"
+	@echo "... src/Scene.o"
+	@echo "... src/Scene.i"
+	@echo "... src/Scene.s"
 	@echo "... src/Shader.o"
 	@echo "... src/Shader.i"
 	@echo "... src/Shader.s"
