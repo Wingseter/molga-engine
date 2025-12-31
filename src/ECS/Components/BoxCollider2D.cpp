@@ -1,7 +1,9 @@
 #include "BoxCollider2D.h"
 #include "../GameObject.h"
 #include <nlohmann/json.hpp>
+#ifdef MOLGA_EDITOR
 #include <imgui.h>
+#endif
 
 using json = nlohmann::json;
 
@@ -64,6 +66,7 @@ void BoxCollider2D::Deserialize(const nlohmann::json& j) {
 }
 
 void BoxCollider2D::OnInspectorGUI() {
+#ifdef MOLGA_EDITOR
     float sizeArr[2] = { size.x, size.y };
     if (ImGui::DragFloat2("Size", sizeArr, 0.5f)) {
         SetSize(sizeArr[0], sizeArr[1]);
@@ -78,4 +81,5 @@ void BoxCollider2D::OnInspectorGUI() {
     if (ImGui::Checkbox("Is Trigger", &trigger)) {
         SetTrigger(trigger);
     }
+#endif
 }

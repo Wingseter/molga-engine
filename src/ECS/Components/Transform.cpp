@@ -1,7 +1,9 @@
 #include "Transform.h"
 #include "../GameObject.h"
 #include <nlohmann/json.hpp>
+#ifdef MOLGA_EDITOR
 #include <imgui.h>
+#endif
 
 using json = nlohmann::json;
 
@@ -79,6 +81,7 @@ void Transform::Deserialize(const nlohmann::json& j) {
 }
 
 void Transform::OnInspectorGUI() {
+#ifdef MOLGA_EDITOR
     float pos[2] = { position.x, position.y };
     if (ImGui::DragFloat2("Position", pos, 0.5f)) {
         SetPosition(pos[0], pos[1]);
@@ -93,4 +96,5 @@ void Transform::OnInspectorGUI() {
     if (ImGui::DragFloat2("Scale", scaleArr, 0.01f)) {
         SetScale(scaleArr[0], scaleArr[1]);
     }
+#endif
 }

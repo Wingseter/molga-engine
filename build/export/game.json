@@ -1,0 +1,10 @@
+{
+  "fullscreen": false,
+  "gameName": "MyGame",
+  "mainScene": "scenes/main.json",
+  "scenes": [
+    "scenes/main.json"
+  ],
+  "windowHeight": 600,
+  "windowWidth": 800
+}

@@ -296,52 +296,10 @@ CMakeFiles/molga_engine.dir/src/Particle.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Particle.cpp.s"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Particle.cpp -o CMakeFiles/molga_engine.dir/src/Particle.cpp.s
 
-CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o: CMakeFiles/molga_engine.dir/flags.make
-CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp
-CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp
-
-CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.i"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp > CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.i
-
-CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.s"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp -o CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.s
-
-CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o: CMakeFiles/molga_engine.dir/flags.make
-CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp
-CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp
-
-CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.i"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp > CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.i
-
-CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.s"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp -o CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.s
-
-CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o: CMakeFiles/molga_engine.dir/flags.make
-CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp
-CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o -MF CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp
-
-CMakeFiles/molga_engine.dir/src/Core/Application.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Core/Application.cpp.i"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp > CMakeFiles/molga_engine.dir/src/Core/Application.cpp.i
-
-CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp -o CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s
-
 CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/ECS/GameObject.cpp
 CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_17) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o -MF CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o.d -o CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/ECS/GameObject.cpp
 
 CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.i: cmake_force
@@ -355,7 +313,7 @@ CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/Transform.cpp
 CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_18) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o -MF CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o.d -o CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/Transform.cpp
 
 CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.i: cmake_force
@@ -369,7 +327,7 @@ CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/SpriteRenderer.cpp
 CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_22) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_19) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o -MF CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o.d -o CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/SpriteRenderer.cpp
 
 CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.i: cmake_force
@@ -383,7 +341,7 @@ CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/BoxCollider2D.cpp
 CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_23) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_20) "Building CXX object CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o -MF CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o.d -o CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/BoxCollider2D.cpp
 
 CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.i: cmake_force
@@ -394,52 +352,10 @@ CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.s"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/BoxCollider2D.cpp -o CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.s
 
-CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o: CMakeFiles/molga_engine.dir/flags.make
-CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp
-CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_24) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp
-
-CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.i"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp > CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.i
-
-CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.s"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp -o CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.s
-
-CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o: CMakeFiles/molga_engine.dir/flags.make
-CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp
-CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp
-
-CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.i"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp > CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.i
-
-CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.s"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp -o CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.s
-
-CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o: CMakeFiles/molga_engine.dir/flags.make
-CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp
-CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_26) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp
-
-CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.i"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp > CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.i
-
-CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp -o CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s
-
 CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Core/SceneSerializer.cpp
 CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_27) "Building CXX object CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_21) "Building CXX object CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o -MF CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Core/SceneSerializer.cpp
 
 CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.i: cmake_force
@@ -453,7 +369,7 @@ CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scripting/Script.cpp
 CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_22) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scripting/Script.cpp
 
 CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.i: cmake_force
@@ -467,7 +383,7 @@ CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scripting/ScriptManager.cpp
 CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_29) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_23) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scripting/ScriptManager.cpp
 
 CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.i: cmake_force
@@ -481,7 +397,7 @@ CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scripting/BuiltinScripts.cpp
 CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_30) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_24) "Building CXX object CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scripting/BuiltinScripts.cpp
 
 CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.i: cmake_force
@@ -495,7 +411,7 @@ CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Platform/Platform.cpp
 CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_31) "Building CXX object CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_25) "Building CXX object CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o -MF CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Platform/Platform.cpp
 
 CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.i: cmake_force
@@ -506,10 +422,122 @@ CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.s"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Platform/Platform.cpp -o CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.s
 
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_26) "Building CXX object CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o -MF CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o.d -o CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp
+
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp > CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i
+
+CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp -o CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp
+CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_27) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp
+
+CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp > CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/ImGuiLayer.cpp -o CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp
+CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_28) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp
+
+CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp > CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/EditorState.cpp -o CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp
+CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_29) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp
+
+CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp > CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/Editor.cpp -o CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp
+CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_30) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp
+
+CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp > CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/HierarchyWindow.cpp -o CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp
+CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_31) "Building CXX object CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o -MF CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp
+
+CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp > CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Editor/Windows/InspectorWindow.cpp -o CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp
+CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_32) "Building CXX object CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o -MF CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp
+
+CMakeFiles/molga_engine.dir/src/Core/Application.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Core/Application.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp > CMakeFiles/molga_engine.dir/src/Core/Application.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Core/Application.cpp -o CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s
+
+CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o: CMakeFiles/molga_engine.dir/flags.make
+CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Core/GameBuilder.cpp
+CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_33) "Building CXX object CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o -MF CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Core/GameBuilder.cpp
+
+CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.i: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.i"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/Core/GameBuilder.cpp > CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.i
+
+CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.s: cmake_force
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.s"
+	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Core/GameBuilder.cpp -o CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.s
+
 CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scenes/MenuScene.cpp
 CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_32) "Building CXX object CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_34) "Building CXX object CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scenes/MenuScene.cpp
 
 CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.i: cmake_force
@@ -523,7 +551,7 @@ CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.s: cmake_force
 CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o: CMakeFiles/molga_engine.dir/flags.make
 CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/Scenes/GameScene.cpp
 CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_33) "Building CXX object CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_35) "Building CXX object CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o -MF CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o.d -o CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/Scenes/GameScene.cpp
 
 CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.i: cmake_force
@@ -533,20 +561,6 @@ CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.i: cmake_force
 CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s"
 	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/Scenes/GameScene.cpp -o CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.s
-
-CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: CMakeFiles/molga_engine.dir/flags.make
-CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp
-CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o: CMakeFiles/molga_engine.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_34) "Building CXX object CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o -MF CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o.d -o CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o -c /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp
-
-CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp > CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i
-
-CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s: cmake_force
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s"
-	/Library/Developer/CommandLineTools/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /Users/kwon/Workspace/C/molga-engine/src/TextRenderer.cpp -o CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s
 
 # Object files for target molga_engine
 molga_engine_OBJECTS = \
@@ -566,24 +580,25 @@ molga_engine_OBJECTS = \
 "CMakeFiles/molga_engine.dir/src/Audio.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Scene.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Particle.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o" \
+"CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o" \
 "CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o" \
-"CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o"
+"CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o"
 
 # External object files for target molga_engine
 molga_engine_EXTERNAL_OBJECTS =
@@ -604,31 +619,32 @@ molga_engine: CMakeFiles/molga_engine.dir/src/UI.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Audio.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scene.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Particle.cpp.o
-molga_engine: CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o
-molga_engine: CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o
-molga_engine: CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o
-molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o
-molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o
-molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Editor/ImGuiLayer.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Editor/EditorState.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Editor.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Windows/HierarchyWindow.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o
+molga_engine: CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scenes/MenuScene.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/src/Scenes/GameScene.cpp.o
-molga_engine: CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o
 molga_engine: CMakeFiles/molga_engine.dir/build.make
 molga_engine: libglad.a
 molga_engine: external/glfw/src/libglfw3.a
 molga_engine: libimgui.a
 molga_engine: external/glfw/src/libglfw3.a
 molga_engine: CMakeFiles/molga_engine.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_35) "Linking CXX executable molga_engine"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/Users/kwon/Workspace/C/molga-engine/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_36) "Linking CXX executable molga_engine"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/molga_engine.dir/link.txt --verbose=$(VERBOSE)
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --blue --bold "Copying assets to build directory"
 	/opt/homebrew/bin/cmake -E copy_directory /Users/kwon/Workspace/C/molga-engine/assets /Users/kwon/Workspace/C/molga-engine/build/assets

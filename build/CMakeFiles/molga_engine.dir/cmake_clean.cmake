@@ -9,6 +9,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/molga_engine.dir/src/Collision.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Core/Application.cpp.o.d"
+  "CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o"
+  "CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o"

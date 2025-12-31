@@ -6,7 +6,9 @@
 #include "../../Camera2D.h"
 #include "../../Sprite.h"
 #include <nlohmann/json.hpp>
+#ifdef MOLGA_EDITOR
 #include <imgui.h>
+#endif
 
 using json = nlohmann::json;
 
@@ -78,6 +80,7 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
 }
 
 void SpriteRenderer::OnInspectorGUI() {
+#ifdef MOLGA_EDITOR
     float size[2] = { width, height };
     if (ImGui::DragFloat2("Size", size, 0.5f)) {
         SetSize(size[0], size[1]);
@@ -102,4 +105,5 @@ void SpriteRenderer::OnInspectorGUI() {
     if (ImGui::InputInt("Sorting Order", &order)) {
         SetSortingOrder(order);
     }
+#endif
 }

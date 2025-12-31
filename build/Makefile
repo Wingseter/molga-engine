@@ -188,6 +188,19 @@ molga_engine/fast:
 .PHONY : molga_engine/fast
 
 #=============================================================================
+# Target rules for targets named molga_runtime
+
+# Build rule for target.
+molga_runtime: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 molga_runtime
+.PHONY : molga_runtime
+
+# fast build rule for target.
+molga_runtime/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/build
+.PHONY : molga_runtime/fast
+
+#=============================================================================
 # Target rules for targets named glad
 
 # Build rule for target.
@@ -413,6 +426,7 @@ src/Animation.o: src/Animation.cpp.o
 # target to build an object file
 src/Animation.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Animation.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Animation.cpp.o
 .PHONY : src/Animation.cpp.o
 
 src/Animation.i: src/Animation.cpp.i
@@ -421,6 +435,7 @@ src/Animation.i: src/Animation.cpp.i
 # target to preprocess a source file
 src/Animation.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Animation.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Animation.cpp.i
 .PHONY : src/Animation.cpp.i
 
 src/Animation.s: src/Animation.cpp.s
@@ -429,6 +444,7 @@ src/Animation.s: src/Animation.cpp.s
 # target to generate assembly for a file
 src/Animation.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Animation.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Animation.cpp.s
 .PHONY : src/Animation.cpp.s
 
 src/Audio.o: src/Audio.cpp.o
@@ -437,6 +453,7 @@ src/Audio.o: src/Audio.cpp.o
 # target to build an object file
 src/Audio.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Audio.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Audio.cpp.o
 .PHONY : src/Audio.cpp.o
 
 src/Audio.i: src/Audio.cpp.i
@@ -445,6 +462,7 @@ src/Audio.i: src/Audio.cpp.i
 # target to preprocess a source file
 src/Audio.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Audio.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Audio.cpp.i
 .PHONY : src/Audio.cpp.i
 
 src/Audio.s: src/Audio.cpp.s
@@ -453,6 +471,7 @@ src/Audio.s: src/Audio.cpp.s
 # target to generate assembly for a file
 src/Audio.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Audio.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Audio.cpp.s
 .PHONY : src/Audio.cpp.s
 
 src/Camera2D.o: src/Camera2D.cpp.o
@@ -461,6 +480,7 @@ src/Camera2D.o: src/Camera2D.cpp.o
 # target to build an object file
 src/Camera2D.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Camera2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Camera2D.cpp.o
 .PHONY : src/Camera2D.cpp.o
 
 src/Camera2D.i: src/Camera2D.cpp.i
@@ -469,6 +489,7 @@ src/Camera2D.i: src/Camera2D.cpp.i
 # target to preprocess a source file
 src/Camera2D.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Camera2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Camera2D.cpp.i
 .PHONY : src/Camera2D.cpp.i
 
 src/Camera2D.s: src/Camera2D.cpp.s
@@ -477,6 +498,7 @@ src/Camera2D.s: src/Camera2D.cpp.s
 # target to generate assembly for a file
 src/Camera2D.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Camera2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Camera2D.cpp.s
 .PHONY : src/Camera2D.cpp.s
 
 src/Collision.o: src/Collision.cpp.o
@@ -485,6 +507,7 @@ src/Collision.o: src/Collision.cpp.o
 # target to build an object file
 src/Collision.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Collision.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Collision.cpp.o
 .PHONY : src/Collision.cpp.o
 
 src/Collision.i: src/Collision.cpp.i
@@ -493,6 +516,7 @@ src/Collision.i: src/Collision.cpp.i
 # target to preprocess a source file
 src/Collision.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Collision.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Collision.cpp.i
 .PHONY : src/Collision.cpp.i
 
 src/Collision.s: src/Collision.cpp.s
@@ -501,6 +525,7 @@ src/Collision.s: src/Collision.cpp.s
 # target to generate assembly for a file
 src/Collision.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Collision.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Collision.cpp.s
 .PHONY : src/Collision.cpp.s
 
 src/Core/Application.o: src/Core/Application.cpp.o
@@ -527,12 +552,37 @@ src/Core/Application.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Application.cpp.s
 .PHONY : src/Core/Application.cpp.s
 
+src/Core/GameBuilder.o: src/Core/GameBuilder.cpp.o
+.PHONY : src/Core/GameBuilder.o
+
+# target to build an object file
+src/Core/GameBuilder.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o
+.PHONY : src/Core/GameBuilder.cpp.o
+
+src/Core/GameBuilder.i: src/Core/GameBuilder.cpp.i
+.PHONY : src/Core/GameBuilder.i
+
+# target to preprocess a source file
+src/Core/GameBuilder.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.i
+.PHONY : src/Core/GameBuilder.cpp.i
+
+src/Core/GameBuilder.s: src/Core/GameBuilder.cpp.s
+.PHONY : src/Core/GameBuilder.s
+
+# target to generate assembly for a file
+src/Core/GameBuilder.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.s
+.PHONY : src/Core/GameBuilder.cpp.s
+
 src/Core/SceneSerializer.o: src/Core/SceneSerializer.cpp.o
 .PHONY : src/Core/SceneSerializer.o
 
 # target to build an object file
 src/Core/SceneSerializer.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Core/SceneSerializer.cpp.o
 .PHONY : src/Core/SceneSerializer.cpp.o
 
 src/Core/SceneSerializer.i: src/Core/SceneSerializer.cpp.i
@@ -541,6 +591,7 @@ src/Core/SceneSerializer.i: src/Core/SceneSerializer.cpp.i
 # target to preprocess a source file
 src/Core/SceneSerializer.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Core/SceneSerializer.cpp.i
 .PHONY : src/Core/SceneSerializer.cpp.i
 
 src/Core/SceneSerializer.s: src/Core/SceneSerializer.cpp.s
@@ -549,6 +600,7 @@ src/Core/SceneSerializer.s: src/Core/SceneSerializer.cpp.s
 # target to generate assembly for a file
 src/Core/SceneSerializer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Core/SceneSerializer.cpp.s
 .PHONY : src/Core/SceneSerializer.cpp.s
 
 src/ECS/Components/BoxCollider2D.o: src/ECS/Components/BoxCollider2D.cpp.o
@@ -557,6 +609,7 @@ src/ECS/Components/BoxCollider2D.o: src/ECS/Components/BoxCollider2D.cpp.o
 # target to build an object file
 src/ECS/Components/BoxCollider2D.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/BoxCollider2D.cpp.o
 .PHONY : src/ECS/Components/BoxCollider2D.cpp.o
 
 src/ECS/Components/BoxCollider2D.i: src/ECS/Components/BoxCollider2D.cpp.i
@@ -565,6 +618,7 @@ src/ECS/Components/BoxCollider2D.i: src/ECS/Components/BoxCollider2D.cpp.i
 # target to preprocess a source file
 src/ECS/Components/BoxCollider2D.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/BoxCollider2D.cpp.i
 .PHONY : src/ECS/Components/BoxCollider2D.cpp.i
 
 src/ECS/Components/BoxCollider2D.s: src/ECS/Components/BoxCollider2D.cpp.s
@@ -573,6 +627,7 @@ src/ECS/Components/BoxCollider2D.s: src/ECS/Components/BoxCollider2D.cpp.s
 # target to generate assembly for a file
 src/ECS/Components/BoxCollider2D.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/BoxCollider2D.cpp.s
 .PHONY : src/ECS/Components/BoxCollider2D.cpp.s
 
 src/ECS/Components/SpriteRenderer.o: src/ECS/Components/SpriteRenderer.cpp.o
@@ -581,6 +636,7 @@ src/ECS/Components/SpriteRenderer.o: src/ECS/Components/SpriteRenderer.cpp.o
 # target to build an object file
 src/ECS/Components/SpriteRenderer.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/SpriteRenderer.cpp.o
 .PHONY : src/ECS/Components/SpriteRenderer.cpp.o
 
 src/ECS/Components/SpriteRenderer.i: src/ECS/Components/SpriteRenderer.cpp.i
@@ -589,6 +645,7 @@ src/ECS/Components/SpriteRenderer.i: src/ECS/Components/SpriteRenderer.cpp.i
 # target to preprocess a source file
 src/ECS/Components/SpriteRenderer.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/SpriteRenderer.cpp.i
 .PHONY : src/ECS/Components/SpriteRenderer.cpp.i
 
 src/ECS/Components/SpriteRenderer.s: src/ECS/Components/SpriteRenderer.cpp.s
@@ -597,6 +654,7 @@ src/ECS/Components/SpriteRenderer.s: src/ECS/Components/SpriteRenderer.cpp.s
 # target to generate assembly for a file
 src/ECS/Components/SpriteRenderer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/SpriteRenderer.cpp.s
 .PHONY : src/ECS/Components/SpriteRenderer.cpp.s
 
 src/ECS/Components/Transform.o: src/ECS/Components/Transform.cpp.o
@@ -605,6 +663,7 @@ src/ECS/Components/Transform.o: src/ECS/Components/Transform.cpp.o
 # target to build an object file
 src/ECS/Components/Transform.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/Transform.cpp.o
 .PHONY : src/ECS/Components/Transform.cpp.o
 
 src/ECS/Components/Transform.i: src/ECS/Components/Transform.cpp.i
@@ -613,6 +672,7 @@ src/ECS/Components/Transform.i: src/ECS/Components/Transform.cpp.i
 # target to preprocess a source file
 src/ECS/Components/Transform.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/Transform.cpp.i
 .PHONY : src/ECS/Components/Transform.cpp.i
 
 src/ECS/Components/Transform.s: src/ECS/Components/Transform.cpp.s
@@ -621,6 +681,7 @@ src/ECS/Components/Transform.s: src/ECS/Components/Transform.cpp.s
 # target to generate assembly for a file
 src/ECS/Components/Transform.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/Components/Transform.cpp.s
 .PHONY : src/ECS/Components/Transform.cpp.s
 
 src/ECS/GameObject.o: src/ECS/GameObject.cpp.o
@@ -629,6 +690,7 @@ src/ECS/GameObject.o: src/ECS/GameObject.cpp.o
 # target to build an object file
 src/ECS/GameObject.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/GameObject.cpp.o
 .PHONY : src/ECS/GameObject.cpp.o
 
 src/ECS/GameObject.i: src/ECS/GameObject.cpp.i
@@ -637,6 +699,7 @@ src/ECS/GameObject.i: src/ECS/GameObject.cpp.i
 # target to preprocess a source file
 src/ECS/GameObject.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/GameObject.cpp.i
 .PHONY : src/ECS/GameObject.cpp.i
 
 src/ECS/GameObject.s: src/ECS/GameObject.cpp.s
@@ -645,6 +708,7 @@ src/ECS/GameObject.s: src/ECS/GameObject.cpp.s
 # target to generate assembly for a file
 src/ECS/GameObject.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/ECS/GameObject.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/ECS/GameObject.cpp.s
 .PHONY : src/ECS/GameObject.cpp.s
 
 src/Editor/Editor.o: src/Editor/Editor.cpp.o
@@ -773,6 +837,7 @@ src/Input.o: src/Input.cpp.o
 # target to build an object file
 src/Input.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Input.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Input.cpp.o
 .PHONY : src/Input.cpp.o
 
 src/Input.i: src/Input.cpp.i
@@ -781,6 +846,7 @@ src/Input.i: src/Input.cpp.i
 # target to preprocess a source file
 src/Input.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Input.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Input.cpp.i
 .PHONY : src/Input.cpp.i
 
 src/Input.s: src/Input.cpp.s
@@ -789,6 +855,7 @@ src/Input.s: src/Input.cpp.s
 # target to generate assembly for a file
 src/Input.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Input.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Input.cpp.s
 .PHONY : src/Input.cpp.s
 
 src/Particle.o: src/Particle.cpp.o
@@ -797,6 +864,7 @@ src/Particle.o: src/Particle.cpp.o
 # target to build an object file
 src/Particle.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Particle.cpp.o
 .PHONY : src/Particle.cpp.o
 
 src/Particle.i: src/Particle.cpp.i
@@ -805,6 +873,7 @@ src/Particle.i: src/Particle.cpp.i
 # target to preprocess a source file
 src/Particle.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Particle.cpp.i
 .PHONY : src/Particle.cpp.i
 
 src/Particle.s: src/Particle.cpp.s
@@ -813,6 +882,7 @@ src/Particle.s: src/Particle.cpp.s
 # target to generate assembly for a file
 src/Particle.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Particle.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Particle.cpp.s
 .PHONY : src/Particle.cpp.s
 
 src/Platform/Platform.o: src/Platform/Platform.cpp.o
@@ -821,6 +891,7 @@ src/Platform/Platform.o: src/Platform/Platform.cpp.o
 # target to build an object file
 src/Platform/Platform.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Platform/Platform.cpp.o
 .PHONY : src/Platform/Platform.cpp.o
 
 src/Platform/Platform.i: src/Platform/Platform.cpp.i
@@ -829,6 +900,7 @@ src/Platform/Platform.i: src/Platform/Platform.cpp.i
 # target to preprocess a source file
 src/Platform/Platform.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Platform/Platform.cpp.i
 .PHONY : src/Platform/Platform.cpp.i
 
 src/Platform/Platform.s: src/Platform/Platform.cpp.s
@@ -837,6 +909,7 @@ src/Platform/Platform.s: src/Platform/Platform.cpp.s
 # target to generate assembly for a file
 src/Platform/Platform.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Platform/Platform.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Platform/Platform.cpp.s
 .PHONY : src/Platform/Platform.cpp.s
 
 src/Renderer.o: src/Renderer.cpp.o
@@ -845,6 +918,7 @@ src/Renderer.o: src/Renderer.cpp.o
 # target to build an object file
 src/Renderer.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Renderer.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Renderer.cpp.o
 .PHONY : src/Renderer.cpp.o
 
 src/Renderer.i: src/Renderer.cpp.i
@@ -853,6 +927,7 @@ src/Renderer.i: src/Renderer.cpp.i
 # target to preprocess a source file
 src/Renderer.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Renderer.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Renderer.cpp.i
 .PHONY : src/Renderer.cpp.i
 
 src/Renderer.s: src/Renderer.cpp.s
@@ -861,6 +936,7 @@ src/Renderer.s: src/Renderer.cpp.s
 # target to generate assembly for a file
 src/Renderer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Renderer.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Renderer.cpp.s
 .PHONY : src/Renderer.cpp.s
 
 src/Scene.o: src/Scene.cpp.o
@@ -869,6 +945,7 @@ src/Scene.o: src/Scene.cpp.o
 # target to build an object file
 src/Scene.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scene.cpp.o
 .PHONY : src/Scene.cpp.o
 
 src/Scene.i: src/Scene.cpp.i
@@ -877,6 +954,7 @@ src/Scene.i: src/Scene.cpp.i
 # target to preprocess a source file
 src/Scene.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scene.cpp.i
 .PHONY : src/Scene.cpp.i
 
 src/Scene.s: src/Scene.cpp.s
@@ -885,6 +963,7 @@ src/Scene.s: src/Scene.cpp.s
 # target to generate assembly for a file
 src/Scene.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scene.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scene.cpp.s
 .PHONY : src/Scene.cpp.s
 
 src/Scenes/GameScene.o: src/Scenes/GameScene.cpp.o
@@ -941,6 +1020,7 @@ src/Scripting/BuiltinScripts.o: src/Scripting/BuiltinScripts.cpp.o
 # target to build an object file
 src/Scripting/BuiltinScripts.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/BuiltinScripts.cpp.o
 .PHONY : src/Scripting/BuiltinScripts.cpp.o
 
 src/Scripting/BuiltinScripts.i: src/Scripting/BuiltinScripts.cpp.i
@@ -949,6 +1029,7 @@ src/Scripting/BuiltinScripts.i: src/Scripting/BuiltinScripts.cpp.i
 # target to preprocess a source file
 src/Scripting/BuiltinScripts.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/BuiltinScripts.cpp.i
 .PHONY : src/Scripting/BuiltinScripts.cpp.i
 
 src/Scripting/BuiltinScripts.s: src/Scripting/BuiltinScripts.cpp.s
@@ -957,6 +1038,7 @@ src/Scripting/BuiltinScripts.s: src/Scripting/BuiltinScripts.cpp.s
 # target to generate assembly for a file
 src/Scripting/BuiltinScripts.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/BuiltinScripts.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/BuiltinScripts.cpp.s
 .PHONY : src/Scripting/BuiltinScripts.cpp.s
 
 src/Scripting/Script.o: src/Scripting/Script.cpp.o
@@ -965,6 +1047,7 @@ src/Scripting/Script.o: src/Scripting/Script.cpp.o
 # target to build an object file
 src/Scripting/Script.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/Script.cpp.o
 .PHONY : src/Scripting/Script.cpp.o
 
 src/Scripting/Script.i: src/Scripting/Script.cpp.i
@@ -973,6 +1056,7 @@ src/Scripting/Script.i: src/Scripting/Script.cpp.i
 # target to preprocess a source file
 src/Scripting/Script.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/Script.cpp.i
 .PHONY : src/Scripting/Script.cpp.i
 
 src/Scripting/Script.s: src/Scripting/Script.cpp.s
@@ -981,6 +1065,7 @@ src/Scripting/Script.s: src/Scripting/Script.cpp.s
 # target to generate assembly for a file
 src/Scripting/Script.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/Script.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/Script.cpp.s
 .PHONY : src/Scripting/Script.cpp.s
 
 src/Scripting/ScriptManager.o: src/Scripting/ScriptManager.cpp.o
@@ -989,6 +1074,7 @@ src/Scripting/ScriptManager.o: src/Scripting/ScriptManager.cpp.o
 # target to build an object file
 src/Scripting/ScriptManager.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/ScriptManager.cpp.o
 .PHONY : src/Scripting/ScriptManager.cpp.o
 
 src/Scripting/ScriptManager.i: src/Scripting/ScriptManager.cpp.i
@@ -997,6 +1083,7 @@ src/Scripting/ScriptManager.i: src/Scripting/ScriptManager.cpp.i
 # target to preprocess a source file
 src/Scripting/ScriptManager.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/ScriptManager.cpp.i
 .PHONY : src/Scripting/ScriptManager.cpp.i
 
 src/Scripting/ScriptManager.s: src/Scripting/ScriptManager.cpp.s
@@ -1005,6 +1092,7 @@ src/Scripting/ScriptManager.s: src/Scripting/ScriptManager.cpp.s
 # target to generate assembly for a file
 src/Scripting/ScriptManager.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Scripting/ScriptManager.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Scripting/ScriptManager.cpp.s
 .PHONY : src/Scripting/ScriptManager.cpp.s
 
 src/Shader.o: src/Shader.cpp.o
@@ -1013,6 +1101,7 @@ src/Shader.o: src/Shader.cpp.o
 # target to build an object file
 src/Shader.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Shader.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Shader.cpp.o
 .PHONY : src/Shader.cpp.o
 
 src/Shader.i: src/Shader.cpp.i
@@ -1021,6 +1110,7 @@ src/Shader.i: src/Shader.cpp.i
 # target to preprocess a source file
 src/Shader.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Shader.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Shader.cpp.i
 .PHONY : src/Shader.cpp.i
 
 src/Shader.s: src/Shader.cpp.s
@@ -1029,6 +1119,7 @@ src/Shader.s: src/Shader.cpp.s
 # target to generate assembly for a file
 src/Shader.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Shader.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Shader.cpp.s
 .PHONY : src/Shader.cpp.s
 
 src/Sprite.o: src/Sprite.cpp.o
@@ -1037,6 +1128,7 @@ src/Sprite.o: src/Sprite.cpp.o
 # target to build an object file
 src/Sprite.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Sprite.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Sprite.cpp.o
 .PHONY : src/Sprite.cpp.o
 
 src/Sprite.i: src/Sprite.cpp.i
@@ -1045,6 +1137,7 @@ src/Sprite.i: src/Sprite.cpp.i
 # target to preprocess a source file
 src/Sprite.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Sprite.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Sprite.cpp.i
 .PHONY : src/Sprite.cpp.i
 
 src/Sprite.s: src/Sprite.cpp.s
@@ -1053,6 +1146,7 @@ src/Sprite.s: src/Sprite.cpp.s
 # target to generate assembly for a file
 src/Sprite.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Sprite.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Sprite.cpp.s
 .PHONY : src/Sprite.cpp.s
 
 src/SpriteSheet.o: src/SpriteSheet.cpp.o
@@ -1061,6 +1155,7 @@ src/SpriteSheet.o: src/SpriteSheet.cpp.o
 # target to build an object file
 src/SpriteSheet.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/SpriteSheet.cpp.o
 .PHONY : src/SpriteSheet.cpp.o
 
 src/SpriteSheet.i: src/SpriteSheet.cpp.i
@@ -1069,6 +1164,7 @@ src/SpriteSheet.i: src/SpriteSheet.cpp.i
 # target to preprocess a source file
 src/SpriteSheet.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/SpriteSheet.cpp.i
 .PHONY : src/SpriteSheet.cpp.i
 
 src/SpriteSheet.s: src/SpriteSheet.cpp.s
@@ -1077,6 +1173,7 @@ src/SpriteSheet.s: src/SpriteSheet.cpp.s
 # target to generate assembly for a file
 src/SpriteSheet.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/SpriteSheet.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/SpriteSheet.cpp.s
 .PHONY : src/SpriteSheet.cpp.s
 
 src/TextRenderer.o: src/TextRenderer.cpp.o
@@ -1085,6 +1182,7 @@ src/TextRenderer.o: src/TextRenderer.cpp.o
 # target to build an object file
 src/TextRenderer.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/TextRenderer.cpp.o
 .PHONY : src/TextRenderer.cpp.o
 
 src/TextRenderer.i: src/TextRenderer.cpp.i
@@ -1093,6 +1191,7 @@ src/TextRenderer.i: src/TextRenderer.cpp.i
 # target to preprocess a source file
 src/TextRenderer.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/TextRenderer.cpp.i
 .PHONY : src/TextRenderer.cpp.i
 
 src/TextRenderer.s: src/TextRenderer.cpp.s
@@ -1101,6 +1200,7 @@ src/TextRenderer.s: src/TextRenderer.cpp.s
 # target to generate assembly for a file
 src/TextRenderer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/TextRenderer.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/TextRenderer.cpp.s
 .PHONY : src/TextRenderer.cpp.s
 
 src/Texture.o: src/Texture.cpp.o
@@ -1109,6 +1209,7 @@ src/Texture.o: src/Texture.cpp.o
 # target to build an object file
 src/Texture.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Texture.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Texture.cpp.o
 .PHONY : src/Texture.cpp.o
 
 src/Texture.i: src/Texture.cpp.i
@@ -1117,6 +1218,7 @@ src/Texture.i: src/Texture.cpp.i
 # target to preprocess a source file
 src/Texture.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Texture.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Texture.cpp.i
 .PHONY : src/Texture.cpp.i
 
 src/Texture.s: src/Texture.cpp.s
@@ -1125,6 +1227,7 @@ src/Texture.s: src/Texture.cpp.s
 # target to generate assembly for a file
 src/Texture.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Texture.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Texture.cpp.s
 .PHONY : src/Texture.cpp.s
 
 src/Tilemap.o: src/Tilemap.cpp.o
@@ -1133,6 +1236,7 @@ src/Tilemap.o: src/Tilemap.cpp.o
 # target to build an object file
 src/Tilemap.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Tilemap.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Tilemap.cpp.o
 .PHONY : src/Tilemap.cpp.o
 
 src/Tilemap.i: src/Tilemap.cpp.i
@@ -1141,6 +1245,7 @@ src/Tilemap.i: src/Tilemap.cpp.i
 # target to preprocess a source file
 src/Tilemap.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Tilemap.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Tilemap.cpp.i
 .PHONY : src/Tilemap.cpp.i
 
 src/Tilemap.s: src/Tilemap.cpp.s
@@ -1149,6 +1254,7 @@ src/Tilemap.s: src/Tilemap.cpp.s
 # target to generate assembly for a file
 src/Tilemap.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Tilemap.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Tilemap.cpp.s
 .PHONY : src/Tilemap.cpp.s
 
 src/Time.o: src/Time.cpp.o
@@ -1157,6 +1263,7 @@ src/Time.o: src/Time.cpp.o
 # target to build an object file
 src/Time.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Time.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Time.cpp.o
 .PHONY : src/Time.cpp.o
 
 src/Time.i: src/Time.cpp.i
@@ -1165,6 +1272,7 @@ src/Time.i: src/Time.cpp.i
 # target to preprocess a source file
 src/Time.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Time.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Time.cpp.i
 .PHONY : src/Time.cpp.i
 
 src/Time.s: src/Time.cpp.s
@@ -1173,6 +1281,7 @@ src/Time.s: src/Time.cpp.s
 # target to generate assembly for a file
 src/Time.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Time.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Time.cpp.s
 .PHONY : src/Time.cpp.s
 
 src/UI.o: src/UI.cpp.o
@@ -1181,6 +1290,7 @@ src/UI.o: src/UI.cpp.o
 # target to build an object file
 src/UI.cpp.o:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/UI.cpp.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/UI.cpp.o
 .PHONY : src/UI.cpp.o
 
 src/UI.i: src/UI.cpp.i
@@ -1189,6 +1299,7 @@ src/UI.i: src/UI.cpp.i
 # target to preprocess a source file
 src/UI.cpp.i:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/UI.cpp.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/UI.cpp.i
 .PHONY : src/UI.cpp.i
 
 src/UI.s: src/UI.cpp.s
@@ -1197,6 +1308,7 @@ src/UI.s: src/UI.cpp.s
 # target to generate assembly for a file
 src/UI.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/UI.cpp.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/UI.cpp.s
 .PHONY : src/UI.cpp.s
 
 src/main.o: src/main.cpp.o
@@ -1223,6 +1335,30 @@ src/main.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/main.cpp.s
 .PHONY : src/main.cpp.s
 
+src/runtime_main.o: src/runtime_main.cpp.o
+.PHONY : src/runtime_main.o
+
+# target to build an object file
+src/runtime_main.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/runtime_main.cpp.o
+.PHONY : src/runtime_main.cpp.o
+
+src/runtime_main.i: src/runtime_main.cpp.i
+.PHONY : src/runtime_main.i
+
+# target to preprocess a source file
+src/runtime_main.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/runtime_main.cpp.i
+.PHONY : src/runtime_main.cpp.i
+
+src/runtime_main.s: src/runtime_main.cpp.s
+.PHONY : src/runtime_main.s
+
+# target to generate assembly for a file
+src/runtime_main.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/runtime_main.cpp.s
+.PHONY : src/runtime_main.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -1241,6 +1377,7 @@ help:
 	@echo "... glfw"
 	@echo "... imgui"
 	@echo "... molga_engine"
+	@echo "... molga_runtime"
 	@echo "... external/glad/src/glad.o"
 	@echo "... external/glad/src/glad.i"
 	@echo "... external/glad/src/glad.s"
@@ -1277,6 +1414,9 @@ help:
 	@echo "... src/Core/Application.o"
 	@echo "... src/Core/Application.i"
 	@echo "... src/Core/Application.s"
+	@echo "... src/Core/GameBuilder.o"
+	@echo "... src/Core/GameBuilder.i"
+	@echo "... src/Core/GameBuilder.s"
 	@echo "... src/Core/SceneSerializer.o"
 	@echo "... src/Core/SceneSerializer.i"
 	@echo "... src/Core/SceneSerializer.s"
@@ -1364,6 +1504,9 @@ help:
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"
+	@echo "... src/runtime_main.o"
+	@echo "... src/runtime_main.i"
+	@echo "... src/runtime_main.s"
 .PHONY : help
 
 
