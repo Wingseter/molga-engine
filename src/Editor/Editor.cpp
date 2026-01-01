@@ -2,11 +2,13 @@
 #include "EditorState.h"
 #include "Windows/HierarchyWindow.h"
 #include "Windows/InspectorWindow.h"
+#include "Windows/ProjectBrowserWindow.h"
 #include "../ECS/GameObject.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include "../Core/SceneSerializer.h"
 #include "../Core/GameBuilder.h"
+#include "../Core/Project.h"
 #include "../Time.h"
 #include <imgui.h>
 #include <iostream>
@@ -20,6 +22,7 @@ Editor& Editor::Get() {
 void Editor::Init() {
     hierarchyWindow = std::make_unique<HierarchyWindow>();
     inspectorWindow = std::make_unique<InspectorWindow>();
+    projectBrowserWindow = std::make_unique<ProjectBrowserWindow>();
 
     // Connect hierarchy selection to inspector
     hierarchyWindow->SetSelectionCallback([](GameObject* obj) {
@@ -30,6 +33,7 @@ void Editor::Init() {
 void Editor::Shutdown() {
     hierarchyWindow.reset();
     inspectorWindow.reset();
+    projectBrowserWindow.reset();
 }
 
 void Editor::Update(float dt) {
@@ -46,6 +50,11 @@ void Editor::RenderGUI() {
 
     if (showInspector && inspectorWindow) {
         inspectorWindow->OnGUI();
+    }
+
+    // Project browser
+    if (showProjectBrowser && projectBrowserWindow) {
+        projectBrowserWindow->OnGUI();
     }
 
     // Stats window
@@ -112,6 +121,7 @@ void Editor::RenderMenuBar() {
         if (ImGui::BeginMenu("Window")) {
             ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy);
             ImGui::MenuItem("Inspector", nullptr, &showInspector);
+            ImGui::MenuItem("Project", nullptr, &showProjectBrowser);
             ImGui::MenuItem("Stats", nullptr, &showStats);
             ImGui::EndMenu();
         }

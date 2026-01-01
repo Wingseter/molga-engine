@@ -576,6 +576,30 @@ src/Core/GameBuilder.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.s
 .PHONY : src/Core/GameBuilder.cpp.s
 
+src/Core/Project.o: src/Core/Project.cpp.o
+.PHONY : src/Core/Project.o
+
+# target to build an object file
+src/Core/Project.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Project.cpp.o
+.PHONY : src/Core/Project.cpp.o
+
+src/Core/Project.i: src/Core/Project.cpp.i
+.PHONY : src/Core/Project.i
+
+# target to preprocess a source file
+src/Core/Project.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Project.cpp.i
+.PHONY : src/Core/Project.cpp.i
+
+src/Core/Project.s: src/Core/Project.cpp.s
+.PHONY : src/Core/Project.s
+
+# target to generate assembly for a file
+src/Core/Project.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/Project.cpp.s
+.PHONY : src/Core/Project.cpp.s
+
 src/Core/SceneSerializer.o: src/Core/SceneSerializer.cpp.o
 .PHONY : src/Core/SceneSerializer.o
 
@@ -830,6 +854,54 @@ src/Editor/Windows/InspectorWindow.s: src/Editor/Windows/InspectorWindow.cpp.s
 src/Editor/Windows/InspectorWindow.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/InspectorWindow.cpp.s
 .PHONY : src/Editor/Windows/InspectorWindow.cpp.s
+
+src/Editor/Windows/ProjectBrowserWindow.o: src/Editor/Windows/ProjectBrowserWindow.cpp.o
+.PHONY : src/Editor/Windows/ProjectBrowserWindow.o
+
+# target to build an object file
+src/Editor/Windows/ProjectBrowserWindow.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/ProjectBrowserWindow.cpp.o
+.PHONY : src/Editor/Windows/ProjectBrowserWindow.cpp.o
+
+src/Editor/Windows/ProjectBrowserWindow.i: src/Editor/Windows/ProjectBrowserWindow.cpp.i
+.PHONY : src/Editor/Windows/ProjectBrowserWindow.i
+
+# target to preprocess a source file
+src/Editor/Windows/ProjectBrowserWindow.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/ProjectBrowserWindow.cpp.i
+.PHONY : src/Editor/Windows/ProjectBrowserWindow.cpp.i
+
+src/Editor/Windows/ProjectBrowserWindow.s: src/Editor/Windows/ProjectBrowserWindow.cpp.s
+.PHONY : src/Editor/Windows/ProjectBrowserWindow.s
+
+# target to generate assembly for a file
+src/Editor/Windows/ProjectBrowserWindow.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/ProjectBrowserWindow.cpp.s
+.PHONY : src/Editor/Windows/ProjectBrowserWindow.cpp.s
+
+src/Editor/Windows/ProjectWindow.o: src/Editor/Windows/ProjectWindow.cpp.o
+.PHONY : src/Editor/Windows/ProjectWindow.o
+
+# target to build an object file
+src/Editor/Windows/ProjectWindow.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/ProjectWindow.cpp.o
+.PHONY : src/Editor/Windows/ProjectWindow.cpp.o
+
+src/Editor/Windows/ProjectWindow.i: src/Editor/Windows/ProjectWindow.cpp.i
+.PHONY : src/Editor/Windows/ProjectWindow.i
+
+# target to preprocess a source file
+src/Editor/Windows/ProjectWindow.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/ProjectWindow.cpp.i
+.PHONY : src/Editor/Windows/ProjectWindow.cpp.i
+
+src/Editor/Windows/ProjectWindow.s: src/Editor/Windows/ProjectWindow.cpp.s
+.PHONY : src/Editor/Windows/ProjectWindow.s
+
+# target to generate assembly for a file
+src/Editor/Windows/ProjectWindow.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Editor/Windows/ProjectWindow.cpp.s
+.PHONY : src/Editor/Windows/ProjectWindow.cpp.s
 
 src/Input.o: src/Input.cpp.o
 .PHONY : src/Input.o
@@ -1417,6 +1489,9 @@ help:
 	@echo "... src/Core/GameBuilder.o"
 	@echo "... src/Core/GameBuilder.i"
 	@echo "... src/Core/GameBuilder.s"
+	@echo "... src/Core/Project.o"
+	@echo "... src/Core/Project.i"
+	@echo "... src/Core/Project.s"
 	@echo "... src/Core/SceneSerializer.o"
 	@echo "... src/Core/SceneSerializer.i"
 	@echo "... src/Core/SceneSerializer.s"
@@ -1447,6 +1522,12 @@ help:
 	@echo "... src/Editor/Windows/InspectorWindow.o"
 	@echo "... src/Editor/Windows/InspectorWindow.i"
 	@echo "... src/Editor/Windows/InspectorWindow.s"
+	@echo "... src/Editor/Windows/ProjectBrowserWindow.o"
+	@echo "... src/Editor/Windows/ProjectBrowserWindow.i"
+	@echo "... src/Editor/Windows/ProjectBrowserWindow.s"
+	@echo "... src/Editor/Windows/ProjectWindow.o"
+	@echo "... src/Editor/Windows/ProjectWindow.i"
+	@echo "... src/Editor/Windows/ProjectWindow.s"
 	@echo "... src/Input.o"
 	@echo "... src/Input.i"
 	@echo "... src/Input.s"

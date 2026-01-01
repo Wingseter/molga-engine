@@ -51,8 +51,11 @@ set(EDITOR_SOURCES
     src/Editor/Editor.cpp
     src/Editor/Windows/HierarchyWindow.cpp
     src/Editor/Windows/InspectorWindow.cpp
+    src/Editor/Windows/ProjectWindow.cpp
+    src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Core/Application.cpp
     src/Core/GameBuilder.cpp
+    src/Core/Project.cpp
     src/Scenes/MenuScene.cpp
     src/Scenes/GameScene.cpp
 )
