@@ -15,8 +15,8 @@ add_library(imgui
 )
 target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 
-add_executable(molga_engine
-    src/main.cpp
+# Common engine source files (shared between editor and runtime)
+set(ENGINE_SOURCES
     src/Shader.cpp
     src/Texture.cpp
     src/Sprite.cpp
@@ -32,24 +32,45 @@ add_executable(molga_engine
     src/Audio.cpp
     src/Scene.cpp
     src/Particle.cpp
-    src/Editor/ImGuiLayer.cpp
-    src/Editor/EditorState.cpp
-    src/Core/Application.cpp
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
     src/ECS/Components/BoxCollider2D.cpp
-    src/Editor/Editor.cpp
-    src/Editor/Windows/HierarchyWindow.cpp
-    src/Editor/Windows/InspectorWindow.cpp
     src/Core/SceneSerializer.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp
     src/Platform/Platform.cpp
+    src/TextRenderer.cpp
+)
+
+# Editor-only source files
+set(EDITOR_SOURCES
+    src/Editor/ImGuiLayer.cpp
+    src/Editor/EditorState.cpp
+    src/Editor/Editor.cpp
+    src/Editor/Windows/HierarchyWindow.cpp
+    src/Editor/Windows/InspectorWindow.cpp
+    src/Editor/Windows/ProjectWindow.cpp
+    src/Editor/Windows/ProjectBrowserWindow.cpp
+    src/Core/Application.cpp
+    src/Core/GameBuilder.cpp
+    src/Core/Project.cpp
     src/Scenes/MenuScene.cpp
     src/Scenes/GameScene.cpp
-    src/TextRenderer.cpp
+)
+
+# Main editor executable
+add_executable(molga_engine
+    src/main.cpp
+    ${ENGINE_SOURCES}
+    ${EDITOR_SOURCES}
+)
+
+# Runtime executable (game player without editor)
+add_executable(molga_runtime
+    src/runtime_main.cpp
+    ${ENGINE_SOURCES}
 )
 
 add_subdirectory(external/glfw)
@@ -70,15 +91,20 @@ include_directories(external/nlohmann_json/include)
 # ImGui에 GLFW 링크
 target_link_libraries(imgui glfw)
 
-# 타겟에 라이브러리 링크
+# Link libraries to editor
 target_link_libraries(molga_engine glad glfw imgui)
+target_compile_definitions(molga_engine PRIVATE MOLGA_EDITOR)
+
+# Link libraries to runtime (no imgui needed)
+target_link_libraries(molga_runtime glad glfw)
 
 # macOS audio frameworks for miniaudio
 if(APPLE)
     target_link_libraries(molga_engine "-framework CoreAudio" "-framework AudioToolbox")
+    target_link_libraries(molga_runtime "-framework CoreAudio" "-framework AudioToolbox")
 endif()
 
-# Copy assets to build directory
+# Copy assets to build directory for editor
 add_custom_command(TARGET molga_engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:molga_engine>/assets

@@ -15,6 +15,8 @@
 #include "Editor/ImGuiLayer.h"
 #include "Editor/EditorState.h"
 #include "Editor/Editor.h"
+#include "Editor/Windows/ProjectWindow.h"
+#include "Core/Project.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
@@ -41,7 +43,13 @@ GLFWwindow* g_window = nullptr;
 // Editor scene objects
 std::vector<std::shared_ptr<GameObject>> g_editorObjects;
 
-int main() {
+int main(int argc, char* argv[]) {
+    // Check for project path argument
+    std::string projectPath;
+    if (argc > 1) {
+        projectPath = argv[1];
+    }
+
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -91,6 +99,45 @@ int main() {
     Editor::Get().Init();
     Editor::Get().SetGameObjects(&g_editorObjects);
 
+    // Project loading phase
+    bool projectLoaded = false;
+    ProjectWindow projectWindow;
+
+    // If project path provided via command line, try to open it
+    if (!projectPath.empty()) {
+        if (Project::Get().Open(projectPath)) {
+            projectLoaded = true;
+            std::cout << "[Main] Opened project from command line: " << projectPath << std::endl;
+        } else {
+            std::cerr << "[Main] Failed to open project: " << projectPath << std::endl;
+        }
+    }
+
+    // Project selection loop (if no project loaded yet)
+    while (!glfwWindowShouldClose(window) && !projectLoaded) {
+        glfwPollEvents();
+
+        // Clear first, then draw ImGui
+        g_renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
+
+        ImGuiLayer::BeginFrame();
+        projectWindow.OnGUI();
+        ImGuiLayer::EndFrame();
+
+        // Check if project was selected
+        if (projectWindow.HasProjectSelected()) {
+            projectLoaded = true;
+            std::cout << "[Main] Project selected: " << projectWindow.GetSelectedProjectPath() << std::endl;
+        }
+
+        glfwSwapBuffers(window);
+    }
+
+    // If window was closed during project selection, exit
+    if (glfwWindowShouldClose(window)) {
+        goto cleanup;
+    }
+
     // Create sample GameObjects for editor demo
     {
         auto player = std::make_shared<GameObject>("Player");
@@ -126,7 +173,7 @@ int main() {
     SceneManager::AddScene("Game", std::make_shared<GameScene>());
     SceneManager::ChangeScene("Menu");
 
-    // Main loop
+    // Main editor loop
     while (!glfwWindowShouldClose(window)) {
         Time::Update();
         Input::Update();
@@ -135,9 +182,13 @@ int main() {
         // Get editor state
         EditorState& editorState = EditorState::Get();
 
-        // Update title with mode indicator
+        // Update title with project name and mode indicator
         std::ostringstream title;
-        title << "Molga Engine - FPS: " << static_cast<int>(Time::GetFPS())
+        title << "Molga Engine";
+        if (Project::Get().IsOpen()) {
+            title << " - " << Project::Get().GetName();
+        }
+        title << " | FPS: " << static_cast<int>(Time::GetFPS())
               << " | Scene: " << SceneManager::GetCurrentSceneName();
         if (editorState.IsEditMode()) {
             title << " [EDIT]";
@@ -161,20 +212,24 @@ int main() {
             }
         }
 
-        // Always render (even in Edit mode)
-        SceneManager::Render(g_renderer, g_shader, g_camera);
-
-        // Render ECS GameObjects
-        g_renderer->Begin(g_shader, g_camera);
-        for (auto& obj : g_editorObjects) {
-            if (obj && obj->IsActive()) {
-                auto sr = obj->GetComponent<SpriteRenderer>();
-                if (sr) {
-                    sr->RenderSprite(g_renderer, g_shader, g_camera);
+        // Render based on editor mode
+        if (editorState.IsEditMode()) {
+            // Edit mode: Render editor scene with g_editorObjects
+            g_renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
+            g_renderer->Begin(g_shader, g_camera);
+            for (auto& obj : g_editorObjects) {
+                if (obj && obj->IsActive()) {
+                    auto sr = obj->GetComponent<SpriteRenderer>();
+                    if (sr) {
+                        sr->RenderSprite(g_renderer, g_shader, g_camera);
+                    }
                 }
             }
+            g_renderer->End();
+        } else {
+            // Play/Pause mode: Render game scene
+            SceneManager::Render(g_renderer, g_shader, g_camera);
         }
-        g_renderer->End();
 
         // ImGui Editor UI
         ImGuiLayer::BeginFrame();
@@ -186,7 +241,9 @@ int main() {
         glfwPollEvents();
     }
 
+cleanup:
     // Cleanup
+    Project::Get().Close();
     Editor::Get().Shutdown();
     g_editorObjects.clear();
     ImGuiLayer::Shutdown();

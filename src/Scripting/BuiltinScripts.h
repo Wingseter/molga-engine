@@ -5,7 +5,10 @@
 #include "../Input.h"
 #include "../ECS/Components/Transform.h"
 #include <GLFW/glfw3.h>
+
+#ifdef MOLGA_EDITOR
 #include <imgui.h>
+#endif
 
 // Example: Player Controller Script
 class PlayerController : public Script {
@@ -32,9 +35,11 @@ public:
         transform->Translate(dx * moveSpeed * dt, dy * moveSpeed * dt);
     }
 
+#ifdef MOLGA_EDITOR
     void OnInspectorGUI() override {
         ImGui::DragFloat("Move Speed", &moveSpeed, 1.0f, 0.0f, 1000.0f);
     }
+#endif
 };
 
 // Example: Rotator Script
@@ -52,9 +57,11 @@ public:
         transform->SetRotation(currentRot + rotationSpeed * dt);
     }
 
+#ifdef MOLGA_EDITOR
     void OnInspectorGUI() override {
         ImGui::DragFloat("Rotation Speed", &rotationSpeed, 1.0f, -360.0f, 360.0f);
     }
+#endif
 };
 
 // Example: Oscillator Script (moves back and forth)
@@ -87,11 +94,13 @@ public:
         }
     }
 
+#ifdef MOLGA_EDITOR
     void OnInspectorGUI() override {
         ImGui::DragFloat("Amplitude", &amplitude, 1.0f, 0.0f, 500.0f);
         ImGui::DragFloat("Frequency", &frequency, 0.1f, 0.0f, 10.0f);
         ImGui::Checkbox("Horizontal", &horizontal);
     }
+#endif
 
 private:
     Vector2 startPosition;

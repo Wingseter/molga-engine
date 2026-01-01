@@ -2,13 +2,17 @@
 #include "EditorState.h"
 #include "Windows/HierarchyWindow.h"
 #include "Windows/InspectorWindow.h"
+#include "Windows/ProjectBrowserWindow.h"
 #include "../ECS/GameObject.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include "../Core/SceneSerializer.h"
+#include "../Core/GameBuilder.h"
+#include "../Core/Project.h"
 #include "../Time.h"
 #include <imgui.h>
 #include <iostream>
+#include <cstring>
 
 Editor& Editor::Get() {
     static Editor instance;
@@ -18,6 +22,7 @@ Editor& Editor::Get() {
 void Editor::Init() {
     hierarchyWindow = std::make_unique<HierarchyWindow>();
     inspectorWindow = std::make_unique<InspectorWindow>();
+    projectBrowserWindow = std::make_unique<ProjectBrowserWindow>();
 
     // Connect hierarchy selection to inspector
     hierarchyWindow->SetSelectionCallback([](GameObject* obj) {
@@ -28,6 +33,7 @@ void Editor::Init() {
 void Editor::Shutdown() {
     hierarchyWindow.reset();
     inspectorWindow.reset();
+    projectBrowserWindow.reset();
 }
 
 void Editor::Update(float dt) {
@@ -46,6 +52,11 @@ void Editor::RenderGUI() {
         inspectorWindow->OnGUI();
     }
 
+    // Project browser
+    if (showProjectBrowser && projectBrowserWindow) {
+        projectBrowserWindow->OnGUI();
+    }
+
     // Stats window
     if (showStats) {
         ImGui::SetNextWindowPos(ImVec2(10, 50), ImGuiCond_FirstUseEver);
@@ -55,6 +66,11 @@ void Editor::RenderGUI() {
         ImGui::Text("Delta Time: %.3f ms", Time::GetDeltaTime() * 1000.0f);
         ImGui::Text("Frame: %d", Time::GetFrameCount());
         ImGui::End();
+    }
+
+    // Build window
+    if (showBuildWindow) {
+        RenderBuildWindow();
     }
 }
 
@@ -105,7 +121,19 @@ void Editor::RenderMenuBar() {
         if (ImGui::BeginMenu("Window")) {
             ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy);
             ImGui::MenuItem("Inspector", nullptr, &showInspector);
+            ImGui::MenuItem("Project", nullptr, &showProjectBrowser);
             ImGui::MenuItem("Stats", nullptr, &showStats);
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Build")) {
+            if (ImGui::MenuItem("Build Settings...")) {
+                showBuildWindow = true;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Build Game", "Ctrl+B")) {
+                BuildGame();
+            }
             ImGui::EndMenu();
         }
 
@@ -252,4 +280,90 @@ void Editor::OpenScene() {
             inspectorWindow->SetTarget(nullptr);
         }
     }
+}
+
+void Editor::RenderBuildWindow() {
+    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Build Settings", &showBuildWindow)) {
+        ImGui::Text("Game Build Settings");
+        ImGui::Separator();
+
+        ImGui::InputText("Game Name", buildGameName, sizeof(buildGameName));
+        ImGui::InputText("Output Path", buildOutputPath, sizeof(buildOutputPath));
+
+        ImGui::Separator();
+        ImGui::Text("Window Settings");
+        ImGui::InputInt("Width", &buildWidth);
+        ImGui::InputInt("Height", &buildHeight);
+        ImGui::Checkbox("Fullscreen", &buildFullscreen);
+
+        ImGui::Separator();
+
+        // Show current scene info
+        if (!currentScenePath.empty()) {
+            ImGui::Text("Main Scene: %s", currentScenePath.c_str());
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Warning: No scene saved!");
+            ImGui::Text("Save your scene first (File > Save Scene)");
+        }
+
+        ImGui::Separator();
+
+        // Build progress
+        GameBuilder& builder = GameBuilder::Get();
+        if (isBuilding) {
+            ImGui::ProgressBar(builder.GetProgress(), ImVec2(-1, 0));
+            ImGui::Text("%s", builder.GetCurrentStep().c_str());
+        }
+
+        // Build button
+        ImGui::Spacing();
+        if (ImGui::Button("Build Game", ImVec2(120, 30))) {
+            BuildGame();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(80, 30))) {
+            showBuildWindow = false;
+        }
+
+        // Show last error if any
+        if (!builder.GetLastError().empty()) {
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Error: %s", builder.GetLastError().c_str());
+        }
+    }
+    ImGui::End();
+}
+
+void Editor::BuildGame() {
+    // Save scene first if needed
+    if (currentScenePath.empty()) {
+        currentScenePath = "scene.json";
+    }
+
+    if (gameObjects) {
+        SceneSerializer::SaveScene(currentScenePath, *gameObjects);
+    }
+
+    // Setup build settings
+    BuildSettings settings;
+    settings.gameName = buildGameName;
+    settings.outputPath = buildOutputPath;
+    settings.mainScene = currentScenePath;
+    settings.windowWidth = buildWidth;
+    settings.windowHeight = buildHeight;
+    settings.fullscreen = buildFullscreen;
+
+    isBuilding = true;
+
+    // Build the game
+    GameBuilder& builder = GameBuilder::Get();
+    if (builder.Build(settings)) {
+        std::cout << "[Editor] Build successful!" << std::endl;
+        std::cout << "[Editor] Output: " << settings.outputPath << "/" << settings.gameName << std::endl;
+    } else {
+        std::cerr << "[Editor] Build failed: " << builder.GetLastError() << std::endl;
+    }
+
+    isBuilding = false;
 }
