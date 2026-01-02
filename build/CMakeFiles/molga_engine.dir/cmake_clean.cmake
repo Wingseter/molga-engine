@@ -15,6 +15,8 @@ file(REMOVE_RECURSE
   "CMakeFiles/molga_engine.dir/src/Core/Project.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o"
   "CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o.d"
+  "CMakeFiles/molga_engine.dir/src/Core/TextureManager.cpp.o"
+  "CMakeFiles/molga_engine.dir/src/Core/TextureManager.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o"
   "CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o.d"
   "CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o"

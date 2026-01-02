@@ -16,6 +16,7 @@ set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/Users/kwon/Workspace/C/molga-engine/src/Core/GameBuilder.cpp" "CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Core/GameBuilder.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Core/Project.cpp" "CMakeFiles/molga_engine.dir/src/Core/Project.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Core/Project.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/Core/SceneSerializer.cpp" "CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Core/SceneSerializer.cpp.o.d"
+  "/Users/kwon/Workspace/C/molga-engine/src/Core/TextureManager.cpp" "CMakeFiles/molga_engine.dir/src/Core/TextureManager.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/Core/TextureManager.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/ECS/Components/BoxCollider2D.cpp" "CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/ECS/Components/BoxCollider2D.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/ECS/Components/SpriteRenderer.cpp" "CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/ECS/Components/SpriteRenderer.cpp.o.d"
   "/Users/kwon/Workspace/C/molga-engine/src/ECS/Components/Transform.cpp" "CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o" "gcc" "CMakeFiles/molga_engine.dir/src/ECS/Components/Transform.cpp.o.d"
