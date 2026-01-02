@@ -201,6 +201,7 @@ void ProjectWindow::DrawNewProjectPanel() {
 }
 
 void ProjectWindow::DrawOpenProjectPanel() {
+    ImGui::PushID("OpenProjectPanel");
     ImGui::Text("Open Project");
     ImGui::Separator();
     ImGui::Spacing();
@@ -212,16 +213,16 @@ void ProjectWindow::DrawOpenProjectPanel() {
         NavigateTo(openProjectPath);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Go")) {
+    if (ImGui::Button("Go##open")) {
         NavigateTo(openProjectPath);
     }
 
     // Navigation buttons
-    if (ImGui::Button("^ Up")) {
+    if (ImGui::Button("^ Up##open")) {
         NavigateUp();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Home")) {
+    if (ImGui::Button("Home##open")) {
         const char* home = std::getenv("HOME");
         if (home) {
             NavigateTo(home);
@@ -264,6 +265,7 @@ void ProjectWindow::DrawOpenProjectPanel() {
         ImGui::SetCursorPosX((ImGui::GetWindowWidth() - 300) * 0.5f);
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Navigate to a folder with project.molga file");
     }
+    ImGui::PopID();
 }
 
 void ProjectWindow::DrawFolderBrowser() {
@@ -348,6 +350,7 @@ std::vector<std::string> ProjectWindow::GetDirectories(const std::string& path) 
 }
 
 void ProjectWindow::DrawFolderBrowserForNewProject() {
+    ImGui::PushID("BrowseForNewPanel");
     ImGui::Text("Select Location for New Project");
     ImGui::Separator();
     ImGui::Spacing();
@@ -359,16 +362,16 @@ void ProjectWindow::DrawFolderBrowserForNewProject() {
         NavigateTo(openProjectPath);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Go")) {
+    if (ImGui::Button("Go##browse")) {
         NavigateTo(openProjectPath);
     }
 
     // Navigation buttons
-    if (ImGui::Button("^ Up")) {
+    if (ImGui::Button("^ Up##browse")) {
         NavigateUp();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Home")) {
+    if (ImGui::Button("Home##browse")) {
         const char* home = std::getenv("HOME");
         if (home) {
             NavigateTo(home);
@@ -425,4 +428,5 @@ void ProjectWindow::DrawFolderBrowserForNewProject() {
     if (ImGui::Button("Cancel", ImVec2(buttonWidth, 30))) {
         currentTab = Tab::New;
     }
+    ImGui::PopID();
 }
