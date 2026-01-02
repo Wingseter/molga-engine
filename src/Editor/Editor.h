@@ -8,6 +8,7 @@ class GameObject;
 class HierarchyWindow;
 class InspectorWindow;
 class ProjectBrowserWindow;
+class ScriptWindow;
 class Renderer;
 class Shader;
 class Camera2D;
@@ -50,11 +51,13 @@ private:
     void RenderMenuBar();
     void RenderPlayControls();
     void RenderBuildWindow();
+    void RenderScriptingMenu();
     void BuildGame();
 
     std::unique_ptr<HierarchyWindow> hierarchyWindow;
     std::unique_ptr<InspectorWindow> inspectorWindow;
     std::unique_ptr<ProjectBrowserWindow> projectBrowserWindow;
+    std::unique_ptr<ScriptWindow> scriptWindow;
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
 
@@ -62,6 +65,7 @@ private:
     bool showHierarchy = true;
     bool showInspector = true;
     bool showProjectBrowser = true;
+    bool showScriptWindow = true;
     bool showBuildWindow = false;
 
     std::string currentScenePath;

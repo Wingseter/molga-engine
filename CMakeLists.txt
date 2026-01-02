@@ -49,14 +49,17 @@ set(EDITOR_SOURCES
     src/Editor/ImGuiLayer.cpp
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
+    src/Editor/VSCodeIntegration.cpp
     src/Editor/Windows/HierarchyWindow.cpp
     src/Editor/Windows/InspectorWindow.cpp
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
+    src/Editor/Windows/ScriptWindow.cpp
     src/Core/Application.cpp
     src/Core/GameBuilder.cpp
     src/Core/Project.cpp
     src/Core/TextureManager.cpp
+    src/Scripting/ScriptCompiler.cpp
     src/Scenes/MenuScene.cpp
     src/Scenes/GameScene.cpp
 )

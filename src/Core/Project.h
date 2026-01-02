@@ -22,6 +22,9 @@ public:
     std::string GetAssetsPath() const;
     std::string GetScenesPath() const;
     std::string GetSettingsPath() const;
+    std::string GetScriptsPath() const;
+    std::string GetScriptsBuildPath() const;
+    std::string GetVSCodePath() const;
 
     // Path conversion
     std::string GetAbsolutePath(const std::string& relativePath) const;

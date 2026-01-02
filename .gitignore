@@ -440,6 +440,28 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudio,c++
-cmake-build-debug
-.idea
-.claude
+
+# CMake / Build
+cmake-build-debug/
+cmake-build-release/
+build/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Claude
+.claude/
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# ImGui
+imgui.ini
+
+# User project scripts build output
+Scripts/build/
+

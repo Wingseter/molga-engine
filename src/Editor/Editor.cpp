@@ -3,16 +3,21 @@
 #include "Windows/HierarchyWindow.h"
 #include "Windows/InspectorWindow.h"
 #include "Windows/ProjectBrowserWindow.h"
+#include "Windows/ScriptWindow.h"
+#include "VSCodeIntegration.h"
 #include "../ECS/GameObject.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include "../Core/SceneSerializer.h"
 #include "../Core/GameBuilder.h"
 #include "../Core/Project.h"
+#include "../Scripting/ScriptCompiler.h"
+#include "../Scripting/ScriptManager.h"
 #include "../Time.h"
 #include <imgui.h>
 #include <iostream>
 #include <cstring>
+#include <filesystem>
 
 Editor& Editor::Get() {
     static Editor instance;
@@ -23,17 +28,25 @@ void Editor::Init() {
     hierarchyWindow = std::make_unique<HierarchyWindow>();
     inspectorWindow = std::make_unique<InspectorWindow>();
     projectBrowserWindow = std::make_unique<ProjectBrowserWindow>();
+    scriptWindow = std::make_unique<ScriptWindow>();
 
     // Connect hierarchy selection to inspector
     hierarchyWindow->SetSelectionCallback([](GameObject* obj) {
         Editor::Get().inspectorWindow->SetTarget(obj);
     });
+
+    // Set engine path for ScriptCompiler and VSCodeIntegration
+    // Get engine path from executable location
+    std::string enginePath = std::filesystem::current_path().parent_path().string();
+    ScriptCompiler::Get().SetEnginePath(enginePath);
+    VSCodeIntegration::Get().SetEnginePath(enginePath);
 }
 
 void Editor::Shutdown() {
     hierarchyWindow.reset();
     inspectorWindow.reset();
     projectBrowserWindow.reset();
+    scriptWindow.reset();
 }
 
 void Editor::Update(float dt) {
@@ -55,6 +68,11 @@ void Editor::RenderGUI() {
     // Project browser
     if (showProjectBrowser && projectBrowserWindow) {
         projectBrowserWindow->OnGUI();
+    }
+
+    // Script window
+    if (showScriptWindow && scriptWindow) {
+        scriptWindow->OnGUI();
     }
 
     // Stats window
@@ -122,9 +140,13 @@ void Editor::RenderMenuBar() {
             ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy);
             ImGui::MenuItem("Inspector", nullptr, &showInspector);
             ImGui::MenuItem("Project", nullptr, &showProjectBrowser);
+            ImGui::MenuItem("Scripts", nullptr, &showScriptWindow);
             ImGui::MenuItem("Stats", nullptr, &showStats);
             ImGui::EndMenu();
         }
+
+        // Scripting menu
+        RenderScriptingMenu();
 
         if (ImGui::BeginMenu("Build")) {
             if (ImGui::MenuItem("Build Settings...")) {
@@ -366,4 +388,62 @@ void Editor::BuildGame() {
     }
 
     isBuilding = false;
+}
+
+void Editor::RenderScriptingMenu() {
+    if (ImGui::BeginMenu("Scripting")) {
+        Project& project = Project::Get();
+        bool hasProject = project.IsOpen();
+
+        if (!hasProject) {
+            ImGui::BeginDisabled();
+        }
+
+        if (ImGui::MenuItem("Open in VSCode")) {
+            VSCodeIntegration::Get().OpenInVSCode(project.GetPath());
+        }
+
+        if (ImGui::MenuItem("Create New Script...")) {
+            showScriptWindow = true;
+            // The Script Window will handle the create dialog
+        }
+
+        ImGui::Separator();
+
+        if (ImGui::MenuItem("Compile Scripts", "Ctrl+Shift+B")) {
+            ScriptCompiler& compiler = ScriptCompiler::Get();
+            compiler.SetProjectPath(project.GetPath());
+            if (compiler.Compile()) {
+                std::cout << "[Editor] Scripts compiled successfully" << std::endl;
+            } else {
+                std::cerr << "[Editor] Script compilation failed: " << compiler.GetLastError() << std::endl;
+            }
+            if (scriptWindow) {
+                scriptWindow->RefreshScriptList();
+            }
+        }
+
+        if (ImGui::MenuItem("Hot Reload", "Ctrl+R")) {
+            ScriptCompiler& compiler = ScriptCompiler::Get();
+            std::string libPath = compiler.GetCompiledLibraryPath();
+            if (std::filesystem::exists(libPath)) {
+                if (ScriptManager::Get().LoadScriptLibrary(libPath)) {
+                    std::cout << "[Editor] Scripts reloaded successfully" << std::endl;
+                } else {
+                    std::cerr << "[Editor] Failed to reload scripts" << std::endl;
+                }
+            } else {
+                std::cerr << "[Editor] No compiled library found" << std::endl;
+            }
+        }
+
+        if (!hasProject) {
+            ImGui::EndDisabled();
+        }
+
+        ImGui::Separator();
+        ImGui::MenuItem("Script Window", nullptr, &showScriptWindow);
+
+        ImGui::EndMenu();
+    }
 }
