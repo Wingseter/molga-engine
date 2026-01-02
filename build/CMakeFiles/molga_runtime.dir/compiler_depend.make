@@ -5118,6 +5118,8 @@ CMakeFiles/molga_runtime.dir/src/ECS/Components/SpriteRenderer.cpp.o: /Users/kwo
   /Users/kwon/Workspace/C/molga-engine/external/nlohmann_json/include/nlohmann/json.hpp \
   /Users/kwon/Workspace/C/molga-engine/src/Camera2D.h \
   /Users/kwon/Workspace/C/molga-engine/src/Common/Types.h \
+  /Users/kwon/Workspace/C/molga-engine/src/Core/Project.h \
+  /Users/kwon/Workspace/C/molga-engine/src/Core/TextureManager.h \
   /Users/kwon/Workspace/C/molga-engine/src/Renderer.h \
   /Users/kwon/Workspace/C/molga-engine/src/Shader.h \
   /Users/kwon/Workspace/C/molga-engine/src/Sprite.h \
@@ -17621,6 +17623,10 @@ CMakeFiles/molga_runtime.dir/src/runtime_main.cpp.o: /Users/kwon/Workspace/C/mol
 /Users/kwon/Workspace/C/molga-engine/src/Shader.h:
 
 /Users/kwon/Workspace/C/molga-engine/src/Renderer.h:
+
+/Users/kwon/Workspace/C/molga-engine/src/Core/TextureManager.h:
+
+/Users/kwon/Workspace/C/molga-engine/src/Core/Project.h:
 
 /Users/kwon/Workspace/C/molga-engine/src/ECS/Components/BoxCollider2D.cpp:
 

@@ -627,6 +627,30 @@ src/Core/SceneSerializer.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_runtime.dir/build.make CMakeFiles/molga_runtime.dir/src/Core/SceneSerializer.cpp.s
 .PHONY : src/Core/SceneSerializer.cpp.s
 
+src/Core/TextureManager.o: src/Core/TextureManager.cpp.o
+.PHONY : src/Core/TextureManager.o
+
+# target to build an object file
+src/Core/TextureManager.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/TextureManager.cpp.o
+.PHONY : src/Core/TextureManager.cpp.o
+
+src/Core/TextureManager.i: src/Core/TextureManager.cpp.i
+.PHONY : src/Core/TextureManager.i
+
+# target to preprocess a source file
+src/Core/TextureManager.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/TextureManager.cpp.i
+.PHONY : src/Core/TextureManager.cpp.i
+
+src/Core/TextureManager.s: src/Core/TextureManager.cpp.s
+.PHONY : src/Core/TextureManager.s
+
+# target to generate assembly for a file
+src/Core/TextureManager.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/molga_engine.dir/build.make CMakeFiles/molga_engine.dir/src/Core/TextureManager.cpp.s
+.PHONY : src/Core/TextureManager.cpp.s
+
 src/ECS/Components/BoxCollider2D.o: src/ECS/Components/BoxCollider2D.cpp.o
 .PHONY : src/ECS/Components/BoxCollider2D.o
 
@@ -1495,6 +1519,9 @@ help:
 	@echo "... src/Core/SceneSerializer.o"
 	@echo "... src/Core/SceneSerializer.i"
 	@echo "... src/Core/SceneSerializer.s"
+	@echo "... src/Core/TextureManager.o"
+	@echo "... src/Core/TextureManager.i"
+	@echo "... src/Core/TextureManager.s"
 	@echo "... src/ECS/Components/BoxCollider2D.o"
 	@echo "... src/ECS/Components/BoxCollider2D.i"
 	@echo "... src/ECS/Components/BoxCollider2D.s"

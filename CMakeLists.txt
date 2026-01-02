@@ -56,6 +56,7 @@ set(EDITOR_SOURCES
     src/Core/Application.cpp
     src/Core/GameBuilder.cpp
     src/Core/Project.cpp
+    src/Core/TextureManager.cpp
     src/Scenes/MenuScene.cpp
     src/Scenes/GameScene.cpp
 )
