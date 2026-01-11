@@ -32,6 +32,7 @@ set(ENGINE_SOURCES
     src/Audio.cpp
     src/Scene.cpp
     src/Particle.cpp
+    src/ECS/Component.cpp
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp

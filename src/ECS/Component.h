@@ -29,8 +29,8 @@ public:
 
     // Serialization (for scene saving/loading)
     // Override in derived classes to implement serialization
-    virtual void Serialize(nlohmann::json& j) const {}
-    virtual void Deserialize(const nlohmann::json& j) {}
+    virtual void Serialize(nlohmann::json& j) const;
+    virtual void Deserialize(const nlohmann::json& j);
 
     // Editor Inspector GUI (override in derived classes for custom UI)
     virtual void OnInspectorGUI() {}

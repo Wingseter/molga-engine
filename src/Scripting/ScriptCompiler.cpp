@@ -145,6 +145,7 @@ std::string ScriptCompiler::GenerateCMakeContent(const std::vector<ScriptInfo>& 
         ss << "include_directories(${MOLGA_ENGINE_PATH}/src)\n";
         ss << "include_directories(${MOLGA_ENGINE_PATH}/external/glm)\n";
         ss << "include_directories(${MOLGA_ENGINE_PATH}/external/imgui)\n";
+        ss << "include_directories(${MOLGA_ENGINE_PATH}/external/nlohmann_json/include)\n";
     }
     ss << "\n";
 

@@ -1,0 +1,12 @@
+# Code Structure
+- `src/`: Root source directory
+    - `Core/`: Core engine systems (Application, Project, GameBuilder, Serializer)
+    - `ECS/`: Entity Component System (GameObject, Components like Transform, SpriteRenderer)
+    - `Editor/`: Editor-specific logic and UI windows (Hierarchy, Inspector, etc.)
+    - `Scripting/`: Script management and compilation
+    - `Scenes/`: Scene management (GameScene, MenuScene)
+    - `Platform/`: Platform interaction
+    - `Shaders/`: GLSL shader files
+    - `Common/`: Common types/utilities
+- `external/`: Third-party libraries (imgui, glfw, glad, miniaudio, json)
+- `assets/`: Game assets (images, scenes)
