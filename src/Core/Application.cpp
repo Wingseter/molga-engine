@@ -6,7 +6,7 @@
 
 #include "../Editor/ImGuiLayer.h"
 #include "../Input.h"
-#include "../Time.h"
+#include "../MolgaTime.h"
 
 Application &Application::Get() {
   static Application instance;

@@ -3,7 +3,13 @@ project(molga_engine)
 
 set(CMAKE_CXX_STANDARD 17)
 
-# ImGui 라이브러리
+# ── External dependencies ──────────────────────────────────────────────────────
+add_subdirectory(external/glfw)
+
+add_library(glad external/glad/src/glad.c)
+target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/external/glad/include)
+
+# ── ImGui library ──────────────────────────────────────────────────────────────
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
 add_library(imgui
     ${IMGUI_DIR}/imgui.cpp
@@ -13,15 +19,20 @@ add_library(imgui
     ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
-target_include_directories(imgui PUBLIC ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+target_include_directories(imgui PUBLIC
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
+    ${CMAKE_SOURCE_DIR}/external/glad/include
+)
+target_link_libraries(imgui glfw)
 
-# Common engine source files (shared between editor and runtime)
+# ── Common engine source files ─────────────────────────────────────────────────
 set(ENGINE_SOURCES
     src/Shader.cpp
     src/Texture.cpp
     src/Sprite.cpp
     src/Renderer.cpp
-    src/Time.cpp
+    src/MolgaTime.cpp
     src/Input.cpp
     src/Camera2D.cpp
     src/SpriteSheet.cpp
@@ -45,7 +56,24 @@ set(ENGINE_SOURCES
     src/TextRenderer.cpp
 )
 
-# Editor-only source files
+# ── molga_core static library ──────────────────────────────────────────────────
+add_library(molga_core STATIC ${ENGINE_SOURCES})
+target_include_directories(molga_core PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/stb
+    ${CMAKE_SOURCE_DIR}/external/miniaudio
+    ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
+)
+target_link_libraries(molga_core PUBLIC glad glfw)
+
+if(APPLE)
+    target_link_libraries(molga_core PUBLIC
+        "-framework CoreAudio"
+        "-framework AudioToolbox"
+    )
+endif()
+
+# ── Editor-only source files ───────────────────────────────────────────────────
 set(EDITOR_SOURCES
     src/Editor/ImGuiLayer.cpp
     src/Editor/EditorState.cpp
@@ -66,53 +94,22 @@ set(EDITOR_SOURCES
     src/Scenes/GameScene.cpp
 )
 
-# Main editor executable
-add_executable(molga_engine
-    src/main.cpp
-    ${ENGINE_SOURCES}
-    ${EDITOR_SOURCES}
-)
-
-# Runtime executable (game player without editor)
-add_executable(molga_runtime
-    src/runtime_main.cpp
-    ${ENGINE_SOURCES}
-)
-
-add_subdirectory(external/glfw)
-
-# GLAD 라이브러리 추가
-add_library(glad external/glad/src/glad.c)
-include_directories(external/glad/include)
-
-# stb 라이브러리 추가
-include_directories(external/stb)
-
-# miniaudio 라이브러리 추가
-include_directories(external/miniaudio)
-
-# nlohmann/json 라이브러리 추가
-include_directories(external/nlohmann_json/include)
-
-# ImGui에 GLFW 링크
-target_link_libraries(imgui glfw)
-
-# Link libraries to editor
-target_link_libraries(molga_engine glad glfw imgui)
+# ── Main editor executable ─────────────────────────────────────────────────────
+add_executable(molga_engine src/main.cpp ${EDITOR_SOURCES})
+target_link_libraries(molga_engine PRIVATE molga_core imgui)
 target_compile_definitions(molga_engine PRIVATE MOLGA_EDITOR)
 
-# Link libraries to runtime (no imgui needed)
-target_link_libraries(molga_runtime glad glfw)
+# ── Runtime executable ─────────────────────────────────────────────────────────
+add_executable(molga_runtime src/runtime_main.cpp)
+target_link_libraries(molga_runtime PRIVATE molga_core)
 
-# macOS audio frameworks for miniaudio
-if(APPLE)
-    target_link_libraries(molga_engine "-framework CoreAudio" "-framework AudioToolbox")
-    target_link_libraries(molga_runtime "-framework CoreAudio" "-framework AudioToolbox")
-endif()
-
-# Copy assets to build directory for editor
+# ── Copy assets to build directory ─────────────────────────────────────────────
 add_custom_command(TARGET molga_engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:molga_engine>/assets
     COMMENT "Copying assets to build directory"
 )
+
+# ── Testing ────────────────────────────────────────────────────────────────────
+enable_testing()
+add_subdirectory(tests)

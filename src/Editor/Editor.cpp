@@ -7,7 +7,7 @@
 #include "../ECS/GameObject.h"
 #include "../Scripting/ScriptCompiler.h"
 #include "../Scripting/ScriptManager.h"
-#include "../Time.h"
+#include "../MolgaTime.h"
 #include "EditorState.h"
 #include "VSCodeIntegration.h"
 #include "Windows/HierarchyWindow.h"

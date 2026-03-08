@@ -1,4 +1,4 @@
-#include "Time.h"
+#include "MolgaTime.h"
 #include <GLFW/glfw3.h>
 
 float Time::deltaTime = 0.0f;
