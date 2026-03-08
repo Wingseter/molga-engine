@@ -34,10 +34,10 @@ struct GameConfig {
     bool fullscreen = false;
 };
 
-// Global resources
-Renderer* g_renderer = nullptr;
-Shader* g_shader = nullptr;
-Camera2D* g_camera = nullptr;
+// Global resources (owned via unique_ptr; GLFW manages g_window lifetime)
+std::unique_ptr<Renderer> g_renderer;
+std::unique_ptr<Shader> g_shader;
+std::unique_ptr<Camera2D> g_camera;
 GLFWwindow* g_window = nullptr;
 std::vector<std::shared_ptr<GameObject>> g_gameObjects;
 
@@ -98,6 +98,8 @@ int main(int argc, char* argv[]) {
     // Initialize GLAD
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "Failed to initialize GLAD" << std::endl;
+        glfwDestroyWindow(window);
+        glfwTerminate();
         return -1;
     }
 
@@ -110,11 +112,11 @@ int main(int argc, char* argv[]) {
     Audio::Init();
 
     // Initialize renderer
-    g_renderer = new Renderer();
+    g_renderer = std::make_unique<Renderer>();
     g_renderer->Init();
-    g_shader = new Shader("Shaders/default.vert", "Shaders/default.frag");
-    g_camera = new Camera2D(static_cast<float>(config.windowWidth),
-                            static_cast<float>(config.windowHeight));
+    g_shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
+    g_camera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
+                                          static_cast<float>(config.windowHeight));
 
     // Initialize scripting
     RegisterBuiltinScripts();
@@ -148,12 +150,12 @@ int main(int argc, char* argv[]) {
         g_renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
 
         // Render all game objects
-        g_renderer->Begin(g_shader, g_camera);
+        g_renderer->Begin(g_shader.get(), g_camera.get());
         for (auto& obj : g_gameObjects) {
             if (obj && obj->IsActive()) {
                 auto sr = obj->GetComponent<SpriteRenderer>();
                 if (sr) {
-                    sr->RenderSprite(g_renderer, g_shader, g_camera);
+                    sr->RenderSprite(g_renderer.get(), g_shader.get(), g_camera.get());
                 }
             }
         }
@@ -168,12 +170,12 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Cleanup
+    // Cleanup (unique_ptrs auto-release; explicit reset for deterministic order)
     g_gameObjects.clear();
     TextRenderer::Get().Shutdown();
-    delete g_camera;
-    delete g_shader;
-    delete g_renderer;
+    g_camera.reset();
+    g_shader.reset();
+    g_renderer.reset();
     Audio::Shutdown();
     glfwTerminate();
 

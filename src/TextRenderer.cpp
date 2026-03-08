@@ -221,10 +221,7 @@ bool TextRenderer::Init() {
 }
 
 void TextRenderer::Shutdown() {
-    if (fontTexture) {
-        delete fontTexture;
-        fontTexture = nullptr;
-    }
+    fontTexture.reset();
     characters.clear();
     initialized = false;
 }
@@ -283,7 +280,7 @@ void TextRenderer::GenerateBuiltinFont() {
     }
 
     // Create texture
-    fontTexture = new Texture(texWidth, texHeight, textureData, 4);
+    fontTexture = std::make_unique<Texture>(texWidth, texHeight, textureData, 4);
     lineHeight = static_cast<float>(CHAR_HEIGHT);
 
     delete[] textureData;
@@ -316,7 +313,7 @@ void TextRenderer::RenderText(Renderer* renderer, Shader* shader,
         const CharInfo& info = it->second;
 
         Sprite sprite;
-        sprite.SetTexture(fontTexture);
+        sprite.SetTexture(fontTexture.get());
         sprite.SetPosition(cursorX + info.xOffset * scale, cursorY + info.yOffset * scale);
         sprite.SetSize(info.width * scale, info.height * scale);
         sprite.SetColor(color.r, color.g, color.b, color.a);

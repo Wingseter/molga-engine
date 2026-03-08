@@ -14,7 +14,7 @@ void ScriptManager::RegisterScript(const std::string& name, ScriptFactory factor
     std::cout << "[ScriptManager] Registered script: " << name << std::endl;
 }
 
-Script* ScriptManager::CreateScript(const std::string& name) {
+std::unique_ptr<Script> ScriptManager::CreateScript(const std::string& name) {
     auto it = scriptFactories.find(name);
     if (it != scriptFactories.end()) {
         return it->second();

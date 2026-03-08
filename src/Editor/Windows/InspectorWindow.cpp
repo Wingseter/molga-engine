@@ -93,9 +93,9 @@ void InspectorWindow::OnGUI() {
             auto scripts = ScriptManager::Get().GetRegisteredScripts();
             for (const auto& scriptName : scripts) {
                 if (ImGui::MenuItem((std::string(Icons::FileCode) + " " + scriptName).c_str())) {
-                    Script* script = ScriptManager::Get().CreateScript(scriptName);
+                    auto script = ScriptManager::Get().CreateScript(scriptName);
                     if (script) {
-                        target->AddComponentRaw(script);
+                        target->AddComponentRaw(script.release());
                     }
                 }
             }

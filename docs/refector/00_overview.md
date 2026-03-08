@@ -48,11 +48,12 @@
 ## 리팩토링 로드맵
 
 ```
-Phase 0 (선행)         Phase 1 (Critical)     Phase 2 (Critical)
-기준선 확보            메모리 안전성          아키텍처 통일
-- molga_core 라이브러리  - smart_ptr 전환       - Layer/LayerStack
-- CTest + smoke test   - RAII 래퍼            - EngineContext
-- 빌드 경고 해결       - 에러 경로 수정       - 부트스트랩 통합
+Phase 0 (선행) ✅      Phase 1 (Critical)     Phase 2 (Critical)
+기준선 확보 완료       메모리 안전성          아키텍처 통일
+- molga_core ✅         - smart_ptr 전환       - Layer/LayerStack
+- CTest + 4 tests ✅   - RAII 래퍼            - EngineContext
+- 빌드 경고 해소 ✅    - 에러 경로 수정       - 부트스트랩 통합
+- Time.h 이름충돌 ✅
      │                      │                 - 경로 규칙 정규화
      ▼                      ▼                      │
 Phase 3 (High)         Phase 4 (High)              ▼
@@ -67,7 +68,7 @@ ECS/씬 모델 개선       에디터 구조 개선       Phase 5 (Medium)
 
 | Phase | 변경 파일 수 | 파괴적 변경 | 의존성 |
 |-------|------------|------------|--------|
-| Phase 0 | 2-3 | 없음 (인프라) | 없음 |
+| Phase 0 | 12 ✅ 완료 | 없음 (인프라) | 없음 |
 | Phase 1 | 5-8 | 낮음 | Phase 0 |
 | Phase 2 | 12-18 | 중간 | Phase 1 |
 | Phase 3 | 10-15 | 높음 (ECS/씬 API 변경) | Phase 2 |
