@@ -143,7 +143,7 @@ std::string ScriptCompiler::GenerateCMakeContent(const std::vector<ScriptInfo>& 
     if (!enginePath.empty()) {
         ss << "set(MOLGA_ENGINE_PATH \"" << enginePath << "\")\n";
         ss << "include_directories(${MOLGA_ENGINE_PATH}/src)\n";
-        ss << "include_directories(${MOLGA_ENGINE_PATH}/external/glm)\n";
+        // glm is header-only via system/vcpkg; no external/glm directory exists
         ss << "include_directories(${MOLGA_ENGINE_PATH}/external/imgui)\n";
         ss << "include_directories(${MOLGA_ENGINE_PATH}/external/nlohmann_json/include)\n";
     }

@@ -1,18 +1,29 @@
-# Phase 1: 메모리 안전성 및 RAII
+# Phase 1: 메모리 안전성 및 RAII ✅ 완료
+
+> 의존: Phase 0 (`d4d4988`)
+> 완료일: 2026-03-08
 
 ## 목표
 Raw pointer를 smart pointer로 전환하고, RAII 원칙을 적용하여 메모리 누수와 예외 안전성 문제를 해결한다.
 
 ---
 
-## 1.1 main.cpp - Raw Pointer 제거
+## 1.1 main.cpp - Raw Pointer 제거 + goto 제거 ✅
 
-### 현재 문제
+### 이전 문제
 ```cpp
-// main.cpp:87-90 - Raw new 할당
+// main.cpp:38-40 - Raw new 할당
+Renderer* g_renderer = nullptr;
+Shader* g_shader = nullptr;
+Camera2D* g_camera = nullptr;
+
+// main.cpp:87-90
 g_renderer = new Renderer();
-g_shader = new Shader("Shaders/default.vert", "Shaders/default.frag");
+g_shader = new Shader("src/Shaders/default.vert", "src/Shaders/default.frag");
 g_camera = new Camera2D(800.0f, 600.0f);
+
+// main.cpp:138
+goto cleanup;  // 프로젝트 선택 중 창 닫힐 때
 
 // main.cpp:252-254 - 수동 delete
 delete g_camera;
@@ -21,47 +32,64 @@ delete g_renderer;
 ```
 
 - 예외 발생 시 cleanup 코드에 도달하지 못함
-- main.cpp:63-66의 early return에서 이미 초기화된 시스템 cleanup 누락
-- main.cpp:72-74 GLAD 실패 시 window 미해제
+- GLAD 실패 시 window 미해제 (`return -1` 직전 cleanup 누락)
+- `goto cleanup` 패턴은 RAII 미적용의 증상
 
-### 변경 계획
+### 적용 결과
+
+**unique_ptr 전환** (Phase 1):
 ```cpp
-// Before
-Renderer* g_renderer = nullptr;
-Shader* g_shader = nullptr;
-Camera2D* g_camera = nullptr;
-
-// After
+// Phase 1 시점: 글로벌 스코프 unique_ptr
 std::unique_ptr<Renderer> g_renderer;
 std::unique_ptr<Shader> g_shader;
 std::unique_ptr<Camera2D> g_camera;
 ```
 
-### 에러 경로 수정
+> **Note**: Phase 2에서 이 글로벌 변수들은 `main()` 로컬 스코프로 이동되었고,
+> GLFW/GLAD 초기화 코드는 `Bootstrap.h/cpp`의 `EngineInit()`으로 추출되었다.
+> 셰이더 경로도 `"src/Shaders/"` → `"Shaders/"`로 통일.
+> 현재 코드는 아래 형태:
+> ```cpp
+> auto renderer = std::make_unique<Renderer>();
+> auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
+> auto camera = std::make_unique<Camera2D>(...);
+> ```
+
+**goto 제거 전략** - 조건 반전으로 자연스러운 흐름 제어:
 ```cpp
-// Before (main.cpp:72-74)
+// Before:
+if (glfwWindowShouldClose(window)) { goto cleanup; }
+// ... editor setup + main loop ...
+cleanup:
+    // teardown
+
+// After:
+if (!glfwWindowShouldClose(window)) {
+    // ... editor setup + main loop ...
+}
+// cleanup (라벨 없이 직접 실행, unique_ptr가 자동 해제)
+```
+
+**GLAD 실패 시 cleanup 추가**:
+```cpp
 if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
     std::cout << "Failed to initialize GLAD" << std::endl;
-    return -1;  // window 미해제, GLFW 미종료
-}
-
-// After
-if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-    std::cerr << "Failed to initialize GLAD" << std::endl;
     glfwDestroyWindow(window);
     glfwTerminate();
     return -1;
 }
 ```
 
-### 대상 파일
+**호출부 .get() 추가**: `g_renderer->Begin(g_shader.get(), g_camera.get())`, `sr->RenderSprite(g_renderer.get(), g_shader.get(), g_camera.get())`, `SceneManager::Render(g_renderer.get(), g_shader.get(), g_camera.get())`
+
+### 변경 파일
 - `src/main.cpp`
 
 ---
 
-## 1.2 runtime_main.cpp - 동일 패턴 적용
+## 1.2 runtime_main.cpp - 동일 패턴 적용 ✅
 
-### 현재 문제
+### 이전 문제
 ```cpp
 // runtime_main.cpp:38-40
 Renderer* g_renderer = nullptr;
@@ -74,200 +102,293 @@ delete g_shader;
 delete g_renderer;
 ```
 
-### 변경 계획
-main.cpp와 동일하게 `std::unique_ptr` 전환. 게임 루프 중 예외 발생 시에도 자동 cleanup 보장.
+### 적용 결과
+main.cpp와 동일하게 `std::unique_ptr` 전환. GLAD 실패 시 `glfwDestroyWindow(window); glfwTerminate();` 추가. 모든 호출부에 `.get()` 추가.
 
-### 대상 파일
+`GLFWwindow* g_window`은 유지 (GLFW가 수명 관리).
+
+### 변경 파일
 - `src/runtime_main.cpp`
 
 ---
 
-## 1.3 Audio.cpp - 리소스 RAII 래핑
+## 1.3 Audio.cpp - 리소스 RAII 래핑 ✅
 
-### 현재 문제
+### 이전 문제
 ```cpp
-// Audio.cpp:15-18
-engine = new ma_engine();
-if (ma_engine_init(nullptr, engine) != MA_SUCCESS) {
-    delete engine;  // 수동 cleanup
-    engine = nullptr;
-    return false;
-}
+// Audio.h - Raw pointer 멤버
+static ma_engine* engine;
+static ma_sound* musicSound;
+static std::unordered_map<std::string, ma_sound*> sounds;
 
-// Audio.cpp:65-68 - 사운드 로딩
-ma_sound* sound = new ma_sound();
-if (ma_sound_init_from_file(...) != MA_SUCCESS) {
-    delete sound;  // 수동 cleanup
-    return false;
-}
-
-// Audio.cpp:38-47 - Shutdown에서 수동 해제
+// Audio.cpp - 수동 uninit + delete
 for (auto& pair : sounds) {
     ma_sound_uninit(pair.second);
-    delete pair.second;  // double-free 위험
+    delete pair.second;
 }
 ```
 
 - Shutdown() 이중 호출 시 double-free 위험
 - 예외 발생 시 사운드 리소스 누수
-- `musicSound` nullptr 체크 불완전
 
-### 변경 계획
+### 적용 결과
+
+**Custom deleter 정의** (Audio.h):
 ```cpp
-// Custom deleter로 RAII 래핑
 struct MaEngineDeleter {
-    void operator()(ma_engine* e) {
-        if (e) { ma_engine_uninit(e); delete e; }
-    }
+    void operator()(ma_engine* e);
 };
 
 struct MaSoundDeleter {
-    void operator()(ma_sound* s) {
-        if (s) { ma_sound_uninit(s); delete s; }
-    }
+    void operator()(ma_sound* s);
 };
 
-// Before
-static ma_engine* engine;
-static std::unordered_map<std::string, ma_sound*> sounds;
-
-// After
 static std::unique_ptr<ma_engine, MaEngineDeleter> engine;
+static std::unique_ptr<ma_sound, MaSoundDeleter> musicSound;
 static std::unordered_map<std::string, std::unique_ptr<ma_sound, MaSoundDeleter>> sounds;
 ```
 
-### 대상 파일
+**Deleter 구현** (Audio.cpp) - `uninit` 후 `delete`:
+```cpp
+void MaEngineDeleter::operator()(ma_engine* e) {
+    if (e) { ma_engine_uninit(e); delete e; }
+}
+
+void MaSoundDeleter::operator()(ma_sound* s) {
+    if (s) { ma_sound_uninit(s); delete s; }
+}
+```
+
+**init-then-wrap 패턴** - init 실패 시 uninit 호출 방지:
+```cpp
+auto raw = new ma_engine();
+if (ma_engine_init(nullptr, raw) != MA_SUCCESS) {
+    delete raw;  // uninit 없이 delete만 (init 실패)
+    return false;
+}
+engine.reset(raw);  // 성공 시에만 deleter 연결
+```
+
+**Shutdown() 간소화** - deleter가 모든 cleanup 처리:
+```cpp
+void Audio::Shutdown() {
+    if (!initialized) return;
+    sounds.clear();      // deleter가 각 사운드의 uninit+delete 처리
+    musicSound.reset();
+    engine.reset();
+    initialized = false;
+}
+```
+
+### 계획 대비 차이점
+- Shutdown() 이중 호출 안전성: `unique_ptr::reset()`은 이미 nullptr인 경우 no-op이므로 자동 보장됨
+- 모든 내부 접근에 `.get()` 추가 (예: `ma_sound_init_from_file(engine.get(), ...)`, `ma_sound_set_volume(it->second.get(), ...)`)
+
+### 변경 파일
 - `src/Audio.h`
 - `src/Audio.cpp`
 
 ---
 
-## 1.4 Renderer - currentShader Dangling Pointer 방지
+## 1.4 Renderer - currentShader Dangling Pointer 방지 ✅
 
-### 현재 문제
+### 이전 문제
 ```cpp
 // Renderer.h:30
 Shader* currentShader;  // Non-owning, 문서화 없음
 
-// Renderer.cpp Begin/End
+// Renderer.cpp - Begin()에서 nullptr 검증 없음
 void Renderer::Begin(Shader* shader, Camera2D* camera) {
     currentShader = shader;
     currentShader->Use();  // shader가 nullptr이면 크래시
 }
 ```
 
-- main.cpp에서 Shader를 delete한 후 Renderer가 dangling pointer를 가질 수 있음
-- Begin()에서 nullptr 검증 없음
+### 적용 결과
 
-### 변경 계획
 ```cpp
-// Non-owning pointer는 유지하되, 안전 검증 추가
+// Renderer.cpp - assert 추가
+#include <cassert>
+
 void Renderer::Begin(Shader* shader, Camera2D* camera) {
-    assert(shader != nullptr && "Shader must not be null");
-    assert(camera != nullptr && "Camera must not be null");
+    assert(shader != nullptr && "Renderer::Begin called with null shader");
     currentShader = shader;
     currentShader->Use();
+    // ...
 }
 ```
 
-### 대상 파일
+```cpp
+// Renderer.h - non-owning 주석 추가
+Shader* currentShader; // non-owning; lifetime managed by caller
+```
+
+### 계획 대비 차이점
+- `camera`에 대한 assert는 추가하지 않음 — `Begin()`이 `camera == nullptr`일 때 `mat4x4_identity(view)`를 호출하는 유효한 코드 경로가 존재하므로
+
+### 변경 파일
 - `src/Renderer.cpp`
+- `src/Renderer.h`
 
 ---
 
-## 1.5 UI 시스템 - 소유권 모델 명확화
+## 1.5 UI 시스템 - 보류 (현재 모델 유효)
 
-### 현재 문제
-```cpp
-// UI.h:104
-std::vector<UIElement*> elements;  // Raw pointer 저장
+### 판단 근거
+`GameScene`에서 스택 할당 `ProgressBar`를 `AddElement(&healthBar)`로 전달하므로 non-owning 모델이 현재 정확함. `unique_ptr`로 전환하면 `GameScene`이 스택 객체의 소유권을 이전할 수 없어 재설계 필요.
 
-// UI.cpp:231-233
-UIManager::~UIManager() {
-    // "does not own elements" 주석 - 소유권 불명확
-}
-```
-
-### 변경 계획
-```cpp
-// Option A: UIManager가 소유 (권장)
-std::vector<std::unique_ptr<UIElement>> elements;
-
-// Option B: 비소유 유지 시 명시적 문서화
-// Non-owning: 외부에서 UIElement 수명 관리 필수
-std::vector<UIElement*> elements;  // non-owning, caller manages lifetime
-```
-
-### 대상 파일
-- `src/UI.h`
-- `src/UI.cpp`
+Phase 3 (ECS/씬 리팩토링)에서 GameScene 구조 변경 시 재평가 예정.
 
 ---
 
-## 1.6 REGISTER_SCRIPT 매크로 - raw new 제거
+## 1.6 REGISTER_SCRIPT 매크로 + ScriptManager - unique_ptr factory ✅
 
-> 출처: Codex 분석 - ScriptManager.h:53
-
-### 현재 문제
+### 이전 문제
 ```cpp
-// ScriptManager.h:53 - REGISTER_SCRIPT 매크로
+// ScriptManager.h
+using ScriptFactory = std::function<Script*()>;
+Script* CreateScript(const std::string& name);
+
+// REGISTER_SCRIPT 매크로
 #define REGISTER_SCRIPT(cls) \
     ScriptManager::Get().RegisterScript(#cls, []() -> Script* { return new cls(); })
+
+// BuiltinScripts.cpp - 3개 수동 등록
+ScriptManager::Get().RegisterScript("PlayerController", []() -> Script* {
+    return new PlayerController();
+});
 ```
 
-- 팩토리 람다가 raw `new`를 반환
-- 호출 측에서 소유권 관리가 불명확
+- 팩토리 람다가 raw `new` 반환, 호출 측에서 소유권 관리 불명확
 
-### 변경 계획
+### 적용 결과
+
+**ScriptManager.h**:
 ```cpp
-// smart pointer 반환으로 변경
-#define REGISTER_SCRIPT(cls) \
-    ScriptManager::Get().RegisterScript(#cls, []() -> std::unique_ptr<Script> { \
-        return std::make_unique<cls>(); \
-    })
+using ScriptFactory = std::function<std::unique_ptr<Script>()>;
+
+std::unique_ptr<Script> CreateScript(const std::string& name);
+
+#define REGISTER_SCRIPT(ScriptClass) \
+    namespace { \
+        struct ScriptClass##Registrar { \
+            ScriptClass##Registrar() { \
+                ScriptManager::Get().RegisterScript(#ScriptClass, \
+                    []() -> std::unique_ptr<Script> { \
+                        return std::make_unique<ScriptClass>(); \
+                    }); \
+            } \
+        }; \
+        static ScriptClass##Registrar g_##ScriptClass##Registrar; \
+    }
 ```
 
-- `ScriptFactory` 타입도 `std::function<std::unique_ptr<Script>()>`로 변경
-- `CreateScript()` 반환 타입도 `std::unique_ptr<Script>`로 변경
+**BuiltinScripts.cpp** - 3개 람다 동일 변경:
+```cpp
+ScriptManager::Get().RegisterScript("PlayerController", []() -> std::unique_ptr<Script> {
+    return std::make_unique<PlayerController>();
+});
+```
 
-### 대상 파일
+**InspectorWindow.cpp** - `release()`로 소유권 전달:
+```cpp
+auto script = ScriptManager::Get().CreateScript(scriptName);
+if (script) {
+    target->AddComponentRaw(script.release());
+}
+```
+
+### 계획 대비 차이점
+- 기존 `AddComponentRaw(Component*)` 인터페이스는 유지 — Phase 3 ECS 리팩토링에서 `AddComponent<T>(unique_ptr<T>)` 도입 시 개선 예정
+- `release()`로 소유권을 명시적으로 이전하여 기존 API와 호환
+
+### 변경 파일
 - `src/Scripting/ScriptManager.h`
 - `src/Scripting/ScriptManager.cpp`
+- `src/Scripting/BuiltinScripts.cpp`
+- `src/Editor/Windows/InspectorWindow.cpp`
 
 ---
 
-## 1.7 main.cpp - goto cleanup 패턴 제거
+## 1.7 TextRenderer - fontTexture unique_ptr ✅
 
-> 출처: Codex 분석 - main.cpp:138
-
-### 현재 문제
+### 이전 문제
 ```cpp
-// main.cpp:138
-goto cleanup;  // 에러 시 goto 사용
+// TextRenderer.h
+Texture* fontTexture = nullptr;
+
+// TextRenderer.cpp
+fontTexture = new Texture(texWidth, texHeight, textureData, 4);
+delete fontTexture;
 ```
 
-- `goto` 기반 cleanup은 RAII 미적용의 증상
-- smart pointer 전환 후 자연스럽게 제거됨
+### 적용 결과
+```cpp
+// TextRenderer.h
+std::unique_ptr<Texture> fontTexture;
 
-### 변경 계획
-- Phase 1.1의 smart pointer 전환 완료 시 자동 해소
-- `goto cleanup` 레이블 및 관련 코드 삭제
-- 모든 리소스가 스코프 기반 수명을 가지므로 별도 cleanup 블록 불필요
+// TextRenderer.cpp - 생성
+fontTexture = std::make_unique<Texture>(texWidth, texHeight, textureData, 4);
 
-### 대상 파일
-- `src/main.cpp`
+// Shutdown
+fontTexture.reset();
+
+// 사용처
+sprite.SetTexture(fontTexture.get());
+```
+
+### 변경 파일
+- `src/TextRenderer.h`
+- `src/TextRenderer.cpp`
+
+---
+
+## 검증 결과
+
+- `cmake --build build` — 양쪽 타깃 (molga_engine, molga_runtime) 컴파일 성공
+- `ctest --output-on-failure` — 4/4 테스트 통과 (test_types, test_collision, test_ecs, test_scene_serializer)
 
 ---
 
 ## 체크리스트
 
-- [ ] main.cpp: `new Renderer/Shader/Camera2D` → `std::make_unique`
-- [ ] main.cpp: early return 경로에 cleanup 코드 추가
-- [ ] main.cpp: `goto cleanup` 패턴 제거
-- [ ] runtime_main.cpp: 동일 smart pointer 전환
-- [ ] Audio.cpp: RAII custom deleter 적용
-- [ ] Audio.cpp: Shutdown() 이중 호출 안전성 보장
-- [ ] Renderer.cpp: Begin()에 nullptr assertion 추가
-- [ ] UI.h/cpp: 소유권 모델 결정 및 적용
-- [ ] REGISTER_SCRIPT: raw new → std::make_unique 전환
-- [ ] ScriptFactory 반환 타입 std::unique_ptr 전환
+- [x] runtime_main.cpp: `new Renderer/Shader/Camera2D` → `std::make_unique`
+- [x] runtime_main.cpp: GLAD 실패 시 `glfwDestroyWindow` + `glfwTerminate` 추가
+- [x] runtime_main.cpp: `delete` → `reset()`, 호출부 `.get()` 추가
+- [x] main.cpp: `new Renderer/Shader/Camera2D` → `std::make_unique`
+- [x] main.cpp: GLAD 실패 시 cleanup 코드 추가
+- [x] main.cpp: `goto cleanup` 패턴 제거 (조건 반전)
+- [x] main.cpp: `delete` → `reset()`, 호출부 `.get()` 추가
+- [x] Renderer.cpp: `Begin()`에 `assert(shader != nullptr)` 추가
+- [x] Renderer.h: `currentShader` non-owning 주석 추가
+- [x] Audio.h: `MaEngineDeleter`, `MaSoundDeleter` custom deleter 정의
+- [x] Audio.h: `engine`, `musicSound`, `sounds` → `unique_ptr` with custom deleter
+- [x] Audio.cpp: init-then-wrap 패턴 적용
+- [x] Audio.cpp: `Shutdown()` 간소화 (`clear/reset/reset`)
+- [x] TextRenderer.h: `fontTexture` → `std::unique_ptr<Texture>`
+- [x] TextRenderer.cpp: `new Texture` → `make_unique`, `delete` → `reset()`, `.get()` 추가
+- [x] ScriptManager.h: `ScriptFactory` → `std::function<std::unique_ptr<Script>()>`
+- [x] ScriptManager.h: `CreateScript()` → `std::unique_ptr<Script>` 반환
+- [x] ScriptManager.h: `REGISTER_SCRIPT` 매크로 `make_unique` 전환
+- [x] BuiltinScripts.cpp: 3개 람다 `make_unique` 전환
+- [x] InspectorWindow.cpp: `script.release()`로 소유권 전달
+- [ ] UI 시스템: 보류 (Phase 3에서 재평가)
+- [x] 빌드 성공 확인 (molga_engine + molga_runtime)
+- [x] CTest 4/4 통과 확인
+
+## 변경 파일 요약
+
+| 파일 | 변경 내용 |
+|------|-----------|
+| `src/runtime_main.cpp` | unique_ptr 전환, GLAD cleanup, `.get()` 추가 |
+| `src/main.cpp` | unique_ptr 전환, goto 제거, GLAD cleanup, `.get()` 추가 |
+| `src/Renderer.cpp` | `#include <cassert>`, `assert(shader)` 추가 |
+| `src/Renderer.h` | non-owning 주석 추가 |
+| `src/Audio.h` | custom deleter 구조체, unique_ptr 멤버 전환 |
+| `src/Audio.cpp` | deleter 구현, init-then-wrap, Shutdown 간소화 |
+| `src/TextRenderer.h` | `unique_ptr<Texture>` 전환 |
+| `src/TextRenderer.cpp` | `make_unique`, `reset()`, `.get()` |
+| `src/Scripting/ScriptManager.h` | ScriptFactory/CreateScript unique_ptr, REGISTER_SCRIPT 매크로 |
+| `src/Scripting/ScriptManager.cpp` | CreateScript 반환 타입 변경 |
+| `src/Scripting/BuiltinScripts.cpp` | 3개 람다 make_unique 전환 |
+| `src/Editor/Windows/InspectorWindow.cpp` | `script.release()` 소유권 전달 |

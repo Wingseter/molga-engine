@@ -274,7 +274,6 @@ std::vector<std::string> VSCodeIntegration::GetEngineIncludePaths() const {
 
     if (!enginePath.empty()) {
         paths.push_back((fs::path(enginePath) / "src").string());
-        paths.push_back((fs::path(enginePath) / "external" / "glm").string());
         paths.push_back((fs::path(enginePath) / "external" / "imgui").string());
         paths.push_back((fs::path(enginePath) / "external" / "nlohmann_json" / "include").string());
     }

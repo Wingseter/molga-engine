@@ -5,6 +5,7 @@
 #include <sstream>
 #include <memory>
 
+#include "Core/Bootstrap.h"
 #include "Shader.h"
 #include "Renderer.h"
 #include "MolgaTime.h"
@@ -28,20 +29,11 @@
 #include "TextRenderer.h"
 #include <imgui.h>
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-
 // Settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-// Global resources (owned via unique_ptr; GLFW manages g_window lifetime)
-std::unique_ptr<Renderer> g_renderer;
-std::unique_ptr<Shader> g_shader;
-std::unique_ptr<Camera2D> g_camera;
 GLFWwindow* g_window = nullptr;
-
-// Editor scene objects
-std::vector<std::shared_ptr<GameObject>> g_editorObjects;
 
 int main(int argc, char* argv[]) {
     // Check for project path argument
@@ -50,46 +42,22 @@ int main(int argc, char* argv[]) {
         projectPath = argv[1];
     }
 
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    WindowConfig wc;
+    wc.title = "Molga Engine";
+    wc.width = SCR_WIDTH;
+    wc.height = SCR_HEIGHT;
+    GLFWwindow* window = EngineInit(wc);
+    if (!window) return -1;
+    g_window = window;
 
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
-
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Molga Engine", nullptr, nullptr);
-    if (window == nullptr) {
-        std::cout << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    g_window = window;  // Store global reference for quit functionality
-    glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cout << "Failed to initialize GLAD" << std::endl;
-        glfwDestroyWindow(window);
-        glfwTerminate();
-        return -1;
-    }
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Initialize systems
-    Time::Init();
-    Input::Init(window);
-    Audio::Init();
     ImGuiLayer::Init(window);
 
-    // Initialize global resources
-    g_renderer = std::make_unique<Renderer>();
-    g_renderer->Init();
-    g_shader = std::make_unique<Shader>("src/Shaders/default.vert", "src/Shaders/default.frag");
-    g_camera = std::make_unique<Camera2D>(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+    // Initialize resources (local to main)
+    auto renderer = std::make_unique<Renderer>();
+    renderer->Init();
+    auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
+    auto camera = std::make_unique<Camera2D>(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+    std::vector<std::shared_ptr<GameObject>> editorObjects;
 
     // Initialize Scripting
     RegisterBuiltinScripts();
@@ -99,7 +67,7 @@ int main(int argc, char* argv[]) {
 
     // Initialize Editor
     Editor::Get().Init();
-    Editor::Get().SetGameObjects(&g_editorObjects);
+    Editor::Get().SetGameObjects(&editorObjects);
 
     // Project loading phase
     bool projectLoaded = false;
@@ -120,7 +88,7 @@ int main(int argc, char* argv[]) {
         glfwPollEvents();
 
         // Clear first, then draw ImGui
-        g_renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
+        renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
 
         ImGuiLayer::BeginFrame();
         projectWindow.OnGUI();
@@ -146,7 +114,7 @@ int main(int argc, char* argv[]) {
             spriteRenderer->SetColor(0.2f, 0.8f, 0.3f, 1.0f);
             spriteRenderer->SetSize(32.0f, 32.0f);
             player->AddComponent<BoxCollider2D>();
-            g_editorObjects.push_back(player);
+            editorObjects.push_back(player);
 
             auto enemy = std::make_shared<GameObject>("Enemy");
             transform = enemy->AddComponent<Transform>();
@@ -155,7 +123,7 @@ int main(int argc, char* argv[]) {
             spriteRenderer->SetColor(0.8f, 0.2f, 0.2f, 1.0f);
             spriteRenderer->SetSize(32.0f, 32.0f);
             enemy->AddComponent<BoxCollider2D>();
-            g_editorObjects.push_back(enemy);
+            editorObjects.push_back(enemy);
 
             auto ground = std::make_shared<GameObject>("Ground");
             transform = ground->AddComponent<Transform>();
@@ -164,7 +132,7 @@ int main(int argc, char* argv[]) {
             spriteRenderer->SetColor(0.4f, 0.4f, 0.5f, 1.0f);
             spriteRenderer->SetSize(800.0f, 100.0f);
             ground->AddComponent<BoxCollider2D>();
-            g_editorObjects.push_back(ground);
+            editorObjects.push_back(ground);
         }
 
         // Create scenes
@@ -204,7 +172,7 @@ int main(int argc, char* argv[]) {
                 SceneManager::Update(scaledDt);
 
                 // Update ECS GameObjects scripts
-                for (auto& obj : g_editorObjects) {
+                for (auto& obj : editorObjects) {
                     if (obj && obj->IsActive()) {
                         obj->Update(scaledDt);
                     }
@@ -213,21 +181,21 @@ int main(int argc, char* argv[]) {
 
             // Render based on editor mode
             if (editorState.IsEditMode()) {
-                // Edit mode: Render editor scene with g_editorObjects
-                g_renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
-                g_renderer->Begin(g_shader.get(), g_camera.get());
-                for (auto& obj : g_editorObjects) {
+                // Edit mode: Render editor scene
+                renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
+                renderer->Begin(shader.get(), camera.get());
+                for (auto& obj : editorObjects) {
                     if (obj && obj->IsActive()) {
                         auto sr = obj->GetComponent<SpriteRenderer>();
                         if (sr) {
-                            sr->RenderSprite(g_renderer.get(), g_shader.get(), g_camera.get());
+                            sr->RenderSprite(renderer.get(), shader.get(), camera.get());
                         }
                     }
                 }
-                g_renderer->End();
+                renderer->End();
             } else {
                 // Play/Pause mode: Render game scene
-                SceneManager::Render(g_renderer.get(), g_shader.get(), g_camera.get());
+                SceneManager::Render(renderer.get(), shader.get(), camera.get());
             }
 
             // ImGui Editor UI
@@ -244,18 +212,13 @@ int main(int argc, char* argv[]) {
     // Cleanup (deterministic order; unique_ptrs auto-release)
     Project::Get().Close();
     Editor::Get().Shutdown();
-    g_editorObjects.clear();
+    editorObjects.clear();
     ImGuiLayer::Shutdown();
     SceneManager::Clear();
     TextRenderer::Get().Shutdown();
-    g_camera.reset();
-    g_shader.reset();
-    g_renderer.reset();
-    Audio::Shutdown();
-    glfwTerminate();
+    camera.reset();
+    shader.reset();
+    renderer.reset();
+    EngineShutdown();
     return 0;
-}
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    glViewport(0, 0, width, height);
 }

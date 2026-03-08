@@ -54,6 +54,7 @@ set(ENGINE_SOURCES
     src/Scripting/BuiltinScripts.cpp
     src/Platform/Platform.cpp
     src/TextRenderer.cpp
+    src/Core/Bootstrap.cpp
 )
 
 # ── molga_core static library ──────────────────────────────────────────────────
@@ -85,7 +86,6 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
-    src/Core/Application.cpp
     src/Core/GameBuilder.cpp
     src/Core/Project.cpp
     src/Core/TextureManager.cpp
@@ -108,6 +108,18 @@ add_custom_command(TARGET molga_engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:molga_engine>/assets
     COMMENT "Copying assets to build directory"
+)
+
+# ── Copy shaders to build directory ──────────────────────────────────────────
+add_custom_command(TARGET molga_engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/src/Shaders $<TARGET_FILE_DIR:molga_engine>/Shaders
+    COMMENT "Copying shaders to build directory"
+)
+add_custom_command(TARGET molga_runtime POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/src/Shaders $<TARGET_FILE_DIR:molga_runtime>/Shaders
+    COMMENT "Copying shaders to build directory (runtime)"
 )
 
 # ── Testing ────────────────────────────────────────────────────────────────────

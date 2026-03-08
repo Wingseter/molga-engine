@@ -1,4 +1,5 @@
 #include "GameBuilder.h"
+#include "PathConstants.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -80,8 +81,8 @@ bool GameBuilder::CreateOutputDirectory(const std::string& path) {
 
 bool GameBuilder::CopyAssets(const std::string& outputPath) {
     try {
-        std::string assetsPath = "assets";
-        std::string destPath = outputPath + "/assets";
+        std::string assetsPath = Paths::Build::ASSETS;
+        std::string destPath = outputPath + "/" + Paths::Build::ASSETS;
 
         if (fs::exists(assetsPath)) {
             fs::create_directories(destPath);
@@ -96,8 +97,8 @@ bool GameBuilder::CopyAssets(const std::string& outputPath) {
 
 bool GameBuilder::CopyShaders(const std::string& outputPath) {
     try {
-        std::string shadersPath = "src/Shaders";
-        std::string destPath = outputPath + "/Shaders";
+        std::string shadersPath = Paths::Engine::SHADER_SRC_DIR;
+        std::string destPath = outputPath + "/" + Paths::Build::SHADERS;
 
         if (fs::exists(shadersPath)) {
             fs::create_directories(destPath);
@@ -112,7 +113,7 @@ bool GameBuilder::CopyShaders(const std::string& outputPath) {
 
 bool GameBuilder::CopyScenes(const BuildSettings& settings, const std::string& outputPath) {
     try {
-        std::string scenesPath = outputPath + "/scenes";
+        std::string scenesPath = outputPath + "/" + Paths::Build::SCENES;
         fs::create_directories(scenesPath);
 
         // Copy main scene
@@ -141,17 +142,17 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::s
     try {
         nlohmann::json config;
         config["gameName"] = settings.gameName;
-        config["mainScene"] = "scenes/main.json";
+        config["mainScene"] = std::string(Paths::Build::SCENES) + "/main.json";
         config["windowWidth"] = settings.windowWidth;
         config["windowHeight"] = settings.windowHeight;
         config["fullscreen"] = settings.fullscreen;
 
         // List all scenes
         nlohmann::json scenesList = nlohmann::json::array();
-        scenesList.push_back("scenes/main.json");
+        scenesList.push_back(std::string(Paths::Build::SCENES) + "/main.json");
         for (const auto& scene : settings.scenes) {
             std::string filename = fs::path(scene).filename().string();
-            scenesList.push_back("scenes/" + filename);
+            scenesList.push_back(std::string(Paths::Build::SCENES) + "/" + filename);
         }
         config["scenes"] = scenesList;
 

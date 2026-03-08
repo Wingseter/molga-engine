@@ -29,7 +29,7 @@
 
 ### 핵심 문제 TOP 7
 
-1. **부트스트랩 3중 분리** - main.cpp, runtime_main.cpp, Application.cpp가 각각 독자적으로 GLFW/OpenGL 초기화. 버그 수정이 3곳에 중복.
+1. **~~부트스트랩 3중 분리~~** ✅ Phase 2에서 해결 — Application 삭제, Bootstrap 모듈 추출로 2→1 통합.
 
 2. **Raw Pointer 수동 관리** - `new`/`delete` 패턴이 main.cpp, runtime_main.cpp, Audio.cpp, REGISTER_SCRIPT 전반에 산재. 예외 발생 시 메모리 누수.
 
@@ -37,7 +37,7 @@
 
 4. **직렬화 데이터 손실** - 부모-자식 관계 미저장, id 로드 시 미복원, 스크립트 컴포넌트 복원 불가. 씬 저장/로드 반복 시 정보 유실.
 
-5. **경로 규칙 불일치** - Project는 `Assets`/`Scenes` (대문자), GameBuilder는 `assets`/`scenes` (소문자). 셰이더 경로도 에디터와 런타임 불일치. Linux에서 즉시 실패.
+5. **경로 규칙 불일치** - Project는 `Assets`/`Scenes` (대문자), GameBuilder는 `assets`/`scenes` (소문자). ~~셰이더 경로도 에디터와 런타임 불일치.~~ ✅ 셰이더 경로 통일 완료 (Phase 2). 대소문자 케이싱 버그는 Phase 4에서 수정 예정.
 
 6. **ECS가 아닌 EC 패턴 + 레거시 혼합** - System 레이어 없음. GameScene에서 playerSprite와 ECS Transform을 이중 관리. `dynamic_cast` 기반 O(n) 조회.
 
@@ -48,20 +48,22 @@
 ## 리팩토링 로드맵
 
 ```
-Phase 0 (선행) ✅      Phase 1 (Critical)     Phase 2 (Critical)
-기준선 확보 완료       메모리 안전성          아키텍처 통일
-- molga_core ✅         - smart_ptr 전환       - Layer/LayerStack
-- CTest + 4 tests ✅   - RAII 래퍼            - EngineContext
-- 빌드 경고 해소 ✅    - 에러 경로 수정       - 부트스트랩 통합
-- Time.h 이름충돌 ✅
-     │                      │                 - 경로 규칙 정규화
+Phase 0 (선행) ✅      Phase 1 (Critical) ✅  Phase 2 (Critical) ✅
+기준선 확보 완료       메모리 안전성 완료     아키텍처 통일 완료
+- molga_core ✅         - unique_ptr 전환 ✅   - Bootstrap 추출 ✅
+- CTest + 4 tests ✅   - RAII 래퍼 ✅         - Application 삭제 ✅
+- 빌드 경고 해소 ✅    - 에러 경로 수정 ✅    - 경로 상수화 ✅
+- Time.h 이름충돌 ✅   - goto 제거 ✅         - 글로벌 변수 축소 ✅
+     │                      │                 - 셰이더 경로 통일 ✅
      ▼                      ▼                      │
 Phase 3 (High)         Phase 4 (High)              ▼
 ECS/씬 모델 개선       에디터 구조 개선       Phase 5 (Medium)
 - 직렬화 완전성 확보    - God Class 분리       코드 품질
-- 레거시+ECS 통합      - 상수 추출            - 디렉토리 재구성
-- 타입 인덱스 컴포넌트  - 핫리로드 수정        - pragma once 통일
-- Transform 캐싱       - Scene View 실제 구현  - 매직 넘버 상수화
+- 레거시+ECS 통합      - Layer/LayerStack      - 디렉토리 재구성
+- 타입 인덱스 컴포넌트  - 싱글톤 통일          - pragma once 통일
+- Transform 캐싱       - EngineContext         - 매직 넘버 상수화
+                       - 핫리로드 수정
+                       - Scene View 실제 구현
 ```
 
 ### Phase별 예상 영향 범위
@@ -69,8 +71,8 @@ ECS/씬 모델 개선       에디터 구조 개선       Phase 5 (Medium)
 | Phase | 변경 파일 수 | 파괴적 변경 | 의존성 |
 |-------|------------|------------|--------|
 | Phase 0 | 12 ✅ 완료 | 없음 (인프라) | 없음 |
-| Phase 1 | 5-8 | 낮음 | Phase 0 |
-| Phase 2 | 12-18 | 중간 | Phase 1 |
+| Phase 1 | 10 ✅ 완료 | 낮음 | Phase 0 |
+| Phase 2 | 12 ✅ 완료 | 중간 | Phase 1 |
 | Phase 3 | 10-15 | 높음 (ECS/씬 API 변경) | Phase 2 |
 | Phase 4 | 8-12 | 중간 | Phase 2 (경로 상수 의존) |
 | Phase 5 | 20+ | 낮음 (파일 이동) | Phase 1-4 완료 후 권장 |
@@ -89,6 +91,6 @@ ECS/씬 모델 개선       에디터 구조 개선       Phase 5 (Medium)
 ## 비권장 접근
 
 - 처음부터 ECS 전체를 다시 쓰는 것
-- Application을 유지한 채 main.cpp와 runtime_main.cpp도 계속 따로 키우는 것
+- ~~Application을 유지한 채 main.cpp와 runtime_main.cpp도 계속 따로 키우는 것~~ → Phase 2에서 Application 삭제, Bootstrap 추출로 해결
 - 테스트 없이 Scene/ECS/스크립트 직렬화를 동시에 뜯는 것
 - 경로 규칙 정리 전에 패키저 기능부터 더 붙이는 것
