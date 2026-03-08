@@ -34,9 +34,16 @@ bool Application::Init(const Config &config) {
 #endif
   glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GL_TRUE : GL_FALSE);
 
-  // Create window
-  windowWidth = config.width;
-  windowHeight = config.height;
+  // Get primary monitor info for maximized window
+  GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+  const GLFWvidmode* videoMode = glfwGetVideoMode(primaryMonitor);
+
+  // Start maximized
+  glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+
+  // Create window with monitor size (will be maximized)
+  windowWidth = videoMode->width;
+  windowHeight = videoMode->height;
   window = glfwCreateWindow(windowWidth, windowHeight, config.title.c_str(),
                             nullptr, nullptr);
   if (!window) {

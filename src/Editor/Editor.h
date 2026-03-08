@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <vector>
+#include <imgui.h>
 
 class GameObject;
 class HierarchyWindow;
@@ -48,10 +49,17 @@ private:
     Editor(const Editor&) = delete;
     Editor& operator=(const Editor&) = delete;
 
+    // DockSpace
+    void BeginDockSpace();
+    void EndDockSpace();
+    void SetupDefaultLayout(ImGuiID dockspaceId);
+
     void RenderMenuBar();
     void RenderPlayControls();
     void RenderBuildWindow();
     void RenderScriptingMenu();
+    void RenderSceneView();
+    void RenderStatsWindow();
     void BuildGame();
 
     std::unique_ptr<HierarchyWindow> hierarchyWindow;
@@ -67,9 +75,14 @@ private:
     bool showProjectBrowser = true;
     bool showScriptWindow = true;
     bool showBuildWindow = false;
+    bool showSceneView = true;
 
     std::string currentScenePath;
     bool sceneModified = false;
+
+    // DockSpace
+    bool firstTimeLayout = true;
+    ImGuiID dockspaceId = 0;
 
     // Build settings
     char buildGameName[128] = "MyGame";

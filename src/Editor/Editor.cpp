@@ -17,6 +17,7 @@
 #include <cstring>
 #include <filesystem>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <iostream>
 
 Editor &Editor::Get() {
@@ -35,7 +36,6 @@ void Editor::Init() {
       [](GameObject *obj) { Editor::Get().inspectorWindow->SetTarget(obj); });
 
   // Set engine path for ScriptCompiler and VSCodeIntegration
-  // Get engine path from executable location
   std::string enginePath =
       std::filesystem::current_path().parent_path().string();
   ScriptCompiler::Get().SetEnginePath(enginePath);
@@ -53,10 +53,78 @@ void Editor::Update(float dt) {
   // Editor-specific updates can go here
 }
 
+void Editor::BeginDockSpace() {
+  static ImGuiDockNodeFlags dockspaceFlags = ImGuiDockNodeFlags_None;
+
+  ImGuiWindowFlags windowFlags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+
+  ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->WorkPos);
+  ImGui::SetNextWindowSize(viewport->WorkSize);
+  ImGui::SetNextWindowViewport(viewport->ID);
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+  windowFlags |= ImGuiWindowFlags_NoTitleBar
+               | ImGuiWindowFlags_NoCollapse
+               | ImGuiWindowFlags_NoResize
+               | ImGuiWindowFlags_NoMove
+               | ImGuiWindowFlags_NoBringToFrontOnFocus
+               | ImGuiWindowFlags_NoNavFocus;
+
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+  ImGui::Begin("DockSpace", nullptr, windowFlags);
+  ImGui::PopStyleVar(3);
+
+  // DockSpace
+  dockspaceId = ImGui::GetID("MolgaDockSpace");
+  ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspaceFlags);
+
+  // Setup default layout on first run
+  if (firstTimeLayout) {
+    firstTimeLayout = false;
+    SetupDefaultLayout(dockspaceId);
+  }
+}
+
+void Editor::EndDockSpace() {
+  ImGui::End();
+}
+
+void Editor::SetupDefaultLayout(ImGuiID dockId) {
+  ImGui::DockBuilderRemoveNode(dockId);
+  ImGui::DockBuilderAddNode(dockId, ImGuiDockNodeFlags_DockSpace);
+  ImGui::DockBuilderSetNodeSize(dockId, ImGui::GetMainViewport()->Size);
+
+  // Split the dockspace
+  ImGuiID dockMain = dockId;
+  ImGuiID dockLeft = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Left, 0.2f, nullptr, &dockMain);
+  ImGuiID dockRight = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Right, 0.25f, nullptr, &dockMain);
+  ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.25f, nullptr, &dockMain);
+
+  // Dock windows
+  ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
+  ImGui::DockBuilderDockWindow("Inspector", dockRight);
+  ImGui::DockBuilderDockWindow("Scene", dockMain);
+  ImGui::DockBuilderDockWindow("Project Browser", dockBottom);
+  ImGui::DockBuilderDockWindow("Scripts", dockBottom);
+  ImGui::DockBuilderDockWindow("Stats", dockBottom);
+
+  ImGui::DockBuilderFinish(dockId);
+}
+
 void Editor::RenderGUI() {
+  // Begin full-screen dockspace
+  BeginDockSpace();
+
+  // Menu bar inside dockspace
   RenderMenuBar();
 
-  // Windows
+  // End dockspace container
+  EndDockSpace();
+
+  // Render individual windows (now dockable)
   if (showHierarchy && hierarchyWindow) {
     hierarchyWindow->OnGUI();
   }
@@ -65,35 +133,61 @@ void Editor::RenderGUI() {
     inspectorWindow->OnGUI();
   }
 
-  // Project browser
   if (showProjectBrowser && projectBrowserWindow) {
     projectBrowserWindow->OnGUI();
   }
 
-  // Script window
   if (showScriptWindow && scriptWindow) {
     scriptWindow->OnGUI();
   }
 
-  // Stats window
-  if (showStats) {
-    ImGui::SetNextWindowPos(ImVec2(10, 50), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(200, 100), ImGuiCond_FirstUseEver);
-    ImGui::Begin("Stats", &showStats);
-    ImGui::Text("FPS: %.1f", Time::GetFPS());
-    ImGui::Text("Delta Time: %.3f ms", Time::GetDeltaTime() * 1000.0f);
-    ImGui::Text("Frame: %d", Time::GetFrameCount());
-    ImGui::End();
+  if (showSceneView) {
+    RenderSceneView();
   }
 
-  // Build window
+  if (showStats) {
+    RenderStatsWindow();
+  }
+
   if (showBuildWindow) {
     RenderBuildWindow();
   }
 }
 
+void Editor::RenderSceneView() {
+  ImGui::Begin("Scene", &showSceneView);
+
+  // Get available size for the scene view
+  ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+
+  // Placeholder for scene rendering
+  ImGui::Text("Scene View");
+  ImGui::Text("Size: %.0f x %.0f", viewportSize.x, viewportSize.y);
+
+  // Draw a placeholder rectangle
+  ImVec2 pos = ImGui::GetCursorScreenPos();
+  ImDrawList* drawList = ImGui::GetWindowDrawList();
+  drawList->AddRectFilled(pos, ImVec2(pos.x + viewportSize.x, pos.y + viewportSize.y - 40),
+                          IM_COL32(30, 30, 50, 255));
+  drawList->AddRect(pos, ImVec2(pos.x + viewportSize.x, pos.y + viewportSize.y - 40),
+                    IM_COL32(100, 100, 150, 255));
+
+  ImGui::End();
+}
+
+void Editor::RenderStatsWindow() {
+  ImGui::Begin("Stats", &showStats);
+  ImGui::Text("FPS: %.1f", Time::GetFPS());
+  ImGui::Text("Delta Time: %.3f ms", Time::GetDeltaTime() * 1000.0f);
+  ImGui::Text("Frame: %d", Time::GetFrameCount());
+  ImGui::Separator();
+  ImGui::Text("Docking: Enabled");
+  ImGui::Text("Viewports: Enabled");
+  ImGui::End();
+}
+
 void Editor::RenderMenuBar() {
-  if (ImGui::BeginMainMenuBar()) {
+  if (ImGui::BeginMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
         NewScene();
@@ -141,9 +235,14 @@ void Editor::RenderMenuBar() {
     if (ImGui::BeginMenu("Window")) {
       ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy);
       ImGui::MenuItem("Inspector", nullptr, &showInspector);
+      ImGui::MenuItem("Scene", nullptr, &showSceneView);
       ImGui::MenuItem("Project", nullptr, &showProjectBrowser);
       ImGui::MenuItem("Scripts", nullptr, &showScriptWindow);
       ImGui::MenuItem("Stats", nullptr, &showStats);
+      ImGui::Separator();
+      if (ImGui::MenuItem("Reset Layout")) {
+        firstTimeLayout = true;
+      }
       ImGui::EndMenu();
     }
 
@@ -161,39 +260,57 @@ void Editor::RenderMenuBar() {
       ImGui::EndMenu();
     }
 
+    // Spacer to push play controls to center
+    float menuWidth = ImGui::GetCursorPosX();
+    float windowWidth = ImGui::GetWindowWidth();
+    float playControlsWidth = 200.0f;
+    ImGui::SetCursorPosX((windowWidth - playControlsWidth) * 0.5f);
+
     // Play controls
     RenderPlayControls();
 
-    ImGui::EndMainMenuBar();
+    ImGui::EndMenuBar();
   }
 }
 
 void Editor::RenderPlayControls() {
-  ImGui::Separator();
-
   EditorState &editorState = EditorState::Get();
 
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 4));
+
   if (editorState.IsEditMode()) {
-    if (ImGui::Button("Play")) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+    if (ImGui::Button(" > Play ")) {
       editorState.Play();
     }
+    ImGui::PopStyleColor();
   } else if (editorState.IsPlayMode()) {
-    if (ImGui::Button("Pause")) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.6f, 0.2f, 1.0f));
+    if (ImGui::Button(" || Pause ")) {
       editorState.Pause();
     }
+    ImGui::PopStyleColor();
     ImGui::SameLine();
-    if (ImGui::Button("Stop")) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+    if (ImGui::Button(" [] Stop ")) {
       editorState.Stop();
     }
+    ImGui::PopStyleColor();
   } else if (editorState.IsPaused()) {
-    if (ImGui::Button("Resume")) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+    if (ImGui::Button(" > Resume ")) {
       editorState.Play();
     }
+    ImGui::PopStyleColor();
     ImGui::SameLine();
-    if (ImGui::Button("Stop")) {
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+    if (ImGui::Button(" [] Stop ")) {
       editorState.Stop();
     }
+    ImGui::PopStyleColor();
   }
+
+  ImGui::PopStyleVar();
 
   ImGui::SameLine();
   ImGui::TextDisabled("|");
@@ -276,12 +393,6 @@ void Editor::SaveSceneAs() {
   if (!gameObjects)
     return;
 
-  // Simple file path input (in a real editor, use native file dialog)
-  static char pathBuffer[256] = "scene.json";
-  static bool showSaveDialog = false;
-
-  showSaveDialog = true;
-
   // For now, use a default path
   currentScenePath = "scene.json";
   if (SceneSerializer::SaveScene(currentScenePath, *gameObjects)) {
@@ -294,7 +405,6 @@ void Editor::OpenScene() {
   if (!gameObjects)
     return;
 
-  // For now, use a default path
   std::string filepath = "scene.json";
 
   if (SceneSerializer::LoadScene(filepath, *gameObjects)) {
@@ -328,7 +438,6 @@ void Editor::RenderBuildWindow() {
 
     ImGui::Separator();
 
-    // Show current scene info
     if (!currentScenePath.empty()) {
       ImGui::Text("Main Scene: %s", currentScenePath.c_str());
     } else {
@@ -339,14 +448,12 @@ void Editor::RenderBuildWindow() {
 
     ImGui::Separator();
 
-    // Build progress
     GameBuilder &builder = GameBuilder::Get();
     if (isBuilding) {
       ImGui::ProgressBar(builder.GetProgress(), ImVec2(-1, 0));
       ImGui::Text("%s", builder.GetCurrentStep().c_str());
     }
 
-    // Build button
     ImGui::Spacing();
     if (ImGui::Button("Build Game", ImVec2(120, 30))) {
       BuildGame();
@@ -356,7 +463,6 @@ void Editor::RenderBuildWindow() {
       showBuildWindow = false;
     }
 
-    // Show last error if any
     if (!builder.GetLastError().empty()) {
       ImGui::Separator();
       ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Error: %s",
@@ -367,7 +473,6 @@ void Editor::RenderBuildWindow() {
 }
 
 void Editor::BuildGame() {
-  // Save scene first if needed
   if (currentScenePath.empty()) {
     currentScenePath = "scene.json";
   }
@@ -376,7 +481,6 @@ void Editor::BuildGame() {
     SceneSerializer::SaveScene(currentScenePath, *gameObjects);
   }
 
-  // Setup build settings
   BuildSettings settings;
   settings.gameName = buildGameName;
   settings.outputPath = buildOutputPath;
@@ -387,7 +491,6 @@ void Editor::BuildGame() {
 
   isBuilding = true;
 
-  // Build the game
   GameBuilder &builder = GameBuilder::Get();
   if (builder.Build(settings)) {
     std::cout << "[Editor] Build successful!" << std::endl;
@@ -416,7 +519,6 @@ void Editor::RenderScriptingMenu() {
 
     if (ImGui::MenuItem("Create New Script...")) {
       showScriptWindow = true;
-      // The Script Window will handle the create dialog
     }
 
     ImGui::Separator();

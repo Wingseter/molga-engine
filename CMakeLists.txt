@@ -50,6 +50,7 @@ set(EDITOR_SOURCES
     src/Editor/ImGuiLayer.cpp
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
+    src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
     src/Editor/Windows/HierarchyWindow.cpp
     src/Editor/Windows/InspectorWindow.cpp
