@@ -17,7 +17,7 @@
 #include "Editor/EditorState.h"
 #include "Editor/Editor.h"
 #include "Editor/Windows/ProjectWindow.h"
-#include "Core/Project.h"
+#include "Editor/Project.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"

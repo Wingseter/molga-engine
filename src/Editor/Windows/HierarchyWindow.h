@@ -26,10 +26,18 @@ public:
 
 private:
     void DrawGameObjectNode(GameObject* obj);
+    void CreateEmptyGameObject();
+    void DeleteSelectedObject();
+    void DuplicateSelectedObject();
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
     GameObject* selectedObject = nullptr;
     SelectionCallback onSelectionChanged = nullptr;
+
+    // Rename state
+    bool isRenaming = false;
+    GameObject* renamingObject = nullptr;
+    char renameBuffer[256] = "";
 };
 
 #endif // MOLGA_HIERARCHY_WINDOW_H

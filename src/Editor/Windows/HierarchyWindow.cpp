@@ -1,7 +1,12 @@
 #include "HierarchyWindow.h"
 #include "../../ECS/GameObject.h"
+#include "../../ECS/Component.h"
+#include "../../ECS/Components/Transform.h"
 #include "../FontManager.h"
+#include "../UIRegistry.h"
 #include <imgui.h>
+#include <cstring>
+#include <algorithm>
 
 HierarchyWindow::HierarchyWindow()
     : EditorWindow("Hierarchy") {
@@ -21,7 +26,7 @@ void HierarchyWindow::OnGUI() {
 
     // Add object button with icon
     if (ImGui::Button((std::string(Icons::Plus) + " Add GameObject").c_str())) {
-        // TODO: Add new GameObject to scene
+        CreateEmptyGameObject();
     }
 
     ImGui::Separator();
@@ -43,7 +48,7 @@ void HierarchyWindow::OnGUI() {
     // Right-click context menu in empty space
     if (ImGui::BeginPopupContextWindow("HierarchyContextMenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
         if (ImGui::MenuItem((std::string(Icons::Cube) + " Create Empty").c_str())) {
-            // TODO: Create new empty GameObject
+            CreateEmptyGameObject();
         }
         if (ImGui::BeginMenu((std::string(Icons::Image) + " Create 2D Object").c_str())) {
             if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {}
@@ -73,9 +78,34 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 
     // Determine icon based on components
     const char* icon = Icons::Cube;  // Default icon
-    // TODO: Check for specific components and change icon accordingly
-    // e.g., if has SpriteRenderer -> Icons::Image
-    //       if has Camera -> Icons::Camera
+    for (auto* comp : obj->GetComponents()) {
+        const auto& info = UIRegistry::GetComponentInfo(comp->GetTypeName());
+        if (info.icon != Icons::Cog) {  // Use first non-default component icon
+            icon = info.icon;
+            break;
+        }
+    }
+
+    // If renaming this object, show input text instead of tree node
+    if (isRenaming && renamingObject == obj) {
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::InputText("##Rename", renameBuffer, sizeof(renameBuffer),
+                             ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+            obj->SetName(renameBuffer);
+            isRenaming = false;
+            renamingObject = nullptr;
+        }
+        // Cancel on escape or click elsewhere
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (!ImGui::IsItemActive() && ImGui::IsMouseClicked(0))) {
+            isRenaming = false;
+            renamingObject = nullptr;
+        }
+        // Focus the input on first frame
+        if (ImGui::IsItemActive() == false) {
+            ImGui::SetKeyboardFocusHere(-1);
+        }
+        return;
+    }
 
     std::string label = std::string(icon) + " " + obj->GetName();
     bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)obj->GetID(), flags, "%s", label.c_str());
@@ -91,14 +121,19 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
     // Right-click context menu
     if (ImGui::BeginPopupContextItem()) {
         if (ImGui::MenuItem((std::string(Icons::Code) + " Rename").c_str())) {
-            // TODO: Rename dialog
+            isRenaming = true;
+            renamingObject = obj;
+            strncpy(renameBuffer, obj->GetName().c_str(), sizeof(renameBuffer) - 1);
+            renameBuffer[sizeof(renameBuffer) - 1] = '\0';
         }
         if (ImGui::MenuItem((std::string(Icons::Cubes) + " Duplicate").c_str())) {
-            // TODO: Duplicate object
+            selectedObject = obj;
+            DuplicateSelectedObject();
         }
         ImGui::Separator();
         if (ImGui::MenuItem((std::string(Icons::Trash) + " Delete").c_str())) {
-            // TODO: Delete object
+            selectedObject = obj;
+            DeleteSelectedObject();
         }
         ImGui::EndPopup();
     }
@@ -109,5 +144,60 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
             DrawGameObjectNode(child);
         }
         ImGui::TreePop();
+    }
+}
+
+void HierarchyWindow::CreateEmptyGameObject() {
+    if (!gameObjects) return;
+
+    auto obj = std::make_shared<GameObject>("New GameObject");
+    obj->AddComponent<Transform>();
+    gameObjects->push_back(obj);
+
+    selectedObject = obj.get();
+    if (onSelectionChanged) {
+        onSelectionChanged(selectedObject);
+    }
+}
+
+void HierarchyWindow::DeleteSelectedObject() {
+    if (!gameObjects || !selectedObject) return;
+
+    auto it = std::find_if(gameObjects->begin(), gameObjects->end(),
+        [this](const std::shared_ptr<GameObject>& obj) {
+            return obj.get() == selectedObject;
+        });
+
+    if (it != gameObjects->end()) {
+        gameObjects->erase(it);
+    }
+
+    selectedObject = nullptr;
+    if (onSelectionChanged) {
+        onSelectionChanged(nullptr);
+    }
+}
+
+void HierarchyWindow::DuplicateSelectedObject() {
+    if (!gameObjects || !selectedObject) return;
+
+    // Create a new object with the same name + " (Copy)"
+    auto newObj = std::make_shared<GameObject>(selectedObject->GetName() + " (Copy)");
+    newObj->AddComponent<Transform>();
+
+    // Copy transform values if possible
+    auto* srcTransform = selectedObject->GetComponent<Transform>();
+    auto* dstTransform = newObj->GetComponent<Transform>();
+    if (srcTransform && dstTransform) {
+        dstTransform->SetPosition(srcTransform->GetPosition());
+        dstTransform->SetRotation(srcTransform->GetRotation());
+        dstTransform->SetScale(srcTransform->GetScale());
+    }
+
+    gameObjects->push_back(newObj);
+
+    selectedObject = newObj.get();
+    if (onSelectionChanged) {
+        onSelectionChanged(selectedObject);
     }
 }

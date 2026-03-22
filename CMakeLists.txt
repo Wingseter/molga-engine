@@ -55,6 +55,7 @@ set(ENGINE_SOURCES
     src/Platform/Platform.cpp
     src/TextRenderer.cpp
     src/Core/Bootstrap.cpp
+    src/Common/Log.cpp
 )
 
 # ── molga_core static library ──────────────────────────────────────────────────
@@ -81,13 +82,19 @@ set(EDITOR_SOURCES
     src/Editor/Editor.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
+    src/Editor/UIRegistry.cpp
+    src/Editor/WindowManager.cpp
+    src/Editor/SceneOperations.cpp
+    src/Editor/BuildManager.cpp
+    src/Editor/Windows/SceneViewWindow.cpp
+    src/Editor/Windows/StatsWindow.cpp
     src/Editor/Windows/HierarchyWindow.cpp
     src/Editor/Windows/InspectorWindow.cpp
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
-    src/Core/GameBuilder.cpp
-    src/Core/Project.cpp
+    src/Editor/GameBuilder.cpp
+    src/Editor/Project.cpp
     src/Core/TextureManager.cpp
     src/Scripting/ScriptCompiler.cpp
     src/Scenes/MenuScene.cpp

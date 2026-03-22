@@ -1,4 +1,5 @@
 #include "Project.h"
+#include "../Common/Log.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -22,26 +23,26 @@ bool Project::Create(const std::string& parentPath, const std::string& name) {
 
     // Check if directory already exists
     if (fs::exists(basePath)) {
-        std::cerr << "[Project] Directory already exists: " << projectPath << std::endl;
+        Log::Error("Project", "Directory already exists: " + projectPath);
         return false;
     }
 
     // Create directory structure
     if (!CreateDirectoryStructure()) {
-        std::cerr << "[Project] Failed to create directory structure" << std::endl;
+        Log::Error("Project", "Failed to create directory structure");
         return false;
     }
 
     // Save project file
     if (!SaveProjectFile()) {
-        std::cerr << "[Project] Failed to save project file" << std::endl;
+        Log::Error("Project", "Failed to save project file");
         return false;
     }
 
     isOpen = true;
     AddToRecentProjects(projectPath);
 
-    std::cout << "[Project] Created project: " << projectName << " at " << projectPath << std::endl;
+    Log::Info("Project", "Created project: " + projectName + " at " + projectPath);
     return true;
 }
 
@@ -53,7 +54,7 @@ bool Project::Open(const std::string& path) {
 
     // Check if it's a valid project
     if (!IsValidProject(path)) {
-        std::cerr << "[Project] Not a valid Molga project: " << path << std::endl;
+        Log::Error("Project", "Not a valid Molga project: " + path);
         return false;
     }
 
@@ -61,20 +62,20 @@ bool Project::Open(const std::string& path) {
 
     // Load project file
     if (!LoadProjectFile()) {
-        std::cerr << "[Project] Failed to load project file" << std::endl;
+        Log::Error("Project", "Failed to load project file");
         return false;
     }
 
     isOpen = true;
     AddToRecentProjects(projectPath);
 
-    std::cout << "[Project] Opened project: " << projectName << " at " << projectPath << std::endl;
+    Log::Info("Project", "Opened project: " + projectName + " at " + projectPath);
     return true;
 }
 
 void Project::Close() {
     if (isOpen) {
-        std::cout << "[Project] Closed project: " << projectName << std::endl;
+        Log::Info("Project", "Closed project: " + projectName);
     }
     projectPath.clear();
     projectName.clear();
@@ -163,7 +164,7 @@ bool Project::CreateDirectoryStructure() {
 
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Project] Error creating directories: " << e.what() << std::endl;
+        Log::Error("Project", "Error creating directories: " + std::string(e.what()));
         return false;
     }
 }
@@ -187,7 +188,7 @@ bool Project::SaveProjectFile() {
 
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Project] Error saving project file: " << e.what() << std::endl;
+        Log::Error("Project", "Error saving project file: " + std::string(e.what()));
         return false;
     }
 }
@@ -214,7 +215,7 @@ bool Project::LoadProjectFile() {
 
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[Project] Error loading project file: " << e.what() << std::endl;
+        Log::Error("Project", "Error loading project file: " + std::string(e.what()));
         return false;
     }
 }
@@ -272,7 +273,7 @@ void Project::LoadRecentProjects() {
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "[Project] Error loading recent projects: " << e.what() << std::endl;
+        Log::Error("Project", "Error loading recent projects: " + std::string(e.what()));
     }
 }
 
@@ -295,6 +296,6 @@ void Project::SaveRecentProjects() {
         file << j.dump(2);
         file.close();
     } catch (const std::exception& e) {
-        std::cerr << "[Project] Error saving recent projects: " << e.what() << std::endl;
+        Log::Error("Project", "Error saving recent projects: " + std::string(e.what()));
     }
 }

@@ -1,7 +1,7 @@
 #include "Editor.h"
-#include "../Core/GameBuilder.h"
-#include "../Core/Project.h"
-#include "../Core/SceneSerializer.h"
+#include "EditorConstants.h"
+#include "EditorTheme.h"
+#include "Project.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/GameObject.h"
@@ -14,11 +14,13 @@
 #include "Windows/InspectorWindow.h"
 #include "Windows/ProjectBrowserWindow.h"
 #include "Windows/ScriptWindow.h"
+#include "Windows/SceneViewWindow.h"
+#include "Windows/StatsWindow.h"
+#include "../Common/Log.h"
 #include <cstring>
 #include <filesystem>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <iostream>
 
 Editor &Editor::Get() {
   static Editor instance;
@@ -26,14 +28,24 @@ Editor &Editor::Get() {
 }
 
 void Editor::Init() {
-  hierarchyWindow = std::make_unique<HierarchyWindow>();
-  inspectorWindow = std::make_unique<InspectorWindow>();
-  projectBrowserWindow = std::make_unique<ProjectBrowserWindow>();
-  scriptWindow = std::make_unique<ScriptWindow>();
+  // Register all windows via WindowManager
+  windowManager.Register(EditorConstants::WIN_HIERARCHY, std::make_unique<HierarchyWindow>());
+  windowManager.Register(EditorConstants::WIN_INSPECTOR, std::make_unique<InspectorWindow>());
+  windowManager.Register(EditorConstants::WIN_PROJECT_BROWSER, std::make_unique<ProjectBrowserWindow>());
+  windowManager.Register(EditorConstants::WIN_SCRIPTS, std::make_unique<ScriptWindow>());
+  windowManager.Register(EditorConstants::WIN_SCENE, std::make_unique<SceneViewWindow>());
+  windowManager.Register(EditorConstants::WIN_STATS, std::make_unique<StatsWindow>());
 
   // Connect hierarchy selection to inspector
-  hierarchyWindow->SetSelectionCallback(
-      [](GameObject *obj) { Editor::Get().inspectorWindow->SetTarget(obj); });
+  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
+  auto* inspector = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
+  if (hierarchy && inspector) {
+    hierarchy->SetSelectionCallback(
+        [](GameObject *obj) {
+          auto* insp = Editor::Get().windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
+          if (insp) insp->SetTarget(obj);
+        });
+  }
 
   // Set engine path for ScriptCompiler and VSCodeIntegration
   std::string enginePath =
@@ -43,10 +55,7 @@ void Editor::Init() {
 }
 
 void Editor::Shutdown() {
-  hierarchyWindow.reset();
-  inspectorWindow.reset();
-  projectBrowserWindow.reset();
-  scriptWindow.reset();
+  windowManager.ShutdownAll();
 }
 
 void Editor::Update(float dt) {
@@ -78,7 +87,7 @@ void Editor::BeginDockSpace() {
   ImGui::PopStyleVar(3);
 
   // DockSpace
-  dockspaceId = ImGui::GetID("MolgaDockSpace");
+  dockspaceId = ImGui::GetID(EditorConstants::DOCKSPACE_ID);
   ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), dockspaceFlags);
 
   // Setup default layout on first run
@@ -104,12 +113,12 @@ void Editor::SetupDefaultLayout(ImGuiID dockId) {
   ImGuiID dockBottom = ImGui::DockBuilderSplitNode(dockMain, ImGuiDir_Down, 0.25f, nullptr, &dockMain);
 
   // Dock windows
-  ImGui::DockBuilderDockWindow("Hierarchy", dockLeft);
-  ImGui::DockBuilderDockWindow("Inspector", dockRight);
-  ImGui::DockBuilderDockWindow("Scene", dockMain);
-  ImGui::DockBuilderDockWindow("Project Browser", dockBottom);
-  ImGui::DockBuilderDockWindow("Scripts", dockBottom);
-  ImGui::DockBuilderDockWindow("Stats", dockBottom);
+  ImGui::DockBuilderDockWindow(EditorConstants::WIN_HIERARCHY, dockLeft);
+  ImGui::DockBuilderDockWindow(EditorConstants::WIN_INSPECTOR, dockRight);
+  ImGui::DockBuilderDockWindow(EditorConstants::WIN_SCENE, dockMain);
+  ImGui::DockBuilderDockWindow(EditorConstants::WIN_PROJECT_BROWSER, dockBottom);
+  ImGui::DockBuilderDockWindow(EditorConstants::WIN_SCRIPTS, dockBottom);
+  ImGui::DockBuilderDockWindow(EditorConstants::WIN_STATS, dockBottom);
 
   ImGui::DockBuilderFinish(dockId);
 }
@@ -124,66 +133,11 @@ void Editor::RenderGUI() {
   // End dockspace container
   EndDockSpace();
 
-  // Render individual windows (now dockable)
-  if (showHierarchy && hierarchyWindow) {
-    hierarchyWindow->OnGUI();
-  }
+  // Render all registered windows via WindowManager
+  windowManager.RenderAll();
 
-  if (showInspector && inspectorWindow) {
-    inspectorWindow->OnGUI();
-  }
-
-  if (showProjectBrowser && projectBrowserWindow) {
-    projectBrowserWindow->OnGUI();
-  }
-
-  if (showScriptWindow && scriptWindow) {
-    scriptWindow->OnGUI();
-  }
-
-  if (showSceneView) {
-    RenderSceneView();
-  }
-
-  if (showStats) {
-    RenderStatsWindow();
-  }
-
-  if (showBuildWindow) {
-    RenderBuildWindow();
-  }
-}
-
-void Editor::RenderSceneView() {
-  ImGui::Begin("Scene", &showSceneView);
-
-  // Get available size for the scene view
-  ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-
-  // Placeholder for scene rendering
-  ImGui::Text("Scene View");
-  ImGui::Text("Size: %.0f x %.0f", viewportSize.x, viewportSize.y);
-
-  // Draw a placeholder rectangle
-  ImVec2 pos = ImGui::GetCursorScreenPos();
-  ImDrawList* drawList = ImGui::GetWindowDrawList();
-  drawList->AddRectFilled(pos, ImVec2(pos.x + viewportSize.x, pos.y + viewportSize.y - 40),
-                          IM_COL32(30, 30, 50, 255));
-  drawList->AddRect(pos, ImVec2(pos.x + viewportSize.x, pos.y + viewportSize.y - 40),
-                    IM_COL32(100, 100, 150, 255));
-
-  ImGui::End();
-}
-
-void Editor::RenderStatsWindow() {
-  ImGui::Begin("Stats", &showStats);
-  ImGui::Text("FPS: %.1f", Time::GetFPS());
-  ImGui::Text("Delta Time: %.3f ms", Time::GetDeltaTime() * 1000.0f);
-  ImGui::Text("Frame: %d", Time::GetFrameCount());
-  ImGui::Separator();
-  ImGui::Text("Docking: Enabled");
-  ImGui::Text("Viewports: Enabled");
-  ImGui::End();
+  // Build window is a separate dialog, not a dockable window
+  buildMgr.RenderBuildWindow(sceneOps.GetCurrentPath());
 }
 
 void Editor::RenderMenuBar() {
@@ -203,15 +157,17 @@ void Editor::RenderMenuBar() {
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Exit", "Alt+F4")) {
-        // Request quit
+        Log::Warn("Editor", "Exit is not yet implemented");
       }
       ImGui::EndMenu();
     }
 
     if (ImGui::BeginMenu("Edit")) {
       if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
+        Log::Warn("Editor", "Undo is not yet implemented");
       }
       if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
+        Log::Warn("Editor", "Redo is not yet implemented");
       }
       ImGui::EndMenu();
     }
@@ -233,12 +189,7 @@ void Editor::RenderMenuBar() {
     }
 
     if (ImGui::BeginMenu("Window")) {
-      ImGui::MenuItem("Hierarchy", nullptr, &showHierarchy);
-      ImGui::MenuItem("Inspector", nullptr, &showInspector);
-      ImGui::MenuItem("Scene", nullptr, &showSceneView);
-      ImGui::MenuItem("Project", nullptr, &showProjectBrowser);
-      ImGui::MenuItem("Scripts", nullptr, &showScriptWindow);
-      ImGui::MenuItem("Stats", nullptr, &showStats);
+      windowManager.RenderWindowMenu();
       ImGui::Separator();
       if (ImGui::MenuItem("Reset Layout")) {
         firstTimeLayout = true;
@@ -251,17 +202,16 @@ void Editor::RenderMenuBar() {
 
     if (ImGui::BeginMenu("Build")) {
       if (ImGui::MenuItem("Build Settings...")) {
-        showBuildWindow = true;
+        buildMgr.ShowWindow();
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Build Game", "Ctrl+B")) {
-        BuildGame();
+        buildMgr.Build(sceneOps.GetCurrentPath(), gameObjects);
       }
       ImGui::EndMenu();
     }
 
     // Spacer to push play controls to center
-    float menuWidth = ImGui::GetCursorPosX();
     float windowWidth = ImGui::GetWindowWidth();
     float playControlsWidth = 200.0f;
     ImGui::SetCursorPosX((windowWidth - playControlsWidth) * 0.5f);
@@ -279,31 +229,31 @@ void Editor::RenderPlayControls() {
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 4));
 
   if (editorState.IsEditMode()) {
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::PLAY_BUTTON);
     if (ImGui::Button(" > Play ")) {
       editorState.Play();
     }
     ImGui::PopStyleColor();
   } else if (editorState.IsPlayMode()) {
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.6f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::PAUSE_BUTTON);
     if (ImGui::Button(" || Pause ")) {
       editorState.Pause();
     }
     ImGui::PopStyleColor();
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::STOP_BUTTON);
     if (ImGui::Button(" [] Stop ")) {
       editorState.Stop();
     }
     ImGui::PopStyleColor();
   } else if (editorState.IsPaused()) {
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::PLAY_BUTTON);
     if (ImGui::Button(" > Resume ")) {
       editorState.Play();
     }
     ImGui::PopStyleColor();
     ImGui::SameLine();
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::STOP_BUTTON);
     if (ImGui::Button(" [] Stop ")) {
       editorState.Stop();
     }
@@ -317,31 +267,35 @@ void Editor::RenderPlayControls() {
   ImGui::SameLine();
 
   if (editorState.IsEditMode()) {
-    ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "Edit");
+    ImGui::TextColored(EditorTheme::STATE_EDIT, "Edit");
   } else if (editorState.IsPlayMode()) {
-    ImGui::TextColored(ImVec4(0.3f, 0.7f, 1.0f, 1.0f), "Playing");
+    ImGui::TextColored(EditorTheme::STATE_PLAYING, "Playing");
   } else {
-    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Paused");
+    ImGui::TextColored(EditorTheme::STATE_PAUSED, "Paused");
   }
 }
 
 void Editor::SetGameObjects(std::vector<std::shared_ptr<GameObject>> *objects) {
   gameObjects = objects;
-  if (hierarchyWindow) {
-    hierarchyWindow->SetGameObjects(objects);
+  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
+  if (hierarchy) {
+    hierarchy->SetGameObjects(objects);
   }
 }
 
 GameObject *Editor::GetSelectedObject() const {
-  return hierarchyWindow ? hierarchyWindow->GetSelectedObject() : nullptr;
+  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
+  return hierarchy ? hierarchy->GetSelectedObject() : nullptr;
 }
 
 void Editor::SetSelectedObject(GameObject *obj) {
-  if (hierarchyWindow) {
-    hierarchyWindow->SetSelectedObject(obj);
+  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
+  if (hierarchy) {
+    hierarchy->SetSelectedObject(obj);
   }
-  if (inspectorWindow) {
-    inspectorWindow->SetTarget(obj);
+  auto* inspector = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
+  if (inspector) {
+    inspector->SetTarget(obj);
   }
 }
 
@@ -352,156 +306,38 @@ std::shared_ptr<GameObject> Editor::CreateGameObject(const std::string &name) {
   auto obj = std::make_shared<GameObject>(name);
   obj->AddComponent<Transform>();
   gameObjects->push_back(obj);
-  sceneModified = true;
+  sceneOps.MarkModified();
 
   return obj;
 }
 
 void Editor::NewScene() {
-  if (!gameObjects)
-    return;
+  if (!gameObjects) return;
 
-  gameObjects->clear();
-  currentScenePath.clear();
-  sceneModified = false;
-
-  if (hierarchyWindow) {
-    hierarchyWindow->SetSelectedObject(nullptr);
-  }
-  if (inspectorWindow) {
-    inspectorWindow->SetTarget(nullptr);
-  }
-
-  std::cout << "[Editor] New scene created" << std::endl;
+  sceneOps.NewScene(*gameObjects);
+  SetSelectedObject(nullptr);
 }
 
 void Editor::SaveScene() {
-  if (!gameObjects)
-    return;
-
-  if (currentScenePath.empty()) {
-    SaveSceneAs();
-    return;
-  }
-
-  if (SceneSerializer::SaveScene(currentScenePath, *gameObjects)) {
-    sceneModified = false;
-  }
+  if (!gameObjects) return;
+  sceneOps.SaveScene(*gameObjects);
 }
 
 void Editor::SaveSceneAs() {
-  if (!gameObjects)
-    return;
-
-  // For now, use a default path
-  currentScenePath = "scene.json";
-  if (SceneSerializer::SaveScene(currentScenePath, *gameObjects)) {
-    sceneModified = false;
-    std::cout << "[Editor] Scene saved to: " << currentScenePath << std::endl;
-  }
+  if (!gameObjects) return;
+  sceneOps.SaveSceneAs(*gameObjects);
 }
 
 void Editor::OpenScene() {
-  if (!gameObjects)
-    return;
+  if (!gameObjects) return;
 
-  std::string filepath = "scene.json";
-
-  if (SceneSerializer::LoadScene(filepath, *gameObjects)) {
-    currentScenePath = filepath;
-    sceneModified = false;
-
-    if (hierarchyWindow) {
-      hierarchyWindow->SetSelectedObject(nullptr);
-      hierarchyWindow->SetGameObjects(gameObjects);
-    }
-    if (inspectorWindow) {
-      inspectorWindow->SetTarget(nullptr);
+  if (sceneOps.OpenScene(*gameObjects)) {
+    SetSelectedObject(nullptr);
+    auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
+    if (hierarchy) {
+      hierarchy->SetGameObjects(gameObjects);
     }
   }
-}
-
-void Editor::RenderBuildWindow() {
-  ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
-  if (ImGui::Begin("Build Settings", &showBuildWindow)) {
-    ImGui::Text("Game Build Settings");
-    ImGui::Separator();
-
-    ImGui::InputText("Game Name", buildGameName, sizeof(buildGameName));
-    ImGui::InputText("Output Path", buildOutputPath, sizeof(buildOutputPath));
-
-    ImGui::Separator();
-    ImGui::Text("Window Settings");
-    ImGui::InputInt("Width", &buildWidth);
-    ImGui::InputInt("Height", &buildHeight);
-    ImGui::Checkbox("Fullscreen", &buildFullscreen);
-
-    ImGui::Separator();
-
-    if (!currentScenePath.empty()) {
-      ImGui::Text("Main Scene: %s", currentScenePath.c_str());
-    } else {
-      ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f),
-                         "Warning: No scene saved!");
-      ImGui::Text("Save your scene first (File > Save Scene)");
-    }
-
-    ImGui::Separator();
-
-    GameBuilder &builder = GameBuilder::Get();
-    if (isBuilding) {
-      ImGui::ProgressBar(builder.GetProgress(), ImVec2(-1, 0));
-      ImGui::Text("%s", builder.GetCurrentStep().c_str());
-    }
-
-    ImGui::Spacing();
-    if (ImGui::Button("Build Game", ImVec2(120, 30))) {
-      BuildGame();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(80, 30))) {
-      showBuildWindow = false;
-    }
-
-    if (!builder.GetLastError().empty()) {
-      ImGui::Separator();
-      ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Error: %s",
-                         builder.GetLastError().c_str());
-    }
-  }
-  ImGui::End();
-}
-
-void Editor::BuildGame() {
-  if (currentScenePath.empty()) {
-    currentScenePath = "scene.json";
-  }
-
-  if (gameObjects) {
-    SceneSerializer::SaveScene(currentScenePath, *gameObjects);
-  }
-
-  BuildSettings settings;
-  settings.gameName = buildGameName;
-  settings.outputPath = buildOutputPath;
-  settings.mainScene = currentScenePath;
-  settings.windowWidth = buildWidth;
-  settings.windowHeight = buildHeight;
-  settings.fullscreen = buildFullscreen;
-
-  isBuilding = true;
-
-  GameBuilder &builder = GameBuilder::Get();
-  if (builder.Build(settings)) {
-    std::cout << "[Editor] Build successful!" << std::endl;
-    std::cout << "[Editor] Output: " << settings.outputPath << "/"
-              << settings.gameName << std::endl;
-  } else {
-    std::cerr << "[Editor] Build failed: " << builder.GetLastError()
-              << std::endl;
-  }
-
-  isBuilding = false;
 }
 
 void Editor::RenderScriptingMenu() {
@@ -518,7 +354,7 @@ void Editor::RenderScriptingMenu() {
     }
 
     if (ImGui::MenuItem("Create New Script...")) {
-      showScriptWindow = true;
+      windowManager.SetVisible(EditorConstants::WIN_SCRIPTS, true);
     }
 
     ImGui::Separator();
@@ -527,13 +363,13 @@ void Editor::RenderScriptingMenu() {
       ScriptCompiler &compiler = ScriptCompiler::Get();
       compiler.SetProjectPath(project.GetPath());
       if (compiler.Compile()) {
-        std::cout << "[Editor] Scripts compiled successfully" << std::endl;
+        Log::Info("Editor", "Scripts compiled successfully");
       } else {
-        std::cerr << "[Editor] Script compilation failed: "
-                  << compiler.GetLastError() << std::endl;
+        Log::Error("Editor", "Script compilation failed: " + compiler.GetLastError());
       }
-      if (scriptWindow) {
-        scriptWindow->RefreshScriptList();
+      auto* scriptWin = windowManager.GetAs<ScriptWindow>(EditorConstants::WIN_SCRIPTS);
+      if (scriptWin) {
+        scriptWin->RefreshScriptList();
       }
     }
 
@@ -542,12 +378,12 @@ void Editor::RenderScriptingMenu() {
       std::string libPath = compiler.GetCompiledLibraryPath();
       if (std::filesystem::exists(libPath)) {
         if (ScriptManager::Get().LoadScriptLibrary(libPath)) {
-          std::cout << "[Editor] Scripts reloaded successfully" << std::endl;
+          Log::Info("Editor", "Scripts reloaded successfully");
         } else {
-          std::cerr << "[Editor] Failed to reload scripts" << std::endl;
+          Log::Error("Editor", "Failed to reload scripts");
         }
       } else {
-        std::cerr << "[Editor] No compiled library found" << std::endl;
+        Log::Error("Editor", "No compiled library found");
       }
     }
 
@@ -556,7 +392,9 @@ void Editor::RenderScriptingMenu() {
     }
 
     ImGui::Separator();
-    ImGui::MenuItem("Script Window", nullptr, &showScriptWindow);
+    if (ImGui::MenuItem("Script Window")) {
+      windowManager.Toggle(EditorConstants::WIN_SCRIPTS);
+    }
 
     ImGui::EndMenu();
   }

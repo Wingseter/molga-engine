@@ -4,16 +4,16 @@
 #include <memory>
 #include <vector>
 #include <imgui.h>
+#include "WindowManager.h"
+#include "SceneOperations.h"
+#include "BuildManager.h"
 
 class GameObject;
-class HierarchyWindow;
-class InspectorWindow;
-class ProjectBrowserWindow;
-class ScriptWindow;
 class Renderer;
 class Shader;
 class Camera2D;
-struct BuildSettings;
+class HierarchyWindow;
+class InspectorWindow;
 
 class Editor {
 public:
@@ -36,13 +36,13 @@ public:
     // Create new GameObject
     std::shared_ptr<GameObject> CreateGameObject(const std::string& name = "GameObject");
 
-    // Scene file operations
+    // Scene file operations (delegate to SceneOperations)
     void NewScene();
     void SaveScene();
     void SaveSceneAs();
     void OpenScene();
 
-    const std::string& GetCurrentScenePath() const { return currentScenePath; }
+    const std::string& GetCurrentScenePath() const { return sceneOps.GetCurrentPath(); }
 
 private:
     Editor() = default;
@@ -56,41 +56,18 @@ private:
 
     void RenderMenuBar();
     void RenderPlayControls();
-    void RenderBuildWindow();
     void RenderScriptingMenu();
-    void RenderSceneView();
-    void RenderStatsWindow();
-    void BuildGame();
 
-    std::unique_ptr<HierarchyWindow> hierarchyWindow;
-    std::unique_ptr<InspectorWindow> inspectorWindow;
-    std::unique_ptr<ProjectBrowserWindow> projectBrowserWindow;
-    std::unique_ptr<ScriptWindow> scriptWindow;
+    // Subsystems
+    WindowManager windowManager;
+    SceneOperations sceneOps;
+    BuildManager buildMgr;
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
-
-    bool showStats = true;
-    bool showHierarchy = true;
-    bool showInspector = true;
-    bool showProjectBrowser = true;
-    bool showScriptWindow = true;
-    bool showBuildWindow = false;
-    bool showSceneView = true;
-
-    std::string currentScenePath;
-    bool sceneModified = false;
 
     // DockSpace
     bool firstTimeLayout = true;
     ImGuiID dockspaceId = 0;
-
-    // Build settings
-    char buildGameName[128] = "MyGame";
-    char buildOutputPath[256] = "build/export";
-    int buildWidth = 800;
-    int buildHeight = 600;
-    bool buildFullscreen = false;
-    bool isBuilding = false;
 };
 
 #endif // MOLGA_EDITOR_H

@@ -10,6 +10,7 @@ namespace Paths {
         constexpr const char* SCRIPTS = "Scripts";
         constexpr const char* SCRIPTS_BUILD = "Scripts/build";
         constexpr const char* SETTINGS = "ProjectSettings";
+        constexpr const char* FILE = "project.molga";
     }
     namespace Build {
         constexpr const char* ASSETS = "assets";
@@ -20,6 +21,10 @@ namespace Paths {
         constexpr const char* SHADER_VERT = "Shaders/default.vert";
         constexpr const char* SHADER_FRAG = "Shaders/default.frag";
         constexpr const char* SHADER_SRC_DIR = "src/Shaders";
+    }
+    namespace Config {
+        constexpr const char* DIR = ".molga";
+        constexpr const char* RECENT_PROJECTS = "recent_projects.json";
     }
 }
 

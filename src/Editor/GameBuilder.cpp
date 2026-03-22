@@ -1,5 +1,5 @@
 #include "GameBuilder.h"
-#include "PathConstants.h"
+#include "../Core/PathConstants.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>

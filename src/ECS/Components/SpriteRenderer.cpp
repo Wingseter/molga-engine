@@ -10,7 +10,7 @@ REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Sprite.h"
 #include "../../Texture.h"
 #include "../../Core/TextureManager.h"
-#include "../../Core/Project.h"
+#include "../../Editor/Project.h"
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #ifdef MOLGA_EDITOR
