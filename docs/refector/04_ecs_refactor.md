@@ -1,7 +1,21 @@
-# Phase 3: ECS / 씬 데이터 모델 개선
+# Phase 3: ECS / 씬 데이터 모델 개선 ✅ 완료
 
 ## 목표
 씬 직렬화 데이터 손실을 먼저 해결하고, 레거시+ECS 혼합 모델을 정리한 후, 컴포넌트 조회 성능과 구조를 개선한다. Codex 원칙: "ECS 성능 개선은 씬 데이터 모델을 먼저 고정한 뒤 진행한다."
+
+## 완료 요약
+
+| 항목 | 변경 내용 | 핵심 파일 |
+|------|----------|----------|
+| 생명주기 콜백 | `SetEnabled()` → `OnEnable()`/`OnDisable()` 자동 호출, 중복 방지 | `Component.h`, `Script.h` |
+| O(1) 컴포넌트 조회 | `vector` → `unordered_map<size_t, unique_ptr>`, `dynamic_cast` → `static_cast` | `GameObject.h/cpp`, `Component.h` |
+| ID 복원 | `SetID()` 추가, `nextID` 충돌 방지, 로드 시 원본 ID 복원 | `GameObject.h`, `SceneSerializer.cpp` |
+| enabled 직렬화 | `enabled` 필드 저장/로드, 기존 씬 파일 하위 호환 | `SceneSerializer.cpp` |
+| ComponentFactory | `REGISTER_COMPONENT` 매크로 자동 등록, `ScriptManager` fallback | `ComponentFactory.h` (신규), `*.cpp` |
+| 부모-자식 직렬화 | `parentId` 저장, 2-pass 로드로 계층 복원 | `SceneSerializer.cpp` |
+
+**테스트**: 기존 4개 + 신규 4개 테스트 모두 통과 (lifecycle, ID, enabled, hierarchy).
+**빌드**: 0 errors, 0 warnings (clean rebuild 검증 완료).
 
 ---
 
@@ -487,19 +501,19 @@ public:
 ## 체크리스트
 
 ### 우선 (데이터 모델 고정)
-- [ ] SceneSerializer: id 저장/복원 구현
-- [ ] SceneSerializer: 부모-자식 관계 저장/복원 (2-pass 로딩)
-- [ ] SceneSerializer: 스크립트 컴포넌트 타입 저장/복원
-- [ ] Component::enabled 직렬화 추가
-- [ ] GameScene 레거시 객체를 ECS 기반으로 통합
+- [x] SceneSerializer: id 저장/복원 구현 — `SetID()` 추가, `LoadScene`/`DeserializeGameObject`에서 복원
+- [x] SceneSerializer: 부모-자식 관계 저장/복원 (2-pass 로딩) — `parentId` 직렬화, Pass 2에서 `idMap` 기반 복원
+- [x] SceneSerializer: 스크립트 컴포넌트 타입 저장/복원 — `ComponentFactory` + `ScriptManager` fallback
+- [x] Component::enabled 직렬화 추가 — SceneSerializer에서 `enabled` 필드 저장/로드
+- [ ] GameScene 레거시 객체를 ECS 기반으로 통합 → **보류** (Phase 4 범위)
 
 ### 후순 (성능/구조 개선)
-- [ ] ComponentTypeID 시스템 구현
-- [ ] GameObject::GetComponent를 타입 맵 기반 O(1) 조회로 변경
-- [ ] Transform에 dirty flag 패턴 적용
-- [ ] ComponentFactory 구현 및 SceneSerializer 연동
-- [ ] Component::SetEnabled에 OnEnable/OnDisable 콜백 추가
-- [ ] SpriteRenderer 인스펙터 내 텍스처 로딩 로직을 에디터 레이어로 이동
+- [x] ComponentTypeID 시스템 구현 — `ComponentTypeID::Get<T>()` inline 정적 ID 생성
+- [x] GameObject::GetComponent를 타입 맵 기반 O(1) 조회로 변경 — `unordered_map<size_t, unique_ptr<Component>>`
+- [ ] Transform에 dirty flag 패턴 적용 → **보류** (데이터 모델 안정 후 진행)
+- [x] ComponentFactory 구현 및 SceneSerializer 연동 — `REGISTER_COMPONENT` 매크로 자동 등록
+- [x] Component::SetEnabled에 OnEnable/OnDisable 콜백 추가 — 중복 호출 방지 포함
+- [ ] SpriteRenderer 인스펙터 내 텍스처 로딩 로직을 에디터 레이어로 이동 → **보류** (Phase 5+)
 
 ### 장기 (선택)
 - [ ] Serialize/Deserialize를 외부 ComponentSerializer로 분리

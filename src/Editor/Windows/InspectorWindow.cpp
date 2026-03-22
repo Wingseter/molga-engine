@@ -52,8 +52,8 @@ void InspectorWindow::OnGUI() {
     ImGui::Spacing();
 
     // Draw all components using their OnInspectorGUI
-    for (const auto& comp : target->GetComponents()) {
-        DrawComponent(comp.get());
+    for (auto* comp : target->GetComponents()) {
+        DrawComponent(comp);
         ImGui::Spacing();
     }
 

@@ -1,6 +1,9 @@
 #include "SpriteRenderer.h"
 #include "Transform.h"
 #include "../GameObject.h"
+#include "../ComponentFactory.h"
+
+REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Renderer.h"
 #include "../../Shader.h"
 #include "../../Camera2D.h"

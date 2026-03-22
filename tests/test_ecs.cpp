@@ -77,7 +77,7 @@ static void test_multiple_components() {
     assert(obj->HasComponent<Transform>());
     assert(obj->HasComponent<BoxCollider2D>());
 
-    auto& components = obj->GetComponents();
+    auto components = obj->GetComponents();
     assert(components.size() == 2);
 }
 
@@ -174,6 +174,43 @@ static void test_world_transform_with_parent() {
     assert(approx(worldScale.y, 2.0f));
 }
 
+// ── Component lifecycle callbacks ────────────────────────────────────────────
+
+class LifecycleTestComponent : public Component {
+public:
+    COMPONENT_TYPE(LifecycleTestComponent)
+    int enableCount = 0;
+    int disableCount = 0;
+    void OnEnable() override { enableCount++; }
+    void OnDisable() override { disableCount++; }
+};
+
+static void test_component_lifecycle_callbacks() {
+    auto obj = std::make_shared<GameObject>();
+    auto* comp = obj->AddComponent<LifecycleTestComponent>();
+    assert(comp->IsEnabled());
+    assert(comp->enableCount == 0);  // Not called on initial creation
+    assert(comp->disableCount == 0);
+
+    // Disable → OnDisable called
+    comp->SetEnabled(false);
+    assert(!comp->IsEnabled());
+    assert(comp->disableCount == 1);
+
+    // Enable → OnEnable called
+    comp->SetEnabled(true);
+    assert(comp->IsEnabled());
+    assert(comp->enableCount == 1);
+
+    // Duplicate call → no extra callback
+    comp->SetEnabled(true);
+    assert(comp->enableCount == 1);
+    comp->SetEnabled(false);
+    assert(comp->disableCount == 2);
+    comp->SetEnabled(false);
+    assert(comp->disableCount == 2);
+}
+
 // ── BoxCollider2D ────────────────────────────────────────────────────────────
 
 static void test_box_collider_world_aabb() {
@@ -233,6 +270,8 @@ int main() {
     test_parent_child();
     test_remove_child();
     test_world_transform_with_parent();
+
+    test_component_lifecycle_callbacks();
 
     test_box_collider_world_aabb();
     test_box_collider_collision();

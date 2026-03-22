@@ -10,10 +10,10 @@ GameObject::GameObject(const std::string& name)
 
 GameObject::~GameObject() {
     // Detach all components
-    for (auto& comp : components) {
+    for (auto& [id, comp] : componentMap) {
         comp->OnDetach();
     }
-    components.clear();
+    componentMap.clear();
 
     // Remove from parent
     if (parent) {
@@ -62,7 +62,7 @@ void GameObject::RemoveChild(GameObject* child) {
 void GameObject::Update(float dt) {
     if (!active) return;
 
-    for (auto& comp : components) {
+    for (auto& [id, comp] : componentMap) {
         if (comp->IsEnabled()) {
             comp->Update(dt);
         }
@@ -72,7 +72,7 @@ void GameObject::Update(float dt) {
 void GameObject::Render() {
     if (!active) return;
 
-    for (auto& comp : components) {
+    for (auto& [id, comp] : componentMap) {
         if (comp->IsEnabled()) {
             comp->Render();
         }
@@ -83,6 +83,15 @@ Component* GameObject::AddComponentRaw(Component* component) {
     if (!component) return nullptr;
     component->SetGameObject(this);
     component->OnAttach();
-    components.push_back(std::unique_ptr<Component>(component));
+    componentMap[component->GetRuntimeTypeID()] = std::unique_ptr<Component>(component);
     return component;
+}
+
+std::vector<Component*> GameObject::GetComponents() const {
+    std::vector<Component*> result;
+    result.reserve(componentMap.size());
+    for (const auto& [id, comp] : componentMap) {
+        result.push_back(comp.get());
+    }
+    return result;
 }

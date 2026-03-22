@@ -1,28 +1,17 @@
 #include "SceneSerializer.h"
 #include "../ECS/GameObject.h"
 #include "../ECS/Component.h"
+#include "../ECS/ComponentFactory.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include "../ECS/Components/BoxCollider2D.h"
+#include "../Scripting/ScriptManager.h"
+#include "../Scripting/Script.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <iostream>
-#include <functional>
-#include <unordered_map>
 
 using json = nlohmann::json;
-
-// Component factory for deserialization
-using ComponentFactory = std::function<Component*(GameObject*)>;
-
-static std::unordered_map<std::string, ComponentFactory>& GetComponentFactories() {
-    static std::unordered_map<std::string, ComponentFactory> factories = {
-        {"Transform", [](GameObject* obj) { return obj->AddComponent<Transform>(); }},
-        {"SpriteRenderer", [](GameObject* obj) { return obj->AddComponent<SpriteRenderer>(); }},
-        {"BoxCollider2D", [](GameObject* obj) { return obj->AddComponent<BoxCollider2D>(); }}
-    };
-    return factories;
-}
 
 bool SceneSerializer::SaveScene(const std::string& filepath,
                                  const std::vector<std::shared_ptr<GameObject>>& objects) {
@@ -39,15 +28,19 @@ bool SceneSerializer::SaveScene(const std::string& filepath,
         objJson["name"] = obj->GetName();
         objJson["id"] = obj->GetID();
         objJson["active"] = obj->IsActive();
+        objJson["parentId"] = obj->GetParent()
+            ? static_cast<int>(obj->GetParent()->GetID())
+            : -1;
 
         json componentsArray = json::array();
 
         // Serialize all components using the component interface
-        for (const auto& comp : obj->GetComponents()) {
+        for (auto* comp : obj->GetComponents()) {
             if (!comp) continue;
 
             json compJson;
             compJson["type"] = comp->GetTypeName();
+            compJson["enabled"] = comp->IsEnabled();
             comp->Serialize(compJson);
             componentsArray.push_back(compJson);
         }
@@ -98,13 +91,24 @@ bool SceneSerializer::LoadScene(const std::string& filepath,
         return false;
     }
 
-    auto& factories = GetComponentFactories();
+    auto& factory = ComponentFactory::Get();
+
+    // Pass 1: Create all GameObjects and their components
+    struct LoadedObject {
+        std::shared_ptr<GameObject> obj;
+        int parentId;
+    };
+    std::vector<LoadedObject> loaded;
 
     for (const auto& objJson : sceneJson["gameObjects"]) {
         std::string name = objJson.value("name", "GameObject");
         bool active = objJson.value("active", true);
+        int parentId = objJson.value("parentId", -1);
 
         auto obj = std::make_shared<GameObject>(name);
+        if (objJson.contains("id")) {
+            obj->SetID(objJson["id"].get<unsigned int>());
+        }
         obj->SetActive(active);
 
         // Load components using factory and deserialize
@@ -112,11 +116,18 @@ bool SceneSerializer::LoadScene(const std::string& filepath,
             for (const auto& compJson : objJson["components"]) {
                 std::string type = compJson.value("type", "");
 
-                auto factoryIt = factories.find(type);
-                if (factoryIt != factories.end()) {
-                    Component* comp = factoryIt->second(obj.get());
-                    if (comp) {
-                        comp->Deserialize(compJson);
+                Component* comp = factory.Create(type, obj.get());
+                if (!comp) {
+                    // Try script factory
+                    auto script = ScriptManager::Get().CreateScript(type);
+                    if (script) {
+                        comp = obj->AddComponentRaw(script.release());
+                    }
+                }
+                if (comp) {
+                    comp->Deserialize(compJson);
+                    if (compJson.contains("enabled")) {
+                        comp->SetEnabled(compJson["enabled"].get<bool>());
                     }
                 } else {
                     std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
@@ -124,7 +135,23 @@ bool SceneSerializer::LoadScene(const std::string& filepath,
             }
         }
 
+        loaded.push_back({obj, parentId});
         objects.push_back(obj);
+    }
+
+    // Pass 2: Restore parent-child relationships
+    std::unordered_map<unsigned int, GameObject*> idMap;
+    for (auto& [obj, _] : loaded) {
+        idMap[obj->GetID()] = obj.get();
+    }
+
+    for (auto& [obj, parentId] : loaded) {
+        if (parentId >= 0) {
+            auto it = idMap.find(static_cast<unsigned int>(parentId));
+            if (it != idMap.end()) {
+                obj->SetParent(it->second);
+            }
+        }
     }
 
     std::cout << "[SceneSerializer] Scene loaded from: " << filepath
@@ -139,15 +166,19 @@ std::string SceneSerializer::SerializeGameObject(const GameObject* obj) {
     objJson["name"] = obj->GetName();
     objJson["id"] = obj->GetID();
     objJson["active"] = obj->IsActive();
+    objJson["parentId"] = obj->GetParent()
+        ? static_cast<int>(obj->GetParent()->GetID())
+        : -1;
 
     json componentsArray = json::array();
 
     // Serialize all components using the component interface
-    for (const auto& comp : obj->GetComponents()) {
+    for (auto* comp : obj->GetComponents()) {
         if (!comp) continue;
 
         json compJson;
         compJson["type"] = comp->GetTypeName();
+        compJson["enabled"] = comp->IsEnabled();
         comp->Serialize(compJson);
         componentsArray.push_back(compJson);
     }
@@ -167,19 +198,28 @@ std::shared_ptr<GameObject> SceneSerializer::DeserializeGameObject(const std::st
 
     std::string name = objJson.value("name", "GameObject");
     auto obj = std::make_shared<GameObject>(name);
+    if (objJson.contains("id")) {
+        obj->SetID(objJson["id"].get<unsigned int>());
+    }
     obj->SetActive(objJson.value("active", true));
 
-    auto& factories = GetComponentFactories();
+    auto& factory = ComponentFactory::Get();
 
     if (objJson.contains("components")) {
         for (const auto& compJson : objJson["components"]) {
             std::string type = compJson.value("type", "");
 
-            auto factoryIt = factories.find(type);
-            if (factoryIt != factories.end()) {
-                Component* comp = factoryIt->second(obj.get());
-                if (comp) {
-                    comp->Deserialize(compJson);
+            Component* comp = factory.Create(type, obj.get());
+            if (!comp) {
+                auto script = ScriptManager::Get().CreateScript(type);
+                if (script) {
+                    comp = obj->AddComponentRaw(script.release());
+                }
+            }
+            if (comp) {
+                comp->Deserialize(compJson);
+                if (compJson.contains("enabled")) {
+                    comp->SetEnabled(compJson["enabled"].get<bool>());
                 }
             } else {
                 std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;

@@ -106,6 +106,87 @@ static void test_scene_save_load() {
     std::remove(tmpPath);
 }
 
+// ── ID preservation ─────────────────────────────────────────────────────────
+
+static void test_id_preservation() {
+    auto obj = std::make_shared<GameObject>("IDTest");
+    obj->AddComponent<Transform>(1.0f, 2.0f);
+    unsigned int originalID = obj->GetID();
+
+    std::string json = SceneSerializer::SerializeGameObject(obj.get());
+    auto restored = SceneSerializer::DeserializeGameObject(json);
+
+    assert(restored != nullptr);
+    assert(restored->GetID() == originalID);
+}
+
+// ── enabled serialization ───────────────────────────────────────────────────
+
+static void test_enabled_serialization() {
+    auto obj = std::make_shared<GameObject>("EnabledTest");
+    Transform* t = obj->AddComponent<Transform>(5.0f, 10.0f);
+    BoxCollider2D* bc = obj->AddComponent<BoxCollider2D>(16.0f, 16.0f);
+    bc->SetEnabled(false);
+
+    std::string json = SceneSerializer::SerializeGameObject(obj.get());
+    auto restored = SceneSerializer::DeserializeGameObject(json);
+
+    assert(restored != nullptr);
+    Transform* rt = restored->GetComponent<Transform>();
+    assert(rt != nullptr);
+    assert(rt->IsEnabled());  // default true
+
+    BoxCollider2D* rbc = restored->GetComponent<BoxCollider2D>();
+    assert(rbc != nullptr);
+    assert(!rbc->IsEnabled());  // was disabled
+}
+
+// ── Parent-child serialization ──────────────────────────────────────────────
+
+static void test_parent_child_serialization() {
+    std::vector<std::shared_ptr<GameObject>> originalScene;
+
+    auto parent = std::make_shared<GameObject>("Parent");
+    parent->AddComponent<Transform>(0.0f, 0.0f);
+    originalScene.push_back(parent);
+
+    auto child = std::make_shared<GameObject>("Child");
+    child->AddComponent<Transform>(10.0f, 20.0f);
+    child->SetParent(parent.get());
+    originalScene.push_back(child);
+
+    unsigned int parentID = parent->GetID();
+    unsigned int childID = child->GetID();
+
+    // Save
+    const char* tmpPath = "/tmp/molga_test_hierarchy.json";
+    bool saved = SceneSerializer::SaveScene(tmpPath, originalScene);
+    assert(saved);
+
+    // Load
+    std::vector<std::shared_ptr<GameObject>> loadedScene;
+    bool loaded = SceneSerializer::LoadScene(tmpPath, loadedScene);
+    assert(loaded);
+    assert(loadedScene.size() == 2);
+
+    // Find parent and child by ID
+    GameObject* loadedParent = nullptr;
+    GameObject* loadedChild = nullptr;
+    for (auto& obj : loadedScene) {
+        if (obj->GetID() == parentID) loadedParent = obj.get();
+        if (obj->GetID() == childID) loadedChild = obj.get();
+    }
+    assert(loadedParent != nullptr);
+    assert(loadedChild != nullptr);
+
+    // Verify hierarchy
+    assert(loadedChild->GetParent() == loadedParent);
+    assert(loadedParent->GetChildren().size() == 1);
+    assert(loadedParent->GetChildren()[0] == loadedChild);
+
+    std::remove(tmpPath);
+}
+
 // ── Error handling ───────────────────────────────────────────────────────────
 
 static void test_invalid_json() {
@@ -129,6 +210,9 @@ static void test_load_nonexistent_file() {
 int main() {
     test_serialize_deserialize_gameobject();
     test_scene_save_load();
+    test_id_preservation();
+    test_enabled_serialization();
+    test_parent_child_serialization();
     test_invalid_json();
     test_null_gameobject();
     test_load_nonexistent_file();

@@ -1,6 +1,9 @@
 #include "BoxCollider2D.h"
 #include "../GameObject.h"
+#include "../ComponentFactory.h"
 #include <nlohmann/json.hpp>
+
+REGISTER_COMPONENT(BoxCollider2D)
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
 #endif
