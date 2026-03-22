@@ -27,7 +27,7 @@ private:
     unsigned int VAO;
     unsigned int VBO;
     unsigned int EBO;
-    Shader* currentShader;
+    Shader* currentShader; // non-owning; lifetime managed by caller
     mat4x4 projection;
     mat4x4 view;
 

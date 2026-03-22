@@ -3,22 +3,39 @@
 #include "Audio.h"
 #include <iostream>
 
-ma_engine* Audio::engine = nullptr;
-ma_sound* Audio::musicSound = nullptr;
-std::unordered_map<std::string, ma_sound*> Audio::sounds;
+// Custom deleter implementations
+void MaEngineDeleter::operator()(ma_engine* e) {
+    if (e) {
+        ma_engine_uninit(e);
+        delete e;
+    }
+}
+
+void MaSoundDeleter::operator()(ma_sound* s) {
+    if (s) {
+        ma_sound_uninit(s);
+        delete s;
+    }
+}
+
+// Static member definitions
+std::unique_ptr<ma_engine, MaEngineDeleter> Audio::engine;
+std::unique_ptr<ma_sound, MaSoundDeleter> Audio::musicSound;
+std::unordered_map<std::string, std::unique_ptr<ma_sound, MaSoundDeleter>> Audio::sounds;
 float Audio::masterVolume = 1.0f;
 bool Audio::initialized = false;
 
 bool Audio::Init() {
     if (initialized) return true;
 
-    engine = new ma_engine();
-    if (ma_engine_init(nullptr, engine) != MA_SUCCESS) {
+    // init-then-wrap: only attach deleter after successful init
+    auto raw = new ma_engine();
+    if (ma_engine_init(nullptr, raw) != MA_SUCCESS) {
         std::cerr << "Failed to initialize audio engine" << std::endl;
-        delete engine;
-        engine = nullptr;
+        delete raw; // uninit not needed since init failed
         return false;
     }
+    engine.reset(raw);
 
     initialized = true;
     return true;
@@ -27,26 +44,10 @@ bool Audio::Init() {
 void Audio::Shutdown() {
     if (!initialized) return;
 
-    // Stop and free all sounds
-    for (auto& pair : sounds) {
-        ma_sound_uninit(pair.second);
-        delete pair.second;
-    }
+    // Deleters handle uninit + delete automatically
     sounds.clear();
-
-    // Stop and free music
-    if (musicSound) {
-        ma_sound_uninit(musicSound);
-        delete musicSound;
-        musicSound = nullptr;
-    }
-
-    // Shutdown engine
-    if (engine) {
-        ma_engine_uninit(engine);
-        delete engine;
-        engine = nullptr;
-    }
+    musicSound.reset();
+    engine.reset();
 
     initialized = false;
 }
@@ -54,22 +55,18 @@ void Audio::Shutdown() {
 bool Audio::LoadSound(const std::string& name, const std::string& filepath) {
     if (!initialized) return false;
 
-    // Remove existing sound with same name
-    auto it = sounds.find(name);
-    if (it != sounds.end()) {
-        ma_sound_uninit(it->second);
-        delete it->second;
-        sounds.erase(it);
-    }
+    // Remove existing sound with same name (deleter handles uninit+delete)
+    sounds.erase(name);
 
-    ma_sound* sound = new ma_sound();
-    if (ma_sound_init_from_file(engine, filepath.c_str(), 0, nullptr, nullptr, sound) != MA_SUCCESS) {
+    // init-then-wrap pattern
+    auto raw = new ma_sound();
+    if (ma_sound_init_from_file(engine.get(), filepath.c_str(), 0, nullptr, nullptr, raw) != MA_SUCCESS) {
         std::cerr << "Failed to load sound: " << filepath << std::endl;
-        delete sound;
+        delete raw;
         return false;
     }
 
-    sounds[name] = sound;
+    sounds[name] = std::unique_ptr<ma_sound, MaSoundDeleter>(raw);
     return true;
 }
 
@@ -79,9 +76,9 @@ void Audio::PlaySound(const std::string& name, float volume) {
     auto it = sounds.find(name);
     if (it == sounds.end()) return;
 
-    ma_sound_set_volume(it->second, volume * masterVolume);
-    ma_sound_seek_to_pcm_frame(it->second, 0);
-    ma_sound_start(it->second);
+    ma_sound_set_volume(it->second.get(), volume * masterVolume);
+    ma_sound_seek_to_pcm_frame(it->second.get(), 0);
+    ma_sound_start(it->second.get());
 }
 
 void Audio::StopSound(const std::string& name) {
@@ -89,70 +86,67 @@ void Audio::StopSound(const std::string& name) {
 
     auto it = sounds.find(name);
     if (it != sounds.end()) {
-        ma_sound_stop(it->second);
+        ma_sound_stop(it->second.get());
     }
 }
 
 bool Audio::LoadMusic(const std::string& filepath) {
     if (!initialized) return false;
 
-    // Stop and free existing music
-    if (musicSound) {
-        ma_sound_uninit(musicSound);
-        delete musicSound;
-        musicSound = nullptr;
-    }
+    // Reset existing music (deleter handles uninit+delete)
+    musicSound.reset();
 
-    musicSound = new ma_sound();
+    // init-then-wrap pattern
+    auto raw = new ma_sound();
     ma_uint32 flags = MA_SOUND_FLAG_STREAM;  // Stream for music
-    if (ma_sound_init_from_file(engine, filepath.c_str(), flags, nullptr, nullptr, musicSound) != MA_SUCCESS) {
+    if (ma_sound_init_from_file(engine.get(), filepath.c_str(), flags, nullptr, nullptr, raw) != MA_SUCCESS) {
         std::cerr << "Failed to load music: " << filepath << std::endl;
-        delete musicSound;
-        musicSound = nullptr;
+        delete raw;
         return false;
     }
 
+    musicSound.reset(raw);
     return true;
 }
 
 void Audio::PlayMusic(bool loop) {
     if (!initialized || !musicSound) return;
 
-    ma_sound_set_looping(musicSound, loop);
-    ma_sound_start(musicSound);
+    ma_sound_set_looping(musicSound.get(), loop);
+    ma_sound_start(musicSound.get());
 }
 
 void Audio::StopMusic() {
     if (!initialized || !musicSound) return;
 
-    ma_sound_stop(musicSound);
-    ma_sound_seek_to_pcm_frame(musicSound, 0);
+    ma_sound_stop(musicSound.get());
+    ma_sound_seek_to_pcm_frame(musicSound.get(), 0);
 }
 
 void Audio::PauseMusic() {
     if (!initialized || !musicSound) return;
-    ma_sound_stop(musicSound);
+    ma_sound_stop(musicSound.get());
 }
 
 void Audio::ResumeMusic() {
     if (!initialized || !musicSound) return;
-    ma_sound_start(musicSound);
+    ma_sound_start(musicSound.get());
 }
 
 void Audio::SetMusicVolume(float volume) {
     if (!initialized || !musicSound) return;
-    ma_sound_set_volume(musicSound, volume * masterVolume);
+    ma_sound_set_volume(musicSound.get(), volume * masterVolume);
 }
 
 bool Audio::IsMusicPlaying() {
     if (!initialized || !musicSound) return false;
-    return ma_sound_is_playing(musicSound);
+    return ma_sound_is_playing(musicSound.get());
 }
 
 void Audio::SetMasterVolume(float volume) {
     masterVolume = volume;
     if (initialized && engine) {
-        ma_engine_set_volume(engine, volume);
+        ma_engine_set_volume(engine.get(), volume);
     }
 }
 

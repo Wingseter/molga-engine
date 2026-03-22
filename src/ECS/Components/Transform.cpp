@@ -1,6 +1,9 @@
 #include "Transform.h"
 #include "../GameObject.h"
+#include "../ComponentFactory.h"
 #include <nlohmann/json.hpp>
+
+REGISTER_COMPONENT(Transform)
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
 #endif

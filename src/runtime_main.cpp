@@ -7,9 +7,10 @@
 #include <sstream>
 #include <memory>
 
+#include "Core/Bootstrap.h"
 #include "Shader.h"
 #include "Renderer.h"
-#include "Time.h"
+#include "MolgaTime.h"
 #include "Input.h"
 #include "Camera2D.h"
 #include "Audio.h"
@@ -23,8 +24,6 @@
 #include "Scripting/BuiltinScripts.h"
 #include <nlohmann/json.hpp>
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-
 // Game configuration
 struct GameConfig {
     std::string gameName = "Molga Game";
@@ -34,12 +33,7 @@ struct GameConfig {
     bool fullscreen = false;
 };
 
-// Global resources
-Renderer* g_renderer = nullptr;
-Shader* g_shader = nullptr;
-Camera2D* g_camera = nullptr;
 GLFWwindow* g_window = nullptr;
-std::vector<std::shared_ptr<GameObject>> g_gameObjects;
 
 bool LoadGameConfig(const std::string& path, GameConfig& config) {
     std::ifstream file(path);
@@ -72,49 +66,22 @@ int main(int argc, char* argv[]) {
         std::cout << "Using default configuration" << std::endl;
     }
 
-    // Initialize GLFW
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
-
-    // Create window
-    GLFWmonitor* monitor = config.fullscreen ? glfwGetPrimaryMonitor() : nullptr;
-    GLFWwindow* window = glfwCreateWindow(config.windowWidth, config.windowHeight,
-                                          config.gameName.c_str(), monitor, nullptr);
-    if (window == nullptr) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
+    WindowConfig wc;
+    wc.title = config.gameName;
+    wc.width = config.windowWidth;
+    wc.height = config.windowHeight;
+    wc.fullscreen = config.fullscreen;
+    GLFWwindow* window = EngineInit(wc);
+    if (!window) return -1;
     g_window = window;
-    glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-
-    // Initialize GLAD
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to initialize GLAD" << std::endl;
-        return -1;
-    }
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Initialize systems
-    Time::Init();
-    Input::Init(window);
-    Audio::Init();
 
     // Initialize renderer
-    g_renderer = new Renderer();
-    g_renderer->Init();
-    g_shader = new Shader("Shaders/default.vert", "Shaders/default.frag");
-    g_camera = new Camera2D(static_cast<float>(config.windowWidth),
-                            static_cast<float>(config.windowHeight));
+    auto renderer = std::make_unique<Renderer>();
+    renderer->Init();
+    auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
+    auto camera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
+                                             static_cast<float>(config.windowHeight));
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
 
     // Initialize scripting
     RegisterBuiltinScripts();
@@ -124,12 +91,12 @@ int main(int argc, char* argv[]) {
 
     // Load main scene
     std::cout << "Loading scene: " << config.mainScene << std::endl;
-    if (!SceneSerializer::LoadScene(config.mainScene, g_gameObjects)) {
+    if (!SceneSerializer::LoadScene(config.mainScene, gameObjects)) {
         std::cerr << "Failed to load main scene!" << std::endl;
         // Continue anyway with empty scene
     }
 
-    std::cout << "Loaded " << g_gameObjects.size() << " game objects" << std::endl;
+    std::cout << "Loaded " << gameObjects.size() << " game objects" << std::endl;
 
     // Main game loop
     while (!glfwWindowShouldClose(window)) {
@@ -138,26 +105,26 @@ int main(int argc, char* argv[]) {
         float dt = Time::GetDeltaTime();
 
         // Update all game objects
-        for (auto& obj : g_gameObjects) {
+        for (auto& obj : gameObjects) {
             if (obj && obj->IsActive()) {
                 obj->Update(dt);
             }
         }
 
         // Clear and render
-        g_renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
+        renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
 
         // Render all game objects
-        g_renderer->Begin(g_shader, g_camera);
-        for (auto& obj : g_gameObjects) {
+        renderer->Begin(shader.get(), camera.get());
+        for (auto& obj : gameObjects) {
             if (obj && obj->IsActive()) {
                 auto sr = obj->GetComponent<SpriteRenderer>();
                 if (sr) {
-                    sr->RenderSprite(g_renderer, g_shader, g_camera);
+                    sr->RenderSprite(renderer.get(), shader.get(), camera.get());
                 }
             }
         }
-        g_renderer->End();
+        renderer->End();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -168,18 +135,13 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Cleanup
-    g_gameObjects.clear();
+    // Cleanup (unique_ptrs auto-release; explicit reset for deterministic order)
+    gameObjects.clear();
     TextRenderer::Get().Shutdown();
-    delete g_camera;
-    delete g_shader;
-    delete g_renderer;
-    Audio::Shutdown();
-    glfwTerminate();
+    camera.reset();
+    shader.reset();
+    renderer.reset();
+    EngineShutdown();
 
     return 0;
-}
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    glViewport(0, 0, width, height);
 }

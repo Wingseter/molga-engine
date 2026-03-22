@@ -440,6 +440,76 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/visualstudio,c++
-cmake-build-debug
-.idea
-.claude
+
+# CMake / Build
+cmake-build-debug/
+cmake-build-release/
+build/
+out/
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# Claude
+.claude/
+
+# macOS
+.DS_Store
+*.dSYM/
+
+# ImGui
+imgui.ini
+
+# User project scripts build output
+Scripts/build/
+
+# External libraries - ignore unnecessary files
+external/imgui/.git/
+external/imgui/.github/
+external/imgui/docs/
+external/imgui/examples/
+external/imgui/misc/
+external/imgui/.editorconfig
+external/imgui/.gitattributes
+external/imgui/.gitignore
+external/imgui/LICENSE.txt
+external/imgui/imgui_demo.cpp
+
+# ImGui backends - only keep glfw and opengl3
+external/imgui/backends/imgui_impl_allegro5.*
+external/imgui/backends/imgui_impl_android.*
+external/imgui/backends/imgui_impl_dx9.*
+external/imgui/backends/imgui_impl_dx10.*
+external/imgui/backends/imgui_impl_dx11.*
+external/imgui/backends/imgui_impl_dx12.*
+external/imgui/backends/imgui_impl_glut.*
+external/imgui/backends/imgui_impl_metal.*
+external/imgui/backends/imgui_impl_null.*
+external/imgui/backends/imgui_impl_opengl2.*
+external/imgui/backends/imgui_impl_osx.*
+external/imgui/backends/imgui_impl_sdl2.*
+external/imgui/backends/imgui_impl_sdl3.*
+external/imgui/backends/imgui_impl_sdlgpu3.*
+external/imgui/backends/imgui_impl_sdlgpu3_shaders.h
+external/imgui/backends/imgui_impl_sdlrenderer2.*
+external/imgui/backends/imgui_impl_sdlrenderer3.*
+external/imgui/backends/imgui_impl_vulkan.*
+external/imgui/backends/imgui_impl_wgpu.*
+external/imgui/backends/imgui_impl_win32.*
+external/imgui/backends/sdlgpu3/
+external/imgui/backends/vulkan/
+
+# Claude documentation (project-specific notes)
+claudedocs/
+
+# Generated Data & Backups
+data/
+ui_images_backup/
+*.json
+!scene.json
+
+# User Test & Build
+test.png
+test_build.cpp

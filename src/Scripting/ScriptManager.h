@@ -11,7 +11,7 @@ class Script;
 class GameObject;
 
 // Function pointer type for script factory
-using ScriptFactory = std::function<Script*()>;
+using ScriptFactory = std::function<std::unique_ptr<Script>()>;
 
 class ScriptManager {
 public:
@@ -21,7 +21,7 @@ public:
     void RegisterScript(const std::string& name, ScriptFactory factory);
 
     // Create a script by name
-    Script* CreateScript(const std::string& name);
+    std::unique_ptr<Script> CreateScript(const std::string& name);
 
     // Get all registered script names
     std::vector<std::string> GetRegisteredScripts() const;
@@ -54,8 +54,8 @@ private:
     namespace { \
         struct ScriptClass##Registrar { \
             ScriptClass##Registrar() { \
-                ScriptManager::Get().RegisterScript(#ScriptClass, []() -> Script* { \
-                    return new ScriptClass(); \
+                ScriptManager::Get().RegisterScript(#ScriptClass, []() -> std::unique_ptr<Script> { \
+                    return std::make_unique<ScriptClass>(); \
                 }); \
             } \
         }; \

@@ -25,7 +25,7 @@ private:
 
     std::vector<std::shared_ptr<GameObject>> gameObjects;
 
-    // Screen dimensions (will be passed or obtained from Application)
+    // Screen dimensions
     float screenWidth = 800.0f;
     float screenHeight = 600.0f;
 

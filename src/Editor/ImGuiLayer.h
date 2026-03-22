@@ -12,6 +12,7 @@ public:
     static void EndFrame();
 
     static void SetDarkTheme();
+    static void SetModernTheme();
     static void EnableDocking();
 
     static bool WantCaptureMouse();
@@ -19,6 +20,7 @@ public:
 
 private:
     static bool initialized;
+    static GLFWwindow* currentWindow;
 };
 
 #endif

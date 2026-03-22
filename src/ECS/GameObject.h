@@ -5,9 +5,9 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
-#include <typeinfo>
+#include <unordered_map>
 
-class Component;
+#include "Component.h"
 
 class GameObject {
 public:
@@ -20,25 +20,32 @@ public:
 
     // ID (unique identifier)
     unsigned int GetID() const { return id; }
+    void SetID(unsigned int newID) {
+        id = newID;
+        if (newID >= nextID) {
+            nextID = newID + 1;
+        }
+    }
 
     // Component management
     template<typename T, typename... Args>
     T* AddComponent(Args&&... args) {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
+        auto id = ComponentTypeID::Get<T>();
         auto component = std::make_unique<T>(std::forward<Args>(args)...);
         T* ptr = component.get();
         ptr->SetGameObject(this);
         ptr->OnAttach();
-        components.push_back(std::move(component));
+        componentMap[id] = std::move(component);
         return ptr;
     }
 
     template<typename T>
     T* GetComponent() {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
-        for (auto& comp : components) {
-            T* result = dynamic_cast<T*>(comp.get());
-            if (result) return result;
+        auto it = componentMap.find(ComponentTypeID::Get<T>());
+        if (it != componentMap.end()) {
+            return static_cast<T*>(it->second.get());
         }
         return nullptr;
     }
@@ -46,38 +53,33 @@ public:
     template<typename T>
     const T* GetComponent() const {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
-        for (const auto& comp : components) {
-            const T* result = dynamic_cast<const T*>(comp.get());
-            if (result) return result;
+        auto it = componentMap.find(ComponentTypeID::Get<T>());
+        if (it != componentMap.end()) {
+            return static_cast<const T*>(it->second.get());
         }
         return nullptr;
     }
 
     template<typename T>
     bool HasComponent() const {
-        return GetComponent<T>() != nullptr;
+        return componentMap.count(ComponentTypeID::Get<T>()) > 0;
     }
 
     template<typename T>
     void RemoveComponent() {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
-        auto it = std::remove_if(components.begin(), components.end(),
-            [](const std::unique_ptr<Component>& comp) {
-                T* result = dynamic_cast<T*>(comp.get());
-                if (result) {
-                    result->OnDetach();
-                    return true;
-                }
-                return false;
-            });
-        components.erase(it, components.end());
+        auto it = componentMap.find(ComponentTypeID::Get<T>());
+        if (it != componentMap.end()) {
+            it->second->OnDetach();
+            componentMap.erase(it);
+        }
     }
 
-    // Add component from raw pointer (takes ownership)
+    // Add component from raw pointer (takes ownership, uses runtime type ID)
     Component* AddComponentRaw(Component* component);
 
-    // Get all components
-    const std::vector<std::unique_ptr<Component>>& GetComponents() const { return components; }
+    // Get all components (returns vector of raw pointers for iteration)
+    std::vector<Component*> GetComponents() const;
 
     // Hierarchy
     GameObject* GetParent() const { return parent; }
@@ -104,7 +106,7 @@ private:
     std::string name;
     bool active = true;
 
-    std::vector<std::unique_ptr<Component>> components;
+    std::unordered_map<size_t, std::unique_ptr<Component>> componentMap;
 
     GameObject* parent = nullptr;
     std::vector<GameObject*> children;

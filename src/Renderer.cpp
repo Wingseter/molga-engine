@@ -3,6 +3,7 @@
 #include "Sprite.h"
 #include "Texture.h"
 #include "Camera2D.h"
+#include <cassert>
 
 Renderer::Renderer() : VAO(0), VBO(0), EBO(0), currentShader(nullptr) {
     mat4x4_identity(projection);
@@ -66,6 +67,7 @@ void Renderer::SetProjection(float left, float right, float bottom, float top) {
 }
 
 void Renderer::Begin(Shader* shader, Camera2D* camera) {
+    assert(shader != nullptr && "Renderer::Begin called with null shader");
     currentShader = shader;
     currentShader->Use();
 

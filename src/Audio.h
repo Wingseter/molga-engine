@@ -3,9 +3,19 @@
 
 #include <string>
 #include <unordered_map>
+#include <memory>
 
 struct ma_engine;
 struct ma_sound;
+
+// Custom deleters for miniaudio types (uninit then free)
+struct MaEngineDeleter {
+    void operator()(ma_engine* e);
+};
+
+struct MaSoundDeleter {
+    void operator()(ma_sound* s);
+};
 
 class Audio {
 public:
@@ -31,9 +41,9 @@ public:
     static float GetMasterVolume();
 
 private:
-    static ma_engine* engine;
-    static ma_sound* musicSound;
-    static std::unordered_map<std::string, ma_sound*> sounds;
+    static std::unique_ptr<ma_engine, MaEngineDeleter> engine;
+    static std::unique_ptr<ma_sound, MaSoundDeleter> musicSound;
+    static std::unordered_map<std::string, std::unique_ptr<ma_sound, MaSoundDeleter>> sounds;
     static float masterVolume;
     static bool initialized;
 };

@@ -30,10 +30,10 @@ public:
     virtual void LateUpdate(float deltaTime) {}
 
     // Called when the script is enabled
-    virtual void OnEnable() {}
+    void OnEnable() override {}
 
     // Called when the script is disabled
-    virtual void OnDisable() {}
+    void OnDisable() override {}
 
     // Called when this object collides with another
     virtual void OnCollisionEnter(GameObject* other) {}
@@ -54,6 +54,9 @@ public:
     // Inspector GUI - can be overridden in derived scripts
     void OnInspectorGUI() override;
 
+    // Runtime type ID (default for Script base; overridden by SCRIPT_CLASS)
+    size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<Script>(); }
+
     // Has Start been called?
     bool HasStarted() const { return started; }
     void MarkStarted() { started = true; }
@@ -65,6 +68,8 @@ protected:
 // Macro for easy script definition
 #define SCRIPT_CLASS(ClassName) \
     const char* GetScriptName() const override { return #ClassName; } \
-    static const char* StaticScriptName() { return #ClassName; }
+    static const char* StaticScriptName() { return #ClassName; } \
+    size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<ClassName>(); } \
+    static size_t StaticRuntimeTypeID() { return ComponentTypeID::Get<ClassName>(); }
 
 #endif // MOLGA_SCRIPT_H

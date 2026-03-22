@@ -96,6 +96,21 @@ std::string Project::GetSettingsPath() const {
     return (fs::path(projectPath) / "ProjectSettings").string();
 }
 
+std::string Project::GetScriptsPath() const {
+    if (!isOpen) return "";
+    return (fs::path(projectPath) / "Scripts").string();
+}
+
+std::string Project::GetScriptsBuildPath() const {
+    if (!isOpen) return "";
+    return (fs::path(projectPath) / "Scripts" / "build").string();
+}
+
+std::string Project::GetVSCodePath() const {
+    if (!isOpen) return "";
+    return (fs::path(projectPath) / ".vscode").string();
+}
+
 std::string Project::GetAbsolutePath(const std::string& relativePath) const {
     if (!isOpen || relativePath.empty()) return relativePath;
 
@@ -140,9 +155,11 @@ bool Project::CreateDirectoryStructure() {
         fs::create_directories(basePath / "Assets");
         fs::create_directories(basePath / "Assets" / "Textures");
         fs::create_directories(basePath / "Assets" / "Audio");
-        fs::create_directories(basePath / "Assets" / "Scripts");
         fs::create_directories(basePath / "Scenes");
         fs::create_directories(basePath / "ProjectSettings");
+
+        // Create Scripts directory for user C++ scripts
+        fs::create_directories(basePath / "Scripts");
 
         return true;
     } catch (const std::exception& e) {

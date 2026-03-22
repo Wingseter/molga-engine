@@ -3,6 +3,7 @@
 
 #include <string>
 #include <unordered_map>
+#include <memory>
 #include "Common/Types.h"
 
 class Shader;
@@ -47,7 +48,7 @@ public:
 private:
     void GenerateBuiltinFont();
 
-    Texture* fontTexture = nullptr;
+    std::unique_ptr<Texture> fontTexture;
     std::unordered_map<char, CharInfo> characters;
     float lineHeight = 16.0f;
     float lineSpacing = 1.2f;

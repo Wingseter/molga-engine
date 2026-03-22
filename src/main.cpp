@@ -5,9 +5,10 @@
 #include <sstream>
 #include <memory>
 
+#include "Core/Bootstrap.h"
 #include "Shader.h"
 #include "Renderer.h"
-#include "Time.h"
+#include "MolgaTime.h"
 #include "Input.h"
 #include "Camera2D.h"
 #include "Scene.h"
@@ -28,20 +29,11 @@
 #include "TextRenderer.h"
 #include <imgui.h>
 
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-
 // Settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-// Global resources (shared between scenes)
-Renderer* g_renderer = nullptr;
-Shader* g_shader = nullptr;
-Camera2D* g_camera = nullptr;
 GLFWwindow* g_window = nullptr;
-
-// Editor scene objects
-std::vector<std::shared_ptr<GameObject>> g_editorObjects;
 
 int main(int argc, char* argv[]) {
     // Check for project path argument
@@ -50,44 +42,22 @@ int main(int argc, char* argv[]) {
         projectPath = argv[1];
     }
 
-    glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    WindowConfig wc;
+    wc.title = "Molga Engine";
+    wc.width = SCR_WIDTH;
+    wc.height = SCR_HEIGHT;
+    GLFWwindow* window = EngineInit(wc);
+    if (!window) return -1;
+    g_window = window;
 
-#ifdef __APPLE__
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
-
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Molga Engine", nullptr, nullptr);
-    if (window == nullptr) {
-        std::cout << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
-    g_window = window;  // Store global reference for quit functionality
-    glfwMakeContextCurrent(window);
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cout << "Failed to initialize GLAD" << std::endl;
-        return -1;
-    }
-
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Initialize systems
-    Time::Init();
-    Input::Init(window);
-    Audio::Init();
     ImGuiLayer::Init(window);
 
-    // Initialize global resources
-    g_renderer = new Renderer();
-    g_renderer->Init();
-    g_shader = new Shader("src/Shaders/default.vert", "src/Shaders/default.frag");
-    g_camera = new Camera2D(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+    // Initialize resources (local to main)
+    auto renderer = std::make_unique<Renderer>();
+    renderer->Init();
+    auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
+    auto camera = std::make_unique<Camera2D>(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
+    std::vector<std::shared_ptr<GameObject>> editorObjects;
 
     // Initialize Scripting
     RegisterBuiltinScripts();
@@ -97,7 +67,7 @@ int main(int argc, char* argv[]) {
 
     // Initialize Editor
     Editor::Get().Init();
-    Editor::Get().SetGameObjects(&g_editorObjects);
+    Editor::Get().SetGameObjects(&editorObjects);
 
     // Project loading phase
     bool projectLoaded = false;
@@ -118,7 +88,7 @@ int main(int argc, char* argv[]) {
         glfwPollEvents();
 
         // Clear first, then draw ImGui
-        g_renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
+        renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
 
         ImGuiLayer::BeginFrame();
         projectWindow.OnGUI();
@@ -133,130 +103,122 @@ int main(int argc, char* argv[]) {
         glfwSwapBuffers(window);
     }
 
-    // If window was closed during project selection, exit
-    if (glfwWindowShouldClose(window)) {
-        goto cleanup;
-    }
+    // If window was not closed during project selection, run editor
+    if (!glfwWindowShouldClose(window)) {
+        // Create sample GameObjects for editor demo
+        {
+            auto player = std::make_shared<GameObject>("Player");
+            auto transform = player->AddComponent<Transform>();
+            transform->SetPosition(100.0f, 100.0f);
+            auto spriteRenderer = player->AddComponent<SpriteRenderer>();
+            spriteRenderer->SetColor(0.2f, 0.8f, 0.3f, 1.0f);
+            spriteRenderer->SetSize(32.0f, 32.0f);
+            player->AddComponent<BoxCollider2D>();
+            editorObjects.push_back(player);
 
-    // Create sample GameObjects for editor demo
-    {
-        auto player = std::make_shared<GameObject>("Player");
-        auto transform = player->AddComponent<Transform>();
-        transform->SetPosition(100.0f, 100.0f);
-        auto spriteRenderer = player->AddComponent<SpriteRenderer>();
-        spriteRenderer->SetColor(0.2f, 0.8f, 0.3f, 1.0f);
-        spriteRenderer->SetSize(32.0f, 32.0f);
-        player->AddComponent<BoxCollider2D>();
-        g_editorObjects.push_back(player);
+            auto enemy = std::make_shared<GameObject>("Enemy");
+            transform = enemy->AddComponent<Transform>();
+            transform->SetPosition(300.0f, 200.0f);
+            spriteRenderer = enemy->AddComponent<SpriteRenderer>();
+            spriteRenderer->SetColor(0.8f, 0.2f, 0.2f, 1.0f);
+            spriteRenderer->SetSize(32.0f, 32.0f);
+            enemy->AddComponent<BoxCollider2D>();
+            editorObjects.push_back(enemy);
 
-        auto enemy = std::make_shared<GameObject>("Enemy");
-        transform = enemy->AddComponent<Transform>();
-        transform->SetPosition(300.0f, 200.0f);
-        spriteRenderer = enemy->AddComponent<SpriteRenderer>();
-        spriteRenderer->SetColor(0.8f, 0.2f, 0.2f, 1.0f);
-        spriteRenderer->SetSize(32.0f, 32.0f);
-        enemy->AddComponent<BoxCollider2D>();
-        g_editorObjects.push_back(enemy);
-
-        auto ground = std::make_shared<GameObject>("Ground");
-        transform = ground->AddComponent<Transform>();
-        transform->SetPosition(0.0f, 500.0f);
-        spriteRenderer = ground->AddComponent<SpriteRenderer>();
-        spriteRenderer->SetColor(0.4f, 0.4f, 0.5f, 1.0f);
-        spriteRenderer->SetSize(800.0f, 100.0f);
-        ground->AddComponent<BoxCollider2D>();
-        g_editorObjects.push_back(ground);
-    }
-
-    // Create scenes
-    SceneManager::AddScene("Menu", std::make_shared<MenuScene>());
-    SceneManager::AddScene("Game", std::make_shared<GameScene>());
-    SceneManager::ChangeScene("Menu");
-
-    // Main editor loop
-    while (!glfwWindowShouldClose(window)) {
-        Time::Update();
-        Input::Update();
-        float dt = Time::GetDeltaTime();
-
-        // Get editor state
-        EditorState& editorState = EditorState::Get();
-
-        // Update title with project name and mode indicator
-        std::ostringstream title;
-        title << "Molga Engine";
-        if (Project::Get().IsOpen()) {
-            title << " - " << Project::Get().GetName();
+            auto ground = std::make_shared<GameObject>("Ground");
+            transform = ground->AddComponent<Transform>();
+            transform->SetPosition(0.0f, 500.0f);
+            spriteRenderer = ground->AddComponent<SpriteRenderer>();
+            spriteRenderer->SetColor(0.4f, 0.4f, 0.5f, 1.0f);
+            spriteRenderer->SetSize(800.0f, 100.0f);
+            ground->AddComponent<BoxCollider2D>();
+            editorObjects.push_back(ground);
         }
-        title << " | FPS: " << static_cast<int>(Time::GetFPS())
-              << " | Scene: " << SceneManager::GetCurrentSceneName();
-        if (editorState.IsEditMode()) {
-            title << " [EDIT]";
-        } else if (editorState.IsPlayMode()) {
-            title << " [PLAYING]";
-        } else if (editorState.IsPaused()) {
-            title << " [PAUSED]";
-        }
-        glfwSetWindowTitle(window, title.str().c_str());
 
-        // Only update scene and game objects in Play mode
-        if (editorState.IsPlayMode()) {
-            float scaledDt = dt * editorState.GetTimeScale();
-            SceneManager::Update(scaledDt);
+        // Create scenes
+        SceneManager::AddScene("Menu", std::make_shared<MenuScene>());
+        SceneManager::AddScene("Game", std::make_shared<GameScene>());
+        SceneManager::ChangeScene("Menu");
 
-            // Update ECS GameObjects scripts
-            for (auto& obj : g_editorObjects) {
-                if (obj && obj->IsActive()) {
-                    obj->Update(scaledDt);
-                }
+        // Main editor loop
+        while (!glfwWindowShouldClose(window)) {
+            Time::Update();
+            Input::Update();
+            float dt = Time::GetDeltaTime();
+
+            // Get editor state
+            EditorState& editorState = EditorState::Get();
+
+            // Update title with project name and mode indicator
+            std::ostringstream title;
+            title << "Molga Engine";
+            if (Project::Get().IsOpen()) {
+                title << " - " << Project::Get().GetName();
             }
-        }
+            title << " | FPS: " << static_cast<int>(Time::GetFPS())
+                  << " | Scene: " << SceneManager::GetCurrentSceneName();
+            if (editorState.IsEditMode()) {
+                title << " [EDIT]";
+            } else if (editorState.IsPlayMode()) {
+                title << " [PLAYING]";
+            } else if (editorState.IsPaused()) {
+                title << " [PAUSED]";
+            }
+            glfwSetWindowTitle(window, title.str().c_str());
 
-        // Render based on editor mode
-        if (editorState.IsEditMode()) {
-            // Edit mode: Render editor scene with g_editorObjects
-            g_renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
-            g_renderer->Begin(g_shader, g_camera);
-            for (auto& obj : g_editorObjects) {
-                if (obj && obj->IsActive()) {
-                    auto sr = obj->GetComponent<SpriteRenderer>();
-                    if (sr) {
-                        sr->RenderSprite(g_renderer, g_shader, g_camera);
+            // Only update scene and game objects in Play mode
+            if (editorState.IsPlayMode()) {
+                float scaledDt = dt * editorState.GetTimeScale();
+                SceneManager::Update(scaledDt);
+
+                // Update ECS GameObjects scripts
+                for (auto& obj : editorObjects) {
+                    if (obj && obj->IsActive()) {
+                        obj->Update(scaledDt);
                     }
                 }
             }
-            g_renderer->End();
-        } else {
-            // Play/Pause mode: Render game scene
-            SceneManager::Render(g_renderer, g_shader, g_camera);
+
+            // Render based on editor mode
+            if (editorState.IsEditMode()) {
+                // Edit mode: Render editor scene
+                renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
+                renderer->Begin(shader.get(), camera.get());
+                for (auto& obj : editorObjects) {
+                    if (obj && obj->IsActive()) {
+                        auto sr = obj->GetComponent<SpriteRenderer>();
+                        if (sr) {
+                            sr->RenderSprite(renderer.get(), shader.get(), camera.get());
+                        }
+                    }
+                }
+                renderer->End();
+            } else {
+                // Play/Pause mode: Render game scene
+                SceneManager::Render(renderer.get(), shader.get(), camera.get());
+            }
+
+            // ImGui Editor UI
+            ImGuiLayer::BeginFrame();
+            Editor::Get().Update(dt);
+            Editor::Get().RenderGUI();
+            ImGuiLayer::EndFrame();
+
+            glfwSwapBuffers(window);
+            glfwPollEvents();
         }
-
-        // ImGui Editor UI
-        ImGuiLayer::BeginFrame();
-        Editor::Get().Update(dt);
-        Editor::Get().RenderGUI();
-        ImGuiLayer::EndFrame();
-
-        glfwSwapBuffers(window);
-        glfwPollEvents();
     }
 
-cleanup:
-    // Cleanup
+    // Cleanup (deterministic order; unique_ptrs auto-release)
     Project::Get().Close();
     Editor::Get().Shutdown();
-    g_editorObjects.clear();
+    editorObjects.clear();
     ImGuiLayer::Shutdown();
     SceneManager::Clear();
     TextRenderer::Get().Shutdown();
-    delete g_camera;
-    delete g_shader;
-    delete g_renderer;
-    Audio::Shutdown();
-    glfwTerminate();
+    camera.reset();
+    shader.reset();
+    renderer.reset();
+    EngineShutdown();
     return 0;
-}
-
-void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
-    glViewport(0, 0, width, height);
 }

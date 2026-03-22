@@ -1,0 +1,10 @@
+function(molga_add_test TEST_NAME TEST_SOURCE)
+    add_executable(${TEST_NAME} ${TEST_SOURCE})
+    target_link_libraries(${TEST_NAME} PRIVATE molga_core)
+    add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+endfunction()
+
+molga_add_test(test_types             test_types.cpp)
+molga_add_test(test_collision         test_collision.cpp)
+molga_add_test(test_ecs               test_ecs.cpp)
+molga_add_test(test_scene_serializer  test_scene_serializer.cpp)

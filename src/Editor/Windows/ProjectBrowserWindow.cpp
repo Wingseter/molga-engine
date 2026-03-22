@@ -1,5 +1,6 @@
 #include "ProjectBrowserWindow.h"
 #include "../../Core/Project.h"
+#include "../FontManager.h"
 #include <imgui.h>
 #include <filesystem>
 #include <algorithm>
@@ -30,7 +31,7 @@ void ProjectBrowserWindow::OnGUI() {
 
     if (ImGui::Begin("Project", nullptr)) {
         // Toolbar
-        if (ImGui::Button("Refresh")) {
+        if (ImGui::Button((std::string(Icons::SyncAlt) + " Refresh").c_str())) {
             Refresh();
         }
         ImGui::SameLine();
@@ -135,7 +136,9 @@ void ProjectBrowserWindow::DrawFolderNode(FolderNode& node) {
         ImGui::SetNextItemOpen(true, ImGuiCond_Once);
     }
 
-    bool opened = ImGui::TreeNodeEx(node.name.c_str(), flags);
+    // Use folder icon
+    std::string label = std::string(Icons::Folder) + " " + node.name;
+    bool opened = ImGui::TreeNodeEx(node.name.c_str(), flags, "%s", label.c_str());
 
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
         NavigateTo(node.path);
@@ -306,15 +309,15 @@ void ProjectBrowserWindow::DrawContextMenu() {
 
 const char* ProjectBrowserWindow::GetFileIcon(const FileEntry& entry) {
     if (entry.isDirectory) {
-        return "[DIR]";
+        return Icons::Folder;
     } else if (entry.extension == ".png" || entry.extension == ".jpg" || entry.extension == ".jpeg") {
-        return "[IMG]";
+        return Icons::FileImage;
     } else if (entry.extension == ".json") {
-        return "[SCN]";
+        return Icons::FileCode;
     } else if (entry.extension == ".wav" || entry.extension == ".mp3" || entry.extension == ".ogg") {
-        return "[SFX]";
+        return Icons::FileAudio;
     } else {
-        return "[FILE]";
+        return Icons::File;
     }
 }
 
