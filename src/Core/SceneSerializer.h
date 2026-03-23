@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCENE_SERIALIZER_H
-#define MOLGA_SCENE_SERIALIZER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -23,5 +22,3 @@ public:
     // Deserialize single GameObject from JSON string
     static std::shared_ptr<GameObject> DeserializeGameObject(const std::string& jsonStr);
 };
-
-#endif // MOLGA_SCENE_SERIALIZER_H

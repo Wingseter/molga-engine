@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCENE_H
-#define MOLGA_SCENE_H
+#pragma once
 
 #include <string>
 #include <memory>
@@ -31,7 +30,7 @@ class SceneManager {
 public:
     static void AddScene(const std::string& name, std::shared_ptr<Scene> scene);
     static void RemoveScene(const std::string& name);
-    static void ChangeScene(const std::string& name);
+    static bool ChangeScene(const std::string& name);
     static void Update(float dt);
     static void Render(Renderer* renderer, Shader* shader, Camera2D* camera);
 
@@ -46,5 +45,3 @@ private:
     static std::string pendingScene;
     static bool sceneChangeRequested;
 };
-
-#endif

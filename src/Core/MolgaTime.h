@@ -1,5 +1,4 @@
-#ifndef MOLGA_TIME_H
-#define MOLGA_TIME_H
+#pragma once
 
 class Time {
 public:
@@ -22,5 +21,3 @@ private:
     static float fpsAccumulator;
     static int fpsFrameCount;
 };
-
-#endif // MOLGA_TIME_H

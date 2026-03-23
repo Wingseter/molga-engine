@@ -1,5 +1,4 @@
-#ifndef MOLGA_BUILD_MANAGER_H
-#define MOLGA_BUILD_MANAGER_H
+#pragma once
 
 #include <memory>
 #include <string>
@@ -25,5 +24,3 @@ private:
     bool isBuilding = false;
     bool showBuildWindow = false;
 };
-
-#endif // MOLGA_BUILD_MANAGER_H

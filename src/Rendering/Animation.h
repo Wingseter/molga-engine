@@ -1,5 +1,4 @@
-#ifndef MOLGA_ANIMATION_H
-#define MOLGA_ANIMATION_H
+#pragma once
 
 #include "SpriteSheet.h"
 #include <vector>
@@ -37,5 +36,3 @@ private:
     bool loop;
     bool finished;
 };
-
-#endif // MOLGA_ANIMATION_H

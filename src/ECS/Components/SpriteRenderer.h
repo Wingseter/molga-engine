@@ -1,5 +1,4 @@
-#ifndef MOLGA_SPRITE_RENDERER_COMPONENT_H
-#define MOLGA_SPRITE_RENDERER_COMPONENT_H
+#pragma once
 
 #include "../Component.h"
 #include "../../Common/Types.h"
@@ -68,5 +67,3 @@ private:
 
     int sortingOrder = 0;
 };
-
-#endif // MOLGA_SPRITE_RENDERER_COMPONENT_H

@@ -1,5 +1,4 @@
-#ifndef MOLGA_WINDOW_MANAGER_H
-#define MOLGA_WINDOW_MANAGER_H
+#pragma once
 
 #include <map>
 #include <memory>
@@ -28,5 +27,3 @@ private:
     // Ordered map for consistent menu rendering order
     std::map<std::string, std::unique_ptr<EditorWindow>> windows;
 };
-
-#endif // MOLGA_WINDOW_MANAGER_H

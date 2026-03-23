@@ -1,6 +1,6 @@
 #include "Sprite.h"
 #include "Texture.h"
-#include "Collision.h"
+#include "../Physics/Collision.h"
 #include <cmath>
 
 #ifndef M_PI

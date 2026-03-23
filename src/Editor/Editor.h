@@ -1,5 +1,4 @@
-#ifndef MOLGA_EDITOR_H
-#define MOLGA_EDITOR_H
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -69,5 +68,3 @@ private:
     bool firstTimeLayout = true;
     ImGuiID dockspaceId = 0;
 };
-
-#endif // MOLGA_EDITOR_H

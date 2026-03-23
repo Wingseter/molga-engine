@@ -1,8 +1,8 @@
 #include "UI.h"
-#include "Renderer.h"
-#include "Shader.h"
-#include "Sprite.h"
-#include "Input.h"
+#include "../Rendering/Renderer.h"
+#include "../Rendering/Shader.h"
+#include "../Rendering/Sprite.h"
+#include "../Systems/Input.h"
 #include <algorithm>
 
 // ============ UIElement ============

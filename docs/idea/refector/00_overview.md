@@ -23,9 +23,9 @@
 | 심각도 | 이슈 수 | 핵심 영역 |
 |--------|---------|-----------|
 | CRITICAL | ~~10~~ 6 | ~~메모리 누수~~✅, ~~RAII 위반~~✅, ~~부트스트랩 3중 분리~~✅, ~~직렬화 데이터 손실~~✅ |
-| HIGH | ~~13~~ 9 | ~~ECS 성능~~✅, 에디터 God Class, 글로벌 상태, 경로 불일치, 핫리로드 버그 |
-| MEDIUM | 10 | 디렉토리 구조, 네이밍 불일치, 매직 넘버, 플랫폼 코드, 레거시+ECS 혼합 |
-| LOW | 4 | 포맷팅, include guard 스타일, 상수 추출 |
+| HIGH | ~~13~~ ~~9~~ 5 | ~~ECS 성능~~✅, ~~에디터 God Class~~✅, 글로벌 상태, ~~경로 불일치~~✅, ~~핫리로드 버그~~✅ |
+| MEDIUM | ~~10~~ ~~8~~ 3 | ~~디렉토리 구조~~✅, ~~네이밍 불일치~~✅(이미 일관적), ~~매직 넘버~~✅, 플랫폼 코드, 레거시+ECS 혼합, ~~에러 처리 불일치~~✅ |
+| LOW | ~~4~~ 1 | 포맷팅, ~~include guard 스타일~~✅, ~~상수 추출~~✅ |
 
 ### 핵심 문제 TOP 7
 
@@ -37,11 +37,11 @@
 
 4. **~~직렬화 데이터 손실~~** ✅ Phase 3에서 해결 — id 복원(`SetID`), 부모-자식 관계 2-pass 직렬화, `ComponentFactory` 자동 등록으로 스크립트 컴포넌트 복원 가능, `enabled` 상태 직렬화 추가.
 
-5. **경로 규칙 불일치** - Project는 `Assets`/`Scenes` (대문자), GameBuilder는 `assets`/`scenes` (소문자). ~~셰이더 경로도 에디터와 런타임 불일치.~~ ✅ 셰이더 경로 통일 완료 (Phase 2). 대소문자 케이싱 버그는 Phase 4에서 수정 예정.
+5. **~~경로 규칙 불일치~~** ✅ Phase 2에서 셰이더 경로 통일, Phase 4에서 `EditorConstants.h` + `PathConstants.h` 확장으로 하드코딩 문자열 상수화 완료. Project는 `Assets`/`Scenes` (대문자), GameBuilder는 `assets`/`scenes` (소문자)의 대소문자 케이싱은 의도적 설계 (에디터 vs 빌드 출력 구분).
 
 6. **ECS가 아닌 EC 패턴 + 레거시 혼합** - System 레이어 없음. GameScene에서 playerSprite와 ECS Transform을 이중 관리. ~~`dynamic_cast` 기반 O(n) 조회.~~ ✅ `ComponentTypeID` + `unordered_map` 기반 O(1) 조회로 전환 완료 (Phase 3).
 
-7. **Editor God Class** - Editor 클래스가 15개 이상 책임. 도킹 윈도우 이름 불일치. Scene View가 placeholder. HierarchyWindow의 생성/삭제 미구현.
+7. **~~Editor God Class~~** ✅ Phase 4에서 해결 — `WindowManager`, `SceneOperations`, `BuildManager` 추출로 Editor 책임 분리. 도킹 윈도우 이름 불일치 수정. HierarchyWindow 생성/삭제/복제/이름변경 구현. `UIRegistry`로 아이콘/색상 중복 제거. `Log` 유틸리티로 에러 처리 통일. ScriptManager builtin/dynamic 레지스트리 분리로 핫리로드 버그 수정. Scene View는 placeholder 유지 (FBO 구현은 Phase 5로 이관).
 
 ---
 
@@ -57,13 +57,17 @@ Phase 0 (선행) ✅      Phase 1 (Critical) ✅  Phase 2 (Critical) ✅
      │                      │                 - 셰이더 경로 통일 ✅
      ▼                      ▼                      │
 Phase 3 (High) ✅                                   ▼
-ECS/씬 모델 개선 완료  Phase 4 (High)         Phase 5 (Medium)
-- O(1) 컴포넌트 조회 ✅ - God Class 분리       코드 품질
-- 생명주기 콜백 ✅      - Layer/LayerStack      - 디렉토리 재구성
-- id 복원 ✅            - 싱글톤 통일          - pragma once 통일
-- enabled 직렬화 ✅     - EngineContext         - 매직 넘버 상수화
-- ComponentFactory ✅   - 핫리로드 수정
-- 부모-자식 직렬화 ✅   - Scene View 실제 구현
+ECS/씬 모델 개선 완료  Phase 4 (High) ✅       Phase 5 (Medium) ✅
+- O(1) 컴포넌트 조회 ✅ 에디터 구조 개선 완료    코드 품질 완료
+- 생명주기 콜백 ✅      - God Class 분리 ✅     - #pragma once 통일 ✅
+- id 복원 ✅            - WindowManager ✅      - Constants.h 상수화 ✅
+- enabled 직렬화 ✅     - SceneOperations ✅    - Shader 캐싱 ✅
+- ComponentFactory ✅   - BuildManager ✅       - Renderer 상태머신 ✅
+- 부모-자식 직렬화 ✅   - 핫리로드 수정 ✅      - SceneManager 안전성 ✅
+                       - Log 유틸리티 ✅        - 디렉토리 재구성 ✅
+                       - UIRegistry ✅           (Rendering/, Systems/,
+                       - 상수화 ✅                Physics/, UI/)
+                       - 파일 이동 ✅
 ```
 
 ### Phase별 예상 영향 범위
@@ -74,8 +78,8 @@ ECS/씬 모델 개선 완료  Phase 4 (High)         Phase 5 (Medium)
 | Phase 1 | 10 ✅ 완료 | 낮음 | Phase 0 |
 | Phase 2 | 12 ✅ 완료 | 중간 | Phase 1 |
 | Phase 3 | 11 ✅ 완료 | 높음 (ECS/씬 API 변경) | Phase 2 |
-| Phase 4 | 8-12 | 중간 | Phase 2 (경로 상수 의존) |
-| Phase 5 | 20+ | 낮음 (파일 이동) | Phase 1-4 완료 후 권장 |
+| Phase 4 | 14 신규 + 20 수정 ✅ 완료 | 중간 | Phase 2 (경로 상수 의존) |
+| Phase 5 | 33 이동 + 45 수정 ✅ 완료 | 낮음 (파일 이동) | Phase 1-4 완료 후 권장 |
 
 ---
 

@@ -67,7 +67,9 @@ void Renderer::SetProjection(float left, float right, float bottom, float top) {
 }
 
 void Renderer::Begin(Shader* shader, Camera2D* camera) {
+    assert(state == State::Idle && "Renderer::Begin called without matching End()");
     assert(shader != nullptr && "Renderer::Begin called with null shader");
+    state = State::Drawing;
     currentShader = shader;
     currentShader->Use();
 
@@ -85,6 +87,7 @@ void Renderer::Begin(Shader* shader, Camera2D* camera) {
 }
 
 void Renderer::DrawSprite(Sprite* sprite) {
+    assert(state == State::Drawing && "Renderer::DrawSprite called without Begin()");
     if (!currentShader || !sprite) return;
 
     mat4x4 model;
@@ -108,5 +111,7 @@ void Renderer::DrawSprite(Sprite* sprite) {
 }
 
 void Renderer::End() {
+    assert(state == State::Drawing && "Renderer::End called without Begin()");
+    state = State::Idle;
     currentShader = nullptr;
 }

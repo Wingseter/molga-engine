@@ -1,8 +1,7 @@
-#ifndef MOLGA_SPRITESHEET_H
-#define MOLGA_SPRITESHEET_H
+#pragma once
 
 #include "Texture.h"
-#include "Common/Types.h"
+#include "../Common/Types.h"
 
 class SpriteSheet {
 public:
@@ -25,5 +24,3 @@ private:
     int frameWidth, frameHeight;
     float frameU, frameV;  // UV size per frame
 };
-
-#endif // MOLGA_SPRITESHEET_H

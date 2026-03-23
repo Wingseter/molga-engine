@@ -1,5 +1,4 @@
-#ifndef MOLGA_TRANSFORM_COMPONENT_H
-#define MOLGA_TRANSFORM_COMPONENT_H
+#pragma once
 
 #include "../Component.h"
 #include "../../Common/Types.h"
@@ -57,5 +56,3 @@ private:
     float rotation = 0.0f;  // degrees
     Vector2 scale = Vector2::One();
 };
-
-#endif // MOLGA_TRANSFORM_COMPONENT_H

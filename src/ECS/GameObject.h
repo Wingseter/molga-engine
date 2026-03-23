@@ -1,5 +1,4 @@
-#ifndef MOLGA_GAME_OBJECT_H
-#define MOLGA_GAME_OBJECT_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -111,5 +110,3 @@ private:
     GameObject* parent = nullptr;
     std::vector<GameObject*> children;
 };
-
-#endif // MOLGA_GAME_OBJECT_H

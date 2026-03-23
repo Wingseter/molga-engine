@@ -1,5 +1,4 @@
-#ifndef MOLGA_VSCODE_INTEGRATION_H
-#define MOLGA_VSCODE_INTEGRATION_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -36,5 +35,3 @@ private:
 
     std::string enginePath;
 };
-
-#endif // MOLGA_VSCODE_INTEGRATION_H

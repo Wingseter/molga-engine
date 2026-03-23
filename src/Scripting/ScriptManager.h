@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCRIPT_MANAGER_H
-#define MOLGA_SCRIPT_MANAGER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -68,5 +67,3 @@ private:
         }; \
         static ScriptClass##Registrar g_##ScriptClass##Registrar; \
     }
-
-#endif // MOLGA_SCRIPT_MANAGER_H

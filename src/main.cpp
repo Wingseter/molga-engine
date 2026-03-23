@@ -6,13 +6,13 @@
 #include <memory>
 
 #include "Core/Bootstrap.h"
-#include "Shader.h"
-#include "Renderer.h"
-#include "MolgaTime.h"
-#include "Input.h"
-#include "Camera2D.h"
-#include "Scene.h"
-#include "Audio.h"
+#include "Rendering/Shader.h"
+#include "Rendering/Renderer.h"
+#include "Core/MolgaTime.h"
+#include "Systems/Input.h"
+#include "Rendering/Camera2D.h"
+#include "Core/Scene.h"
+#include "Systems/Audio.h"
 #include "Editor/ImGuiLayer.h"
 #include "Editor/EditorState.h"
 #include "Editor/Editor.h"
@@ -26,7 +26,7 @@
 #include "Scripting/BuiltinScripts.h"
 #include "Scenes/MenuScene.h"
 #include "Scenes/GameScene.h"
-#include "TextRenderer.h"
+#include "Rendering/TextRenderer.h"
 #include <imgui.h>
 
 // Settings

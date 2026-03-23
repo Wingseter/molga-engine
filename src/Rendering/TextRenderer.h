@@ -1,10 +1,9 @@
-#ifndef MOLGA_TEXT_RENDERER_H
-#define MOLGA_TEXT_RENDERER_H
+#pragma once
 
 #include <string>
 #include <unordered_map>
 #include <memory>
-#include "Common/Types.h"
+#include "../Common/Types.h"
 
 class Shader;
 class Renderer;
@@ -54,5 +53,3 @@ private:
     float lineSpacing = 1.2f;
     bool initialized = false;
 };
-
-#endif // MOLGA_TEXT_RENDERER_H

@@ -1,5 +1,4 @@
-#ifndef MOLGA_PLATFORM_H
-#define MOLGA_PLATFORM_H
+#pragma once
 
 #include <string>
 
@@ -28,5 +27,3 @@ std::string GetWorkingDirectory();
 bool SetWorkingDirectory(const std::string& path);
 
 } // namespace Platform
-
-#endif // MOLGA_PLATFORM_H

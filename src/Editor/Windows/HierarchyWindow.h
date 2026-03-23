@@ -1,5 +1,4 @@
-#ifndef MOLGA_HIERARCHY_WINDOW_H
-#define MOLGA_HIERARCHY_WINDOW_H
+#pragma once
 
 #include "EditorWindow.h"
 #include <vector>
@@ -39,5 +38,3 @@ private:
     GameObject* renamingObject = nullptr;
     char renameBuffer[256] = "";
 };
-
-#endif // MOLGA_HIERARCHY_WINDOW_H

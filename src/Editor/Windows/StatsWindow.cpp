@@ -1,6 +1,6 @@
 #include "StatsWindow.h"
 #include "../EditorConstants.h"
-#include "../../MolgaTime.h"
+#include "../../Core/MolgaTime.h"
 #include <imgui.h>
 
 StatsWindow::StatsWindow()

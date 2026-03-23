@@ -1,9 +1,6 @@
 #include "Camera2D.h"
+#include "../Common/Constants.h"
 #include <cmath>
-
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
 
 Camera2D::Camera2D(float screenWidth, float screenHeight)
     : x(0.0f), y(0.0f), zoom(1.0f), rotation(0.0f),
@@ -27,8 +24,8 @@ void Camera2D::Move(float dx, float dy) {
 
 void Camera2D::SetZoom(float zoom) {
     this->zoom = zoom;
-    if (this->zoom < 0.1f) this->zoom = 0.1f;
-    if (this->zoom > 10.0f) this->zoom = 10.0f;
+    if (this->zoom < Constants::Camera::MIN_ZOOM) this->zoom = Constants::Camera::MIN_ZOOM;
+    if (this->zoom > Constants::Camera::MAX_ZOOM) this->zoom = Constants::Camera::MAX_ZOOM;
     needsUpdate = true;
 }
 
@@ -63,7 +60,7 @@ void Camera2D::UpdateMatrices() {
     mat4x4_scale_aniso(viewMatrix, viewMatrix, zoom, zoom, 1.0f);
 
     // Apply rotation
-    float radians = rotation * (float)M_PI / 180.0f;
+    float radians = rotation * Constants::DEG_TO_RAD;
     mat4x4 rotated;
     mat4x4_rotate_Z(rotated, viewMatrix, radians);
     mat4x4_dup(viewMatrix, rotated);

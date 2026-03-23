@@ -1,5 +1,4 @@
-#ifndef MOLGA_IMGUI_LAYER_H
-#define MOLGA_IMGUI_LAYER_H
+#pragma once
 
 struct GLFWwindow;
 
@@ -22,5 +21,3 @@ private:
     static bool initialized;
     static GLFWwindow* currentWindow;
 };
-
-#endif

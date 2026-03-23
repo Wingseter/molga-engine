@@ -484,17 +484,19 @@ CMakeLists.txt의 `EDITOR_SOURCES`에만 포함되도록 이동.
 
 ## 체크리스트
 
-- [ ] WindowManager 클래스 추출 (윈도우 등록/가시성/렌더링)
-- [ ] SceneOperations 클래스 추출 (씬 CRUD)
-- [ ] BuildManager 클래스 추출 (빌드 설정/실행)
-- [ ] EditorConstants.h 생성 및 문자열 상수화
-- [ ] EditorTheme.h 생성 및 스타일 상수화
-- [ ] UIRegistry 구현 (파일 타입/컴포넌트 아이콘 통합)
-- [ ] 에러 처리 패턴 통일 (Log 유틸리티)
-- [ ] 미구현 메뉴 아이템에 경고 메시지 또는 비활성 처리
-- [ ] ScriptCompiler 에러 판정을 exit code 기반으로 변경
-- [ ] 도킹 윈도우 이름 불일치 수정
-- [ ] Scene View FBO 기반 실제 렌더링 구현
-- [ ] HierarchyWindow 생성/삭제/복제/이름변경 구현
-- [ ] ScriptManager builtin/dynamic 레지스트리 분리
-- [ ] Project, GameBuilder를 Editor 디렉토리로 이동
+- [x] EditorConstants.h 생성 및 문자열 상수화 ✅
+- [x] EditorTheme.h 생성 및 스타일 상수화 ✅
+- [x] PathConstants.h 확장 (Config 네임스페이스 추가) ✅
+- [x] 에러 처리 패턴 통일 (Log 유틸리티: `src/Common/Log.h/cpp`) ✅
+- [x] 미구현 메뉴 아이템에 경고 메시지 (Undo, Redo, Exit) ✅
+- [x] ScriptCompiler 에러 판정을 exit code 기반으로 변경 ✅
+- [x] ScriptManager builtin/dynamic 레지스트리 분리 (핫리로드 버그 수정) ✅
+- [x] 도킹 윈도우 이름 불일치 수정 ("Project" → "Project Browser") ✅
+- [x] UIRegistry 구현 (파일 타입/컴포넌트 아이콘 통합) ✅
+- [x] Project, GameBuilder를 Editor 디렉토리로 이동 ✅
+- [x] WindowManager 클래스 추출 (윈도우 등록/가시성/렌더링) ✅
+- [x] SceneViewWindow, StatsWindow를 EditorWindow 서브클래스로 전환 ✅
+- [x] SceneOperations 클래스 추출 (씬 CRUD) ✅
+- [x] BuildManager 클래스 추출 (빌드 설정/실행) ✅
+- [x] HierarchyWindow 생성/삭제/복제/이름변경 구현 ✅
+- [ ] Scene View FBO 기반 실제 렌더링 구현 → Phase 5로 이관 (렌더 파이프라인 경계 변경 필요)

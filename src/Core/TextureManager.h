@@ -1,5 +1,4 @@
-#ifndef MOLGA_TEXTURE_MANAGER_H
-#define MOLGA_TEXTURE_MANAGER_H
+#pragma once
 
 #include <string>
 #include <unordered_map>
@@ -36,5 +35,3 @@ private:
 
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures;
 };
-
-#endif // MOLGA_TEXTURE_MANAGER_H

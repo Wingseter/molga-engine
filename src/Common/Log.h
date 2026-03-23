@@ -1,5 +1,4 @@
-#ifndef MOLGA_LOG_H
-#define MOLGA_LOG_H
+#pragma once
 
 #include <string>
 
@@ -8,5 +7,3 @@ namespace Log {
     void Warn(const std::string& tag, const std::string& msg);
     void Error(const std::string& tag, const std::string& msg);
 }
-
-#endif // MOLGA_LOG_H

@@ -344,13 +344,20 @@ bool GameBuilder::CopyAssets(...) {
 
 ## 체크리스트
 
-- [ ] 소스 디렉토리 재구성 (Rendering/, Systems/, Physics/, UI/ 생성)
-- [ ] git mv로 파일 이동 후 include 경로 업데이트
-- [ ] CMakeLists.txt 소스 경로 업데이트
-- [ ] 모든 헤더 `#pragma once` 전환
-- [ ] Constants.h 생성 및 매직 넘버 교체
-- [ ] Shader uniform location 캐싱 구현
-- [ ] Renderer 상태 머신 assertion 추가
-- [ ] SceneManager::ChangeScene 반환값 추가 및 검증
-- [ ] GameBuilder 경로 검증 추가
-- [ ] 빌드 확인 및 기능 테스트
+- [x] 모든 헤더 `#pragma once` 전환 (~56개 헤더) ✅
+- [x] Constants.h 생성 및 매직 넘버 교체 (PI, TWO_PI, COLLISION_EPSILON, Camera zoom) ✅
+- [x] Shader uniform location 캐싱 구현 (`unordered_map` 기반) ✅
+- [x] Renderer 상태 머신 assertion 추가 (Idle/Drawing 상태 검증) ✅
+- [x] SceneManager::ChangeScene 반환값 `bool` 추가 및 씬 존재 검증 ✅
+- [x] 소스 디렉토리 재구성 ✅
+  - `src/Rendering/` — Renderer, Shader, Texture, Sprite, SpriteSheet, Camera2D, TextRenderer, Animation, Tilemap (9쌍)
+  - `src/Systems/` — Audio, Input, Particle (3쌍)
+  - `src/Physics/` — Collision (1쌍)
+  - `src/UI/` — UI (1쌍)
+  - `src/Core/` — Scene, MolgaTime 이동 (2쌍)
+  - `src/Common/` — linmath.h 이동 (1파일)
+- [x] git mv로 파일 이동 후 include 경로 업데이트 (~80개 include 변경) ✅
+- [x] CMakeLists.txt 소스 경로 업데이트 (ENGINE_SOURCES 16개 항목) ✅
+- [x] 빌드 확인 및 기능 테스트 (4/4 CTest 통과) ✅
+- [N/A] GameBuilder 경로 검증 — 이미 모든 경로에 `fs::exists()` 검증 존재
+- [N/A] 네이밍 일관성 (5.7) — 이미 PascalCase/camelCase/SCREAMING_SNAKE 일관적

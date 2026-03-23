@@ -1,4 +1,5 @@
 #include "Collision.h"
+#include "../Common/Constants.h"
 #include <cmath>
 #include <algorithm>
 
@@ -66,7 +67,7 @@ CollisionResult Collision::CheckCircleWithResult(const Circle& a, const Circle& 
     float dist = std::sqrt(distSq);
     result.collided = true;
 
-    if (dist > 0.0001f) {
+    if (dist > Constants::COLLISION_EPSILON) {
         result.normalX = dx / dist;
         result.normalY = dy / dist;
         float overlap = radiusSum - dist;
@@ -110,7 +111,7 @@ CollisionResult Collision::CheckAABBCircleWithResult(const AABB& box, const Circ
     result.collided = true;
     float dist = std::sqrt(distSq);
 
-    if (dist > 0.0001f) {
+    if (dist > Constants::COLLISION_EPSILON) {
         result.normalX = dx / dist;
         result.normalY = dy / dist;
         float overlap = circle.radius - dist;

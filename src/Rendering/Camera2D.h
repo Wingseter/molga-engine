@@ -1,7 +1,6 @@
-#ifndef MOLGA_CAMERA2D_H
-#define MOLGA_CAMERA2D_H
+#pragma once
 
-#include "linmath.h"
+#include "../Common/linmath.h"
 
 class Camera2D {
 public:
@@ -34,5 +33,3 @@ private:
     mat4x4 projectionMatrix;
     bool needsUpdate;
 };
-
-#endif // MOLGA_CAMERA2D_H

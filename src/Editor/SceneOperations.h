@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCENE_OPERATIONS_H
-#define MOLGA_SCENE_OPERATIONS_H
+#pragma once
 
 #include <memory>
 #include <string>
@@ -24,5 +23,3 @@ private:
     std::string currentScenePath;
     bool sceneModified = false;
 };
-
-#endif // MOLGA_SCENE_OPERATIONS_H

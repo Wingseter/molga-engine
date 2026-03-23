@@ -1,9 +1,8 @@
-#ifndef MOLGA_BOX_COLLIDER_2D_COMPONENT_H
-#define MOLGA_BOX_COLLIDER_2D_COMPONENT_H
+#pragma once
 
 #include "../Component.h"
 #include "Transform.h"
-#include "../../Collision.h"
+#include "../../Physics/Collision.h"
 
 class BoxCollider2D : public Component {
 public:
@@ -45,5 +44,3 @@ private:
     Vector2 offset = Vector2::Zero();
     bool isTrigger = false;
 };
-
-#endif // MOLGA_BOX_COLLIDER_2D_COMPONENT_H

@@ -1,5 +1,4 @@
-#ifndef MOLGA_COMMON_TYPES_H
-#define MOLGA_COMMON_TYPES_H
+#pragma once
 
 #include <cmath>
 
@@ -210,5 +209,3 @@ struct Rect {
     int Top() const { return y; }
     int Bottom() const { return y + height; }
 };
-
-#endif // MOLGA_COMMON_TYPES_H

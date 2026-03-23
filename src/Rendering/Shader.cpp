@@ -28,32 +28,42 @@ void Shader::Use() const {
     glUseProgram(programID);
 }
 
+GLint Shader::GetUniformLocation(const char* name) const {
+    auto it = uniformCache.find(name);
+    if (it != uniformCache.end()) {
+        return it->second;
+    }
+    GLint location = glGetUniformLocation(programID, name);
+    uniformCache[name] = location;
+    return location;
+}
+
 void Shader::SetInt(const char* name, int value) const {
-    glUniform1i(glGetUniformLocation(programID, name), value);
+    glUniform1i(GetUniformLocation(name), value);
 }
 
 void Shader::SetFloat(const char* name, float value) const {
-    glUniform1f(glGetUniformLocation(programID, name), value);
+    glUniform1f(GetUniformLocation(name), value);
 }
 
 void Shader::SetVec2(const char* name, float x, float y) const {
-    glUniform2f(glGetUniformLocation(programID, name), x, y);
+    glUniform2f(GetUniformLocation(name), x, y);
 }
 
 void Shader::SetVec3(const char* name, float x, float y, float z) const {
-    glUniform3f(glGetUniformLocation(programID, name), x, y, z);
+    glUniform3f(GetUniformLocation(name), x, y, z);
 }
 
 void Shader::SetVec4(const char* name, float x, float y, float z, float w) const {
-    glUniform4f(glGetUniformLocation(programID, name), x, y, z, w);
+    glUniform4f(GetUniformLocation(name), x, y, z, w);
 }
 
 void Shader::SetMat4(const char* name, const float* matrix) const {
-    glUniformMatrix4fv(glGetUniformLocation(programID, name), 1, GL_FALSE, matrix);
+    glUniformMatrix4fv(GetUniformLocation(name), 1, GL_FALSE, matrix);
 }
 
 void Shader::SetBool(const char* name, bool value) const {
-    glUniform1i(glGetUniformLocation(programID, name), static_cast<int>(value));
+    glUniform1i(GetUniformLocation(name), static_cast<int>(value));
 }
 
 std::string Shader::LoadShaderSource(const char* path) {

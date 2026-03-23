@@ -1,5 +1,4 @@
-#ifndef MOLGA_AUDIO_H
-#define MOLGA_AUDIO_H
+#pragma once
 
 #include <string>
 #include <unordered_map>
@@ -47,5 +46,3 @@ private:
     static float masterVolume;
     static bool initialized;
 };
-
-#endif

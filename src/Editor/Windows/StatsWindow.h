@@ -1,5 +1,4 @@
-#ifndef MOLGA_STATS_WINDOW_H
-#define MOLGA_STATS_WINDOW_H
+#pragma once
 
 #include "EditorWindow.h"
 
@@ -8,5 +7,3 @@ public:
     StatsWindow();
     void OnGUI() override;
 };
-
-#endif // MOLGA_STATS_WINDOW_H

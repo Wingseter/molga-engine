@@ -1,12 +1,11 @@
-#ifndef MOLGA_GAME_SCENE_H
-#define MOLGA_GAME_SCENE_H
+#pragma once
 
-#include "../Scene.h"
+#include "../Core/Scene.h"
 #include "../ECS/GameObject.h"
-#include "../Tilemap.h"
-#include "../Sprite.h"
-#include "../UI.h"
-#include "../Particle.h"
+#include "../Rendering/Tilemap.h"
+#include "../Rendering/Sprite.h"
+#include "../UI/UI.h"
+#include "../Systems/Particle.h"
 #include <vector>
 #include <memory>
 
@@ -58,5 +57,3 @@ private:
     float screenWidth = 800.0f;
     float screenHeight = 600.0f;
 };
-
-#endif // MOLGA_GAME_SCENE_H

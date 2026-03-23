@@ -1,5 +1,4 @@
-#ifndef MOLGA_EDITOR_WINDOW_H
-#define MOLGA_EDITOR_WINDOW_H
+#pragma once
 
 #include <string>
 
@@ -24,5 +23,3 @@ protected:
     std::string title;
     bool isOpen = true;
 };
-
-#endif // MOLGA_EDITOR_WINDOW_H

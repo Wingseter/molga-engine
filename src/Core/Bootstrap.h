@@ -1,5 +1,4 @@
-#ifndef MOLGA_BOOTSTRAP_H
-#define MOLGA_BOOTSTRAP_H
+#pragma once
 
 #include <string>
 
@@ -20,5 +19,3 @@ GLFWwindow* EngineInit(const WindowConfig& config);
 // Shutdown Audio and terminate GLFW.
 // Caller must clean up all other resources BEFORE calling this.
 void EngineShutdown();
-
-#endif

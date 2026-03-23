@@ -1,4 +1,5 @@
 #include "Scene.h"
+#include "../Common/Log.h"
 #include <iostream>
 
 std::unordered_map<std::string, std::shared_ptr<Scene>> SceneManager::scenes;
@@ -21,9 +22,14 @@ void SceneManager::RemoveScene(const std::string& name) {
     }
 }
 
-void SceneManager::ChangeScene(const std::string& name) {
+bool SceneManager::ChangeScene(const std::string& name) {
+    if (scenes.find(name) == scenes.end()) {
+        Log::Error("SceneManager", "Scene not found: " + name);
+        return false;
+    }
     pendingScene = name;
     sceneChangeRequested = true;
+    return true;
 }
 
 void SceneManager::Update(float dt) {
@@ -37,7 +43,7 @@ void SceneManager::Update(float dt) {
             currentScene = it->second;
             currentScene->OnEnter();
         } else {
-            std::cerr << "Scene not found: " << pendingScene << std::endl;
+            Log::Error("SceneManager", "Pending scene not found: " + pendingScene);
         }
         sceneChangeRequested = false;
         pendingScene = "";

@@ -1,5 +1,4 @@
-#ifndef MOLGA_COMPONENT_H
-#define MOLGA_COMPONENT_H
+#pragma once
 
 #include <string>
 #include <cstddef>
@@ -77,5 +76,3 @@ protected:
     static std::string StaticTypeName() { return #TypeName; } \
     size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<TypeName>(); } \
     static size_t StaticRuntimeTypeID() { return ComponentTypeID::Get<TypeName>(); }
-
-#endif // MOLGA_COMPONENT_H

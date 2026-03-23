@@ -1,8 +1,7 @@
-#ifndef MOLGA_RENDERER_H
-#define MOLGA_RENDERER_H
+#pragma once
 
 #include <glad/glad.h>
-#include "linmath.h"
+#include "../Common/linmath.h"
 
 class Shader;
 class Sprite;
@@ -24,6 +23,9 @@ public:
     void SetProjection(float left, float right, float bottom, float top);
 
 private:
+    enum class State { Idle, Drawing };
+    State state = State::Idle;
+
     unsigned int VAO;
     unsigned int VBO;
     unsigned int EBO;
@@ -33,5 +35,3 @@ private:
 
     void SetupQuadBuffers();
 };
-
-#endif // MOLGA_RENDERER_H

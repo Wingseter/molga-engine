@@ -1,5 +1,4 @@
-#ifndef MOLGA_EDITOR_THEME_H
-#define MOLGA_EDITOR_THEME_H
+#pragma once
 
 #include <imgui.h>
 
@@ -28,5 +27,3 @@ namespace EditorTheme {
     inline const ImVec4 ERROR_TEXT     = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
     inline const ImVec4 DISABLED_TEXT  = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
 }
-
-#endif // MOLGA_EDITOR_THEME_H

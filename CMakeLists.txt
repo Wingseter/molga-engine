@@ -28,21 +28,21 @@ target_link_libraries(imgui glfw)
 
 # ── Common engine source files ─────────────────────────────────────────────────
 set(ENGINE_SOURCES
-    src/Shader.cpp
-    src/Texture.cpp
-    src/Sprite.cpp
-    src/Renderer.cpp
-    src/MolgaTime.cpp
-    src/Input.cpp
-    src/Camera2D.cpp
-    src/SpriteSheet.cpp
-    src/Animation.cpp
-    src/Collision.cpp
-    src/Tilemap.cpp
-    src/UI.cpp
-    src/Audio.cpp
-    src/Scene.cpp
-    src/Particle.cpp
+    src/Rendering/Shader.cpp
+    src/Rendering/Texture.cpp
+    src/Rendering/Sprite.cpp
+    src/Rendering/Renderer.cpp
+    src/Core/MolgaTime.cpp
+    src/Systems/Input.cpp
+    src/Rendering/Camera2D.cpp
+    src/Rendering/SpriteSheet.cpp
+    src/Rendering/Animation.cpp
+    src/Physics/Collision.cpp
+    src/Rendering/Tilemap.cpp
+    src/UI/UI.cpp
+    src/Systems/Audio.cpp
+    src/Core/Scene.cpp
+    src/Systems/Particle.cpp
     src/ECS/Component.cpp
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
@@ -53,7 +53,7 @@ set(ENGINE_SOURCES
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp
     src/Platform/Platform.cpp
-    src/TextRenderer.cpp
+    src/Rendering/TextRenderer.cpp
     src/Core/Bootstrap.cpp
     src/Common/Log.cpp
 )

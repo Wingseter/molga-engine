@@ -1,5 +1,4 @@
-#ifndef MOLGA_TEXTURE_H
-#define MOLGA_TEXTURE_H
+#pragma once
 
 #include <glad/glad.h>
 
@@ -24,5 +23,3 @@ private:
     int height;
     int channels;
 };
-
-#endif // MOLGA_TEXTURE_H

@@ -1,9 +1,8 @@
-#ifndef MOLGA_UI_H
-#define MOLGA_UI_H
+#pragma once
 
 #include <vector>
 #include <functional>
-#include "linmath.h"
+#include "../Common/linmath.h"
 
 class Shader;
 class Renderer;
@@ -104,5 +103,3 @@ private:
     std::vector<UIElement*> elements;
     mat4x4 uiProjection;
 };
-
-#endif // MOLGA_UI_H

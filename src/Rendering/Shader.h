@@ -1,8 +1,8 @@
-#ifndef MOLGA_SHADER_H
-#define MOLGA_SHADER_H
+#pragma once
 
 #include <glad/glad.h>
 #include <string>
+#include <unordered_map>
 
 class Shader {
 public:
@@ -23,10 +23,10 @@ public:
 
 private:
     unsigned int programID;
+    mutable std::unordered_map<std::string, GLint> uniformCache;
 
+    GLint GetUniformLocation(const char* name) const;
     std::string LoadShaderSource(const char* path);
     unsigned int CompileShader(const char* source, GLenum type);
     void CheckCompileErrors(unsigned int shader, const std::string& type);
 };
-
-#endif // MOLGA_SHADER_H

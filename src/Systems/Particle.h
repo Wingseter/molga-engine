@@ -1,6 +1,6 @@
-#ifndef MOLGA_PARTICLE_H
-#define MOLGA_PARTICLE_H
+#pragma once
 
+#include "Common/Constants.h"
 #include <vector>
 #include <functional>
 #include <cstdlib>
@@ -34,7 +34,7 @@ struct ParticleConfig {
     float minSpeed = 50.0f;
     float maxSpeed = 100.0f;
     float minAngle = 0.0f;          // Radians
-    float maxAngle = 6.28f;         // Full circle
+    float maxAngle = Constants::TWO_PI; // Full circle
 
     // Gravity
     float gravityX = 0.0f;
@@ -97,5 +97,3 @@ namespace ParticlePresets {
     ParticleConfig Snow();
     ParticleConfig Explosion();
 }
-
-#endif

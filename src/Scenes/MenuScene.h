@@ -1,7 +1,6 @@
-#ifndef MOLGA_MENU_SCENE_H
-#define MOLGA_MENU_SCENE_H
+#pragma once
 
-#include "../Scene.h"
+#include "../Core/Scene.h"
 #include "../ECS/GameObject.h"
 #include <vector>
 #include <memory>
@@ -38,5 +37,3 @@ private:
     bool quitHovered = false;
     int selectedButton = 0;  // 0 = Start, 1 = Quit (for keyboard navigation)
 };
-
-#endif // MOLGA_MENU_SCENE_H

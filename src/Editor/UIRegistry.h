@@ -1,5 +1,4 @@
-#ifndef MOLGA_UI_REGISTRY_H
-#define MOLGA_UI_REGISTRY_H
+#pragma once
 
 #include <imgui.h>
 #include <string>
@@ -27,5 +26,3 @@ private:
     static const ComponentTypeInfo s_defaultComponentType;
     static const ComponentTypeInfo s_scriptComponentType;
 };
-
-#endif // MOLGA_UI_REGISTRY_H

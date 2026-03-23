@@ -1,5 +1,4 @@
-#ifndef MOLGA_PROJECT_H
-#define MOLGA_PROJECT_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -55,5 +54,3 @@ private:
     std::vector<std::string> recentProjects;
     static constexpr int MAX_RECENT_PROJECTS = 10;
 };
-
-#endif // MOLGA_PROJECT_H

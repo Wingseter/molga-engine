@@ -4,9 +4,9 @@
 #include <GLFW/glfw3.h>
 #include <iostream>
 
-#include "../MolgaTime.h"
-#include "../Input.h"
-#include "../Audio.h"
+#include "MolgaTime.h"
+#include "../Systems/Input.h"
+#include "../Systems/Audio.h"
 
 static void FramebufferSizeCallback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);

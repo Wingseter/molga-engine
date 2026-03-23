@@ -1,5 +1,4 @@
-#ifndef MOLGA_PROJECT_BROWSER_WINDOW_H
-#define MOLGA_PROJECT_BROWSER_WINDOW_H
+#pragma once
 
 #include "EditorWindow.h"
 #include <string>
@@ -73,5 +72,3 @@ private:
     float iconSize = 64.0f;
     float padding = 10.0f;
 };
-
-#endif // MOLGA_PROJECT_BROWSER_WINDOW_H

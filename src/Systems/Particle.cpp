@@ -1,8 +1,9 @@
 #include "Particle.h"
-#include "Renderer.h"
-#include "Shader.h"
-#include "Camera2D.h"
-#include "Sprite.h"
+#include "../Common/Constants.h"
+#include "../Rendering/Renderer.h"
+#include "../Rendering/Shader.h"
+#include "../Rendering/Camera2D.h"
+#include "../Rendering/Sprite.h"
 
 ParticleEmitter::ParticleEmitter()
     : x(0), y(0), emitting(false), spawnAccumulator(0) {
@@ -46,7 +47,7 @@ void ParticleEmitter::EmitParticle() {
     for (auto& p : particles) {
         if (!p.active) {
             // Position with variance
-            float angle = RandomFloat(0, 6.28318f);
+            float angle = RandomFloat(0, Constants::TWO_PI);
             float radius = RandomFloat(0, config.spawnRadius);
             p.x = x + cos(angle) * radius;
             p.y = y + sin(angle) * radius;
@@ -61,7 +62,7 @@ void ParticleEmitter::EmitParticle() {
             p.size = config.startSize + RandomFloat(-config.sizeVariance, config.sizeVariance);
 
             // Rotation
-            p.rotation = RandomFloat(0, 6.28318f);
+            p.rotation = RandomFloat(0, Constants::TWO_PI);
             p.rotationSpeed = RandomFloat(config.minRotationSpeed, config.maxRotationSpeed);
 
             // Life
@@ -202,7 +203,7 @@ ParticleConfig Spark() {
     c.minSpeed = 100.0f;
     c.maxSpeed = 200.0f;
     c.minAngle = 0.0f;
-    c.maxAngle = 6.28f;
+    c.maxAngle = Constants::TWO_PI;
     c.gravityY = 200.0f;  // Fall down
     c.startSize = 4.0f;
     c.endSize = 1.0f;
@@ -242,7 +243,7 @@ ParticleConfig Explosion() {
     c.minSpeed = 150.0f;
     c.maxSpeed = 300.0f;
     c.minAngle = 0.0f;
-    c.maxAngle = 6.28f;
+    c.maxAngle = Constants::TWO_PI;
     c.gravityY = 100.0f;
     c.startSize = 12.0f;
     c.endSize = 2.0f;

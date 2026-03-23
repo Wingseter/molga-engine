@@ -1,5 +1,4 @@
-#ifndef MOLGA_PATH_CONSTANTS_H
-#define MOLGA_PATH_CONSTANTS_H
+#pragma once
 
 namespace Paths {
     namespace Project {
@@ -27,5 +26,3 @@ namespace Paths {
         constexpr const char* RECENT_PROJECTS = "recent_projects.json";
     }
 }
-
-#endif

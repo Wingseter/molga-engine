@@ -1,7 +1,6 @@
-#ifndef MOLGA_COLLISION_H
-#define MOLGA_COLLISION_H
+#pragma once
 
-#include "Common/Types.h"
+#include "../Common/Types.h"
 
 class Collision {
 public:
@@ -21,5 +20,3 @@ public:
     static bool PointInAABB(float px, float py, const AABB& box);
     static bool PointInCircle(float px, float py, const Circle& circle);
 };
-
-#endif // MOLGA_COLLISION_H

@@ -1,5 +1,4 @@
-#ifndef MOLGA_GAME_BUILDER_H
-#define MOLGA_GAME_BUILDER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -43,5 +42,3 @@ private:
     float progress = 0.0f;
     std::string currentStep;
 };
-
-#endif // MOLGA_GAME_BUILDER_H

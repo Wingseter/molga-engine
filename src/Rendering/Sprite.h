@@ -1,7 +1,6 @@
-#ifndef MOLGA_SPRITE_H
-#define MOLGA_SPRITE_H
+#pragma once
 
-#include "linmath.h"
+#include "../Common/linmath.h"
 #include "SpriteSheet.h"  // Includes Common/Types.h
 
 class Texture;
@@ -33,5 +32,3 @@ public:
     float uv[4];  // u0, v0, u1, v1
     Texture* texture;
 };
-
-#endif // MOLGA_SPRITE_H

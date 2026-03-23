@@ -1,8 +1,7 @@
-#ifndef MOLGA_TILEMAP_H
-#define MOLGA_TILEMAP_H
+#pragma once
 
 #include <vector>
-#include "Collision.h"
+#include "../Physics/Collision.h"
 
 class Texture;
 class SpriteSheet;
@@ -48,5 +47,3 @@ private:
     unsigned int VAO, VBO;
     void SetupBuffers();
 };
-
-#endif // MOLGA_TILEMAP_H

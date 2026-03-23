@@ -1,5 +1,4 @@
-#ifndef MOLGA_EDITOR_CONSTANTS_H
-#define MOLGA_EDITOR_CONSTANTS_H
+#pragma once
 
 namespace EditorConstants {
     // Dockspace
@@ -21,5 +20,3 @@ namespace EditorConstants {
     // Build Defaults
     constexpr const char* DEFAULT_BUILD_TYPE = "Debug";
 }
-
-#endif // MOLGA_EDITOR_CONSTANTS_H

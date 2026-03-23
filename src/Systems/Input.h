@@ -1,5 +1,4 @@
-#ifndef MOLGA_INPUT_H
-#define MOLGA_INPUT_H
+#pragma once
 
 #include <GLFW/glfw3.h>
 
@@ -48,5 +47,3 @@ private:
 
     static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
 };
-
-#endif // MOLGA_INPUT_H
