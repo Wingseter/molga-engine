@@ -48,6 +48,7 @@ set(ENGINE_SOURCES
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
     src/ECS/Components/BoxCollider2D.cpp
+    src/ECS/Components/Collider2D.cpp
     src/Core/SceneSerializer.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp

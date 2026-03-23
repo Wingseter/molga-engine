@@ -1,6 +1,7 @@
 #include "ECS/GameObject.h"
 #include "ECS/Component.h"
 #include "ECS/Components/Transform.h"
+#include "ECS/Components/Collider2D.h"
 #include "ECS/Components/BoxCollider2D.h"
 #include <cassert>
 #include <cmath>
@@ -328,6 +329,49 @@ static void test_box_collider_type_name() {
     assert(bc->GetTypeName() == "BoxCollider2D");
 }
 
+// ── Collider2D abstraction ───────────────────────────────────────────────────
+
+static void test_collider2d_inheritance() {
+    auto obj = std::make_shared<GameObject>("test");
+    auto* box = obj->AddComponent<BoxCollider2D>();
+
+    Collider2D* collider = dynamic_cast<Collider2D*>(box);
+    assert(collider != nullptr);
+    assert(collider->GetShapeType() == Collider2D::ShapeType::Box);
+
+    collider->SetOffset(5.0f, 10.0f);
+    assert(approx(collider->GetOffset().x, 5.0f));
+    assert(approx(collider->GetOffset().y, 10.0f));
+    collider->SetTrigger(true);
+    assert(collider->IsTrigger());
+}
+
+static void test_collider2d_world_bounds() {
+    auto obj = std::make_shared<GameObject>("test");
+    auto* transform = obj->AddComponent<Transform>();
+    transform->SetPosition(100.0f, 200.0f);
+    auto* box = obj->AddComponent<BoxCollider2D>(50.0f, 30.0f);
+
+    AABB bounds = box->GetWorldBounds();
+    AABB aabb = box->GetWorldAABB();
+    assert(approx(bounds.x, aabb.x));
+    assert(approx(bounds.y, aabb.y));
+    assert(approx(bounds.width, aabb.width));
+    assert(approx(bounds.height, aabb.height));
+}
+
+static void test_collider2d_negative_scale_normalized() {
+    auto obj = std::make_shared<GameObject>("test");
+    auto* transform = obj->AddComponent<Transform>();
+    transform->SetPosition(0.0f, 0.0f);
+    transform->SetScale(-2.0f, -1.0f);
+    auto* box = obj->AddComponent<BoxCollider2D>(10.0f, 10.0f);
+
+    AABB bounds = box->GetWorldBounds();
+    assert(bounds.width > 0.0f);
+    assert(bounds.height > 0.0f);
+}
+
 // ── main ─────────────────────────────────────────────────────────────────────
 
 int main() {
@@ -360,6 +404,10 @@ int main() {
     test_box_collider_world_aabb();
     test_box_collider_collision();
     test_box_collider_type_name();
+
+    test_collider2d_inheritance();
+    test_collider2d_world_bounds();
+    test_collider2d_negative_scale_normalized();
 
     std::printf("test_ecs: all tests passed\n");
     return 0;

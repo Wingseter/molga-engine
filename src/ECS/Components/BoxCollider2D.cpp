@@ -10,7 +10,7 @@ REGISTER_COMPONENT(BoxCollider2D)
 
 using json = nlohmann::json;
 
-AABB BoxCollider2D::GetWorldAABB() const {
+AABB BoxCollider2D::GetWorldBounds() const {
     AABB aabb;
     aabb.width = size.x;
     aabb.height = size.y;
@@ -28,7 +28,11 @@ AABB BoxCollider2D::GetWorldAABB() const {
         }
     }
 
-    return aabb;
+    return NormalizeBounds(aabb);
+}
+
+AABB BoxCollider2D::GetWorldAABB() const {
+    return GetWorldBounds();
 }
 
 bool BoxCollider2D::CheckCollision(const BoxCollider2D* other) const {
@@ -51,20 +55,14 @@ CollisionResult BoxCollider2D::CheckCollisionWithResult(const BoxCollider2D* oth
 }
 
 void BoxCollider2D::Serialize(nlohmann::json& j) const {
+    SerializeBase(j);
     j["size"] = { size.x, size.y };
-    j["offset"] = { offset.x, offset.y };
-    j["isTrigger"] = isTrigger;
 }
 
 void BoxCollider2D::Deserialize(const nlohmann::json& j) {
+    DeserializeBase(j);
     if (j.contains("size") && j["size"].is_array()) {
         SetSize(j["size"][0], j["size"][1]);
-    }
-    if (j.contains("offset") && j["offset"].is_array()) {
-        SetOffset(j["offset"][0], j["offset"][1]);
-    }
-    if (j.contains("isTrigger")) {
-        SetTrigger(j["isTrigger"]);
     }
 }
 
