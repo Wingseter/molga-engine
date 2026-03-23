@@ -211,6 +211,85 @@ static void test_component_lifecycle_callbacks() {
     assert(comp->disableCount == 2);
 }
 
+// ── OnDestroy / NotifyDestroy ────────────────────────────────────────────────
+
+static void test_on_destroy_called() {
+    struct Ctx { bool called = false; };
+    class DestroyComp : public Component {
+    public:
+        COMPONENT_TYPE(DestroyComp)
+        Ctx* ctx = nullptr;
+        void OnDestroy() override { ctx->called = true; }
+    };
+
+    Ctx ctx;
+    {
+        auto obj = std::make_shared<GameObject>("destroy_test");
+        auto* comp = obj->AddComponent<DestroyComp>();
+        comp->ctx = &ctx;
+    }
+    assert(ctx.called);
+}
+
+static void test_notify_destroy_idempotent() {
+    struct Ctx { int count = 0; };
+    class CountComp : public Component {
+    public:
+        COMPONENT_TYPE(CountComp)
+        Ctx* ctx = nullptr;
+        void OnDestroy() override { ctx->count++; }
+    };
+
+    Ctx ctx;
+    auto obj = std::make_shared<GameObject>("idempotent_test");
+    auto* comp = obj->AddComponent<CountComp>();
+    comp->ctx = &ctx;
+    obj->NotifyDestroy();
+    obj->NotifyDestroy();  // second call should be ignored
+    obj.reset();           // destructor also ignored
+    assert(ctx.count == 1);
+}
+
+static void test_destroy_disabled_no_double_disable() {
+    struct Ctx { int disableCount = 0; };
+    class TrackComp : public Component {
+    public:
+        COMPONENT_TYPE(TrackComp)
+        Ctx* ctx = nullptr;
+        void OnDisable() override { ctx->disableCount++; }
+        void OnDestroy() override {}
+    };
+
+    Ctx ctx;
+    auto obj = std::make_shared<GameObject>("disable_test");
+    auto* comp = obj->AddComponent<TrackComp>();
+    comp->ctx = &ctx;
+    comp->SetEnabled(false);  // OnDisable called once
+    assert(ctx.disableCount == 1);
+    obj.reset();  // already disabled → OnDisable NOT called again
+    assert(ctx.disableCount == 1);
+}
+
+static void test_remove_component_calls_on_disable() {
+    struct Ctx { int disableCount = 0; int detachCount = 0; };
+    class RemComp : public Component {
+    public:
+        COMPONENT_TYPE(RemComp)
+        Ctx* ctx = nullptr;
+        void OnDisable() override { ctx->disableCount++; }
+        void OnDetach() override { ctx->detachCount++; }
+    };
+
+    Ctx ctx;
+    auto obj = std::make_shared<GameObject>("remove_test");
+    auto* comp = obj->AddComponent<RemComp>();
+    comp->ctx = &ctx;
+    assert(comp->IsEnabled());
+    obj->RemoveComponent<RemComp>();
+    assert(ctx.disableCount == 1);
+    assert(ctx.detachCount == 1);
+}
+
 // ── BoxCollider2D ────────────────────────────────────────────────────────────
 
 static void test_box_collider_world_aabb() {
@@ -272,6 +351,11 @@ int main() {
     test_world_transform_with_parent();
 
     test_component_lifecycle_callbacks();
+
+    test_on_destroy_called();
+    test_notify_destroy_idempotent();
+    test_destroy_disabled_no_double_disable();
+    test_remove_component_calls_on_disable();
 
     test_box_collider_world_aabb();
     test_box_collider_collision();

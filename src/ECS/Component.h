@@ -37,6 +37,11 @@ public:
     // Called for rendering (optional)
     virtual void Render() {}
 
+    // Called when the owning GameObject is being destroyed.
+    // Use for releasing external resources (physics bodies, GPU handles, etc.)
+    // Called BEFORE OnDetach(). Guaranteed exactly once.
+    virtual void OnDestroy() {}
+
     // Get the component type name
     virtual std::string GetTypeName() const = 0;
 

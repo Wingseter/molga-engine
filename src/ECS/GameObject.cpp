@@ -1,6 +1,8 @@
 #include "GameObject.h"
 #include "Component.h"
+#include "../Scripting/Script.h"
 #include <algorithm>
+#include <cassert>
 
 unsigned int GameObject::nextID = 1;
 
@@ -9,18 +11,14 @@ GameObject::GameObject(const std::string& name)
 }
 
 GameObject::~GameObject() {
-    // Detach all components
+    NotifyDestroy();  // destroyed flag prevents double-call
     for (auto& [id, comp] : componentMap) {
         comp->OnDetach();
     }
     componentMap.clear();
-
-    // Remove from parent
     if (parent) {
         parent->RemoveChild(this);
     }
-
-    // Clear children (but don't delete them - scene manages ownership)
     children.clear();
 }
 
@@ -81,9 +79,14 @@ void GameObject::Render() {
 
 Component* GameObject::AddComponentRaw(Component* component) {
     if (!component) return nullptr;
+    auto typeId = component->GetRuntimeTypeID();
+    if (componentMap.count(typeId) > 0) {
+        assert(false && "Duplicate component type via AddComponentRaw.");
+        return nullptr;
+    }
     component->SetGameObject(this);
     component->OnAttach();
-    componentMap[component->GetRuntimeTypeID()] = std::unique_ptr<Component>(component);
+    componentMap[typeId] = std::unique_ptr<Component>(component);
     return component;
 }
 
@@ -94,4 +97,42 @@ std::vector<Component*> GameObject::GetComponents() const {
         result.push_back(comp.get());
     }
     return result;
+}
+
+void GameObject::NotifyDestroy() {
+    if (destroyed) return;
+    destroyed = true;
+
+    // Snapshot-based iteration (safe if callbacks modify componentMap)
+    std::vector<Component*> snapshot;
+    snapshot.reserve(componentMap.size());
+    for (auto& [id, comp] : componentMap) {
+        snapshot.push_back(comp.get());
+    }
+    for (auto* comp : snapshot) {
+        if (comp->IsEnabled()) comp->OnDisable();
+        comp->OnDestroy();
+    }
+}
+
+void GameObject::FixedUpdateScripts(float fixedDt) {
+    if (!active) return;
+    for (auto& [id, comp] : componentMap) {
+        if (comp->IsEnabled()) {
+            if (auto* script = dynamic_cast<Script*>(comp.get())) {
+                script->FixedUpdate(fixedDt);
+            }
+        }
+    }
+}
+
+void GameObject::LateUpdateScripts(float dt) {
+    if (!active) return;
+    for (auto& [id, comp] : componentMap) {
+        if (comp->IsEnabled()) {
+            if (auto* script = dynamic_cast<Script*>(comp.get())) {
+                script->LateUpdate(dt);
+            }
+        }
+    }
 }

@@ -31,6 +31,8 @@ public:
     T* AddComponent(Args&&... args) {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
         auto id = ComponentTypeID::Get<T>();
+        assert(componentMap.find(id) == componentMap.end()
+               && "Duplicate component type. Use RemoveComponent first.");
         auto component = std::make_unique<T>(std::forward<Args>(args)...);
         T* ptr = component.get();
         ptr->SetGameObject(this);
@@ -69,6 +71,7 @@ public:
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
         auto it = componentMap.find(ComponentTypeID::Get<T>());
         if (it != componentMap.end()) {
+            if (it->second->IsEnabled()) it->second->OnDisable();
             it->second->OnDetach();
             componentMap.erase(it);
         }
@@ -98,12 +101,21 @@ public:
     // Render all components
     void Render();
 
+    // Notify all components that this GameObject is being destroyed.
+    // Safe to call multiple times (idempotent via destroyed flag).
+    void NotifyDestroy();
+
+    // Script lifecycle hooks (avoid duplicating dynamic_cast loops in entry points)
+    void FixedUpdateScripts(float fixedDt);
+    void LateUpdateScripts(float dt);
+
 private:
     static unsigned int nextID;
 
     unsigned int id;
     std::string name;
     bool active = true;
+    bool destroyed = false;
 
     std::unordered_map<size_t, std::unique_ptr<Component>> componentMap;
 
