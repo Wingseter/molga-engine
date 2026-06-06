@@ -4,6 +4,8 @@
 #include "../../ECS/Components/Transform.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
+#include "Editor/Editor.h"
+#include "Editor/Commands/ObjectCommands.h"
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
@@ -91,7 +93,8 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
         ImGui::SetNextItemWidth(-1);
         if (ImGui::InputText("##Rename", renameBuffer, sizeof(renameBuffer),
                              ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-            obj->SetName(renameBuffer);
+            Editor::Get().GetCommandHistory().Execute(
+                std::make_unique<molga::RenameObjectCommand>(obj->GetID(), std::string(renameBuffer)));
             isRenaming = false;
             renamingObject = nullptr;
         }
@@ -148,34 +151,17 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 }
 
 void HierarchyWindow::CreateEmptyGameObject() {
-    if (!gameObjects) return;
-
-    auto obj = std::make_shared<GameObject>("New GameObject");
-    obj->AddComponent<Transform>();
-    gameObjects->push_back(obj);
-
-    selectedObject = obj.get();
-    if (onSelectionChanged) {
-        onSelectionChanged(selectedObject);
-    }
+    auto cmd = std::make_unique<molga::CreateObjectCommand>("New GameObject");
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();
 }
 
 void HierarchyWindow::DeleteSelectedObject() {
-    if (!gameObjects || !selectedObject) return;
-
-    auto it = std::find_if(gameObjects->begin(), gameObjects->end(),
-        [this](const std::shared_ptr<GameObject>& obj) {
-            return obj.get() == selectedObject;
-        });
-
-    if (it != gameObjects->end()) {
-        gameObjects->erase(it);
-    }
-
-    selectedObject = nullptr;
-    if (onSelectionChanged) {
-        onSelectionChanged(nullptr);
-    }
+    if (!selectedObject) return;
+    auto cmd = std::make_unique<molga::DeleteObjectCommand>(selectedObject);
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();  // Command가 nullptr로 비웠음
+    if (onSelectionChanged) onSelectionChanged(selectedObject);
 }
 
 void HierarchyWindow::DuplicateSelectedObject() {
@@ -195,6 +181,7 @@ void HierarchyWindow::DuplicateSelectedObject() {
     }
 
     gameObjects->push_back(newObj);
+    Editor::Get().MarkSceneModified();
 
     selectedObject = newObj.get();
     if (onSelectionChanged) {
