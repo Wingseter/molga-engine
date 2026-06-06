@@ -13,91 +13,65 @@
 
 using json = nlohmann::json;
 
-bool SceneSerializer::SaveScene(const std::string& filepath,
-                                 const std::vector<std::shared_ptr<GameObject>>& objects) {
+nlohmann::json SceneSerializer::SerializeScene(
+    const std::vector<std::shared_ptr<GameObject>>& objects,
+    const std::string& sceneName) {
     json sceneJson;
     sceneJson["version"] = "1.0";
-    sceneJson["name"] = "Untitled Scene";
+    sceneJson["name"] = sceneName;
 
     json objectsArray = json::array();
-
     for (const auto& obj : objects) {
         if (!obj) continue;
-
         json objJson;
         objJson["name"] = obj->GetName();
         objJson["id"] = obj->GetID();
         objJson["active"] = obj->IsActive();
         objJson["parentId"] = obj->GetParent()
-            ? static_cast<int>(obj->GetParent()->GetID())
-            : -1;
+            ? static_cast<int>(obj->GetParent()->GetID()) : -1;
 
         json componentsArray = json::array();
-
-        // Serialize all components using the component interface
         for (auto* comp : obj->GetComponents()) {
             if (!comp) continue;
-
             json compJson;
             compJson["type"] = comp->GetTypeName();
             compJson["enabled"] = comp->IsEnabled();
             comp->Serialize(compJson);
             componentsArray.push_back(compJson);
         }
-
         objJson["components"] = componentsArray;
         objectsArray.push_back(objJson);
     }
-
     sceneJson["gameObjects"] = objectsArray;
+    return sceneJson;
+}
 
-    // Write to file
+bool SceneSerializer::SaveScene(const std::string& filepath,
+                                 const std::vector<std::shared_ptr<GameObject>>& objects) {
+    json sceneJson = SerializeScene(objects, "Untitled Scene");
     std::ofstream file(filepath);
     if (!file.is_open()) {
         std::cerr << "[SceneSerializer] Failed to open file for writing: " << filepath << std::endl;
         return false;
     }
-
-    file << sceneJson.dump(2);  // Pretty print with 2-space indent
+    file << sceneJson.dump(2);
     file.close();
-
     std::cout << "[SceneSerializer] Scene saved to: " << filepath << std::endl;
     return true;
 }
 
-bool SceneSerializer::LoadScene(const std::string& filepath,
-                                 std::vector<std::shared_ptr<GameObject>>& objects) {
-    std::ifstream file(filepath);
-    if (!file.is_open()) {
-        std::cerr << "[SceneSerializer] Failed to open file: " << filepath << std::endl;
-        return false;
-    }
-
-    json sceneJson;
-    try {
-        file >> sceneJson;
-    } catch (const json::parse_error& e) {
-        std::cerr << "[SceneSerializer] JSON parse error: " << e.what() << std::endl;
-        return false;
-    }
-    file.close();
-
-    // Clear existing objects
+bool SceneSerializer::DeserializeScene(
+    const nlohmann::json& sceneJson,
+    std::vector<std::shared_ptr<GameObject>>& objects) {
     objects.clear();
 
-    // Load GameObjects
     if (!sceneJson.contains("gameObjects")) {
-        std::cerr << "[SceneSerializer] No gameObjects in scene file" << std::endl;
+        std::cerr << "[SceneSerializer] No gameObjects in scene document" << std::endl;
         return false;
     }
 
     auto& factory = ComponentFactory::Get();
-
-    // Pass 1: Create all GameObjects and their components
-    struct LoadedObject {
-        std::shared_ptr<GameObject> obj;
-        int parentId;
-    };
+    struct LoadedObject { std::shared_ptr<GameObject> obj; int parentId; };
     std::vector<LoadedObject> loaded;
 
     for (const auto& objJson : sceneJson["gameObjects"]) {
@@ -111,52 +85,60 @@ bool SceneSerializer::LoadScene(const std::string& filepath,
         }
         obj->SetActive(active);
 
-        // Load components using factory and deserialize
         if (objJson.contains("components")) {
             for (const auto& compJson : objJson["components"]) {
                 std::string type = compJson.value("type", "");
-
                 Component* comp = factory.Create(type, obj.get());
                 if (!comp) {
-                    // Try script factory
                     auto script = ScriptManager::Get().CreateScript(type);
-                    if (script) {
-                        comp = obj->AddComponentRaw(script.release());
-                    }
+                    if (script) comp = obj->AddComponentRaw(script.release());
                 }
                 if (comp) {
                     comp->Deserialize(compJson);
-                    if (compJson.contains("enabled")) {
+                    if (compJson.contains("enabled"))
                         comp->SetEnabled(compJson["enabled"].get<bool>());
-                    }
                 } else {
                     std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
                 }
             }
         }
-
         loaded.push_back({obj, parentId});
         objects.push_back(obj);
     }
 
-    // Pass 2: Restore parent-child relationships
     std::unordered_map<unsigned int, GameObject*> idMap;
-    for (auto& [obj, _] : loaded) {
-        idMap[obj->GetID()] = obj.get();
-    }
-
+    for (auto& [obj, _] : loaded) idMap[obj->GetID()] = obj.get();
     for (auto& [obj, parentId] : loaded) {
         if (parentId >= 0) {
             auto it = idMap.find(static_cast<unsigned int>(parentId));
-            if (it != idMap.end()) {
-                obj->SetParent(it->second);
-            }
+            if (it != idMap.end()) obj->SetParent(it->second);
         }
     }
-
-    std::cout << "[SceneSerializer] Scene loaded from: " << filepath
-              << " (" << objects.size() << " objects)" << std::endl;
     return true;
+}
+
+bool SceneSerializer::LoadScene(const std::string& filepath,
+                                 std::vector<std::shared_ptr<GameObject>>& objects) {
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        std::cerr << "[SceneSerializer] Failed to open file: " << filepath << std::endl;
+        return false;
+    }
+    json sceneJson;
+    try {
+        file >> sceneJson;
+    } catch (const json::parse_error& e) {
+        std::cerr << "[SceneSerializer] JSON parse error: " << e.what() << std::endl;
+        return false;
+    }
+    file.close();
+
+    bool ok = DeserializeScene(sceneJson, objects);
+    if (ok) {
+        std::cout << "[SceneSerializer] Scene loaded from: " << filepath
+                  << " (" << objects.size() << " objects)" << std::endl;
+    }
+    return ok;
 }
 
 std::string SceneSerializer::SerializeGameObject(const GameObject* obj) {
