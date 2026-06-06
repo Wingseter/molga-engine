@@ -12,6 +12,7 @@
 #include "Rendering/Renderer.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
+#include "Core/World.h"
 #include "Rendering/Camera2D.h"
 #include "Systems/Audio.h"
 #include "Rendering/TextRenderer.h"
@@ -82,7 +83,7 @@ int main(int argc, char* argv[]) {
     auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
     auto camera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
                                              static_cast<float>(config.windowHeight));
-    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    World world;
 
     // Initialize scripting
     RegisterBuiltinScripts();
@@ -92,12 +93,14 @@ int main(int argc, char* argv[]) {
 
     // Load main scene
     std::cout << "Loading scene: " << config.mainScene << std::endl;
-    if (!SceneSerializer::LoadScene(config.mainScene, gameObjects)) {
+    if (!world.LoadFromFile(config.mainScene)) {
         std::cerr << "Failed to load main scene!" << std::endl;
         // Continue anyway with empty scene
     }
 
-    std::cout << "Loaded " << gameObjects.size() << " game objects" << std::endl;
+    world.StartPending();
+
+    std::cout << "Loaded " << world.Objects().size() << " game objects" << std::endl;
 
     // Main game loop
     while (!glfwWindowShouldClose(window)) {
@@ -108,21 +111,13 @@ int main(int argc, char* argv[]) {
         // Fixed Update loop
         Time::AccumulateFixedTime(dt);
         while (Time::HasPendingFixedStep()) {
-            float fixedDt = Time::GetFixedDeltaTime();
-            for (auto& obj : gameObjects) {
-                if (obj && obj->IsActive()) {
-                    obj->FixedUpdateScripts(fixedDt);
-                }
-            }
+            world.FixedStep(Time::GetFixedDeltaTime());
             Time::ConsumeFixedStep();
         }
 
         // Update all game objects
-        for (auto& obj : gameObjects) {
-            if (obj && obj->IsActive()) {
-                obj->Update(dt);
-            }
-        }
+        world.Update(dt);
+        world.LateUpdate(dt);
 
         // Clear and render
         renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
@@ -130,7 +125,7 @@ int main(int argc, char* argv[]) {
         // Render all game objects
         {
             molga::RenderPass pass(*renderer, shader.get(), camera.get());
-            for (auto& obj : gameObjects) {
+            for (auto& obj : world.Objects()) {
                 if (obj && obj->IsActive()) {
                     if (auto sr = obj->GetComponent<SpriteRenderer>()) {
                         sr->RenderSprite(renderer.get());
@@ -149,7 +144,6 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup (unique_ptrs auto-release; explicit reset for deterministic order)
-    gameObjects.clear();
     TextRenderer::Get().Shutdown();
     camera.reset();
     shader.reset();
