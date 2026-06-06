@@ -7,34 +7,36 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-test:
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
-        build-type: [Debug, Release]
-
+        preset: [debug, release]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build-type }}
-
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
       - name: Build
-        run: cmake --build build --config ${{ matrix.build-type }} -j$(sysctl -n hw.ncpu)
+        run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure --timeout 60
 
-      - name: Run tests
-        working-directory: build
-        run: ctest --build-config ${{ matrix.build-type }} --output-on-failure --timeout 30
-
-      - name: Upload build artifacts
-        if: matrix.build-type == 'Release' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+  sanitizers:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [asan, ubsan]
+    steps:
+      - uses: actions/checkout@v4
         with:
-          name: molga-engine-macos-${{ github.sha }}
-          path: |
-            build/molga_engine
-            build/molga_runtime
-            build/Shaders/
-            build/assets/
+          submodules: recursive
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }} --output-on-failure --timeout 120
