@@ -17,6 +17,7 @@
 #include "Windows/SceneViewWindow.h"
 #include "Windows/StatsWindow.h"
 #include "../Common/Log.h"
+#include "../Core/PathService.h"
 #include <cstring>
 #include <filesystem>
 #include <imgui.h>
@@ -48,8 +49,7 @@ void Editor::Init() {
   }
 
   // Set engine path for ScriptCompiler and VSCodeIntegration
-  std::string enginePath =
-      std::filesystem::current_path().parent_path().string();
+  std::string enginePath = PathService::Get().ExecutableDir().string();
   ScriptCompiler::Get().SetEnginePath(enginePath);
   VSCodeIntegration::Get().SetEnginePath(enginePath);
 }

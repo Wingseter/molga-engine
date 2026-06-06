@@ -24,6 +24,7 @@
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
 #include "Rendering/RenderPass.h"
+#include "Core/PathService.h"
 #include <nlohmann/json.hpp>
 
 // Game configuration
@@ -62,6 +63,8 @@ bool LoadGameConfig(const std::string& path, GameConfig& config) {
 }
 
 int main(int argc, char* argv[]) {
+    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+
     // Load game configuration
     GameConfig config;
     if (!LoadGameConfig("game.json", config)) {
@@ -80,7 +83,9 @@ int main(int argc, char* argv[]) {
     // Initialize renderer
     auto renderer = std::make_unique<Renderer>();
     renderer->Init();
-    auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
+    auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
+    auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
+    auto shader = std::make_unique<Shader>(vertPath.c_str(), fragPath.c_str());
     auto camera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
                                              static_cast<float>(config.windowHeight));
     World world;

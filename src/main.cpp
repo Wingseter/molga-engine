@@ -27,6 +27,7 @@
 #include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
 #include "Rendering/RenderPass.h"
+#include "Core/PathService.h"
 #include <imgui.h>
 
 // Settings
@@ -36,6 +37,8 @@ const unsigned int SCR_HEIGHT = 600;
 GLFWwindow* g_window = nullptr;
 
 int main(int argc, char* argv[]) {
+    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+
     // Check for project path argument
     std::string projectPath;
     if (argc > 1) {
@@ -55,7 +58,9 @@ int main(int argc, char* argv[]) {
     // Initialize resources (local to main)
     auto renderer = std::make_unique<Renderer>();
     renderer->Init();
-    auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
+    auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
+    auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
+    auto shader = std::make_unique<Shader>(vertPath.c_str(), fragPath.c_str());
     auto camera = std::make_unique<Camera2D>(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
     SceneDocument sceneDoc;
 
