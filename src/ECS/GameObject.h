@@ -114,6 +114,8 @@ public:
     // Script lifecycle hooks (avoid duplicating dynamic_cast loops in entry points)
     void FixedUpdateScripts(float fixedDt);
     void LateUpdateScripts(float dt);
+    // 아직 시작 안 한 스크립트의 Start()를 1회 호출
+    void StartScripts();
 
 private:
     static unsigned int nextID;

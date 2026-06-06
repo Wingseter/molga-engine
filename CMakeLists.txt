@@ -64,6 +64,7 @@ set(ENGINE_SOURCES
     src/ECS/Components/BoxCollider2D.cpp
     src/ECS/Components/Collider2D.cpp
     src/Core/SceneSerializer.cpp
+    src/Core/World.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp
