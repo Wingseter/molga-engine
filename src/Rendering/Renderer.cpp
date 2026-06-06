@@ -3,7 +3,7 @@
 #include "Sprite.h"
 #include "Texture.h"
 #include "Camera2D.h"
-#include <cassert>
+#include "Common/Log.h"
 
 Renderer::Renderer() : VAO(0), VBO(0), EBO(0), currentShader(nullptr) {
     mat4x4_identity(projection);
@@ -67,9 +67,15 @@ void Renderer::SetProjection(float left, float right, float bottom, float top) {
 }
 
 void Renderer::Begin(Shader* shader, Camera2D* camera) {
-    assert(state == State::Idle && "Renderer::Begin called without matching End()");
-    assert(shader != nullptr && "Renderer::Begin called with null shader");
-    state = State::Drawing;
+    if (!pass.TryBegin()) {
+        Log::Error("Renderer", "Begin() called while a pass is already active; ignoring nested Begin");
+        return;
+    }
+    if (shader == nullptr) {
+        Log::Error("Renderer", "Begin() called with null shader");
+        pass.TryEnd();
+        return;
+    }
     currentShader = shader;
     currentShader->Use();
 
@@ -87,7 +93,10 @@ void Renderer::Begin(Shader* shader, Camera2D* camera) {
 }
 
 void Renderer::DrawSprite(Sprite* sprite) {
-    assert(state == State::Drawing && "Renderer::DrawSprite called without Begin()");
+    if (!pass.CanDraw()) {
+        Log::Error("Renderer", "DrawSprite() called outside an active Begin()/End() pass");
+        return;
+    }
     if (!currentShader || !sprite) return;
 
     mat4x4 model;
@@ -111,7 +120,13 @@ void Renderer::DrawSprite(Sprite* sprite) {
 }
 
 void Renderer::End() {
-    assert(state == State::Drawing && "Renderer::End called without Begin()");
-    state = State::Idle;
+    if (!pass.TryEnd()) {
+        Log::Error("Renderer", "End() called without a matching Begin()");
+        return;
+    }
     currentShader = nullptr;
+}
+
+bool Renderer::IsDrawing() const {
+    return pass.CanDraw();
 }

@@ -3,6 +3,8 @@
 #include <glad/glad.h>
 #include "../Common/linmath.h"
 
+#include "Rendering/RenderPassState.h"
+
 class Shader;
 class Sprite;
 class Camera2D;
@@ -20,11 +22,12 @@ public:
     void DrawSprite(Sprite* sprite);
     void End();
 
+    bool IsDrawing() const;
+
     void SetProjection(float left, float right, float bottom, float top);
 
 private:
-    enum class State { Idle, Drawing };
-    State state = State::Idle;
+    molga::RenderPassState pass;
 
     unsigned int VAO;
     unsigned int VBO;
