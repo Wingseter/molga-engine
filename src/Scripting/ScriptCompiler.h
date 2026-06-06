@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCRIPT_COMPILER_H
-#define MOLGA_SCRIPT_COMPILER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -66,5 +65,3 @@ private:
     mutable std::vector<ScriptInfo> cachedScripts;
     mutable std::time_t lastCheckTime = 0;
 };
-
-#endif // MOLGA_SCRIPT_COMPILER_H

@@ -1,6 +1,6 @@
 #include "TextureManager.h"
-#include "../Texture.h"
-#include "Project.h"
+#include "../Rendering/Texture.h"
+#include "../Editor/Project.h"
 #include <iostream>
 #include <filesystem>
 

@@ -1,5 +1,4 @@
-#ifndef MOLGA_HIERARCHY_WINDOW_H
-#define MOLGA_HIERARCHY_WINDOW_H
+#pragma once
 
 #include "EditorWindow.h"
 #include <vector>
@@ -26,10 +25,16 @@ public:
 
 private:
     void DrawGameObjectNode(GameObject* obj);
+    void CreateEmptyGameObject();
+    void DeleteSelectedObject();
+    void DuplicateSelectedObject();
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
     GameObject* selectedObject = nullptr;
     SelectionCallback onSelectionChanged = nullptr;
-};
 
-#endif // MOLGA_HIERARCHY_WINDOW_H
+    // Rename state
+    bool isRenaming = false;
+    GameObject* renamingObject = nullptr;
+    char renameBuffer[256] = "";
+};

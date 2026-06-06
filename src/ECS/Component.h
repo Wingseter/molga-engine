@@ -1,5 +1,4 @@
-#ifndef MOLGA_COMPONENT_H
-#define MOLGA_COMPONENT_H
+#pragma once
 
 #include <string>
 #include <cstddef>
@@ -37,6 +36,11 @@ public:
 
     // Called for rendering (optional)
     virtual void Render() {}
+
+    // Called when the owning GameObject is being destroyed.
+    // Use for releasing external resources (physics bodies, GPU handles, etc.)
+    // Called BEFORE OnDetach(). Guaranteed exactly once.
+    virtual void OnDestroy() {}
 
     // Get the component type name
     virtual std::string GetTypeName() const = 0;
@@ -77,5 +81,3 @@ protected:
     static std::string StaticTypeName() { return #TypeName; } \
     size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<TypeName>(); } \
     static size_t StaticRuntimeTypeID() { return ComponentTypeID::Get<TypeName>(); }
-
-#endif // MOLGA_COMPONENT_H

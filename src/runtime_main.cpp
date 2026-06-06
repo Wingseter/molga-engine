@@ -8,13 +8,13 @@
 #include <memory>
 
 #include "Core/Bootstrap.h"
-#include "Shader.h"
-#include "Renderer.h"
-#include "MolgaTime.h"
-#include "Input.h"
-#include "Camera2D.h"
-#include "Audio.h"
-#include "TextRenderer.h"
+#include "Rendering/Shader.h"
+#include "Rendering/Renderer.h"
+#include "Core/MolgaTime.h"
+#include "Systems/Input.h"
+#include "Rendering/Camera2D.h"
+#include "Systems/Audio.h"
+#include "Rendering/TextRenderer.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
@@ -103,6 +103,18 @@ int main(int argc, char* argv[]) {
         Time::Update();
         Input::Update();
         float dt = Time::GetDeltaTime();
+
+        // Fixed Update loop
+        Time::AccumulateFixedTime(dt);
+        while (Time::HasPendingFixedStep()) {
+            float fixedDt = Time::GetFixedDeltaTime();
+            for (auto& obj : gameObjects) {
+                if (obj && obj->IsActive()) {
+                    obj->FixedUpdateScripts(fixedDt);
+                }
+            }
+            Time::ConsumeFixedStep();
+        }
 
         // Update all game objects
         for (auto& obj : gameObjects) {

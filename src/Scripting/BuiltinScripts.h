@@ -1,8 +1,7 @@
-#ifndef MOLGA_BUILTIN_SCRIPTS_H
-#define MOLGA_BUILTIN_SCRIPTS_H
+#pragma once
 
 #include "Script.h"
-#include "../Input.h"
+#include "../Systems/Input.h"
 #include "../ECS/Components/Transform.h"
 #include <GLFW/glfw3.h>
 
@@ -109,5 +108,3 @@ private:
 
 // Register all builtin scripts
 void RegisterBuiltinScripts();
-
-#endif // MOLGA_BUILTIN_SCRIPTS_H

@@ -1,6 +1,10 @@
 #include "ProjectBrowserWindow.h"
-#include "../../Core/Project.h"
+#include "../../Common/Log.h"
+#include "../Project.h"
+#include "../EditorConstants.h"
+#include "../EditorTheme.h"
 #include "../FontManager.h"
+#include "../UIRegistry.h"
 #include <imgui.h>
 #include <filesystem>
 #include <algorithm>
@@ -8,13 +12,13 @@
 namespace fs = std::filesystem;
 
 ProjectBrowserWindow::ProjectBrowserWindow()
-    : EditorWindow("Project") {
+    : EditorWindow(EditorConstants::WIN_PROJECT_BROWSER) {
 }
 
 void ProjectBrowserWindow::OnGUI() {
     if (!Project::Get().IsOpen()) {
-        ImGui::Begin("Project", nullptr);
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No project open");
+        ImGui::Begin(title.c_str(), nullptr);
+        ImGui::TextColored(EditorTheme::DISABLED_TEXT, "No project open");
         ImGui::End();
         return;
     }
@@ -29,7 +33,7 @@ void ProjectBrowserWindow::OnGUI() {
         BuildFolderTree(rootFolder);
     }
 
-    if (ImGui::Begin("Project", nullptr)) {
+    if (ImGui::Begin(title.c_str(), nullptr)) {
         // Toolbar
         if (ImGui::Button((std::string(Icons::SyncAlt) + " Refresh").c_str())) {
             Refresh();
@@ -176,8 +180,8 @@ void ProjectBrowserWindow::BuildFolderTree(FolderNode& node) {
             [](const FolderNode& a, const FolderNode& b) {
                 return a.name < b.name;
             });
-    } catch (const std::exception&) {
-        // Permission denied or other errors
+    } catch (const std::exception& e) {
+        Log::Error("ProjectBrowser", "Error building folder tree: " + std::string(e.what()));
     }
 }
 
@@ -215,18 +219,8 @@ void ProjectBrowserWindow::DrawFileGrid() {
         }
 
         // Icon placeholder (colored box based on type)
-        ImVec4 iconColor;
-        if (entry.isDirectory) {
-            iconColor = ImVec4(0.9f, 0.7f, 0.2f, 1.0f);  // Yellow for folders
-        } else if (entry.extension == ".png" || entry.extension == ".jpg" || entry.extension == ".jpeg") {
-            iconColor = ImVec4(0.2f, 0.7f, 0.9f, 1.0f);  // Blue for images
-        } else if (entry.extension == ".json") {
-            iconColor = ImVec4(0.2f, 0.9f, 0.4f, 1.0f);  // Green for JSON
-        } else if (entry.extension == ".wav" || entry.extension == ".mp3" || entry.extension == ".ogg") {
-            iconColor = ImVec4(0.9f, 0.4f, 0.6f, 1.0f);  // Pink for audio
-        } else {
-            iconColor = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);  // Gray for others
-        }
+        const auto& fileInfo = UIRegistry::GetFileTypeInfo(entry.extension, entry.isDirectory);
+        ImVec4 iconColor = fileInfo.color;
 
         ImGui::PushStyleColor(ImGuiCol_Button, iconColor);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(iconColor.x + 0.1f, iconColor.y + 0.1f, iconColor.z + 0.1f, 1.0f));
@@ -308,17 +302,7 @@ void ProjectBrowserWindow::DrawContextMenu() {
 }
 
 const char* ProjectBrowserWindow::GetFileIcon(const FileEntry& entry) {
-    if (entry.isDirectory) {
-        return Icons::Folder;
-    } else if (entry.extension == ".png" || entry.extension == ".jpg" || entry.extension == ".jpeg") {
-        return Icons::FileImage;
-    } else if (entry.extension == ".json") {
-        return Icons::FileCode;
-    } else if (entry.extension == ".wav" || entry.extension == ".mp3" || entry.extension == ".ogg") {
-        return Icons::FileAudio;
-    } else {
-        return Icons::File;
-    }
+    return UIRegistry::GetFileTypeInfo(entry.extension, entry.isDirectory).icon;
 }
 
 void ProjectBrowserWindow::Refresh() {
@@ -382,7 +366,7 @@ void ProjectBrowserWindow::ScanDirectory(const std::string& path) {
                 }
                 return a.name < b.name;
             });
-    } catch (const std::exception&) {
-        // Permission denied or other errors
+    } catch (const std::exception& e) {
+        Log::Error("ProjectBrowser", "Error scanning directory: " + std::string(e.what()));
     }
 }

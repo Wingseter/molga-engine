@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCRIPT_H
-#define MOLGA_SCRIPT_H
+#pragma once
 
 #include "../ECS/Component.h"
 
@@ -71,5 +70,3 @@ protected:
     static const char* StaticScriptName() { return #ClassName; } \
     size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<ClassName>(); } \
     static size_t StaticRuntimeTypeID() { return ComponentTypeID::Get<ClassName>(); }
-
-#endif // MOLGA_SCRIPT_H

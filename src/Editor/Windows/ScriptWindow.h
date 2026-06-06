@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCRIPT_WINDOW_H
-#define MOLGA_SCRIPT_WINDOW_H
+#pragma once
 
 #include "EditorWindow.h"
 #include <vector>
@@ -40,5 +39,3 @@ private:
     std::string compileStatus;
     bool lastCompileSuccess = true;
 };
-
-#endif // MOLGA_SCRIPT_WINDOW_H

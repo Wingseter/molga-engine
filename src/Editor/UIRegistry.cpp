@@ -1,0 +1,47 @@
+#include "UIRegistry.h"
+#include "EditorTheme.h"
+#include "FontManager.h"
+
+const UIRegistry::FileTypeInfo UIRegistry::s_folderType = { Icons::Folder, EditorTheme::FileColor::FOLDER };
+const UIRegistry::FileTypeInfo UIRegistry::s_defaultFileType = { Icons::File, EditorTheme::FileColor::DEFAULT };
+const UIRegistry::ComponentTypeInfo UIRegistry::s_defaultComponentType = { Icons::Cog };
+const UIRegistry::ComponentTypeInfo UIRegistry::s_scriptComponentType = { Icons::Code };
+
+const std::unordered_map<std::string, UIRegistry::FileTypeInfo> UIRegistry::s_fileTypes = {
+    { ".png",  { Icons::FileImage, EditorTheme::FileColor::IMAGE } },
+    { ".jpg",  { Icons::FileImage, EditorTheme::FileColor::IMAGE } },
+    { ".jpeg", { Icons::FileImage, EditorTheme::FileColor::IMAGE } },
+    { ".json", { Icons::FileCode,  EditorTheme::FileColor::JSON  } },
+    { ".wav",  { Icons::FileAudio, EditorTheme::FileColor::AUDIO } },
+    { ".mp3",  { Icons::FileAudio, EditorTheme::FileColor::AUDIO } },
+    { ".ogg",  { Icons::FileAudio, EditorTheme::FileColor::AUDIO } },
+};
+
+const std::unordered_map<std::string, UIRegistry::ComponentTypeInfo> UIRegistry::s_componentTypes = {
+    { "Transform",      { Icons::ArrowsAlt } },
+    { "SpriteRenderer", { Icons::Image     } },
+    { "BoxCollider2D",  { Icons::Square    } },
+};
+
+const UIRegistry::FileTypeInfo& UIRegistry::GetFileTypeInfo(const std::string& extension, bool isDirectory) {
+    if (isDirectory) {
+        return s_folderType;
+    }
+    auto it = s_fileTypes.find(extension);
+    if (it != s_fileTypes.end()) {
+        return it->second;
+    }
+    return s_defaultFileType;
+}
+
+const UIRegistry::ComponentTypeInfo& UIRegistry::GetComponentInfo(const std::string& typeName) {
+    auto it = s_componentTypes.find(typeName);
+    if (it != s_componentTypes.end()) {
+        return it->second;
+    }
+    // Scripts are identified by suffix or by not being a known component
+    if (typeName.find("Script") != std::string::npos || typeName.find("Controller") != std::string::npos) {
+        return s_scriptComponentType;
+    }
+    return s_defaultComponentType;
+}

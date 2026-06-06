@@ -1,5 +1,4 @@
-#ifndef MOLGA_COMPONENT_FACTORY_H
-#define MOLGA_COMPONENT_FACTORY_H
+#pragma once
 
 #include <string>
 #include <functional>
@@ -53,5 +52,3 @@ public:
         }; \
         static CompClass##ComponentRegistrar g_##CompClass##Registrar; \
     }
-
-#endif // MOLGA_COMPONENT_FACTORY_H

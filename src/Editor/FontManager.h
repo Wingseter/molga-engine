@@ -1,5 +1,4 @@
-#ifndef MOLGA_FONT_MANAGER_H
-#define MOLGA_FONT_MANAGER_H
+#pragma once
 
 #include <imgui.h>
 #include <string>
@@ -112,5 +111,3 @@ private:
     float iconFontSize = 14.0f;
     bool initialized = false;
 };
-
-#endif // MOLGA_FONT_MANAGER_H

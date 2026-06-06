@@ -1,5 +1,6 @@
 #include "ScriptCompiler.h"
-#include "../Core/Project.h"
+#include "../Common/Log.h"
+#include "../Editor/Project.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -51,7 +52,7 @@ std::vector<ScriptInfo> ScriptCompiler::DiscoverScripts() const {
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "[ScriptCompiler] Error discovering scripts: " << e.what() << std::endl;
+        Log::Error("ScriptCompiler", "Error discovering scripts: " + std::string(e.what()));
     }
 
     return scripts;
@@ -123,7 +124,7 @@ bool ScriptCompiler::GenerateCMakeLists() {
     exportsFile << exportsContent;
     exportsFile.close();
 
-    std::cout << "[ScriptCompiler] Generated CMakeLists.txt and ScriptExports.cpp" << std::endl;
+    Log::Info("ScriptCompiler", "Generated CMakeLists.txt and ScriptExports.cpp");
     return true;
 }
 
@@ -221,11 +222,12 @@ bool ScriptCompiler::Compile() {
     std::string output;
 
     // Run CMake configure
-    std::string configureCmd = "cd \"" + scriptsPath + "\" && cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug 2>&1";
-    int configResult = ExecuteCommand(configureCmd, output) ? 0 : -1;
+    constexpr const char* buildType = "Debug";
+    std::string configureCmd = "cd \"" + scriptsPath + "\" && cmake -S . -B build -DCMAKE_BUILD_TYPE=" + buildType + " 2>&1";
+    bool configResult = ExecuteCommand(configureCmd, output);
     compileOutput += "=== CMake Configure ===\n" + output + "\n";
 
-    if (configResult != 0 && output.find("error") != std::string::npos) {
+    if (!configResult) {
         lastError = "CMake configuration failed";
         isCompiling = false;
         return false;
@@ -240,12 +242,12 @@ bool ScriptCompiler::Compile() {
 
     isCompiling = false;
 
-    if (!buildResult || output.find("error:") != std::string::npos) {
+    if (!buildResult) {
         lastError = "Build failed. Check compile output for details.";
         return false;
     }
 
-    std::cout << "[ScriptCompiler] Scripts compiled successfully" << std::endl;
+    Log::Info("ScriptCompiler", "Scripts compiled successfully");
     return true;
 }
 
@@ -292,7 +294,7 @@ bool ScriptCompiler::CreateScriptTemplate(const std::string& scriptName) {
     sourceFile << sourceContent;
     sourceFile.close();
 
-    std::cout << "[ScriptCompiler] Created script template: " << scriptName << std::endl;
+    Log::Info("ScriptCompiler", "Created script template: " + scriptName);
     return true;
 }
 

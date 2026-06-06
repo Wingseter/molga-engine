@@ -1,5 +1,4 @@
-#ifndef MOLGA_INSPECTOR_WINDOW_H
-#define MOLGA_INSPECTOR_WINDOW_H
+#pragma once
 
 #include "EditorWindow.h"
 
@@ -21,5 +20,3 @@ private:
 
     GameObject* target = nullptr;
 };
-
-#endif // MOLGA_INSPECTOR_WINDOW_H

@@ -1,5 +1,4 @@
-#ifndef MOLGA_EDITOR_STATE_H
-#define MOLGA_EDITOR_STATE_H
+#pragma once
 
 enum class EditorMode {
     Edit,   // Scene editing mode
@@ -34,5 +33,3 @@ private:
     EditorMode currentMode = EditorMode::Edit;
     float timeScale = 1.0f;
 };
-
-#endif // MOLGA_EDITOR_STATE_H

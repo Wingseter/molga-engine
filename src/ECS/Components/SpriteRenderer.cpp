@@ -4,13 +4,13 @@
 #include "../ComponentFactory.h"
 
 REGISTER_COMPONENT(SpriteRenderer)
-#include "../../Renderer.h"
-#include "../../Shader.h"
-#include "../../Camera2D.h"
-#include "../../Sprite.h"
-#include "../../Texture.h"
+#include "../../Rendering/Renderer.h"
+#include "../../Rendering/Shader.h"
+#include "../../Rendering/Camera2D.h"
+#include "../../Rendering/Sprite.h"
+#include "../../Rendering/Texture.h"
 #include "../../Core/TextureManager.h"
-#include "../../Core/Project.h"
+#include "../../Editor/Project.h"
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #ifdef MOLGA_EDITOR

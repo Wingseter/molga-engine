@@ -1,5 +1,4 @@
-#ifndef MOLGA_PROJECT_WINDOW_H
-#define MOLGA_PROJECT_WINDOW_H
+#pragma once
 
 #include "EditorWindow.h"
 #include <string>
@@ -63,5 +62,3 @@ private:
 
     ProjectCallback onProjectOpened;
 };
-
-#endif // MOLGA_PROJECT_WINDOW_H

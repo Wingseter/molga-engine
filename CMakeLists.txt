@@ -28,33 +28,36 @@ target_link_libraries(imgui glfw)
 
 # ── Common engine source files ─────────────────────────────────────────────────
 set(ENGINE_SOURCES
-    src/Shader.cpp
-    src/Texture.cpp
-    src/Sprite.cpp
-    src/Renderer.cpp
-    src/MolgaTime.cpp
-    src/Input.cpp
-    src/Camera2D.cpp
-    src/SpriteSheet.cpp
-    src/Animation.cpp
-    src/Collision.cpp
-    src/Tilemap.cpp
-    src/UI.cpp
-    src/Audio.cpp
-    src/Scene.cpp
-    src/Particle.cpp
+    src/Rendering/Shader.cpp
+    src/Rendering/Texture.cpp
+    src/Rendering/Sprite.cpp
+    src/Rendering/Renderer.cpp
+    src/Core/MolgaTime.cpp
+    src/Systems/Input.cpp
+    src/Rendering/Camera2D.cpp
+    src/Rendering/SpriteSheet.cpp
+    src/Rendering/Animation.cpp
+    src/Physics/Collision.cpp
+    src/Rendering/Tilemap.cpp
+    src/UI/UI.cpp
+    src/Systems/Audio.cpp
+    src/Core/Scene.cpp
+    src/Systems/Particle.cpp
     src/ECS/Component.cpp
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
     src/ECS/Components/BoxCollider2D.cpp
+    src/ECS/Components/Collider2D.cpp
     src/Core/SceneSerializer.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp
     src/Platform/Platform.cpp
-    src/TextRenderer.cpp
+    src/Rendering/TextRenderer.cpp
     src/Core/Bootstrap.cpp
+    src/Core/EventBus.cpp
+    src/Common/Log.cpp
 )
 
 # ── molga_core static library ──────────────────────────────────────────────────
@@ -81,13 +84,19 @@ set(EDITOR_SOURCES
     src/Editor/Editor.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
+    src/Editor/UIRegistry.cpp
+    src/Editor/WindowManager.cpp
+    src/Editor/SceneOperations.cpp
+    src/Editor/BuildManager.cpp
+    src/Editor/Windows/SceneViewWindow.cpp
+    src/Editor/Windows/StatsWindow.cpp
     src/Editor/Windows/HierarchyWindow.cpp
     src/Editor/Windows/InspectorWindow.cpp
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
-    src/Core/GameBuilder.cpp
-    src/Core/Project.cpp
+    src/Editor/GameBuilder.cpp
+    src/Editor/Project.cpp
     src/Core/TextureManager.cpp
     src/Scripting/ScriptCompiler.cpp
     src/Scenes/MenuScene.cpp

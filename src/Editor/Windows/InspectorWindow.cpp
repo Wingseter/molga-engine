@@ -8,6 +8,7 @@
 #include "../../Scripting/ScriptManager.h"
 #include "../../Scripting/BuiltinScripts.h"
 #include "../FontManager.h"
+#include "../UIRegistry.h"
 #include <imgui.h>
 
 InspectorWindow::InspectorWindow()
@@ -116,11 +117,7 @@ void InspectorWindow::DrawComponent(Component* component) {
     std::string typeName = component->GetTypeName();
 
     // Determine icon based on component type
-    const char* icon = Icons::Cog;  // Default
-    if (typeName == "Transform") icon = Icons::ArrowsAlt;
-    else if (typeName == "SpriteRenderer") icon = Icons::Image;
-    else if (typeName == "BoxCollider2D") icon = Icons::Square;
-    else if (typeName.find("Script") != std::string::npos) icon = Icons::Code;
+    const char* icon = UIRegistry::GetComponentInfo(typeName).icon;
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed |
                                ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;

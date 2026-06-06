@@ -1,5 +1,4 @@
-#ifndef MOLGA_SCRIPT_MANAGER_H
-#define MOLGA_SCRIPT_MANAGER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -17,13 +16,19 @@ class ScriptManager {
 public:
     static ScriptManager& Get();
 
-    // Register a script factory
+    // Register a builtin script factory (survives hot-reload)
+    void RegisterBuiltin(const std::string& name, ScriptFactory factory);
+
+    // Register a dynamic script factory (cleared on hot-reload)
+    void RegisterDynamic(const std::string& name, ScriptFactory factory);
+
+    // Backward-compatible alias: routes to RegisterDynamic
     void RegisterScript(const std::string& name, ScriptFactory factory);
 
-    // Create a script by name
+    // Create a script by name (searches dynamic first, then builtin)
     std::unique_ptr<Script> CreateScript(const std::string& name);
 
-    // Get all registered script names
+    // Get all registered script names (builtin + dynamic)
     std::vector<std::string> GetRegisteredScripts() const;
 
     // Check if a script is registered
@@ -42,7 +47,8 @@ private:
     ScriptManager(const ScriptManager&) = delete;
     ScriptManager& operator=(const ScriptManager&) = delete;
 
-    std::unordered_map<std::string, ScriptFactory> scriptFactories;
+    std::unordered_map<std::string, ScriptFactory> builtinFactories;
+    std::unordered_map<std::string, ScriptFactory> dynamicFactories;
     std::vector<std::string> loadedLibraries;
 
     // Platform-specific library handles
@@ -61,5 +67,3 @@ private:
         }; \
         static ScriptClass##Registrar g_##ScriptClass##Registrar; \
     }
-
-#endif // MOLGA_SCRIPT_MANAGER_H

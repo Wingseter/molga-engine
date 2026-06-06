@@ -2,7 +2,7 @@
 #include "../VSCodeIntegration.h"
 #include "../../Scripting/ScriptCompiler.h"
 #include "../../Scripting/ScriptManager.h"
-#include "../../Core/Project.h"
+#include "../Project.h"
 #include <imgui.h>
 #include <filesystem>
 

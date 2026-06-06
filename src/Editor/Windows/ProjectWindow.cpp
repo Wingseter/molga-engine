@@ -1,5 +1,5 @@
 #include "ProjectWindow.h"
-#include "../../Core/Project.h"
+#include "../Project.h"
 #include <imgui.h>
 #include <filesystem>
 #include <algorithm>
