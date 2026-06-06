@@ -155,3 +155,17 @@ add_custom_command(TARGET molga_runtime POST_BUILD
 # ── Testing ────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
+
+add_test(
+    NAME smoke_end_to_end
+    COMMAND "${CMAKE_COMMAND}"
+        "-DEDITOR=$<TARGET_FILE:molga_engine>"
+        "-DFIXTURE_SCRIPT=${CMAKE_SOURCE_DIR}/tests/smoke/create_fixture.cmake"
+        "-DWORK_ROOT=${CMAKE_BINARY_DIR}/smoke-e2e"
+        -P "${CMAKE_SOURCE_DIR}/tests/smoke/run_end_to_end.cmake"
+)
+set_tests_properties(smoke_end_to_end PROPERTIES
+    LABELS "smoke;e2e"
+    TIMEOUT 30
+    RUN_SERIAL TRUE
+)
