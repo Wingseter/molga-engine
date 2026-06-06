@@ -116,8 +116,6 @@ set(EDITOR_SOURCES
     src/Editor/Project.cpp
     src/Core/TextureManager.cpp
     src/Scripting/ScriptCompiler.cpp
-    src/Scenes/MenuScene.cpp
-    src/Scenes/GameScene.cpp
 )
 
 # ── Main editor executable ─────────────────────────────────────────────────────
