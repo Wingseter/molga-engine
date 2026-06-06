@@ -26,7 +26,9 @@
 #include "Scripting/BuiltinScripts.h"
 #include "Rendering/RenderPass.h"
 #include "Core/PathService.h"
+#include "Core/SmokeReport.h"
 #include <nlohmann/json.hpp>
+#include <optional>
 
 // Game configuration
 struct GameConfig {
@@ -63,8 +65,61 @@ bool LoadGameConfig(const std::string& path, GameConfig& config) {
     }
 }
 
+namespace {
+
+struct RuntimeSmokeOptions {
+    bool enabled = false;
+    int frames = 3;
+    std::filesystem::path reportPath;
+};
+
+std::optional<RuntimeSmokeOptions> ParseRuntimeSmoke(int argc, char** argv) {
+    RuntimeSmokeOptions options;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (arg == "--smoke") {
+            options.enabled = true;
+        } else if (arg == "--frames" && i + 1 < argc) {
+            try {
+                options.frames = std::stoi(argv[++i]);
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        } else if (arg == "--report" && i + 1 < argc) {
+            options.reportPath = argv[++i];
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (options.enabled &&
+        (options.frames < 1 || options.reportPath.empty())) {
+        return std::nullopt;
+    }
+    return options;
+}
+
+bool AllSpriteAssetsResolved(const World& world) {
+    for (const auto& object : world.Objects()) {
+        const auto* sprite = object->GetComponent<SpriteRenderer>();
+        if (sprite != nullptr &&
+            !sprite->GetTexturePath().empty() &&
+            sprite->GetTexture() == nullptr) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+
+    const auto smoke = ParseRuntimeSmoke(argc, argv);
+    if (!smoke) {
+        std::cerr << "Usage: runtime [--smoke --frames N --report PATH]\n";
+        return 2;
+    }
 
     // Load game configuration
     GameConfig config;
@@ -78,6 +133,7 @@ int main(int argc, char* argv[]) {
     wc.width = config.windowWidth;
     wc.height = config.windowHeight;
     wc.fullscreen = config.fullscreen;
+    wc.visible = !smoke->enabled;
     GLFWwindow* window = EngineInit(wc);
     if (!window) return -1;
     g_window = window;
@@ -103,7 +159,14 @@ int main(int argc, char* argv[]) {
     std::cout << "Loading scene: " << scenePath << std::endl;
     if (!world.LoadFromFile(scenePath)) {
         std::cerr << "Failed to load main scene!" << std::endl;
-        // Continue anyway with empty scene
+        if (smoke->enabled) {
+            SmokeReport report;
+            report.executable = "molga_runtime";
+            report.status = "error";
+            report.message = "Failed to load main scene";
+            report.Save(smoke->reportPath);
+            return 4;
+        }
     }
 
     PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
@@ -113,6 +176,7 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Loaded " << world.Objects().size() << " game objects" << std::endl;
 
+    int renderedFrames = 0;
     // Main game loop
     while (!glfwWindowShouldClose(window)) {
         Time::Update();
@@ -156,14 +220,36 @@ int main(int argc, char* argv[]) {
         if (Input::GetKeyDown(GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, true);
         }
+
+        ++renderedFrames;
+        if (smoke->enabled && renderedFrames >= smoke->frames) {
+            break;
+        }
+    }
+
+    int exitCode = 0;
+    if (smoke->enabled) {
+        SmokeReport report;
+        report.executable = "molga_runtime";
+        report.status = AllSpriteAssetsResolved(world) ? "ok" : "error";
+        report.scenePath = config.mainScene;
+        report.objectCount = world.Objects().size();
+        report.frames = renderedFrames;
+        report.assetsResolved = AllSpriteAssetsResolved(world);
+        report.message = report.assetsResolved
+            ? "Runtime smoke completed"
+            : "One or more sprite assets failed to resolve";
+        report.Save(smoke->reportPath);
+        exitCode = report.assetsResolved ? 0 : 4;
     }
 
     // Cleanup (unique_ptrs auto-release; explicit reset for deterministic order)
+    world.Clear();
     TextRenderer::Get().Shutdown();
     camera.reset();
     shader.reset();
     renderer.reset();
     EngineShutdown();
 
-    return 0;
+    return exitCode;
 }

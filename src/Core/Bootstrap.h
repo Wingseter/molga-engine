@@ -9,6 +9,7 @@ struct WindowConfig {
     int width = 800;
     int height = 600;
     bool fullscreen = false;
+    bool visible = true;
 };
 
 // Initialize GLFW, create window, load GLAD, set up OpenGL blending,
