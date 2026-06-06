@@ -29,7 +29,10 @@
 #include "Rendering/TextRenderer.h"
 #include "Rendering/RenderPass.h"
 #include "Core/PathService.h"
+#include "Core/SmokeReport.h"
+#include "Editor/GameBuilder.h"
 #include <imgui.h>
+#include <optional>
 
 // Settings
 const unsigned int SCR_WIDTH = 800;
@@ -37,8 +40,76 @@ const unsigned int SCR_HEIGHT = 600;
 
 GLFWwindow* g_window = nullptr;
 
+namespace {
+
+struct SmokeBuildOptions {
+    std::filesystem::path projectRoot;
+    std::filesystem::path outputRoot;
+    std::filesystem::path reportPath;
+};
+
+std::optional<SmokeBuildOptions> ParseSmokeBuild(int argc, char** argv) {
+    if (argc != 5 || std::string_view(argv[1]) != "--smoke-build") {
+        return std::nullopt;
+    }
+    return SmokeBuildOptions{argv[2], argv[3], argv[4]};
+}
+
+int RunSmokeBuild(const SmokeBuildOptions& options) {
+    SmokeReport report;
+    report.executable = "molga_engine";
+    report.scenePath = "Scenes/main.json";
+
+    if (!Project::Get().Open(options.projectRoot.string())) {
+        report.status = "error";
+        report.message = "Could not open smoke project";
+        report.Save(options.reportPath);
+        return 3;
+    }
+
+    World world;
+    const auto scenePath = options.projectRoot / "Scenes/main.json";
+    if (!world.LoadFromFile(scenePath.string())) {
+        report.status = "error";
+        report.message = "Could not load smoke scene";
+        report.Save(options.reportPath);
+        return 3;
+    }
+
+    BuildSettings settings;
+    settings.gameName = "SmokeGame";
+    settings.outputPath = options.outputRoot.string();
+    settings.mainScene = scenePath.string();
+
+    if (!GameBuilder::Get().Build(settings)) {
+        report.status = "error";
+        report.message = GameBuilder::Get().GetLastError();
+        report.Save(options.reportPath);
+        return 3;
+    }
+
+    report.status = "ok";
+    report.message = "Build completed";
+    report.objectCount = world.Objects().size();
+    report.Save(options.reportPath);
+    return 0;
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+
+    if (argc > 1 && std::string_view(argv[1]) == "--smoke-build") {
+        const auto options = ParseSmokeBuild(argc, argv);
+        if (!options) {
+            std::cerr
+                << "Usage: molga_engine --smoke-build "
+                << "<project-root> <output-root> <report-path>\n";
+            return 2;
+        }
+        return RunSmokeBuild(*options);
+    }
 
     // Check for project path argument
     std::string projectPath;
