@@ -73,6 +73,7 @@ set(ENGINE_SOURCES
     src/Core/Bootstrap.cpp
     src/Core/EventBus.cpp
     src/Common/Log.cpp
+    src/Core/PathService.cpp
 )
 
 # ── molga_core static library ──────────────────────────────────────────────────
