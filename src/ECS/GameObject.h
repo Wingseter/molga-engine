@@ -116,6 +116,7 @@ public:
     void LateUpdateScripts(float dt);
     // 아직 시작 안 한 스크립트의 Start()를 1회 호출
     void StartScripts();
+    void ResolveAssets();
 
 private:
     static unsigned int nextID;

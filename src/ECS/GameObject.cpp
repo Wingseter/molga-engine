@@ -181,3 +181,9 @@ void GameObject::StartScripts() {
         }
     }
 }
+
+void GameObject::ResolveAssets() {
+    for (auto& [id, comp] : componentMap) {
+        if (comp) comp->ResolveAssets();
+    }
+}

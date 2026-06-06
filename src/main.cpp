@@ -4,6 +4,7 @@
 #include <iostream>
 #include <sstream>
 #include <memory>
+#include <algorithm>
 
 #include "Core/Bootstrap.h"
 #include "Rendering/Shader.h"
@@ -80,6 +81,7 @@ int main(int argc, char* argv[]) {
             Editor::Get().SetSelectedObject(nullptr);
             Editor::Get().GetCommandHistory().Clear();
             sceneDoc.EnterPlay();
+            sceneDoc.ActiveWorld().ResolveAssets();
             Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
         },
         [&sceneDoc]() {  // Play/Pause → Stop
@@ -123,6 +125,11 @@ int main(int argc, char* argv[]) {
         glfwSwapBuffers(window);
     }
 
+    if (projectLoaded && Project::Get().IsOpen()) {
+        PathService::Get().SetAssetRoot(Project::Get().GetPath());
+        sceneDoc.EditWorld().ResolveAssets();
+    }
+
     // If window was not closed during project selection, run editor
     if (!glfwWindowShouldClose(window)) {
         // Main editor loop
@@ -164,16 +171,22 @@ int main(int argc, char* argv[]) {
                 sceneDoc.ActiveWorld().LateUpdate(scaledDt);
             }
 
-            // 편집이든 플레이든 ActiveWorld를 동일 경로로 렌더한다.
+            // sortingOrder 오름차순으로 그릴 스프라이트 수집
+            std::vector<std::pair<int, SpriteRenderer*>> drawList;
+            for (auto& obj : sceneDoc.ActiveWorld().Objects()) {
+                if (obj && obj->IsActive()) {
+                    if (auto sr = obj->GetComponent<SpriteRenderer>()) {
+                        drawList.emplace_back(sr->GetSortingOrder(), sr);
+                    }
+                }
+            }
+            std::stable_sort(drawList.begin(), drawList.end(),
+                             [](const auto& a, const auto& b) { return a.first < b.first; });
             renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
             {
                 molga::RenderPass pass(*renderer, shader.get(), camera.get());
-                for (auto& obj : sceneDoc.ActiveWorld().Objects()) {
-                    if (obj && obj->IsActive()) {
-                        if (auto sr = obj->GetComponent<SpriteRenderer>()) {
-                            sr->RenderSprite(renderer.get());
-                        }
-                    }
+                for (auto& [order, sr] : drawList) {
+                    sr->RenderSprite(renderer.get());
                 }
             }
 

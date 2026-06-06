@@ -1,6 +1,9 @@
 #include "TextureManager.h"
 #include "../Rendering/Texture.h"
+#include "PathService.h"
+#ifdef MOLGA_EDITOR
 #include "../Editor/Project.h"
+#endif
 #include <iostream>
 #include <filesystem>
 
@@ -22,10 +25,18 @@ Texture* TextureManager::Load(const std::string& path) {
         return it->second.get();
     }
 
-    // Resolve path (could be relative to project)
+    // Resolve path (could be relative to project or runtime exe)
     std::string absolutePath = path;
-    if (!fs::path(path).is_absolute() && Project::Get().IsOpen()) {
-        absolutePath = Project::Get().GetAbsolutePath(path);
+    if (!fs::path(path).is_absolute()) {
+#ifdef MOLGA_EDITOR
+        if (Project::Get().IsOpen()) {
+            absolutePath = Project::Get().GetAbsolutePath(path);
+        } else {
+            absolutePath = PathService::Get().ResolveAsset(path);
+        }
+#else
+        absolutePath = PathService::Get().ResolveAsset(path);
+#endif
     }
 
     // Check if file exists

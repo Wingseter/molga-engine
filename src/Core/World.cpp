@@ -31,6 +31,10 @@ void World::LateUpdate(float dt) {
     for (auto& o : objects_) if (o && o->IsActive()) o->LateUpdateScripts(dt);
 }
 
+void World::ResolveAssets() {
+    for (auto& o : objects_) if (o) o->ResolveAssets();
+}
+
 std::unique_ptr<World> World::Clone() const {
     auto copy = std::make_unique<World>();
     nlohmann::json doc = SceneSerializer::SerializeScene(objects_, name_);

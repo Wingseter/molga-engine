@@ -51,6 +51,7 @@ public:
     // Serialization
     void Serialize(nlohmann::json& j) const override;
     void Deserialize(const nlohmann::json& j) override;
+    void ResolveAssets() override;
 
     // Editor GUI
     void OnInspectorGUI() override;

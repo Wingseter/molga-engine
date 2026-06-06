@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <memory>
+#include <algorithm>
 
 #include "Core/Bootstrap.h"
 #include "Rendering/Shader.h"
@@ -103,6 +104,9 @@ int main(int argc, char* argv[]) {
         // Continue anyway with empty scene
     }
 
+    PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
+    world.ResolveAssets();
+
     world.StartPending();
 
     std::cout << "Loaded " << world.Objects().size() << " game objects" << std::endl;
@@ -124,18 +128,22 @@ int main(int argc, char* argv[]) {
         world.Update(dt);
         world.LateUpdate(dt);
 
-        // Clear and render
+        // sortingOrder 오름차순으로 그릴 스프라이트 수집
+        std::vector<std::pair<int, SpriteRenderer*>> drawList;
+        for (auto& obj : world.Objects()) {
+            if (obj && obj->IsActive()) {
+                if (auto sr = obj->GetComponent<SpriteRenderer>()) {
+                    drawList.emplace_back(sr->GetSortingOrder(), sr);
+                }
+            }
+        }
+        std::stable_sort(drawList.begin(), drawList.end(),
+                         [](const auto& a, const auto& b) { return a.first < b.first; });
         renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
-
-        // Render all game objects
         {
             molga::RenderPass pass(*renderer, shader.get(), camera.get());
-            for (auto& obj : world.Objects()) {
-                if (obj && obj->IsActive()) {
-                    if (auto sr = obj->GetComponent<SpriteRenderer>()) {
-                        sr->RenderSprite(renderer.get());
-                    }
-                }
+            for (auto& [order, sr] : drawList) {
+                sr->RenderSprite(renderer.get());
             }
         }
 

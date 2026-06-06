@@ -26,6 +26,7 @@ public:
     void FixedStep(float fixedDt);   // 스크립트 FixedUpdate
     void Update(float dt);           // 전 컴포넌트 Update
     void LateUpdate(float dt);       // 스크립트 LateUpdate
+    void ResolveAssets();            // 모든 컴포넌트의 지연 에셋 로드
 
     // 직렬화 기반 독립 복제
     std::unique_ptr<World> Clone() const;

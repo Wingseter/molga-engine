@@ -74,6 +74,7 @@ set(ENGINE_SOURCES
     src/Core/EventBus.cpp
     src/Common/Log.cpp
     src/Core/PathService.cpp
+    src/Core/TextureManager.cpp
 )
 
 # ── molga_core static library ──────────────────────────────────────────────────
@@ -106,6 +107,7 @@ set(EDITOR_SOURCES
     src/Editor/WindowManager.cpp
     src/Editor/SceneOperations.cpp
     src/Editor/BuildManager.cpp
+    src/Editor/GameBuilder.cpp
     src/Editor/Windows/SceneViewWindow.cpp
     src/Editor/Windows/StatsWindow.cpp
     src/Editor/Windows/HierarchyWindow.cpp
@@ -113,9 +115,7 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
-    src/Editor/GameBuilder.cpp
     src/Editor/Project.cpp
-    src/Core/TextureManager.cpp
     src/Scripting/ScriptCompiler.cpp
 )
 
