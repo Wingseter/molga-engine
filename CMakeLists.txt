@@ -56,6 +56,7 @@ set(ENGINE_SOURCES
     src/Platform/Platform.cpp
     src/Rendering/TextRenderer.cpp
     src/Core/Bootstrap.cpp
+    src/Core/EventBus.cpp
     src/Common/Log.cpp
 )
 

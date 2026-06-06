@@ -446,14 +446,16 @@ cmake-build-debug/
 cmake-build-release/
 build/
 out/
+Testing/
 
 # IDE
 .idea/
 .vscode/
 *.code-workspace
 
-# Claude
+# Local AI tooling
 .claude/
+.antigravitycli/
 
 # macOS
 .DS_Store
@@ -507,8 +509,6 @@ claudedocs/
 # Generated Data & Backups
 data/
 ui_images_backup/
-*.json
-!scene.json
 
 # User Test & Build
 test.png

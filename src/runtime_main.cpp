@@ -104,6 +104,18 @@ int main(int argc, char* argv[]) {
         Input::Update();
         float dt = Time::GetDeltaTime();
 
+        // Fixed Update loop
+        Time::AccumulateFixedTime(dt);
+        while (Time::HasPendingFixedStep()) {
+            float fixedDt = Time::GetFixedDeltaTime();
+            for (auto& obj : gameObjects) {
+                if (obj && obj->IsActive()) {
+                    obj->FixedUpdateScripts(fixedDt);
+                }
+            }
+            Time::ConsumeFixedStep();
+        }
+
         // Update all game objects
         for (auto& obj : gameObjects) {
             if (obj && obj->IsActive()) {

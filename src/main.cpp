@@ -169,9 +169,21 @@ int main(int argc, char* argv[]) {
             // Only update scene and game objects in Play mode
             if (editorState.IsPlayMode()) {
                 float scaledDt = dt * editorState.GetTimeScale();
-                SceneManager::Update(scaledDt);
 
-                // Update ECS GameObjects scripts
+                // Fixed Update loop
+                Time::AccumulateFixedTime(scaledDt);
+                while (Time::HasPendingFixedStep()) {
+                    float fixedDt = Time::GetFixedDeltaTime();
+                    for (auto& obj : editorObjects) {
+                        if (obj && obj->IsActive()) {
+                            obj->FixedUpdateScripts(fixedDt);
+                        }
+                    }
+                    Time::ConsumeFixedStep();
+                }
+
+                // Variable Update
+                SceneManager::Update(scaledDt);
                 for (auto& obj : editorObjects) {
                     if (obj && obj->IsActive()) {
                         obj->Update(scaledDt);

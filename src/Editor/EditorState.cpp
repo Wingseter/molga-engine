@@ -1,4 +1,5 @@
 #include "EditorState.h"
+#include "../Core/MolgaTime.h"
 #include <iostream>
 
 EditorState& EditorState::Get() {
@@ -27,6 +28,7 @@ void EditorState::SetMode(EditorMode mode) {
 void EditorState::Play() {
     if (currentMode == EditorMode::Edit) {
         // TODO: Save scene state before playing
+        Time::ResetFixedAccumulator();
         SetMode(EditorMode::Play);
     } else if (currentMode == EditorMode::Pause) {
         SetMode(EditorMode::Play);
