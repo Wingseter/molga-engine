@@ -68,7 +68,8 @@ int main(int argc, char* argv[]) {
 
     // Load game configuration
     GameConfig config;
-    if (!LoadGameConfig("game.json", config)) {
+    std::string configPath = (PathService::Get().ExecutableDir() / "game.json").string();
+    if (!LoadGameConfig(configPath, config)) {
         std::cout << "Using default configuration" << std::endl;
     }
 
@@ -98,8 +99,9 @@ int main(int argc, char* argv[]) {
     TextRenderer::Get().Init();
 
     // Load main scene
-    std::cout << "Loading scene: " << config.mainScene << std::endl;
-    if (!world.LoadFromFile(config.mainScene)) {
+    std::string scenePath = (PathService::Get().ExecutableDir() / config.mainScene).string();
+    std::cout << "Loading scene: " << scenePath << std::endl;
+    if (!world.LoadFromFile(scenePath)) {
         std::cerr << "Failed to load main scene!" << std::endl;
         // Continue anyway with empty scene
     }
