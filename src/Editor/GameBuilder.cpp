@@ -1,5 +1,8 @@
 #include "GameBuilder.h"
 #include "../Core/PathConstants.h"
+#include "../Core/PathService.h"
+#include "../Core/BuildManifest.h"
+#include "Project.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -15,6 +18,23 @@ GameBuilder& GameBuilder::Get() {
 bool GameBuilder::Build(const BuildSettings& settings) {
     progress = 0.0f;
     lastError.clear();
+
+    // 필수 입력 검증(절대 경로)
+    {
+        BuildManifest manifest;
+        if (Project::Get().IsOpen()) {
+            manifest.requiredFiles.push_back(Project::Get().GetAssetsPath());
+        }
+        manifest.requiredFiles.push_back(PathService::Get().EngineResource("Shaders").string());
+        manifest.requiredFiles.push_back(settings.mainScene);
+        manifest.requiredFiles.push_back((PathService::Get().ExecutableDir() / "molga_runtime").string());
+
+        std::string err;
+        if (!manifest.Validate(err)) {
+            lastError = err;
+            return false;
+        }
+    }
 
     // Step 1: Create output directory
     currentStep = "Creating output directory...";
@@ -67,8 +87,12 @@ bool GameBuilder::Build(const BuildSettings& settings) {
 
 bool GameBuilder::CreateOutputDirectory(const std::string& path) {
     try {
+        std::string reason;
+        if (!PathService::IsSafeOutputPath(path, reason)) {
+            lastError = "Refusing to use output path '" + path + "': " + reason;
+            return false;
+        }
         if (fs::exists(path)) {
-            // Clean existing directory
             fs::remove_all(path);
         }
         fs::create_directories(path);
@@ -81,13 +105,18 @@ bool GameBuilder::CreateOutputDirectory(const std::string& path) {
 
 bool GameBuilder::CopyAssets(const std::string& outputPath) {
     try {
-        std::string assetsPath = Paths::Build::ASSETS;
-        std::string destPath = outputPath + "/" + Paths::Build::ASSETS;
-
-        if (fs::exists(assetsPath)) {
-            fs::create_directories(destPath);
-            fs::copy(assetsPath, destPath, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        if (!Project::Get().IsOpen()) {
+            lastError = "No project open; cannot locate Assets to build.";
+            return false;
         }
+        fs::path src = Project::Get().GetAssetsPath();
+        if (!fs::exists(src)) {
+            lastError = "Project Assets folder not found: " + src.string();
+            return false;
+        }
+        fs::path dest = fs::path(outputPath) / "Assets"; // casing preserved
+        fs::create_directories(dest);
+        fs::copy(src, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to copy assets: " + std::string(e.what());
@@ -97,13 +126,14 @@ bool GameBuilder::CopyAssets(const std::string& outputPath) {
 
 bool GameBuilder::CopyShaders(const std::string& outputPath) {
     try {
-        std::string shadersPath = Paths::Engine::SHADER_SRC_DIR;
-        std::string destPath = outputPath + "/" + Paths::Build::SHADERS;
-
-        if (fs::exists(shadersPath)) {
-            fs::create_directories(destPath);
-            fs::copy(shadersPath, destPath, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        fs::path src = PathService::Get().EngineResource("Shaders");
+        if (!fs::exists(src)) {
+            lastError = "Engine Shaders folder not found next to the editor: " + src.string();
+            return false;
         }
+        fs::path dest = fs::path(outputPath) / "Shaders";
+        fs::create_directories(dest);
+        fs::copy(src, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to copy shaders: " + std::string(e.what());
@@ -117,10 +147,12 @@ bool GameBuilder::CopyScenes(const BuildSettings& settings, const std::string& o
         fs::create_directories(scenesPath);
 
         // Copy main scene
-        if (fs::exists(settings.mainScene)) {
-            fs::copy_file(settings.mainScene, scenesPath + "/main.json",
-                         fs::copy_options::overwrite_existing);
+        if (!fs::exists(settings.mainScene)) {
+            lastError = "Main scene not found: " + settings.mainScene;
+            return false;
         }
+        fs::copy_file(settings.mainScene, scenesPath + "/main.json",
+                     fs::copy_options::overwrite_existing);
 
         // Copy additional scenes
         for (const auto& scene : settings.scenes) {
@@ -173,16 +205,10 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::s
 
 bool GameBuilder::CopyExecutable(const std::string& outputPath, const std::string& gameName) {
     try {
-        // Find the runtime executable
-        std::string runtimePath = "build/molga_runtime";
-
-        // Check if runtime exists, if not use the main engine
+        fs::path runtimePath = PathService::Get().ExecutableDir() / "molga_runtime";
         if (!fs::exists(runtimePath)) {
-            runtimePath = "build/molga_engine";
-        }
-
-        if (!fs::exists(runtimePath)) {
-            lastError = "Runtime executable not found. Please build the runtime first.";
+            lastError = "Runtime executable not found next to the editor: " + runtimePath.string()
+                      + ". Build the molga_runtime target first.";
             return false;
         }
 
