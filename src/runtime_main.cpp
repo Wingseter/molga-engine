@@ -22,6 +22,7 @@
 #include "Core/SceneSerializer.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
+#include "Rendering/RenderPass.h"
 #include <nlohmann/json.hpp>
 
 // Game configuration
@@ -127,16 +128,16 @@ int main(int argc, char* argv[]) {
         renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
 
         // Render all game objects
-        renderer->Begin(shader.get(), camera.get());
-        for (auto& obj : gameObjects) {
-            if (obj && obj->IsActive()) {
-                auto sr = obj->GetComponent<SpriteRenderer>();
-                if (sr) {
-                    sr->RenderSprite(renderer.get(), shader.get(), camera.get());
+        {
+            molga::RenderPass pass(*renderer, shader.get(), camera.get());
+            for (auto& obj : gameObjects) {
+                if (obj && obj->IsActive()) {
+                    if (auto sr = obj->GetComponent<SpriteRenderer>()) {
+                        sr->RenderSprite(renderer.get());
+                    }
                 }
             }
         }
-        renderer->End();
 
         glfwSwapBuffers(window);
         glfwPollEvents();

@@ -19,7 +19,7 @@ REGISTER_COMPONENT(SpriteRenderer)
 
 using json = nlohmann::json;
 
-void SpriteRenderer::RenderSprite(Renderer* renderer, Shader* shader, Camera2D* camera) {
+void SpriteRenderer::RenderSprite(Renderer* renderer) {
     if (!gameObject || !enabled) return;
 
     Transform* transform = gameObject->GetComponent<Transform>();
@@ -51,9 +51,7 @@ void SpriteRenderer::RenderSprite(Renderer* renderer, Shader* shader, Camera2D* 
         sprite.height = -sprite.height;
     }
 
-    renderer->Begin(shader, camera);
     renderer->DrawSprite(&sprite);
-    renderer->End();
 }
 
 void SpriteRenderer::Serialize(nlohmann::json& j) const {

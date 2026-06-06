@@ -27,6 +27,7 @@
 #include "Scenes/MenuScene.h"
 #include "Scenes/GameScene.h"
 #include "Rendering/TextRenderer.h"
+#include "Rendering/RenderPass.h"
 #include <imgui.h>
 
 // Settings
@@ -195,16 +196,16 @@ int main(int argc, char* argv[]) {
             if (editorState.IsEditMode()) {
                 // Edit mode: Render editor scene
                 renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
-                renderer->Begin(shader.get(), camera.get());
-                for (auto& obj : editorObjects) {
-                    if (obj && obj->IsActive()) {
-                        auto sr = obj->GetComponent<SpriteRenderer>();
-                        if (sr) {
-                            sr->RenderSprite(renderer.get(), shader.get(), camera.get());
+                {
+                    molga::RenderPass pass(*renderer, shader.get(), camera.get());
+                    for (auto& obj : editorObjects) {
+                        if (obj && obj->IsActive()) {
+                            if (auto sr = obj->GetComponent<SpriteRenderer>()) {
+                                sr->RenderSprite(renderer.get());
+                            }
                         }
                     }
                 }
-                renderer->End();
             } else {
                 // Play/Pause mode: Render game scene
                 SceneManager::Render(renderer.get(), shader.get(), camera.get());
