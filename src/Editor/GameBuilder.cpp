@@ -2,11 +2,22 @@
 #include "../Core/PathConstants.h"
 #include "../Core/PathService.h"
 #include "../Core/BuildManifest.h"
+#include "../Core/PackageLayout.h"
 #include "Project.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+
+namespace {
+std::string RuntimeOutputName(const std::string& gameName) {
+#ifdef _WIN32
+    return gameName + ".exe";
+#else
+    return gameName;
+#endif
+}
+}
 
 namespace fs = std::filesystem;
 
@@ -75,6 +86,16 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     currentStep = "Copying executable...";
     progress = 0.9f;
     if (!CopyExecutable(settings.outputPath, settings.gameName)) {
+        return false;
+    }
+
+    // Validate output package layout
+    std::string packageError;
+    if (!PackageLayout::Validate(
+            settings.outputPath,
+            RuntimeOutputName(settings.gameName),
+            packageError)) {
+        lastError = packageError;
         return false;
     }
 

@@ -76,6 +76,8 @@ set(ENGINE_SOURCES
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
     src/Core/BuildManifest.cpp
+    src/Core/SmokeReport.cpp
+    src/Core/PackageLayout.cpp
 )
 
 # ── molga_core static library ──────────────────────────────────────────────────

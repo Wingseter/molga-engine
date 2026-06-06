@@ -10,6 +10,7 @@ function(molga_add_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
     target_link_libraries(${TEST_NAME} PRIVATE molga_core doctest_main molga_warnings)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+    set_tests_properties(${TEST_NAME} PROPERTIES LABELS "unit")
 endfunction()
 
 molga_add_test(test_types             test_types.cpp)
@@ -24,3 +25,9 @@ molga_add_test(test_command_history   test_command_history.cpp)
 molga_add_test(test_world             test_world.cpp)
 molga_add_test(test_path_service       test_path_service.cpp)
 molga_add_test(test_game_builder      test_game_builder.cpp)
+
+molga_add_test(build_smoke
+    test_build_smoke.cpp
+)
+target_include_directories(build_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+set_tests_properties(build_smoke PROPERTIES LABELS "unit;smoke")
