@@ -2,6 +2,19 @@ cmake_minimum_required(VERSION 3.27)
 project(molga_engine)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# 우리 코드에만 적용할 경고/sanitizer 모음 (external 라이브러리는 제외)
+set(MOLGA_SANITIZER "" CACHE STRING "Enable a sanitizer: address | undefined | thread (empty = off)")
+
+add_library(molga_warnings INTERFACE)
+target_compile_options(molga_warnings INTERFACE -Wall -Wextra -Wpedantic)
+if(NOT MOLGA_SANITIZER STREQUAL "")
+    target_compile_options(molga_warnings INTERFACE
+        -fsanitize=${MOLGA_SANITIZER} -fno-omit-frame-pointer -g)
+    target_link_options(molga_warnings INTERFACE -fsanitize=${MOLGA_SANITIZER})
+endif()
 
 # ── External dependencies ──────────────────────────────────────────────────────
 add_subdirectory(external/glfw)
@@ -69,6 +82,7 @@ target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
 )
 target_link_libraries(molga_core PUBLIC glad glfw)
+target_link_libraries(molga_core PRIVATE molga_warnings)
 
 if(APPLE)
     target_link_libraries(molga_core PUBLIC
@@ -106,11 +120,13 @@ set(EDITOR_SOURCES
 # ── Main editor executable ─────────────────────────────────────────────────────
 add_executable(molga_engine src/main.cpp ${EDITOR_SOURCES})
 target_link_libraries(molga_engine PRIVATE molga_core imgui)
+target_link_libraries(molga_engine PRIVATE molga_warnings)
 target_compile_definitions(molga_engine PRIVATE MOLGA_EDITOR)
 
 # ── Runtime executable ─────────────────────────────────────────────────────────
 add_executable(molga_runtime src/runtime_main.cpp)
 target_link_libraries(molga_runtime PRIVATE molga_core)
+target_link_libraries(molga_runtime PRIVATE molga_warnings)
 
 # ── Copy assets to build directory ─────────────────────────────────────────────
 add_custom_command(TARGET molga_engine POST_BUILD

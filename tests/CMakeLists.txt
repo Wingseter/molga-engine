@@ -1,6 +1,14 @@
+# ── doctest (vendored single header) ──────────────────────────────────────────
+add_library(doctest INTERFACE)
+target_include_directories(doctest INTERFACE ${CMAKE_SOURCE_DIR}/external/doctest)
+
+# 공용 main: 각 테스트 실행 파일에 링크되어 main()을 제공
+add_library(doctest_main STATIC doctest_main.cpp)
+target_link_libraries(doctest_main PUBLIC doctest)
+
 function(molga_add_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
-    target_link_libraries(${TEST_NAME} PRIVATE molga_core)
+    target_link_libraries(${TEST_NAME} PRIVATE molga_core doctest_main molga_warnings)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endfunction()
 
