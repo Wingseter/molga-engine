@@ -7,6 +7,8 @@
 #include "SceneOperations.h"
 #include "BuildManager.h"
 
+#include "Editor/Commands/CommandHistory.h"
+
 class GameObject;
 class Renderer;
 class Shader;
@@ -34,6 +36,15 @@ public:
 
     // Create new GameObject
     std::shared_ptr<GameObject> CreateGameObject(const std::string& name = "GameObject");
+
+    molga::CommandHistory& GetCommandHistory() { return commandHistory; }
+
+    // Command가 사용하는 저수준 헬퍼
+    std::shared_ptr<GameObject> AddExistingObject(std::shared_ptr<GameObject> obj);
+    void RemoveObjectsByIds(const std::vector<unsigned int>& ids);
+    GameObject* FindObjectById(unsigned int id) const;
+    void MarkSceneModified();
+    std::shared_ptr<GameObject> ShareObjectById(unsigned int id) const;
 
     // Scene file operations (delegate to SceneOperations)
     void NewScene();
@@ -63,6 +74,7 @@ private:
     BuildManager buildMgr;
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
+    molga::CommandHistory commandHistory;
 
     // DockSpace
     bool firstTimeLayout = true;

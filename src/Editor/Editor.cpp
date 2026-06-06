@@ -163,11 +163,11 @@ void Editor::RenderMenuBar() {
     }
 
     if (ImGui::BeginMenu("Edit")) {
-      if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
-        Log::Warn("Editor", "Undo is not yet implemented");
+      if (ImGui::MenuItem("Undo", "Ctrl+Z", false, commandHistory.CanUndo())) {
+        commandHistory.Undo();
       }
-      if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
-        Log::Warn("Editor", "Redo is not yet implemented");
+      if (ImGui::MenuItem("Redo", "Ctrl+Y", false, commandHistory.CanRedo())) {
+        commandHistory.Redo();
       }
       ImGui::EndMenu();
     }
@@ -218,6 +218,10 @@ void Editor::RenderMenuBar() {
 
     // Play controls
     RenderPlayControls();
+
+    if (sceneOps.IsModified()) {
+        ImGui::TextDisabled("  *unsaved");
+    }
 
     ImGui::EndMenuBar();
   }
@@ -399,3 +403,43 @@ void Editor::RenderScriptingMenu() {
     ImGui::EndMenu();
   }
 }
+
+std::shared_ptr<GameObject> Editor::AddExistingObject(std::shared_ptr<GameObject> obj) {
+    if (!gameObjects || !obj) return nullptr;
+    gameObjects->push_back(obj);
+    sceneOps.MarkModified();
+    return obj;
+}
+
+void Editor::RemoveObjectsByIds(const std::vector<unsigned int>& ids) {
+    if (!gameObjects) return;
+    gameObjects->erase(
+        std::remove_if(gameObjects->begin(), gameObjects->end(),
+            [&](const std::shared_ptr<GameObject>& o) {
+                if (!o) return false;
+                return std::find(ids.begin(), ids.end(), o->GetID()) != ids.end();
+            }),
+        gameObjects->end());
+    sceneOps.MarkModified();
+}
+
+GameObject* Editor::FindObjectById(unsigned int id) const {
+    if (!gameObjects) return nullptr;
+    for (auto& o : *gameObjects) {
+        if (o && o->GetID() == id) return o.get();
+    }
+    return nullptr;
+}
+
+void Editor::MarkSceneModified() {
+    sceneOps.MarkModified();
+}
+
+std::shared_ptr<GameObject> Editor::ShareObjectById(unsigned int id) const {
+    if (!gameObjects) return nullptr;
+    for (auto& o : *gameObjects) {
+        if (o && o->GetID() == id) return o;
+    }
+    return nullptr;
+}
+

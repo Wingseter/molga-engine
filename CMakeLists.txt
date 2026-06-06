@@ -97,6 +97,7 @@ set(EDITOR_SOURCES
     src/Editor/ImGuiLayer.cpp
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
+    src/Editor/Commands/ObjectCommands.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
     src/Editor/UIRegistry.cpp
