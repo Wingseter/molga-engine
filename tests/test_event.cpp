@@ -1,7 +1,6 @@
 #include "Core/Event.h"
 #include "Core/EventBus.h"
-#include <cassert>
-#include <cstdio>
+#include "doctest.h"
 #include <vector>
 
 // ── Test event types ─────────────────────────────────────────────────────────
@@ -16,7 +15,7 @@ struct OtherEvent : EventBase {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-static void test_subscribe_publish() {
+TEST_CASE("Event: subscribe and publish") {
     bool called = false;
     int received = 0;
 
@@ -29,13 +28,13 @@ static void test_subscribe_publish() {
     event.value = 42;
     EventBus::Publish(event);
 
-    assert(called);
-    assert(received == 42);
+    CHECK(called);
+    CHECK(received == 42);
 
     EventBus::Clear();
 }
 
-static void test_unsubscribe() {
+TEST_CASE("Event: unsubscribe") {
     bool called = false;
 
     SubscriptionID id = EventBus::Subscribe<TestEvent>([&](TestEvent&) {
@@ -47,12 +46,12 @@ static void test_unsubscribe() {
     TestEvent event;
     EventBus::Publish(event);
 
-    assert(!called);
+    CHECK(!called);
 
     EventBus::Clear();
 }
 
-static void test_priority_order() {
+TEST_CASE("Event: priority order") {
     std::vector<int> order;
 
     EventBus::Subscribe<TestEvent>([&](TestEvent&) {
@@ -70,15 +69,15 @@ static void test_priority_order() {
     TestEvent event;
     EventBus::Publish(event);
 
-    assert(order.size() == 3);
-    assert(order[0] == 10);
-    assert(order[1] == 5);
-    assert(order[2] == 0);
+    REQUIRE(order.size() == 3);
+    CHECK(order[0] == 10);
+    CHECK(order[1] == 5);
+    CHECK(order[2] == 0);
 
     EventBus::Clear();
 }
 
-static void test_handled_cancellation() {
+TEST_CASE("Event: handled cancellation") {
     bool handlerA_called = false;
     bool handlerB_called = false;
 
@@ -94,13 +93,13 @@ static void test_handled_cancellation() {
     TestEvent event;
     EventBus::Publish(event);
 
-    assert(handlerA_called);
-    assert(!handlerB_called);
+    CHECK(handlerA_called);
+    CHECK(!handlerB_called);
 
     EventBus::Clear();
 }
 
-static void test_queue_deferred() {
+TEST_CASE("Event: queue deferred") {
     bool called = false;
     int received = 0;
 
@@ -114,17 +113,17 @@ static void test_queue_deferred() {
     EventBus::QueueEvent(event);
 
     // Not yet processed
-    assert(!called);
+    CHECK(!called);
 
     EventBus::ProcessQueue();
 
-    assert(called);
-    assert(received == 99);
+    CHECK(called);
+    CHECK(received == 99);
 
     EventBus::Clear();
 }
 
-static void test_scoped_subscription() {
+TEST_CASE("Event: scoped subscription") {
     int callCount = 0;
 
     {
@@ -136,18 +135,18 @@ static void test_scoped_subscription() {
 
         TestEvent event;
         EventBus::Publish(event);
-        assert(callCount == 1);
+        CHECK(callCount == 1);
     }
     // ScopedSubscription destroyed — handler unsubscribed
 
     TestEvent event;
     EventBus::Publish(event);
-    assert(callCount == 1);  // not called again
+    CHECK(callCount == 1);  // not called again
 
     EventBus::Clear();
 }
 
-static void test_unsubscribe_during_publish() {
+TEST_CASE("Event: unsubscribe during publish") {
     bool handlerA_called = false;
     bool handlerB_called = false;
     SubscriptionID idB = 0;
@@ -164,8 +163,8 @@ static void test_unsubscribe_during_publish() {
     TestEvent event;
     EventBus::Publish(event);
 
-    assert(handlerA_called);
-    assert(!handlerB_called);  // B was removed by A during publish
+    CHECK(handlerA_called);
+    CHECK(!handlerB_called);  // B was removed by A during publish
 
     // Publish again — B should be permanently gone
     handlerA_called = false;
@@ -173,23 +172,8 @@ static void test_unsubscribe_during_publish() {
     TestEvent event2;
     EventBus::Publish(event2);
 
-    assert(handlerA_called);
-    assert(!handlerB_called);
+    CHECK(handlerA_called);
+    CHECK(!handlerB_called);
 
     EventBus::Clear();
-}
-
-// ── Main ─────────────────────────────────────────────────────────────────────
-
-int main() {
-    test_subscribe_publish();
-    test_unsubscribe();
-    test_priority_order();
-    test_handled_cancellation();
-    test_queue_deferred();
-    test_scoped_subscription();
-    test_unsubscribe_during_publish();
-
-    printf("test_event: all 7 tests passed\n");
-    return 0;
 }
