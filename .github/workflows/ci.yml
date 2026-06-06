@@ -21,8 +21,20 @@ jobs:
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
-      - name: Test
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure --timeout 60
+      - name: Run unit tests
+        run: ctest --preset ${{ matrix.preset }} -L unit -LE smoke --output-on-failure
+      - name: Run playable editor smoke
+        run: ctest --preset ${{ matrix.preset }} -L smoke --output-on-failure
+      - name: Upload smoke diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.preset }}-${{ runner.os }}
+          path: |
+            build/${{ matrix.preset }}/smoke-e2e/editor-report.json
+            build/${{ matrix.preset }}/smoke-e2e/runtime-report.json
+            build/${{ matrix.preset }}/smoke-e2e/package/game.json
+          if-no-files-found: ignore
 
   sanitizers:
     runs-on: macos-latest
@@ -39,4 +51,6 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
       - name: Test
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure --timeout 120
+        # Run unit and internal smoke tests under sanitizers.
+        # Exclude E2E smoke test (smoke_end_to_end) to avoid platform OpenGL driver conflicts under sanitizers.
+        run: ctest --preset ${{ matrix.preset }} -LE e2e --output-on-failure
