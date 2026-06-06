@@ -31,3 +31,9 @@ molga_add_test(build_smoke
 )
 target_include_directories(build_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(build_smoke PROPERTIES LABELS "unit;smoke")
+
+molga_add_test(editor_smoke
+    test_editor_smoke.cpp
+)
+target_include_directories(editor_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+set_tests_properties(editor_smoke PROPERTIES LABELS "unit;smoke")
