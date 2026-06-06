@@ -11,7 +11,7 @@
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
 #include "Rendering/Camera2D.h"
-#include "Core/Scene.h"
+// removed Core/Scene.h include
 #include "Systems/Audio.h"
 #include "Editor/ImGuiLayer.h"
 #include "Editor/EditorState.h"
@@ -24,8 +24,7 @@
 #include "ECS/Components/BoxCollider2D.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
-#include "Scenes/MenuScene.h"
-#include "Scenes/GameScene.h"
+#include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
 #include "Rendering/RenderPass.h"
 #include <imgui.h>
@@ -58,7 +57,7 @@ int main(int argc, char* argv[]) {
     renderer->Init();
     auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
     auto camera = std::make_unique<Camera2D>(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
-    std::vector<std::shared_ptr<GameObject>> editorObjects;
+    SceneDocument sceneDoc;
 
     // Initialize Scripting
     RegisterBuiltinScripts();
@@ -68,7 +67,22 @@ int main(int argc, char* argv[]) {
 
     // Initialize Editor
     Editor::Get().Init();
-    Editor::Get().SetGameObjects(&editorObjects);
+    Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+
+    EditorState& editorState = EditorState::Get();
+    editorState.SetPlayCallbacks(
+        [&sceneDoc]() {  // Edit → Play
+            Editor::Get().SetSelectedObject(nullptr);
+            Editor::Get().GetCommandHistory().Clear();
+            sceneDoc.EnterPlay();
+            Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+        },
+        [&sceneDoc]() {  // Play/Pause → Stop
+            Editor::Get().SetSelectedObject(nullptr);
+            Editor::Get().GetCommandHistory().Clear();
+            Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+            sceneDoc.ExitPlay();
+        });
 
     // Project loading phase
     bool projectLoaded = false;
@@ -106,41 +120,6 @@ int main(int argc, char* argv[]) {
 
     // If window was not closed during project selection, run editor
     if (!glfwWindowShouldClose(window)) {
-        // Create sample GameObjects for editor demo
-        {
-            auto player = std::make_shared<GameObject>("Player");
-            auto transform = player->AddComponent<Transform>();
-            transform->SetPosition(100.0f, 100.0f);
-            auto spriteRenderer = player->AddComponent<SpriteRenderer>();
-            spriteRenderer->SetColor(0.2f, 0.8f, 0.3f, 1.0f);
-            spriteRenderer->SetSize(32.0f, 32.0f);
-            player->AddComponent<BoxCollider2D>();
-            editorObjects.push_back(player);
-
-            auto enemy = std::make_shared<GameObject>("Enemy");
-            transform = enemy->AddComponent<Transform>();
-            transform->SetPosition(300.0f, 200.0f);
-            spriteRenderer = enemy->AddComponent<SpriteRenderer>();
-            spriteRenderer->SetColor(0.8f, 0.2f, 0.2f, 1.0f);
-            spriteRenderer->SetSize(32.0f, 32.0f);
-            enemy->AddComponent<BoxCollider2D>();
-            editorObjects.push_back(enemy);
-
-            auto ground = std::make_shared<GameObject>("Ground");
-            transform = ground->AddComponent<Transform>();
-            transform->SetPosition(0.0f, 500.0f);
-            spriteRenderer = ground->AddComponent<SpriteRenderer>();
-            spriteRenderer->SetColor(0.4f, 0.4f, 0.5f, 1.0f);
-            spriteRenderer->SetSize(800.0f, 100.0f);
-            ground->AddComponent<BoxCollider2D>();
-            editorObjects.push_back(ground);
-        }
-
-        // Create scenes
-        SceneManager::AddScene("Menu", std::make_shared<MenuScene>());
-        SceneManager::AddScene("Game", std::make_shared<GameScene>());
-        SceneManager::ChangeScene("Menu");
-
         // Main editor loop
         while (!glfwWindowShouldClose(window)) {
             Time::Update();
@@ -157,7 +136,7 @@ int main(int argc, char* argv[]) {
                 title << " - " << Project::Get().GetName();
             }
             title << " | FPS: " << static_cast<int>(Time::GetFPS())
-                  << " | Scene: " << SceneManager::GetCurrentSceneName();
+                  << " | Scene: " << sceneDoc.ActiveWorld().Name();
             if (editorState.IsEditMode()) {
                 title << " [EDIT]";
             } else if (editorState.IsPlayMode()) {
@@ -167,48 +146,30 @@ int main(int argc, char* argv[]) {
             }
             glfwSetWindowTitle(window, title.str().c_str());
 
-            // Only update scene and game objects in Play mode
-            if (editorState.IsPlayMode()) {
+            // Play 모드에서만 ActiveWorld(=playWorld)를 시뮬레이션한다.
+            if (editorState.IsPlayMode() && sceneDoc.IsPlaying()) {
                 float scaledDt = dt * editorState.GetTimeScale();
 
-                // Fixed Update loop
                 Time::AccumulateFixedTime(scaledDt);
                 while (Time::HasPendingFixedStep()) {
-                    float fixedDt = Time::GetFixedDeltaTime();
-                    for (auto& obj : editorObjects) {
-                        if (obj && obj->IsActive()) {
-                            obj->FixedUpdateScripts(fixedDt);
-                        }
-                    }
+                    sceneDoc.ActiveWorld().FixedStep(Time::GetFixedDeltaTime());
                     Time::ConsumeFixedStep();
                 }
-
-                // Variable Update
-                SceneManager::Update(scaledDt);
-                for (auto& obj : editorObjects) {
-                    if (obj && obj->IsActive()) {
-                        obj->Update(scaledDt);
-                    }
-                }
+                sceneDoc.ActiveWorld().Update(scaledDt);
+                sceneDoc.ActiveWorld().LateUpdate(scaledDt);
             }
 
-            // Render based on editor mode
-            if (editorState.IsEditMode()) {
-                // Edit mode: Render editor scene
-                renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
-                {
-                    molga::RenderPass pass(*renderer, shader.get(), camera.get());
-                    for (auto& obj : editorObjects) {
-                        if (obj && obj->IsActive()) {
-                            if (auto sr = obj->GetComponent<SpriteRenderer>()) {
-                                sr->RenderSprite(renderer.get());
-                            }
+            // 편집이든 플레이든 ActiveWorld를 동일 경로로 렌더한다.
+            renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
+            {
+                molga::RenderPass pass(*renderer, shader.get(), camera.get());
+                for (auto& obj : sceneDoc.ActiveWorld().Objects()) {
+                    if (obj && obj->IsActive()) {
+                        if (auto sr = obj->GetComponent<SpriteRenderer>()) {
+                            sr->RenderSprite(renderer.get());
                         }
                     }
                 }
-            } else {
-                // Play/Pause mode: Render game scene
-                SceneManager::Render(renderer.get(), shader.get(), camera.get());
             }
 
             // ImGui Editor UI
@@ -225,9 +186,7 @@ int main(int argc, char* argv[]) {
     // Cleanup (deterministic order; unique_ptrs auto-release)
     Project::Get().Close();
     Editor::Get().Shutdown();
-    editorObjects.clear();
     ImGuiLayer::Shutdown();
-    SceneManager::Clear();
     TextRenderer::Get().Shutdown();
     camera.reset();
     shader.reset();
