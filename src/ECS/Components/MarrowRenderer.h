@@ -1,0 +1,74 @@
+#pragma once
+
+#include "../Component.h"
+#include "../../Common/Types.h"
+#include <string>
+#include <memory>
+#include <optional>
+#include <vector>
+
+#include <marrow/runtime/skeleton.hpp>
+#include <marrow/runtime/animation_state.hpp>
+#include <marrow/runtime/atlas.hpp>
+
+class Texture;
+
+class MarrowRenderer : public Component {
+public:
+    COMPONENT_TYPE(MarrowRenderer)
+
+    MarrowRenderer() = default;
+    virtual ~MarrowRenderer();
+
+    // Set paths (used for deserialization & asset resolving)
+    void SetSkeletonPath(const std::string& path) { skeletonPath = path; }
+    const std::string& GetSkeletonPath() const { return skeletonPath; }
+
+    void SetAtlasPath(const std::string& path) { atlasPath = path; }
+    const std::string& GetAtlasPath() const { return atlasPath; }
+
+    // Playback control
+    void PlayAnimation(const std::string& animName, bool loop, int track = 0);
+    void SetMix(const std::string& from, const std::string& to, float duration);
+
+    // Sorting order
+    void SetSortingOrder(int order) { sortingOrder = order; }
+    int GetSortingOrder() const { return sortingOrder; }
+
+    // Component lifecycle
+    void Update(float dt) override;
+    void Render() override {}
+    void RenderSprite(Renderer* renderer) override;
+    void ResolveAssets() override;
+    void OnDestroy() override;
+
+    // Serialization
+    void Serialize(nlohmann::json& j) const override;
+    void Deserialize(const nlohmann::json& j) override;
+
+    // Inspector GUI
+    void OnInspectorGUI() override;
+
+private:
+    std::string skeletonPath;
+    std::string atlasPath;
+
+    // Marrow Runtime objects
+    std::shared_ptr<const marrow::runtime::SkeletonData> skeletonData;
+    std::shared_ptr<const marrow::runtime::AtlasData> atlasData;
+    std::unique_ptr<marrow::runtime::Skeleton> skeleton;
+    std::unique_ptr<marrow::runtime::AnimationState> animationState;
+
+    // OpenGL texture
+    Texture* texture = nullptr;
+
+    // Local mesh buffers for rendering (if we want to draw custom meshes)
+    unsigned int VAO = 0;
+    unsigned int VBO = 0;
+    unsigned int EBO = 0;
+
+    int sortingOrder = 0;
+
+    void SetupGLBuffers();
+    void CleanGLBuffers();
+};

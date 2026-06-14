@@ -37,7 +37,7 @@ public:
     static bool IsValidProject(const std::string& path);
 
 private:
-    Project() = default;
+    Project();
     Project(const Project&) = delete;
     Project& operator=(const Project&) = delete;
 

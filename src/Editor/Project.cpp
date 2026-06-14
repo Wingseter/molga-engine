@@ -12,6 +12,10 @@ Project& Project::Get() {
     return instance;
 }
 
+Project::Project() {
+    LoadRecentProjects();
+}
+
 bool Project::Create(const std::string& parentPath, const std::string& name) {
     // Close any existing project
     Close();

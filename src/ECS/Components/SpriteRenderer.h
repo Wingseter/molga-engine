@@ -46,7 +46,7 @@ public:
 
     // 패스(Begin/End)는 호출자(프레임 루프/RenderPass)가 소유한다.
     // 이 함수는 활성 패스 안에 스프라이트 1개를 제출만 한다.
-    void RenderSprite(Renderer* renderer);
+    void RenderSprite(Renderer* renderer) override;
 
     // Serialization
     void Serialize(nlohmann::json& j) const override;

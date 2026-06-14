@@ -4,6 +4,7 @@
 #include "../../ECS/Components/Transform.h"
 #include "../../ECS/Components/SpriteRenderer.h"
 #include "../../ECS/Components/BoxCollider2D.h"
+#include "../../ECS/Components/MarrowRenderer.h"
 #include "../../Scripting/Script.h"
 #include "../../Scripting/ScriptManager.h"
 #include "../../Scripting/BuiltinScripts.h"
@@ -87,6 +88,11 @@ void InspectorWindow::OnGUI() {
         if (ImGui::MenuItem((std::string(Icons::Square) + " Box Collider 2D").c_str())) {
             if (!target->HasComponent<BoxCollider2D>()) {
                 target->AddComponent<BoxCollider2D>();
+            }
+        }
+        if (ImGui::MenuItem((std::string(Icons::Image) + " Marrow Renderer").c_str())) {
+            if (!target->HasComponent<MarrowRenderer>()) {
+                target->AddComponent<MarrowRenderer>();
             }
         }
         ImGui::Separator();

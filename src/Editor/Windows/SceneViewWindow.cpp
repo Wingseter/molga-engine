@@ -6,6 +6,7 @@
 #include "../../Rendering/RenderPass.h"
 #include "../../ECS/GameObject.h"
 #include "../../ECS/Components/SpriteRenderer.h"
+#include "../../ECS/Components/MarrowRenderer.h"
 #include "../../ECS/Components/Transform.h"
 #include "../../Common/Log.h"
 #include "../../Common/linmath.h"
@@ -240,11 +241,14 @@ void SceneViewWindow::DrawSprites() {
     if (!renderer_ || !spriteShader_ || !gameObjects_) return;
 
     // 정렬 후 렌더
-    std::vector<std::pair<int, SpriteRenderer*>> drawList;
+    std::vector<std::pair<int, Component*>> drawList;
     for (auto& obj : *gameObjects_) {
         if (obj && obj->IsActive()) {
             if (auto sr = obj->GetComponent<SpriteRenderer>()) {
                 drawList.emplace_back(sr->GetSortingOrder(), sr);
+            }
+            if (auto mr = obj->GetComponent<MarrowRenderer>()) {
+                drawList.emplace_back(mr->GetSortingOrder(), mr);
             }
         }
     }
@@ -253,8 +257,8 @@ void SceneViewWindow::DrawSprites() {
 
     {
         molga::RenderPass pass(*renderer_, spriteShader_, editorCamera_.get());
-        for (auto& [order, sr] : drawList) {
-            sr->RenderSprite(renderer_);
+        for (auto& [order, comp] : drawList) {
+            comp->RenderSprite(renderer_);
         }
     }
 }

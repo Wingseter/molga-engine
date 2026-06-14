@@ -62,6 +62,7 @@ set(ENGINE_SOURCES
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
+    src/ECS/Components/MarrowRenderer.cpp
     src/ECS/Components/BoxCollider2D.cpp
     src/ECS/Components/Collider2D.cpp
     src/Core/SceneSerializer.cpp
@@ -88,8 +89,9 @@ target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/external/stb
     ${CMAKE_SOURCE_DIR}/external/miniaudio
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
+    /Users/kwon/Workspace/C/Maroow/include
 )
-target_link_libraries(molga_core PUBLIC glad glfw)
+target_link_libraries(molga_core PUBLIC glad glfw /Users/kwon/Workspace/C/Maroow/build/libmarrow_runtime.a)
 target_link_libraries(molga_core PRIVATE molga_warnings)
 
 if(APPLE)

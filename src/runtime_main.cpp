@@ -20,6 +20,7 @@
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
+#include "ECS/Components/MarrowRenderer.h"
 #include "ECS/Components/BoxCollider2D.h"
 #include "Core/SceneSerializer.h"
 #include "Scripting/ScriptManager.h"
@@ -194,12 +195,15 @@ int main(int argc, char* argv[]) {
         world.Update(dt);
         world.LateUpdate(dt);
 
-        // sortingOrder 오름차순으로 그릴 스프라이트 수집
-        std::vector<std::pair<int, SpriteRenderer*>> drawList;
+        // sortingOrder 오름차순으로 그릴 스프라이트 및 애니메이션 수집
+        std::vector<std::pair<int, Component*>> drawList;
         for (auto& obj : world.Objects()) {
             if (obj && obj->IsActive()) {
                 if (auto sr = obj->GetComponent<SpriteRenderer>()) {
                     drawList.emplace_back(sr->GetSortingOrder(), sr);
+                }
+                if (auto mr = obj->GetComponent<MarrowRenderer>()) {
+                    drawList.emplace_back(mr->GetSortingOrder(), mr);
                 }
             }
         }
@@ -208,8 +212,8 @@ int main(int argc, char* argv[]) {
         renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
         {
             molga::RenderPass pass(*renderer, shader.get(), camera.get());
-            for (auto& [order, sr] : drawList) {
-                sr->RenderSprite(renderer.get());
+            for (auto& [order, comp] : drawList) {
+                comp->RenderSprite(renderer.get());
             }
         }
 
