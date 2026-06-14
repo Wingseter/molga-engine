@@ -10,6 +10,9 @@
 #include "../../Common/Log.h"
 #include "../../Common/linmath.h"
 #include "../../Core/PathService.h"
+#include "Editor/Editor.h"
+#include "Editor/Commands/ObjectCommands.h"
+#include "../FontManager.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glad/glad.h>
@@ -161,6 +164,15 @@ void SceneViewWindow::OnGUI() {
 
     // ── 입력 처리 (Image 위젯이 렌더된 후) ──────────────────────────────────
     HandleInput(panelPos, ImVec2(vpW, vpH));
+
+    // ── 우클릭 컨텍스트 메뉴 트리거 ──────────────────────────────────────────
+    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        ImVec2 mousePos = ImGui::GetMousePos();
+        ScreenToWorld(panelPos, ImVec2(vpW, vpH), mousePos, ctxWorldX_, ctxWorldY_);
+        ImGui::OpenPopup("SceneViewContextMenu");
+    }
+
+    DrawContextMenu();
 
     ImGui::End();
 }
@@ -365,3 +377,55 @@ void SceneViewWindow::FrameAll(ImVec2 panelSize) {
     editorCamera_->SetZoom(newZoom);
 }
 
+void SceneViewWindow::DrawContextMenu() {
+    if (ImGui::BeginPopup("SceneViewContextMenu")) {
+        if (ImGui::MenuItem((std::string(Icons::Cube) + " Create Empty").c_str())) {
+            CreateObjectAt("New GameObject", false, ctxWorldX_, ctxWorldY_);
+        }
+        if (ImGui::BeginMenu((std::string(Icons::Image) + " Create 2D Object").c_str())) {
+            if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {
+                CreateObjectAt("Sprite", true, ctxWorldX_, ctxWorldY_);
+            }
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap  [TODO]").c_str())) {
+                CreateObjectAt("Tilemap", false, ctxWorldX_, ctxWorldY_);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Tilemap ECS component not yet implemented.\nCreates an empty GameObject only.");
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void SceneViewWindow::CreateObjectAt(const char* name, bool withSprite, float worldX, float worldY) {
+    auto cmd = std::make_unique<molga::CreateObjectCommand>(name);
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    
+    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
+        if (auto* transform = obj->GetComponent<Transform>()) {
+            transform->SetPosition(worldX, worldY);
+        }
+        if (withSprite) {
+            obj->AddComponent<SpriteRenderer>();
+        }
+        Editor::Get().MarkSceneModified();
+    }
+}
+
+void SceneViewWindow::ScreenToWorld(ImVec2 panelPos, ImVec2 panelSize, ImVec2 screen,
+                                   float& outX, float& outY) const {
+    float zoom = editorCamera_->GetZoom();
+    float camX = editorCamera_->GetX();
+    float camY = editorCamera_->GetY();
+    
+    // Screen coordinates relative to panel
+    float sx = screen.x - panelPos.x;
+    float sy = screen.y - panelPos.y;
+    
+    // Screen to World translation:
+    // Centered at camera (camX, camY) + panelSize*0.5f in world,
+    // and scaled by zoom around the center.
+    outX = camX + panelSize.x * 0.5f + (sx - panelSize.x * 0.5f) / zoom;
+    outY = camY + panelSize.y * 0.5f + (sy - panelSize.y * 0.5f) / zoom;
+}
