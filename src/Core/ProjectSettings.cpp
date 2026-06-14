@@ -27,14 +27,13 @@ void ProjectSettings::SetDefaults() {
     layerNames[4] = "UI";
     layerNames[5] = "Ground";
 
-    // Set collision matrix (symmetric: default all true for non-empty layers)
+    // Collision matrix: default all layer pairs enabled (Unity convention).
+    // 이름 없는 레이어만 false로 두면, 나중에 새 레이어(6~31)에 오브젝트를 배치했을 때
+    // 매트릭스가 false라 아무 충돌도 일어나지 않는 '조용한 실패'가 발생한다.
+    // 기본 전부 true로 두고, 비활성화는 사용자가 명시적으로 끄도록 한다.
     for (int i = 0; i < 32; ++i) {
         for (int j = 0; j < 32; ++j) {
-            if (!layerNames[i].empty() && !layerNames[j].empty()) {
-                collisionMatrix[i][j] = true;
-            } else {
-                collisionMatrix[i][j] = false;
-            }
+            collisionMatrix[i][j] = true;
         }
     }
 

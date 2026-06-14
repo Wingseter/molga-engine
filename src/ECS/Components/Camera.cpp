@@ -97,6 +97,8 @@ void Camera::Serialize(nlohmann::json& j) const {
 
 void Camera::Deserialize(const nlohmann::json& j) {
     if (j.contains("orthoSize")) orthoSize = j["orthoSize"];
+    // zoom = h / (2 * orthoSize) 계산에서 0 나눗셈을 막는다 (손상된 씬 방어).
+    if (orthoSize < 0.01f) orthoSize = 0.01f;
     if (j.contains("backgroundColor") && j["backgroundColor"].is_array()) {
         backgroundColor.r = j["backgroundColor"][0];
         backgroundColor.g = j["backgroundColor"][1];

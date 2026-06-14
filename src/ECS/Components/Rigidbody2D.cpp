@@ -27,7 +27,9 @@ void Rigidbody2D::Deserialize(const nlohmann::json& j) {
         gravityScale = j["gravityScale"];
     }
     if (j.contains("mass")) {
-        mass = j["mass"];
+        // SetMass()를 거쳐 mass > 0 불변식을 유지한다.
+        // 직접 대입하면 손상된 씬의 mass:0이 PhysicsWorld의 force/mass에서 NaN을 만든다.
+        SetMass(j["mass"].get<float>());
     }
     if (j.contains("linearDamping")) {
         linearDamping = j["linearDamping"];

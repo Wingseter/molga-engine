@@ -12,6 +12,7 @@
 #include "doctest.h"
 #include <memory>
 #include <iostream>
+#include <cmath>
 
 // Mock script to verify physics callbacks
 class MockPhysicsScript : public Script {
@@ -244,6 +245,37 @@ TEST_CASE("Physics: Trigger Callbacks") {
     CHECK(script->triggerEnter == 1);
     CHECK(script->triggerStay == 1);
     CHECK(script->triggerExit == 1);
+}
+
+TEST_CASE("Physics: Rigidbody2D deserialize clamps non-positive mass") {
+    // 손상/수동편집 씬의 mass:0 이 PhysicsWorld의 force/mass 에서 NaN을 만들지 않도록
+    // Deserialize는 SetMass()를 거쳐 mass > 0 불변식을 유지해야 한다.
+    Rigidbody2D rb;
+    nlohmann::json j;
+    j["bodyType"] = static_cast<int>(Rigidbody2D::BodyType::Dynamic);
+    j["mass"] = 0.0f;
+    rb.Deserialize(j);
+    CHECK(rb.GetMass() > 0.0f);
+
+    // 실제 스텝에서도 위치가 NaN이 되지 않는지 확인
+    World world;
+    auto go = std::make_shared<GameObject>("Zero Mass");
+    auto* transform = go->AddComponent<Transform>();
+    transform->SetPosition(0.0f, 0.0f);
+    auto* body = go->AddComponent<Rigidbody2D>();
+    body->Deserialize(j);
+    world.Add(go);
+    world.FixedStep(0.1f);
+    CHECK(std::isfinite(transform->GetY()));
+}
+
+TEST_CASE("Physics: Collision matrix enabled by default for arbitrary layers") {
+    // 기본 충돌 매트릭스는 모든 레이어 쌍을 활성화해야 한다.
+    // (이름 없는 새 레이어에 오브젝트를 두었을 때 '조용한 무충돌'을 방지)
+    ProjectSettings::Get().SetDefaults();
+    CHECK(ProjectSettings::Get().IsCollisionEnabled(0, 0));
+    CHECK(ProjectSettings::Get().IsCollisionEnabled(6, 9));   // 이름 없는 레이어
+    CHECK(ProjectSettings::Get().IsCollisionEnabled(31, 31));
 }
 
 TEST_CASE("Physics: Circle-Circle Collision") {
