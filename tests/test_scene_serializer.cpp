@@ -2,7 +2,7 @@
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/BoxCollider2D.h"
-#include <cassert>
+#include "doctest.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -10,13 +10,9 @@
 #include <memory>
 #include <vector>
 
-static bool approx(float a, float b, float eps = 1e-4f) {
-    return std::fabs(a - b) < eps;
-}
-
 // ── Single GameObject round-trip ─────────────────────────────────────────────
 
-static void test_serialize_deserialize_gameobject() {
+TEST_CASE("SceneSerializer: serialize and deserialize single GameObject") {
     // Create a GameObject with components
     auto original = std::make_shared<GameObject>("TestObject");
     Transform* t = original->AddComponent<Transform>(100.0f, 200.0f);
@@ -29,37 +25,37 @@ static void test_serialize_deserialize_gameobject() {
 
     // Serialize
     std::string json = SceneSerializer::SerializeGameObject(original.get());
-    assert(!json.empty());
-    assert(json != "{}");
+    CHECK(!json.empty());
+    CHECK(json != "{}");
 
     // Deserialize
     auto restored = SceneSerializer::DeserializeGameObject(json);
-    assert(restored != nullptr);
-    assert(restored->GetName() == "TestObject");
-    assert(restored->IsActive());
+    REQUIRE(restored != nullptr);
+    CHECK(restored->GetName() == "TestObject");
+    CHECK(restored->IsActive());
 
     // Verify Transform
     Transform* rt = restored->GetComponent<Transform>();
-    assert(rt != nullptr);
-    assert(approx(rt->GetX(), 100.0f));
-    assert(approx(rt->GetY(), 200.0f));
-    assert(approx(rt->GetRotation(), 45.0f));
-    assert(approx(rt->GetScale().x, 2.0f));
-    assert(approx(rt->GetScale().y, 3.0f));
+    REQUIRE(rt != nullptr);
+    CHECK(rt->GetX() == doctest::Approx(100.0f));
+    CHECK(rt->GetY() == doctest::Approx(200.0f));
+    CHECK(rt->GetRotation() == doctest::Approx(45.0f));
+    CHECK(rt->GetScale().x == doctest::Approx(2.0f));
+    CHECK(rt->GetScale().y == doctest::Approx(3.0f));
 
     // Verify BoxCollider2D
     BoxCollider2D* rbc = restored->GetComponent<BoxCollider2D>();
-    assert(rbc != nullptr);
-    assert(approx(rbc->GetSize().x, 64.0f));
-    assert(approx(rbc->GetSize().y, 32.0f));
-    assert(approx(rbc->GetOffset().x, 5.0f));
-    assert(approx(rbc->GetOffset().y, 10.0f));
-    assert(rbc->IsTrigger() == true);
+    REQUIRE(rbc != nullptr);
+    CHECK(rbc->GetSize().x == doctest::Approx(64.0f));
+    CHECK(rbc->GetSize().y == doctest::Approx(32.0f));
+    CHECK(rbc->GetOffset().x == doctest::Approx(5.0f));
+    CHECK(rbc->GetOffset().y == doctest::Approx(10.0f));
+    CHECK(rbc->IsTrigger() == true);
 }
 
 // ── Scene save/load round-trip ───────────────────────────────────────────────
 
-static void test_scene_save_load() {
+TEST_CASE("SceneSerializer: scene save and load") {
     // Create test scene
     std::vector<std::shared_ptr<GameObject>> originalScene;
 
@@ -77,30 +73,30 @@ static void test_scene_save_load() {
     // Save to temp file
     const char* tmpPath = "/tmp/molga_test_scene.json";
     bool saved = SceneSerializer::SaveScene(tmpPath, originalScene);
-    assert(saved);
+    CHECK(saved);
 
     // Load back
     std::vector<std::shared_ptr<GameObject>> loadedScene;
     bool loaded = SceneSerializer::LoadScene(tmpPath, loadedScene);
-    assert(loaded);
-    assert(loadedScene.size() == 2);
+    CHECK(loaded);
+    REQUIRE(loadedScene.size() == 2);
 
     // Verify first object
-    assert(loadedScene[0]->GetName() == "Player");
-    assert(loadedScene[0]->IsActive());
+    CHECK(loadedScene[0]->GetName() == "Player");
+    CHECK(loadedScene[0]->IsActive());
     Transform* lt1 = loadedScene[0]->GetComponent<Transform>();
-    assert(lt1 != nullptr);
-    assert(approx(lt1->GetX(), 10.0f));
-    assert(approx(lt1->GetY(), 20.0f));
+    REQUIRE(lt1 != nullptr);
+    CHECK(lt1->GetX() == doctest::Approx(10.0f));
+    CHECK(lt1->GetY() == doctest::Approx(20.0f));
     BoxCollider2D* lbc = loadedScene[0]->GetComponent<BoxCollider2D>();
-    assert(lbc != nullptr);
+    CHECK(lbc != nullptr);
 
     // Verify second object
-    assert(loadedScene[1]->GetName() == "Enemy");
-    assert(!loadedScene[1]->IsActive());
+    CHECK(loadedScene[1]->GetName() == "Enemy");
+    CHECK(!loadedScene[1]->IsActive());
     Transform* lt2 = loadedScene[1]->GetComponent<Transform>();
-    assert(lt2 != nullptr);
-    assert(approx(lt2->GetRotation(), 90.0f));
+    REQUIRE(lt2 != nullptr);
+    CHECK(lt2->GetRotation() == doctest::Approx(90.0f));
 
     // Cleanup
     std::remove(tmpPath);
@@ -108,7 +104,7 @@ static void test_scene_save_load() {
 
 // ── ID preservation ─────────────────────────────────────────────────────────
 
-static void test_id_preservation() {
+TEST_CASE("SceneSerializer: ID preservation") {
     auto obj = std::make_shared<GameObject>("IDTest");
     obj->AddComponent<Transform>(1.0f, 2.0f);
     unsigned int originalID = obj->GetID();
@@ -116,34 +112,34 @@ static void test_id_preservation() {
     std::string json = SceneSerializer::SerializeGameObject(obj.get());
     auto restored = SceneSerializer::DeserializeGameObject(json);
 
-    assert(restored != nullptr);
-    assert(restored->GetID() == originalID);
+    REQUIRE(restored != nullptr);
+    CHECK(restored->GetID() == originalID);
 }
 
 // ── enabled serialization ───────────────────────────────────────────────────
 
-static void test_enabled_serialization() {
+TEST_CASE("SceneSerializer: enabled serialization") {
     auto obj = std::make_shared<GameObject>("EnabledTest");
-    Transform* t = obj->AddComponent<Transform>(5.0f, 10.0f);
+    obj->AddComponent<Transform>(5.0f, 10.0f);
     BoxCollider2D* bc = obj->AddComponent<BoxCollider2D>(16.0f, 16.0f);
     bc->SetEnabled(false);
 
     std::string json = SceneSerializer::SerializeGameObject(obj.get());
     auto restored = SceneSerializer::DeserializeGameObject(json);
 
-    assert(restored != nullptr);
+    REQUIRE(restored != nullptr);
     Transform* rt = restored->GetComponent<Transform>();
-    assert(rt != nullptr);
-    assert(rt->IsEnabled());  // default true
+    REQUIRE(rt != nullptr);
+    CHECK(rt->IsEnabled());  // default true
 
     BoxCollider2D* rbc = restored->GetComponent<BoxCollider2D>();
-    assert(rbc != nullptr);
-    assert(!rbc->IsEnabled());  // was disabled
+    REQUIRE(rbc != nullptr);
+    CHECK(!rbc->IsEnabled());  // was disabled
 }
 
 // ── Parent-child serialization ──────────────────────────────────────────────
 
-static void test_parent_child_serialization() {
+TEST_CASE("SceneSerializer: parent-child serialization") {
     std::vector<std::shared_ptr<GameObject>> originalScene;
 
     auto parent = std::make_shared<GameObject>("Parent");
@@ -161,13 +157,13 @@ static void test_parent_child_serialization() {
     // Save
     const char* tmpPath = "/tmp/molga_test_hierarchy.json";
     bool saved = SceneSerializer::SaveScene(tmpPath, originalScene);
-    assert(saved);
+    CHECK(saved);
 
     // Load
     std::vector<std::shared_ptr<GameObject>> loadedScene;
     bool loaded = SceneSerializer::LoadScene(tmpPath, loadedScene);
-    assert(loaded);
-    assert(loadedScene.size() == 2);
+    CHECK(loaded);
+    REQUIRE(loadedScene.size() == 2);
 
     // Find parent and child by ID
     GameObject* loadedParent = nullptr;
@@ -176,47 +172,31 @@ static void test_parent_child_serialization() {
         if (obj->GetID() == parentID) loadedParent = obj.get();
         if (obj->GetID() == childID) loadedChild = obj.get();
     }
-    assert(loadedParent != nullptr);
-    assert(loadedChild != nullptr);
+    REQUIRE(loadedParent != nullptr);
+    REQUIRE(loadedChild != nullptr);
 
     // Verify hierarchy
-    assert(loadedChild->GetParent() == loadedParent);
-    assert(loadedParent->GetChildren().size() == 1);
-    assert(loadedParent->GetChildren()[0] == loadedChild);
+    CHECK(loadedChild->GetParent() == loadedParent);
+    REQUIRE(loadedParent->GetChildren().size() == 1);
+    CHECK(loadedParent->GetChildren()[0] == loadedChild);
 
     std::remove(tmpPath);
 }
 
 // ── Error handling ───────────────────────────────────────────────────────────
 
-static void test_invalid_json() {
+TEST_CASE("SceneSerializer: invalid JSON") {
     auto result = SceneSerializer::DeserializeGameObject("not valid json{{{");
-    assert(result == nullptr);
+    CHECK(result == nullptr);
 }
 
-static void test_null_gameobject() {
+TEST_CASE("SceneSerializer: null GameObject") {
     std::string json = SceneSerializer::SerializeGameObject(nullptr);
-    assert(json == "{}");
+    CHECK(json == "{}");
 }
 
-static void test_load_nonexistent_file() {
+TEST_CASE("SceneSerializer: load nonexistent file") {
     std::vector<std::shared_ptr<GameObject>> objects;
     bool loaded = SceneSerializer::LoadScene("/tmp/nonexistent_test_file_12345.json", objects);
-    assert(!loaded);
-}
-
-// ── main ─────────────────────────────────────────────────────────────────────
-
-int main() {
-    test_serialize_deserialize_gameobject();
-    test_scene_save_load();
-    test_id_preservation();
-    test_enabled_serialization();
-    test_parent_child_serialization();
-    test_invalid_json();
-    test_null_gameobject();
-    test_load_nonexistent_file();
-
-    std::printf("test_scene_serializer: all tests passed\n");
-    return 0;
+    CHECK(!loaded);
 }

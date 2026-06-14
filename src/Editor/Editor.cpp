@@ -9,6 +9,7 @@
 #include "../Scripting/ScriptManager.h"
 #include "../Core/MolgaTime.h"
 #include "EditorState.h"
+#include "Commands/ObjectCommands.h"
 #include "VSCodeIntegration.h"
 #include "Windows/HierarchyWindow.h"
 #include "Windows/InspectorWindow.h"
@@ -17,6 +18,7 @@
 #include "Windows/SceneViewWindow.h"
 #include "Windows/StatsWindow.h"
 #include "../Common/Log.h"
+#include "../Core/PathService.h"
 #include <cstring>
 #include <filesystem>
 #include <imgui.h>
@@ -48,8 +50,7 @@ void Editor::Init() {
   }
 
   // Set engine path for ScriptCompiler and VSCodeIntegration
-  std::string enginePath =
-      std::filesystem::current_path().parent_path().string();
+  std::string enginePath = PathService::Get().ExecutableDir().string();
   ScriptCompiler::Get().SetEnginePath(enginePath);
   VSCodeIntegration::Get().SetEnginePath(enginePath);
 }
@@ -163,24 +164,27 @@ void Editor::RenderMenuBar() {
     }
 
     if (ImGui::BeginMenu("Edit")) {
-      if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
-        Log::Warn("Editor", "Undo is not yet implemented");
+      if (ImGui::MenuItem("Undo", "Ctrl+Z", false, commandHistory.CanUndo())) {
+        commandHistory.Undo();
       }
-      if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
-        Log::Warn("Editor", "Redo is not yet implemented");
+      if (ImGui::MenuItem("Redo", "Ctrl+Y", false, commandHistory.CanRedo())) {
+        commandHistory.Redo();
       }
       ImGui::EndMenu();
     }
 
     if (ImGui::BeginMenu("GameObject")) {
       if (ImGui::MenuItem("Create Empty")) {
-        CreateGameObject("GameObject");
+        auto cmd = std::make_unique<molga::CreateObjectCommand>("New GameObject");
+        commandHistory.Execute(std::move(cmd));
       }
       if (ImGui::BeginMenu("2D Object")) {
         if (ImGui::MenuItem("Sprite")) {
-          auto obj = CreateGameObject("Sprite");
-          if (obj) {
+          auto cmd = std::make_unique<molga::CreateObjectCommand>("Sprite");
+          commandHistory.Execute(std::move(cmd));
+          if (GameObject* obj = GetSelectedObject()) {
             obj->AddComponent<SpriteRenderer>();
+            MarkSceneModified();
           }
         }
         ImGui::EndMenu();
@@ -218,6 +222,10 @@ void Editor::RenderMenuBar() {
 
     // Play controls
     RenderPlayControls();
+
+    if (sceneOps.IsModified()) {
+        ImGui::TextDisabled("  *unsaved");
+    }
 
     ImGui::EndMenuBar();
   }
@@ -280,6 +288,10 @@ void Editor::SetGameObjects(std::vector<std::shared_ptr<GameObject>> *objects) {
   auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
   if (hierarchy) {
     hierarchy->SetGameObjects(objects);
+  }
+  auto* sceneView = windowManager.GetAs<SceneViewWindow>(EditorConstants::WIN_SCENE);
+  if (sceneView) {
+    sceneView->SetGameObjects(objects);
   }
 }
 
@@ -398,4 +410,50 @@ void Editor::RenderScriptingMenu() {
 
     ImGui::EndMenu();
   }
+}
+
+std::shared_ptr<GameObject> Editor::AddExistingObject(std::shared_ptr<GameObject> obj) {
+    if (!gameObjects || !obj) return nullptr;
+    gameObjects->push_back(obj);
+    sceneOps.MarkModified();
+    return obj;
+}
+
+void Editor::RemoveObjectsByIds(const std::vector<unsigned int>& ids) {
+    if (!gameObjects) return;
+    gameObjects->erase(
+        std::remove_if(gameObjects->begin(), gameObjects->end(),
+            [&](const std::shared_ptr<GameObject>& o) {
+                if (!o) return false;
+                return std::find(ids.begin(), ids.end(), o->GetID()) != ids.end();
+            }),
+        gameObjects->end());
+    sceneOps.MarkModified();
+}
+
+GameObject* Editor::FindObjectById(unsigned int id) const {
+    if (!gameObjects) return nullptr;
+    for (auto& o : *gameObjects) {
+        if (o && o->GetID() == id) return o.get();
+    }
+    return nullptr;
+}
+
+void Editor::MarkSceneModified() {
+    sceneOps.MarkModified();
+}
+
+std::shared_ptr<GameObject> Editor::ShareObjectById(unsigned int id) const {
+    if (!gameObjects) return nullptr;
+    for (auto& o : *gameObjects) {
+        if (o && o->GetID() == id) return o;
+    }
+    return nullptr;
+}
+
+void Editor::SetSceneViewResources(Renderer* renderer, Shader* shader) {
+    auto* sceneView = windowManager.GetAs<SceneViewWindow>(EditorConstants::WIN_SCENE);
+    if (sceneView) {
+        sceneView->SetSceneResources(renderer, shader, gameObjects);
+    }
 }

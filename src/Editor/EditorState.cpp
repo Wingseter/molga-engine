@@ -27,8 +27,8 @@ void EditorState::SetMode(EditorMode mode) {
 
 void EditorState::Play() {
     if (currentMode == EditorMode::Edit) {
-        // TODO: Save scene state before playing
         Time::ResetFixedAccumulator();
+        if (onEnterPlay_) onEnterPlay_();
         SetMode(EditorMode::Play);
     } else if (currentMode == EditorMode::Pause) {
         SetMode(EditorMode::Play);
@@ -43,7 +43,7 @@ void EditorState::Pause() {
 
 void EditorState::Stop() {
     if (currentMode == EditorMode::Play || currentMode == EditorMode::Pause) {
-        // TODO: Restore scene state after stopping
+        if (onExitPlay_) onExitPlay_();
         SetMode(EditorMode::Edit);
     }
 }

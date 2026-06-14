@@ -2,6 +2,19 @@ cmake_minimum_required(VERSION 3.27)
 project(molga_engine)
 
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# 우리 코드에만 적용할 경고/sanitizer 모음 (external 라이브러리는 제외)
+set(MOLGA_SANITIZER "" CACHE STRING "Enable a sanitizer: address | undefined | thread (empty = off)")
+
+add_library(molga_warnings INTERFACE)
+target_compile_options(molga_warnings INTERFACE -Wall -Wextra -Wpedantic)
+if(NOT MOLGA_SANITIZER STREQUAL "")
+    target_compile_options(molga_warnings INTERFACE
+        -fsanitize=${MOLGA_SANITIZER} -fno-omit-frame-pointer -g)
+    target_link_options(molga_warnings INTERFACE -fsanitize=${MOLGA_SANITIZER})
+endif()
 
 # ── External dependencies ──────────────────────────────────────────────────────
 add_subdirectory(external/glfw)
@@ -32,6 +45,8 @@ set(ENGINE_SOURCES
     src/Rendering/Texture.cpp
     src/Rendering/Sprite.cpp
     src/Rendering/Renderer.cpp
+    src/Rendering/RenderPassState.cpp
+    src/Rendering/Framebuffer.cpp
     src/Core/MolgaTime.cpp
     src/Systems/Input.cpp
     src/Rendering/Camera2D.cpp
@@ -50,6 +65,7 @@ set(ENGINE_SOURCES
     src/ECS/Components/BoxCollider2D.cpp
     src/ECS/Components/Collider2D.cpp
     src/Core/SceneSerializer.cpp
+    src/Core/World.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp
@@ -58,6 +74,11 @@ set(ENGINE_SOURCES
     src/Core/Bootstrap.cpp
     src/Core/EventBus.cpp
     src/Common/Log.cpp
+    src/Core/PathService.cpp
+    src/Core/TextureManager.cpp
+    src/Core/BuildManifest.cpp
+    src/Core/SmokeReport.cpp
+    src/Core/PackageLayout.cpp
 )
 
 # ── molga_core static library ──────────────────────────────────────────────────
@@ -69,6 +90,7 @@ target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
 )
 target_link_libraries(molga_core PUBLIC glad glfw)
+target_link_libraries(molga_core PRIVATE molga_warnings)
 
 if(APPLE)
     target_link_libraries(molga_core PUBLIC
@@ -82,12 +104,14 @@ set(EDITOR_SOURCES
     src/Editor/ImGuiLayer.cpp
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
+    src/Editor/Commands/ObjectCommands.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
     src/Editor/UIRegistry.cpp
     src/Editor/WindowManager.cpp
     src/Editor/SceneOperations.cpp
     src/Editor/BuildManager.cpp
+    src/Editor/GameBuilder.cpp
     src/Editor/Windows/SceneViewWindow.cpp
     src/Editor/Windows/StatsWindow.cpp
     src/Editor/Windows/HierarchyWindow.cpp
@@ -95,22 +119,20 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
-    src/Editor/GameBuilder.cpp
     src/Editor/Project.cpp
-    src/Core/TextureManager.cpp
     src/Scripting/ScriptCompiler.cpp
-    src/Scenes/MenuScene.cpp
-    src/Scenes/GameScene.cpp
 )
 
 # ── Main editor executable ─────────────────────────────────────────────────────
 add_executable(molga_engine src/main.cpp ${EDITOR_SOURCES})
 target_link_libraries(molga_engine PRIVATE molga_core imgui)
+target_link_libraries(molga_engine PRIVATE molga_warnings)
 target_compile_definitions(molga_engine PRIVATE MOLGA_EDITOR)
 
 # ── Runtime executable ─────────────────────────────────────────────────────────
 add_executable(molga_runtime src/runtime_main.cpp)
 target_link_libraries(molga_runtime PRIVATE molga_core)
+target_link_libraries(molga_runtime PRIVATE molga_warnings)
 
 # ── Copy assets to build directory ─────────────────────────────────────────────
 add_custom_command(TARGET molga_engine POST_BUILD
@@ -134,3 +156,17 @@ add_custom_command(TARGET molga_runtime POST_BUILD
 # ── Testing ────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
+
+add_test(
+    NAME smoke_end_to_end
+    COMMAND "${CMAKE_COMMAND}"
+        "-DEDITOR=$<TARGET_FILE:molga_engine>"
+        "-DFIXTURE_SCRIPT=${CMAKE_SOURCE_DIR}/tests/smoke/create_fixture.cmake"
+        "-DWORK_ROOT=${CMAKE_BINARY_DIR}/smoke-e2e"
+        -P "${CMAKE_SOURCE_DIR}/tests/smoke/run_end_to_end.cmake"
+)
+set_tests_properties(smoke_end_to_end PROPERTIES
+    LABELS "smoke;e2e"
+    TIMEOUT 30
+    RUN_SERIAL TRUE
+)

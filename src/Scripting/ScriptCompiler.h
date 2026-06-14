@@ -32,7 +32,9 @@ public:
     const std::string& GetLastError() const { return lastError; }
 
     // Script template generation
-    bool CreateScriptTemplate(const std::string& scriptName);
+    // targetDir: 비어있으면 scriptsPath(루트)에 생성. 하위 폴더 지원.
+    bool CreateScriptTemplate(const std::string& scriptName,
+                              const std::string& targetDir = "");
 
     // Get compiled library path
     std::string GetCompiledLibraryPath() const;

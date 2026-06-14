@@ -10,7 +10,11 @@ REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Rendering/Sprite.h"
 #include "../../Rendering/Texture.h"
 #include "../../Core/TextureManager.h"
+#include "../../Core/PathService.h"
+#include "../../Common/Log.h"
+#ifdef MOLGA_EDITOR
 #include "../../Editor/Project.h"
+#endif
 #include <nlohmann/json.hpp>
 #include <filesystem>
 #ifdef MOLGA_EDITOR
@@ -19,7 +23,7 @@ REGISTER_COMPONENT(SpriteRenderer)
 
 using json = nlohmann::json;
 
-void SpriteRenderer::RenderSprite(Renderer* renderer, Shader* shader, Camera2D* camera) {
+void SpriteRenderer::RenderSprite(Renderer* renderer) {
     if (!gameObject || !enabled) return;
 
     Transform* transform = gameObject->GetComponent<Transform>();
@@ -51,9 +55,7 @@ void SpriteRenderer::RenderSprite(Renderer* renderer, Shader* shader, Camera2D* 
         sprite.height = -sprite.height;
     }
 
-    renderer->Begin(shader, camera);
     renderer->DrawSprite(&sprite);
-    renderer->End();
 }
 
 void SpriteRenderer::Serialize(nlohmann::json& j) const {
@@ -83,6 +85,18 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
     }
     if (j.contains("texturePath")) {
         SetTexturePath(j["texturePath"]);
+    }
+}
+
+void SpriteRenderer::ResolveAssets() {
+    if (texturePath.empty() || texture) return;
+    std::string abs = PathService::Get().ResolveAsset(texturePath);
+    texture = TextureManager::Get().Load(abs);
+    if (!texture) {
+        Log::Warn("SpriteRenderer", "Texture not found: " + abs);
+    } else if (width == 32.0f && height == 32.0f) {
+        width = static_cast<float>(texture->GetWidth());
+        height = static_cast<float>(texture->GetHeight());
     }
 }
 

@@ -5,9 +5,13 @@
 #include "../EditorTheme.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
+#include "../../Scripting/ScriptCompiler.h"
+#include "../../Core/SceneSerializer.h"
+#include "../../ECS/GameObject.h"
 #include <imgui.h>
 #include <filesystem>
 #include <algorithm>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -202,7 +206,6 @@ void ProjectBrowserWindow::DrawFileGrid() {
         ImGui::PushID(static_cast<int>(i));
 
         // Item button
-        ImVec2 pos = ImGui::GetCursorPos();
         bool selected = (static_cast<int>(i) == selectedIndex);
 
         ImGui::BeginGroup();
@@ -283,12 +286,33 @@ void ProjectBrowserWindow::DrawFileGrid() {
         itemIndex++;
     }
 
+    // Inline create input widget (이름 입력 중일 때 표시)
+    DrawCreateInlineInput();
+
     // Context menu
     DrawContextMenu();
 }
 
 void ProjectBrowserWindow::DrawContextMenu() {
-    if (ImGui::BeginPopupContextWindow("ProjectBrowserContext")) {
+    if (ImGui::BeginPopupContextWindow("ProjectBrowserContext", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        // Create 서브메뉴
+        if (ImGui::BeginMenu((std::string(Icons::Plus) + " Create").c_str())) {
+            if (ImGui::MenuItem((std::string(Icons::Code) + " C++ Script").c_str())) {
+                ImGui::CloseCurrentPopup();
+                StartCreateScript();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem((std::string(Icons::Folder) + " Folder").c_str())) {
+                ImGui::CloseCurrentPopup();
+                StartCreateFolder();
+            }
+            if (ImGui::MenuItem((std::string(Icons::File) + " Scene").c_str())) {
+                ImGui::CloseCurrentPopup();
+                StartCreateScene();
+            }
+            ImGui::EndMenu();
+        }
+        ImGui::Separator();
         if (ImGui::MenuItem("Refresh")) {
             Refresh();
         }
@@ -369,4 +393,178 @@ void ProjectBrowserWindow::ScanDirectory(const std::string& path) {
     } catch (const std::exception& e) {
         Log::Error("ProjectBrowser", "Error scanning directory: " + std::string(e.what()));
     }
+}
+
+// ── Create 헬퍼 ──────────────────────────────────────────────────────────────
+
+void ProjectBrowserWindow::DrawCreateInlineInput() {
+    if (createMode == CreateMode::None) return;
+
+    const char* label = "";
+    switch (createMode) {
+        case CreateMode::Script: label = "New Script Name:"; break;
+        case CreateMode::Folder: label = "New Folder Name:"; break;
+        case CreateMode::Scene:  label = "New Scene Name:";  break;
+        default: break;
+    }
+
+    ImGui::Separator();
+    ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.3f, 1.0f), "%s", label);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+
+    if (createFocusNextFrame) {
+        ImGui::SetKeyboardFocusHere();
+        createFocusNextFrame = false;
+    }
+
+    bool confirmed = ImGui::InputText("##CreateName", createNameBuffer, sizeof(createNameBuffer),
+        ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+
+    if (confirmed) {
+        FinishCreate();
+    } else if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        CancelCreate();
+    }
+
+    ImGui::SameLine();
+    if (ImGui::SmallButton("OK")) {
+        FinishCreate();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Cancel")) {
+        CancelCreate();
+    }
+}
+
+void ProjectBrowserWindow::StartCreateScript() {
+    createMode = CreateMode::Script;
+    strncpy(createNameBuffer, "NewScript", sizeof(createNameBuffer) - 1);
+    createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
+    createFocusNextFrame = true;
+}
+
+void ProjectBrowserWindow::StartCreateFolder() {
+    createMode = CreateMode::Folder;
+    strncpy(createNameBuffer, "NewFolder", sizeof(createNameBuffer) - 1);
+    createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
+    createFocusNextFrame = true;
+}
+
+void ProjectBrowserWindow::StartCreateScene() {
+    createMode = CreateMode::Scene;
+    strncpy(createNameBuffer, "NewScene", sizeof(createNameBuffer) - 1);
+    createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
+    createFocusNextFrame = true;
+}
+
+void ProjectBrowserWindow::FinishCreate() {
+    std::string name(createNameBuffer);
+    if (name.empty()) {
+        CancelCreate();
+        return;
+    }
+
+    namespace fs = std::filesystem;
+
+    switch (createMode) {
+        case CreateMode::Script: {
+            if (!Project::Get().IsOpen()) {
+                Log::Error("ProjectBrowser", "No project open — cannot create script");
+                break;
+            }
+
+            ScriptCompiler& compiler = ScriptCompiler::Get();
+            compiler.SetProjectPath(Project::Get().GetPath());
+
+            // currentPath가 Scripts 하위인지 판단
+            std::string scriptsPath = Project::Get().GetScriptsPath();
+            fs::path currentFsPath(currentPath);
+            fs::path scriptsFsPath(scriptsPath);
+            bool inScriptsDir = false;
+            try {
+                fs::path canonCurrent = fs::weakly_canonical(currentFsPath);
+                fs::path canonScripts = fs::weakly_canonical(scriptsFsPath);
+                
+                std::string strCurrent = canonCurrent.string();
+                std::string strScripts = canonScripts.string();
+                
+#if defined(__APPLE__) || defined(_WIN32)
+                std::transform(strCurrent.begin(), strCurrent.end(), strCurrent.begin(), ::tolower);
+                std::transform(strScripts.begin(), strScripts.end(), strScripts.begin(), ::tolower);
+#endif
+                
+                if (strCurrent == strScripts) {
+                    inScriptsDir = true;
+                } else if (strCurrent.size() > strScripts.size() && strCurrent.substr(0, strScripts.size()) == strScripts) {
+                    char nextChar = strCurrent[strScripts.size()];
+                    if (nextChar == '/' || nextChar == '\\') {
+                        inScriptsDir = true;
+                    }
+                }
+            } catch (...) {
+                inScriptsDir = false;
+            }
+
+            // 생성 대상 디렉터리: Scripts 하위면 현재 폴더, 아니면 Scripts 루트
+            std::string destDir = inScriptsDir ? currentPath : scriptsPath;
+
+            // 버그2 수정: 파일 생성 먼저 → 그다음 NavigateTo
+            // (CreateScriptTemplate이 Scripts 폴더 자체를 만들므로 순서가 중요)
+            if (!inScriptsDir) {
+                Log::Warn("ProjectBrowser",
+                    "Scripts must be in the Scripts folder. Creating '" + name + "' in Scripts/ instead.");
+            }
+
+            // 버그1+2 수정: targetDir 전달, 먼저 생성
+            bool ok = compiler.CreateScriptTemplate(name, destDir);
+            if (!ok) {
+                Log::Error("ProjectBrowser", "Failed to create script: " + compiler.GetLastError());
+            } else {
+                Log::Info("ProjectBrowser", "Script created: " + name);
+                // 생성 후 해당 폴더로 이동 (이미 폴더가 존재하므로 NavigateTo 성공)
+                NavigateTo(destDir);
+            }
+            break;
+        }
+        case CreateMode::Folder: {
+            fs::path newDir = fs::path(currentPath) / name;
+            if (fs::exists(newDir)) {
+                Log::Warn("ProjectBrowser", "Folder already exists: " + name);
+                break;
+            }
+            try {
+                fs::create_directory(newDir);
+                Log::Info("ProjectBrowser", "Folder created: " + name);
+            } catch (const std::exception& e) {
+                Log::Error("ProjectBrowser", "Failed to create folder: " + std::string(e.what()));
+            }
+            break;
+        }
+        case CreateMode::Scene: {
+            fs::path scenePath = fs::path(currentPath) / (name + ".json");
+            if (fs::exists(scenePath)) {
+                Log::Warn("ProjectBrowser", "Scene already exists: " + name + ".json");
+                break;
+            }
+            // 빈 오브젝트 목록을 SceneSerializer로 직렬화 → 올바른 스키마 보장
+            std::vector<std::shared_ptr<GameObject>> emptyObjects;
+            if (SceneSerializer::SaveScene(scenePath.string(), emptyObjects)) {
+                Log::Info("ProjectBrowser", "Scene created: " + name + ".json");
+            } else {
+                Log::Error("ProjectBrowser", "Failed to create scene: " + name);
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    createMode = CreateMode::None;
+    memset(createNameBuffer, 0, sizeof(createNameBuffer));
+    Refresh();
+}
+
+void ProjectBrowserWindow::CancelCreate() {
+    createMode = CreateMode::None;
+    memset(createNameBuffer, 0, sizeof(createNameBuffer));
 }

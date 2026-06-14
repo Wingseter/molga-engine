@@ -4,10 +4,20 @@
 #include <vector>
 #include <memory>
 
+#include <nlohmann/json.hpp>
+
 class GameObject;
 
 class SceneSerializer {
 public:
+    // 메모리 직렬화 (스냅샷/복제용)
+    static nlohmann::json SerializeScene(
+        const std::vector<std::shared_ptr<GameObject>>& objects,
+        const std::string& sceneName);
+    static bool DeserializeScene(
+        const nlohmann::json& doc,
+        std::vector<std::shared_ptr<GameObject>>& objects);
+
     // Save scene to JSON file
     static bool SaveScene(const std::string& filepath,
                           const std::vector<std::shared_ptr<GameObject>>& objects);

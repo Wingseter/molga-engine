@@ -3,157 +3,153 @@
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/Collider2D.h"
 #include "ECS/Components/BoxCollider2D.h"
-#include <cassert>
+#include "doctest.h"
 #include <cmath>
 #include <cstdio>
 #include <memory>
 
-static bool approx(float a, float b, float eps = 1e-5f) {
-    return std::fabs(a - b) < eps;
-}
-
 // ── GameObject basics ────────────────────────────────────────────────────────
 
-static void test_gameobject_creation() {
+TEST_CASE("GameObject: creation") {
     auto obj = std::make_shared<GameObject>("Player");
-    assert(obj->GetName() == "Player");
-    assert(obj->IsActive());
-    assert(obj->GetID() > 0);
+    CHECK(obj->GetName() == "Player");
+    CHECK(obj->IsActive());
+    CHECK(obj->GetID() > 0);
 }
 
-static void test_gameobject_name() {
+TEST_CASE("GameObject: name") {
     auto obj = std::make_shared<GameObject>();
-    assert(obj->GetName() == "GameObject");
+    CHECK(obj->GetName() == "GameObject");
     obj->SetName("Enemy");
-    assert(obj->GetName() == "Enemy");
+    CHECK(obj->GetName() == "Enemy");
 }
 
-static void test_gameobject_active() {
+TEST_CASE("GameObject: active") {
     auto obj = std::make_shared<GameObject>();
-    assert(obj->IsActive());
+    CHECK(obj->IsActive());
     obj->SetActive(false);
-    assert(!obj->IsActive());
+    CHECK(!obj->IsActive());
 }
 
-static void test_gameobject_unique_ids() {
+TEST_CASE("GameObject: unique IDs") {
     auto a = std::make_shared<GameObject>();
     auto b = std::make_shared<GameObject>();
-    assert(a->GetID() != b->GetID());
+    CHECK(a->GetID() != b->GetID());
 }
 
 // ── Component management ─────────────────────────────────────────────────────
 
-static void test_add_get_component() {
+TEST_CASE("ECS: add and get component") {
     auto obj = std::make_shared<GameObject>("Test");
     Transform* t = obj->AddComponent<Transform>(10.0f, 20.0f);
-    assert(t != nullptr);
-    assert(approx(t->GetX(), 10.0f));
-    assert(approx(t->GetY(), 20.0f));
+    REQUIRE(t != nullptr);
+    CHECK(t->GetX() == doctest::Approx(10.0f));
+    CHECK(t->GetY() == doctest::Approx(20.0f));
 
     Transform* got = obj->GetComponent<Transform>();
-    assert(got == t);
+    CHECK(got == t);
 }
 
-static void test_has_component() {
+TEST_CASE("ECS: has component") {
     auto obj = std::make_shared<GameObject>();
-    assert(!obj->HasComponent<Transform>());
+    CHECK(!obj->HasComponent<Transform>());
     obj->AddComponent<Transform>();
-    assert(obj->HasComponent<Transform>());
+    CHECK(obj->HasComponent<Transform>());
 }
 
-static void test_remove_component() {
+TEST_CASE("ECS: remove component") {
     auto obj = std::make_shared<GameObject>();
     obj->AddComponent<Transform>();
-    assert(obj->HasComponent<Transform>());
+    CHECK(obj->HasComponent<Transform>());
 
     obj->RemoveComponent<Transform>();
-    assert(!obj->HasComponent<Transform>());
+    CHECK(!obj->HasComponent<Transform>());
 }
 
-static void test_multiple_components() {
+TEST_CASE("ECS: multiple components") {
     auto obj = std::make_shared<GameObject>();
     obj->AddComponent<Transform>(5.0f, 5.0f);
     obj->AddComponent<BoxCollider2D>(32.0f, 32.0f);
 
-    assert(obj->HasComponent<Transform>());
-    assert(obj->HasComponent<BoxCollider2D>());
+    CHECK(obj->HasComponent<Transform>());
+    CHECK(obj->HasComponent<BoxCollider2D>());
 
     auto components = obj->GetComponents();
-    assert(components.size() == 2);
+    CHECK(components.size() == 2);
 }
 
 // ── Transform ────────────────────────────────────────────────────────────────
 
-static void test_transform_position() {
+TEST_CASE("Transform: position") {
     auto obj = std::make_shared<GameObject>();
     Transform* t = obj->AddComponent<Transform>();
-    assert(approx(t->GetX(), 0.0f));
-    assert(approx(t->GetY(), 0.0f));
+    CHECK(t->GetX() == doctest::Approx(0.0f));
+    CHECK(t->GetY() == doctest::Approx(0.0f));
 
     t->SetPosition(100.0f, 200.0f);
-    assert(approx(t->GetX(), 100.0f));
-    assert(approx(t->GetY(), 200.0f));
+    CHECK(t->GetX() == doctest::Approx(100.0f));
+    CHECK(t->GetY() == doctest::Approx(200.0f));
 
     t->Translate(10.0f, -5.0f);
-    assert(approx(t->GetX(), 110.0f));
-    assert(approx(t->GetY(), 195.0f));
+    CHECK(t->GetX() == doctest::Approx(110.0f));
+    CHECK(t->GetY() == doctest::Approx(195.0f));
 }
 
-static void test_transform_rotation() {
+TEST_CASE("Transform: rotation") {
     auto obj = std::make_shared<GameObject>();
     Transform* t = obj->AddComponent<Transform>();
-    assert(approx(t->GetRotation(), 0.0f));
+    CHECK(t->GetRotation() == doctest::Approx(0.0f));
 
     t->SetRotation(45.0f);
-    assert(approx(t->GetRotation(), 45.0f));
+    CHECK(t->GetRotation() == doctest::Approx(45.0f));
 }
 
-static void test_transform_scale() {
+TEST_CASE("Transform: scale") {
     auto obj = std::make_shared<GameObject>();
     Transform* t = obj->AddComponent<Transform>();
-    assert(approx(t->GetScale().x, 1.0f));
-    assert(approx(t->GetScale().y, 1.0f));
+    CHECK(t->GetScale().x == doctest::Approx(1.0f));
+    CHECK(t->GetScale().y == doctest::Approx(1.0f));
 
     t->SetScale(2.0f, 3.0f);
-    assert(approx(t->GetScale().x, 2.0f));
-    assert(approx(t->GetScale().y, 3.0f));
+    CHECK(t->GetScale().x == doctest::Approx(2.0f));
+    CHECK(t->GetScale().y == doctest::Approx(3.0f));
 
     t->SetScale(0.5f);
-    assert(approx(t->GetScale().x, 0.5f));
-    assert(approx(t->GetScale().y, 0.5f));
+    CHECK(t->GetScale().x == doctest::Approx(0.5f));
+    CHECK(t->GetScale().y == doctest::Approx(0.5f));
 }
 
-static void test_transform_type_name() {
+TEST_CASE("Transform: type name") {
     auto obj = std::make_shared<GameObject>();
     Transform* t = obj->AddComponent<Transform>();
-    assert(t->GetTypeName() == "Transform");
+    CHECK(t->GetTypeName() == "Transform");
 }
 
 // ── Parent-child hierarchy ───────────────────────────────────────────────────
 
-static void test_parent_child() {
+TEST_CASE("Hierarchy: parent-child connection") {
     auto parent = std::make_shared<GameObject>("Parent");
     auto child = std::make_shared<GameObject>("Child");
 
     parent->AddChild(child.get());
 
-    assert(child->GetParent() == parent.get());
-    assert(parent->GetChildren().size() == 1);
-    assert(parent->GetChildren()[0] == child.get());
+    CHECK(child->GetParent() == parent.get());
+    REQUIRE(parent->GetChildren().size() == 1);
+    CHECK(parent->GetChildren()[0] == child.get());
 }
 
-static void test_remove_child() {
+TEST_CASE("Hierarchy: remove child") {
     auto parent = std::make_shared<GameObject>("Parent");
     auto child = std::make_shared<GameObject>("Child");
 
     parent->AddChild(child.get());
     parent->RemoveChild(child.get());
 
-    assert(child->GetParent() == nullptr);
-    assert(parent->GetChildren().empty());
+    CHECK(child->GetParent() == nullptr);
+    CHECK(parent->GetChildren().empty());
 }
 
-static void test_world_transform_with_parent() {
+TEST_CASE("Hierarchy: world transform propagation") {
     auto parent = std::make_shared<GameObject>("Parent");
     auto child = std::make_shared<GameObject>("Child");
 
@@ -166,13 +162,13 @@ static void test_world_transform_with_parent() {
 
     // World position = parent_pos + child_local * parent_scale (no rotation)
     Vector2 worldPos = ct->GetWorldPosition();
-    assert(approx(worldPos.x, 120.0f));  // 100 + 10*2
-    assert(approx(worldPos.y, 240.0f));  // 200 + 20*2
+    CHECK(worldPos.x == doctest::Approx(120.0f));  // 100 + 10*2
+    CHECK(worldPos.y == doctest::Approx(240.0f));  // 200 + 20*2
 
     // World scale = parent_scale * child_scale
     Vector2 worldScale = ct->GetWorldScale();
-    assert(approx(worldScale.x, 2.0f));
-    assert(approx(worldScale.y, 2.0f));
+    CHECK(worldScale.x == doctest::Approx(2.0f));
+    CHECK(worldScale.y == doctest::Approx(2.0f));
 }
 
 // ── Component lifecycle callbacks ────────────────────────────────────────────
@@ -186,126 +182,126 @@ public:
     void OnDisable() override { disableCount++; }
 };
 
-static void test_component_lifecycle_callbacks() {
+TEST_CASE("ECS: component lifecycle callbacks") {
     auto obj = std::make_shared<GameObject>();
     auto* comp = obj->AddComponent<LifecycleTestComponent>();
-    assert(comp->IsEnabled());
-    assert(comp->enableCount == 0);  // Not called on initial creation
-    assert(comp->disableCount == 0);
+    CHECK(comp->IsEnabled());
+    CHECK(comp->enableCount == 0);  // Not called on initial creation
+    CHECK(comp->disableCount == 0);
 
     // Disable → OnDisable called
     comp->SetEnabled(false);
-    assert(!comp->IsEnabled());
-    assert(comp->disableCount == 1);
+    CHECK(!comp->IsEnabled());
+    CHECK(comp->disableCount == 1);
 
     // Enable → OnEnable called
     comp->SetEnabled(true);
-    assert(comp->IsEnabled());
-    assert(comp->enableCount == 1);
+    CHECK(comp->IsEnabled());
+    CHECK(comp->enableCount == 1);
 
     // Duplicate call → no extra callback
     comp->SetEnabled(true);
-    assert(comp->enableCount == 1);
+    CHECK(comp->enableCount == 1);
     comp->SetEnabled(false);
-    assert(comp->disableCount == 2);
+    CHECK(comp->disableCount == 2);
     comp->SetEnabled(false);
-    assert(comp->disableCount == 2);
+    CHECK(comp->disableCount == 2);
 }
 
 // ── OnDestroy / NotifyDestroy ────────────────────────────────────────────────
 
-static void test_on_destroy_called() {
-    struct Ctx { bool called = false; };
-    class DestroyComp : public Component {
-    public:
-        COMPONENT_TYPE(DestroyComp)
-        Ctx* ctx = nullptr;
-        void OnDestroy() override { ctx->called = true; }
-    };
+struct DestroyCtx { bool called = false; };
+class DestroyComp : public Component {
+public:
+    COMPONENT_TYPE(DestroyComp)
+    DestroyCtx* ctx = nullptr;
+    void OnDestroy() override { ctx->called = true; }
+};
 
-    Ctx ctx;
+TEST_CASE("ECS: OnDestroy called") {
+    DestroyCtx ctx;
     {
         auto obj = std::make_shared<GameObject>("destroy_test");
         auto* comp = obj->AddComponent<DestroyComp>();
         comp->ctx = &ctx;
     }
-    assert(ctx.called);
+    CHECK(ctx.called);
 }
 
-static void test_notify_destroy_idempotent() {
-    struct Ctx { int count = 0; };
-    class CountComp : public Component {
-    public:
-        COMPONENT_TYPE(CountComp)
-        Ctx* ctx = nullptr;
-        void OnDestroy() override { ctx->count++; }
-    };
+struct IdempotentCtx { int count = 0; };
+class CountComp : public Component {
+public:
+    COMPONENT_TYPE(CountComp)
+    IdempotentCtx* ctx = nullptr;
+    void OnDestroy() override { ctx->count++; }
+};
 
-    Ctx ctx;
+TEST_CASE("ECS: NotifyDestroy idempotent") {
+    IdempotentCtx ctx;
     auto obj = std::make_shared<GameObject>("idempotent_test");
     auto* comp = obj->AddComponent<CountComp>();
     comp->ctx = &ctx;
     obj->NotifyDestroy();
     obj->NotifyDestroy();  // second call should be ignored
     obj.reset();           // destructor also ignored
-    assert(ctx.count == 1);
+    CHECK(ctx.count == 1);
 }
 
-static void test_destroy_disabled_no_double_disable() {
-    struct Ctx { int disableCount = 0; };
-    class TrackComp : public Component {
-    public:
-        COMPONENT_TYPE(TrackComp)
-        Ctx* ctx = nullptr;
-        void OnDisable() override { ctx->disableCount++; }
-        void OnDestroy() override {}
-    };
+struct DisableCtx { int disableCount = 0; };
+class TrackComp : public Component {
+public:
+    COMPONENT_TYPE(TrackComp)
+    DisableCtx* ctx = nullptr;
+    void OnDisable() override { ctx->disableCount++; }
+    void OnDestroy() override {}
+};
 
-    Ctx ctx;
+TEST_CASE("ECS: destroy disabled no double disable") {
+    DisableCtx ctx;
     auto obj = std::make_shared<GameObject>("disable_test");
     auto* comp = obj->AddComponent<TrackComp>();
     comp->ctx = &ctx;
     comp->SetEnabled(false);  // OnDisable called once
-    assert(ctx.disableCount == 1);
+    CHECK(ctx.disableCount == 1);
     obj.reset();  // already disabled → OnDisable NOT called again
-    assert(ctx.disableCount == 1);
+    CHECK(ctx.disableCount == 1);
 }
 
-static void test_remove_component_calls_on_disable() {
-    struct Ctx { int disableCount = 0; int detachCount = 0; };
-    class RemComp : public Component {
-    public:
-        COMPONENT_TYPE(RemComp)
-        Ctx* ctx = nullptr;
-        void OnDisable() override { ctx->disableCount++; }
-        void OnDetach() override { ctx->detachCount++; }
-    };
+struct RemCtx { int disableCount = 0; int detachCount = 0; };
+class RemComp : public Component {
+public:
+    COMPONENT_TYPE(RemComp)
+    RemCtx* ctx = nullptr;
+    void OnDisable() override { ctx->disableCount++; }
+    void OnDetach() override { ctx->detachCount++; }
+};
 
-    Ctx ctx;
+TEST_CASE("ECS: remove component calls on disable") {
+    RemCtx ctx;
     auto obj = std::make_shared<GameObject>("remove_test");
     auto* comp = obj->AddComponent<RemComp>();
     comp->ctx = &ctx;
-    assert(comp->IsEnabled());
+    CHECK(comp->IsEnabled());
     obj->RemoveComponent<RemComp>();
-    assert(ctx.disableCount == 1);
-    assert(ctx.detachCount == 1);
+    CHECK(ctx.disableCount == 1);
+    CHECK(ctx.detachCount == 1);
 }
 
 // ── BoxCollider2D ────────────────────────────────────────────────────────────
 
-static void test_box_collider_world_aabb() {
+TEST_CASE("BoxCollider2D: world AABB calculation") {
     auto obj = std::make_shared<GameObject>();
-    Transform* t = obj->AddComponent<Transform>(50.0f, 60.0f);
+    obj->AddComponent<Transform>(50.0f, 60.0f);
     BoxCollider2D* bc = obj->AddComponent<BoxCollider2D>(20.0f, 30.0f);
 
     AABB aabb = bc->GetWorldAABB();
-    assert(approx(aabb.x, 50.0f));
-    assert(approx(aabb.y, 60.0f));
-    assert(approx(aabb.width, 20.0f));
-    assert(approx(aabb.height, 30.0f));
+    CHECK(aabb.x == doctest::Approx(50.0f));
+    CHECK(aabb.y == doctest::Approx(60.0f));
+    CHECK(aabb.width == doctest::Approx(20.0f));
+    CHECK(aabb.height == doctest::Approx(30.0f));
 }
 
-static void test_box_collider_collision() {
+TEST_CASE("BoxCollider2D: collision check") {
     auto obj1 = std::make_shared<GameObject>();
     obj1->AddComponent<Transform>(0.0f, 0.0f);
     BoxCollider2D* bc1 = obj1->AddComponent<BoxCollider2D>(10.0f, 10.0f);
@@ -314,39 +310,39 @@ static void test_box_collider_collision() {
     obj2->AddComponent<Transform>(5.0f, 5.0f);
     BoxCollider2D* bc2 = obj2->AddComponent<BoxCollider2D>(10.0f, 10.0f);
 
-    assert(bc1->CheckCollision(bc2));
+    CHECK(bc1->CheckCollision(bc2));
 
     auto obj3 = std::make_shared<GameObject>();
     obj3->AddComponent<Transform>(100.0f, 100.0f);
     BoxCollider2D* bc3 = obj3->AddComponent<BoxCollider2D>(10.0f, 10.0f);
 
-    assert(!bc1->CheckCollision(bc3));
+    CHECK(!bc1->CheckCollision(bc3));
 }
 
-static void test_box_collider_type_name() {
+TEST_CASE("BoxCollider2D: type name") {
     auto obj = std::make_shared<GameObject>();
     BoxCollider2D* bc = obj->AddComponent<BoxCollider2D>();
-    assert(bc->GetTypeName() == "BoxCollider2D");
+    CHECK(bc->GetTypeName() == "BoxCollider2D");
 }
 
 // ── Collider2D abstraction ───────────────────────────────────────────────────
 
-static void test_collider2d_inheritance() {
+TEST_CASE("Collider2D: inheritance and abstract options") {
     auto obj = std::make_shared<GameObject>("test");
     auto* box = obj->AddComponent<BoxCollider2D>();
 
     Collider2D* collider = dynamic_cast<Collider2D*>(box);
-    assert(collider != nullptr);
-    assert(collider->GetShapeType() == Collider2D::ShapeType::Box);
+    REQUIRE(collider != nullptr);
+    CHECK(collider->GetShapeType() == Collider2D::ShapeType::Box);
 
     collider->SetOffset(5.0f, 10.0f);
-    assert(approx(collider->GetOffset().x, 5.0f));
-    assert(approx(collider->GetOffset().y, 10.0f));
+    CHECK(collider->GetOffset().x == doctest::Approx(5.0f));
+    CHECK(collider->GetOffset().y == doctest::Approx(10.0f));
     collider->SetTrigger(true);
-    assert(collider->IsTrigger());
+    CHECK(collider->IsTrigger());
 }
 
-static void test_collider2d_world_bounds() {
+TEST_CASE("Collider2D: world bounds compatibility") {
     auto obj = std::make_shared<GameObject>("test");
     auto* transform = obj->AddComponent<Transform>();
     transform->SetPosition(100.0f, 200.0f);
@@ -354,13 +350,13 @@ static void test_collider2d_world_bounds() {
 
     AABB bounds = box->GetWorldBounds();
     AABB aabb = box->GetWorldAABB();
-    assert(approx(bounds.x, aabb.x));
-    assert(approx(bounds.y, aabb.y));
-    assert(approx(bounds.width, aabb.width));
-    assert(approx(bounds.height, aabb.height));
+    CHECK(bounds.x == doctest::Approx(aabb.x));
+    CHECK(bounds.y == doctest::Approx(aabb.y));
+    CHECK(bounds.width == doctest::Approx(aabb.width));
+    CHECK(bounds.height == doctest::Approx(aabb.height));
 }
 
-static void test_collider2d_negative_scale_normalized() {
+TEST_CASE("Collider2D: negative scale bounds normalization") {
     auto obj = std::make_shared<GameObject>("test");
     auto* transform = obj->AddComponent<Transform>();
     transform->SetPosition(0.0f, 0.0f);
@@ -368,47 +364,6 @@ static void test_collider2d_negative_scale_normalized() {
     auto* box = obj->AddComponent<BoxCollider2D>(10.0f, 10.0f);
 
     AABB bounds = box->GetWorldBounds();
-    assert(bounds.width > 0.0f);
-    assert(bounds.height > 0.0f);
-}
-
-// ── main ─────────────────────────────────────────────────────────────────────
-
-int main() {
-    test_gameobject_creation();
-    test_gameobject_name();
-    test_gameobject_active();
-    test_gameobject_unique_ids();
-
-    test_add_get_component();
-    test_has_component();
-    test_remove_component();
-    test_multiple_components();
-
-    test_transform_position();
-    test_transform_rotation();
-    test_transform_scale();
-    test_transform_type_name();
-
-    test_parent_child();
-    test_remove_child();
-    test_world_transform_with_parent();
-
-    test_component_lifecycle_callbacks();
-
-    test_on_destroy_called();
-    test_notify_destroy_idempotent();
-    test_destroy_disabled_no_double_disable();
-    test_remove_component_calls_on_disable();
-
-    test_box_collider_world_aabb();
-    test_box_collider_collision();
-    test_box_collider_type_name();
-
-    test_collider2d_inheritance();
-    test_collider2d_world_bounds();
-    test_collider2d_negative_scale_normalized();
-
-    std::printf("test_ecs: all tests passed\n");
-    return 0;
+    CHECK(bounds.width > 0.0f);
+    CHECK(bounds.height > 0.0f);
 }

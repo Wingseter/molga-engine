@@ -87,9 +87,15 @@ public:
     GameObject* GetParent() const { return parent; }
     const std::vector<GameObject*>& GetChildren() const { return children; }
 
-    void SetParent(GameObject* newParent);
+    // 성공 시 true. self/cycle을 만들면 거부하고 false를 반환한다.
+    bool SetParent(GameObject* newParent);
     void AddChild(GameObject* child);
     void RemoveChild(GameObject* child);
+
+    // node가 이 오브젝트의 자손이면 true (cycle 방지에 사용).
+    bool IsAncestorOf(const GameObject* node) const;
+    // 이 오브젝트와 모든 자손을 DFS 순서(부모 먼저)로 out에 추가.
+    void CollectSubtree(std::vector<GameObject*>& out);
 
     // Active state
     bool IsActive() const { return active; }
@@ -108,6 +114,9 @@ public:
     // Script lifecycle hooks (avoid duplicating dynamic_cast loops in entry points)
     void FixedUpdateScripts(float fixedDt);
     void LateUpdateScripts(float dt);
+    // 아직 시작 안 한 스크립트의 Start()를 1회 호출
+    void StartScripts();
+    void ResolveAssets();
 
 private:
     static unsigned int nextID;

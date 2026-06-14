@@ -10,6 +10,8 @@ GameObject::GameObject(const std::string& name)
     : id(nextID++), name(name) {
 }
 
+#include "Common/Log.h"
+
 GameObject::~GameObject() {
     NotifyDestroy();  // destroyed flag prevents double-call
     for (auto& [id, comp] : componentMap) {
@@ -19,11 +21,23 @@ GameObject::~GameObject() {
     if (parent) {
         parent->RemoveChild(this);
     }
+    // 살아남는 자식들이 해제될 우리를 가리키지 않도록 parent를 끊는다.
+    for (auto* child : children) {
+        if (child) child->parent = nullptr;
+    }
     children.clear();
 }
 
-void GameObject::SetParent(GameObject* newParent) {
-    if (parent == newParent) return;
+bool GameObject::SetParent(GameObject* newParent) {
+    if (parent == newParent) return true;
+    if (newParent == this) {
+        Log::Warn("GameObject", "Ignoring attempt to parent '" + name + "' to itself");
+        return false;
+    }
+    if (newParent && IsAncestorOf(newParent)) {
+        Log::Warn("GameObject", "Ignoring reparent of '" + name + "' that would create a cycle");
+        return false;
+    }
 
     // Remove from old parent
     if (parent) {
@@ -35,7 +49,25 @@ void GameObject::SetParent(GameObject* newParent) {
 
     // Add to new parent's children
     if (parent) {
-        parent->children.push_back(this);
+        auto& siblings = parent->children;
+        if (std::find(siblings.begin(), siblings.end(), this) == siblings.end()) {
+            siblings.push_back(this);
+        }
+    }
+    return true;
+}
+
+bool GameObject::IsAncestorOf(const GameObject* node) const {
+    for (const GameObject* p = (node ? node->parent : nullptr); p; p = p->parent) {
+        if (p == this) return true;
+    }
+    return false;
+}
+
+void GameObject::CollectSubtree(std::vector<GameObject*>& out) {
+    out.push_back(this);
+    for (auto* child : children) {
+        if (child) child->CollectSubtree(out);
     }
 }
 
@@ -134,5 +166,24 @@ void GameObject::LateUpdateScripts(float dt) {
                 script->LateUpdate(dt);
             }
         }
+    }
+}
+
+void GameObject::StartScripts() {
+    if (!active) return;
+    for (auto& [id, comp] : componentMap) {
+        if (!comp->IsEnabled()) continue;
+        if (auto* s = dynamic_cast<Script*>(comp.get())) {
+            if (!s->HasStarted()) {
+                s->Start();
+                s->MarkStarted();
+            }
+        }
+    }
+}
+
+void GameObject::ResolveAssets() {
+    for (auto& [id, comp] : componentMap) {
+        if (comp) comp->ResolveAssets();
     }
 }

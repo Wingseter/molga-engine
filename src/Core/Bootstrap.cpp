@@ -23,6 +23,7 @@ GLFWwindow* EngineInit(const WindowConfig& config) {
 #endif
 
     GLFWmonitor* monitor = config.fullscreen ? glfwGetPrimaryMonitor() : nullptr;
+    glfwWindowHint(GLFW_VISIBLE, config.visible ? GLFW_TRUE : GLFW_FALSE);
     GLFWwindow* window = glfwCreateWindow(config.width, config.height,
                                           config.title.c_str(), monitor, nullptr);
     if (window == nullptr) {

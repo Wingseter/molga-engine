@@ -10,8 +10,7 @@
 #include "Rendering/Renderer.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
-#include "Rendering/Camera2D.h"
-#include "Core/Scene.h"
+// removed Core/Scene.h include
 #include "Systems/Audio.h"
 #include "Editor/ImGuiLayer.h"
 #include "Editor/EditorState.h"
@@ -20,14 +19,16 @@
 #include "Editor/Project.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
-#include "ECS/Components/SpriteRenderer.h"
 #include "ECS/Components/BoxCollider2D.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
-#include "Scenes/MenuScene.h"
-#include "Scenes/GameScene.h"
+#include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
+#include "Core/PathService.h"
+#include "Core/SmokeReport.h"
+#include "Editor/GameBuilder.h"
 #include <imgui.h>
+#include <optional>
 
 // Settings
 const unsigned int SCR_WIDTH = 800;
@@ -35,7 +36,77 @@ const unsigned int SCR_HEIGHT = 600;
 
 GLFWwindow* g_window = nullptr;
 
+namespace {
+
+struct SmokeBuildOptions {
+    std::filesystem::path projectRoot;
+    std::filesystem::path outputRoot;
+    std::filesystem::path reportPath;
+};
+
+std::optional<SmokeBuildOptions> ParseSmokeBuild(int argc, char** argv) {
+    if (argc != 5 || std::string_view(argv[1]) != "--smoke-build") {
+        return std::nullopt;
+    }
+    return SmokeBuildOptions{argv[2], argv[3], argv[4]};
+}
+
+int RunSmokeBuild(const SmokeBuildOptions& options) {
+    SmokeReport report;
+    report.executable = "molga_engine";
+    report.scenePath = "Scenes/main.json";
+
+    if (!Project::Get().Open(options.projectRoot.string())) {
+        report.status = "error";
+        report.message = "Could not open smoke project";
+        report.Save(options.reportPath);
+        return 3;
+    }
+
+    World world;
+    const auto scenePath = options.projectRoot / "Scenes/main.json";
+    if (!world.LoadFromFile(scenePath.string())) {
+        report.status = "error";
+        report.message = "Could not load smoke scene";
+        report.Save(options.reportPath);
+        return 3;
+    }
+
+    BuildSettings settings;
+    settings.gameName = "SmokeGame";
+    settings.outputPath = options.outputRoot.string();
+    settings.mainScene = scenePath.string();
+
+    if (!GameBuilder::Get().Build(settings)) {
+        report.status = "error";
+        report.message = GameBuilder::Get().GetLastError();
+        report.Save(options.reportPath);
+        return 3;
+    }
+
+    report.status = "ok";
+    report.message = "Build completed";
+    report.objectCount = world.Objects().size();
+    report.Save(options.reportPath);
+    return 0;
+}
+
+}  // namespace
+
 int main(int argc, char* argv[]) {
+    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+
+    if (argc > 1 && std::string_view(argv[1]) == "--smoke-build") {
+        const auto options = ParseSmokeBuild(argc, argv);
+        if (!options) {
+            std::cerr
+                << "Usage: molga_engine --smoke-build "
+                << "<project-root> <output-root> <report-path>\n";
+            return 2;
+        }
+        return RunSmokeBuild(*options);
+    }
+
     // Check for project path argument
     std::string projectPath;
     if (argc > 1) {
@@ -55,9 +126,10 @@ int main(int argc, char* argv[]) {
     // Initialize resources (local to main)
     auto renderer = std::make_unique<Renderer>();
     renderer->Init();
-    auto shader = std::make_unique<Shader>("Shaders/default.vert", "Shaders/default.frag");
-    auto camera = std::make_unique<Camera2D>(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
-    std::vector<std::shared_ptr<GameObject>> editorObjects;
+    auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
+    auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
+    auto shader = std::make_unique<Shader>(vertPath.c_str(), fragPath.c_str());
+    SceneDocument sceneDoc;
 
     // Initialize Scripting
     RegisterBuiltinScripts();
@@ -67,7 +139,25 @@ int main(int argc, char* argv[]) {
 
     // Initialize Editor
     Editor::Get().Init();
-    Editor::Get().SetGameObjects(&editorObjects);
+    Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+    // SceneView에 렌더 리소스 주입 (FBO 렌더 활성화)
+    Editor::Get().SetSceneViewResources(renderer.get(), shader.get());
+
+    EditorState& editorState = EditorState::Get();
+    editorState.SetPlayCallbacks(
+        [&sceneDoc]() {  // Edit → Play
+            Editor::Get().SetSelectedObject(nullptr);
+            Editor::Get().GetCommandHistory().Clear();
+            sceneDoc.EnterPlay();
+            sceneDoc.ActiveWorld().ResolveAssets();
+            Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+        },
+        [&sceneDoc]() {  // Play/Pause → Stop
+            Editor::Get().SetSelectedObject(nullptr);
+            Editor::Get().GetCommandHistory().Clear();
+            Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+            sceneDoc.ExitPlay();
+        });
 
     // Project loading phase
     bool projectLoaded = false;
@@ -103,43 +193,26 @@ int main(int argc, char* argv[]) {
         glfwSwapBuffers(window);
     }
 
+    if (projectLoaded && Project::Get().IsOpen()) {
+        namespace fs = std::filesystem;
+        PathService::Get().SetAssetRoot(Project::Get().GetPath());
+
+        const fs::path mainScene = fs::path(Project::Get().GetScenesPath()) / "main.json";
+        if (sceneDoc.Open(mainScene.string())) {
+            sceneDoc.EditWorld().ResolveAssets();
+            Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+            Editor::Get().SetCurrentScenePath(mainScene.string());
+            // 씬 로드 후 SceneView 리소스 재주입 (오브젝트 목록 갱신)
+            Editor::Get().SetSceneViewResources(renderer.get(), shader.get());
+            std::cout << "[Main] Loaded project main scene: " << mainScene << std::endl;
+        } else {
+            std::cerr << "[Main] Project main scene not found or invalid: "
+                      << mainScene << std::endl;
+        }
+    }
+
     // If window was not closed during project selection, run editor
     if (!glfwWindowShouldClose(window)) {
-        // Create sample GameObjects for editor demo
-        {
-            auto player = std::make_shared<GameObject>("Player");
-            auto transform = player->AddComponent<Transform>();
-            transform->SetPosition(100.0f, 100.0f);
-            auto spriteRenderer = player->AddComponent<SpriteRenderer>();
-            spriteRenderer->SetColor(0.2f, 0.8f, 0.3f, 1.0f);
-            spriteRenderer->SetSize(32.0f, 32.0f);
-            player->AddComponent<BoxCollider2D>();
-            editorObjects.push_back(player);
-
-            auto enemy = std::make_shared<GameObject>("Enemy");
-            transform = enemy->AddComponent<Transform>();
-            transform->SetPosition(300.0f, 200.0f);
-            spriteRenderer = enemy->AddComponent<SpriteRenderer>();
-            spriteRenderer->SetColor(0.8f, 0.2f, 0.2f, 1.0f);
-            spriteRenderer->SetSize(32.0f, 32.0f);
-            enemy->AddComponent<BoxCollider2D>();
-            editorObjects.push_back(enemy);
-
-            auto ground = std::make_shared<GameObject>("Ground");
-            transform = ground->AddComponent<Transform>();
-            transform->SetPosition(0.0f, 500.0f);
-            spriteRenderer = ground->AddComponent<SpriteRenderer>();
-            spriteRenderer->SetColor(0.4f, 0.4f, 0.5f, 1.0f);
-            spriteRenderer->SetSize(800.0f, 100.0f);
-            ground->AddComponent<BoxCollider2D>();
-            editorObjects.push_back(ground);
-        }
-
-        // Create scenes
-        SceneManager::AddScene("Menu", std::make_shared<MenuScene>());
-        SceneManager::AddScene("Game", std::make_shared<GameScene>());
-        SceneManager::ChangeScene("Menu");
-
         // Main editor loop
         while (!glfwWindowShouldClose(window)) {
             Time::Update();
@@ -156,7 +229,7 @@ int main(int argc, char* argv[]) {
                 title << " - " << Project::Get().GetName();
             }
             title << " | FPS: " << static_cast<int>(Time::GetFPS())
-                  << " | Scene: " << SceneManager::GetCurrentSceneName();
+                  << " | Scene: " << sceneDoc.ActiveWorld().Name();
             if (editorState.IsEditMode()) {
                 title << " [EDIT]";
             } else if (editorState.IsPlayMode()) {
@@ -166,49 +239,21 @@ int main(int argc, char* argv[]) {
             }
             glfwSetWindowTitle(window, title.str().c_str());
 
-            // Only update scene and game objects in Play mode
-            if (editorState.IsPlayMode()) {
+            // Play 모드에서만 ActiveWorld(=playWorld)를 시뮬레이션한다.
+            if (editorState.IsPlayMode() && sceneDoc.IsPlaying()) {
                 float scaledDt = dt * editorState.GetTimeScale();
 
-                // Fixed Update loop
                 Time::AccumulateFixedTime(scaledDt);
                 while (Time::HasPendingFixedStep()) {
-                    float fixedDt = Time::GetFixedDeltaTime();
-                    for (auto& obj : editorObjects) {
-                        if (obj && obj->IsActive()) {
-                            obj->FixedUpdateScripts(fixedDt);
-                        }
-                    }
+                    sceneDoc.ActiveWorld().FixedStep(Time::GetFixedDeltaTime());
                     Time::ConsumeFixedStep();
                 }
-
-                // Variable Update
-                SceneManager::Update(scaledDt);
-                for (auto& obj : editorObjects) {
-                    if (obj && obj->IsActive()) {
-                        obj->Update(scaledDt);
-                    }
-                }
+                sceneDoc.ActiveWorld().Update(scaledDt);
+                sceneDoc.ActiveWorld().LateUpdate(scaledDt);
             }
 
-            // Render based on editor mode
-            if (editorState.IsEditMode()) {
-                // Edit mode: Render editor scene
-                renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
-                renderer->Begin(shader.get(), camera.get());
-                for (auto& obj : editorObjects) {
-                    if (obj && obj->IsActive()) {
-                        auto sr = obj->GetComponent<SpriteRenderer>();
-                        if (sr) {
-                            sr->RenderSprite(renderer.get(), shader.get(), camera.get());
-                        }
-                    }
-                }
-                renderer->End();
-            } else {
-                // Play/Pause mode: Render game scene
-                SceneManager::Render(renderer.get(), shader.get(), camera.get());
-            }
+            // 메인 백버퍼 클리어 (씬 렌더는 SceneViewWindow FBO 안에서 수행)
+            renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
 
             // ImGui Editor UI
             ImGuiLayer::BeginFrame();
@@ -224,11 +269,8 @@ int main(int argc, char* argv[]) {
     // Cleanup (deterministic order; unique_ptrs auto-release)
     Project::Get().Close();
     Editor::Get().Shutdown();
-    editorObjects.clear();
     ImGuiLayer::Shutdown();
-    SceneManager::Clear();
     TextRenderer::Get().Shutdown();
-    camera.reset();
     shader.reset();
     renderer.reset();
     EngineShutdown();

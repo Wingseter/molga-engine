@@ -2,8 +2,11 @@
 #include "../../ECS/GameObject.h"
 #include "../../ECS/Component.h"
 #include "../../ECS/Components/Transform.h"
+#include "../../ECS/Components/SpriteRenderer.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
+#include "Editor/Editor.h"
+#include "Editor/Commands/ObjectCommands.h"
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
@@ -51,8 +54,16 @@ void HierarchyWindow::OnGUI() {
             CreateEmptyGameObject();
         }
         if (ImGui::BeginMenu((std::string(Icons::Image) + " Create 2D Object").c_str())) {
-            if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {}
-            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap").c_str())) {}
+            if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {
+                CreateSpriteObject();
+            }
+            // Tilemap ECS 컴포넌트 미구현 — 빈 오브젝트만 생성됨
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap  [TODO]").c_str())) {
+                CreateTilemapObject();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Tilemap ECS component not yet implemented.\nCreates an empty GameObject only.");
+            }
             ImGui::EndMenu();
         }
         ImGui::EndPopup();
@@ -91,7 +102,8 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
         ImGui::SetNextItemWidth(-1);
         if (ImGui::InputText("##Rename", renameBuffer, sizeof(renameBuffer),
                              ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-            obj->SetName(renameBuffer);
+            Editor::Get().GetCommandHistory().Execute(
+                std::make_unique<molga::RenameObjectCommand>(obj->GetID(), std::string(renameBuffer)));
             isRenaming = false;
             renamingObject = nullptr;
         }
@@ -148,55 +160,43 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 }
 
 void HierarchyWindow::CreateEmptyGameObject() {
-    if (!gameObjects) return;
+    auto cmd = std::make_unique<molga::CreateObjectCommand>("New GameObject");
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();
+}
 
-    auto obj = std::make_shared<GameObject>("New GameObject");
-    obj->AddComponent<Transform>();
-    gameObjects->push_back(obj);
-
-    selectedObject = obj.get();
-    if (onSelectionChanged) {
-        onSelectionChanged(selectedObject);
+void HierarchyWindow::CreateSpriteObject() {
+    auto cmd = std::make_unique<molga::CreateObjectCommand>("Sprite");
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    // 생성된 오브젝트에 SpriteRenderer 부착
+    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
+        obj->AddComponent<SpriteRenderer>();
+        Editor::Get().MarkSceneModified();
     }
+    selectedObject = Editor::Get().GetSelectedObject();
+}
+
+void HierarchyWindow::CreateTilemapObject() {
+    // TODO: Tilemap ECS 컴포넌트가 아직 없음 (src/Rendering/Tilemap.h는 독립 렌더러).
+    // 현재는 빈 GameObject만 생성. Tilemap 컴포넌트 구현 후 AddComponent<TilemapRenderer>() 추가 예정.
+    auto cmd = std::make_unique<molga::CreateObjectCommand>("Tilemap");
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();
 }
 
 void HierarchyWindow::DeleteSelectedObject() {
-    if (!gameObjects || !selectedObject) return;
-
-    auto it = std::find_if(gameObjects->begin(), gameObjects->end(),
-        [this](const std::shared_ptr<GameObject>& obj) {
-            return obj.get() == selectedObject;
-        });
-
-    if (it != gameObjects->end()) {
-        gameObjects->erase(it);
-    }
-
-    selectedObject = nullptr;
-    if (onSelectionChanged) {
-        onSelectionChanged(nullptr);
-    }
+    if (!selectedObject) return;
+    auto cmd = std::make_unique<molga::DeleteObjectCommand>(selectedObject);
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();  // Command가 nullptr로 비웠음
+    if (onSelectionChanged) onSelectionChanged(selectedObject);
 }
 
 void HierarchyWindow::DuplicateSelectedObject() {
     if (!gameObjects || !selectedObject) return;
-
-    // Create a new object with the same name + " (Copy)"
-    auto newObj = std::make_shared<GameObject>(selectedObject->GetName() + " (Copy)");
-    newObj->AddComponent<Transform>();
-
-    // Copy transform values if possible
-    auto* srcTransform = selectedObject->GetComponent<Transform>();
-    auto* dstTransform = newObj->GetComponent<Transform>();
-    if (srcTransform && dstTransform) {
-        dstTransform->SetPosition(srcTransform->GetPosition());
-        dstTransform->SetRotation(srcTransform->GetRotation());
-        dstTransform->SetScale(srcTransform->GetScale());
-    }
-
-    gameObjects->push_back(newObj);
-
-    selectedObject = newObj.get();
+    auto cmd = std::make_unique<molga::DuplicateObjectCommand>(selectedObject);
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();
     if (onSelectionChanged) {
         onSelectionChanged(selectedObject);
     }

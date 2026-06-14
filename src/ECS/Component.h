@@ -53,6 +53,9 @@ public:
     // Editor Inspector GUI (override in derived classes for custom UI)
     virtual void OnInspectorGUI() {}
 
+    // 직렬화 이후, GL 컨텍스트가 있는 시점에 에셋(텍스처 등)을 지연 로드한다.
+    virtual void ResolveAssets() {}
+
     // Get/Set owner GameObject
     GameObject* GetGameObject() const { return gameObject; }
     void SetGameObject(GameObject* go) { gameObject = go; }

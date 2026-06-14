@@ -7,6 +7,7 @@
 #include <iostream>
 #include <array>
 #include <cstdio>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -29,23 +30,34 @@ std::vector<ScriptInfo> ScriptCompiler::DiscoverScripts() const {
     }
 
     try {
-        for (const auto& entry : fs::directory_iterator(scriptsPath)) {
+        for (const auto& entry : fs::recursive_directory_iterator(scriptsPath)) {
+            // Skip the build directory and other internal folders
+            bool inBuild = false;
+            for (const auto& part : entry.path()) {
+                if (part == "build" || part == ".git" || part == ".idea") {
+                    inBuild = true;
+                    break;
+                }
+            }
+            if (inBuild) continue;
+
             if (!entry.is_regular_file()) continue;
 
             std::string ext = entry.path().extension().string();
             if (ext != ".h" && ext != ".hpp") continue;
 
             // Check if corresponding .cpp exists
-            std::string baseName = entry.path().stem().string();
-            fs::path cppPath = fs::path(scriptsPath) / (baseName + ".cpp");
+            fs::path headerPath = entry.path();
+            fs::path cppPath = headerPath;
+            cppPath.replace_extension(".cpp");
 
             if (fs::exists(cppPath)) {
                 ScriptInfo info;
-                info.name = baseName;
-                info.headerPath = entry.path().string();
+                info.name = headerPath.stem().string();
+                info.headerPath = headerPath.string();
                 info.sourcePath = cppPath.string();
                 info.lastModified = std::max(
-                    fs::last_write_time(entry.path()).time_since_epoch().count(),
+                    fs::last_write_time(headerPath).time_since_epoch().count(),
                     fs::last_write_time(cppPath).time_since_epoch().count()
                 );
                 scripts.push_back(info);
@@ -158,7 +170,11 @@ std::string ScriptCompiler::GenerateCMakeContent(const std::vector<ScriptInfo>& 
     ss << "set(SCRIPT_SOURCES\n";
     ss << "    ScriptExports.cpp\n";
     for (const auto& script : scripts) {
-        ss << "    " << script.name << ".cpp\n";
+        fs::path srcPath(script.sourcePath);
+        fs::path sDir(scriptsPath);
+        std::string relSrc = fs::relative(srcPath, sDir).string();
+        std::replace(relSrc.begin(), relSrc.end(), '\\', '/');
+        ss << "    " << relSrc << "\n";
     }
     ss << ")\n\n";
 
@@ -190,7 +206,11 @@ std::string ScriptCompiler::GenerateScriptExportsContent(const std::vector<Scrip
 
     // Include all script headers
     for (const auto& script : scripts) {
-        ss << "#include \"" << script.name << ".h\"\n";
+        fs::path hPath(script.headerPath);
+        fs::path sDir(scriptsPath);
+        std::string relHeader = fs::relative(hPath, sDir).string();
+        std::replace(relHeader.begin(), relHeader.end(), '\\', '/');
+        ss << "#include \"" << relHeader << "\"\n";
     }
 
     ss << "\n";
@@ -251,7 +271,8 @@ bool ScriptCompiler::Compile() {
     return true;
 }
 
-bool ScriptCompiler::CreateScriptTemplate(const std::string& scriptName) {
+bool ScriptCompiler::CreateScriptTemplate(const std::string& scriptName,
+                                          const std::string& targetDir) {
     if (scriptsPath.empty()) {
         lastError = "Project path not set";
         return false;
@@ -265,9 +286,46 @@ bool ScriptCompiler::CreateScriptTemplate(const std::string& scriptName) {
         return false;
     }
 
+    // targetDir이 Scripts 하위이면 그 경로를, 아니면 Scripts 루트를 사용
+    fs::path destDir;
+    if (!targetDir.empty()) {
+        fs::path td(targetDir);
+        fs::path sd(scriptsPath);
+        try {
+            fs::path canonTd = fs::weakly_canonical(td);
+            fs::path canonSd = fs::weakly_canonical(sd);
+            
+            std::string strTd = canonTd.string();
+            std::string strSd = canonSd.string();
+            
+#if defined(__APPLE__) || defined(_WIN32)
+            std::transform(strTd.begin(), strTd.end(), strTd.begin(), ::tolower);
+            std::transform(strSd.begin(), strSd.end(), strSd.begin(), ::tolower);
+#endif
+            
+            bool inScripts = false;
+            if (strTd == strSd) {
+                inScripts = true;
+            } else if (strTd.size() > strSd.size() && strTd.substr(0, strSd.size()) == strSd) {
+                char nextChar = strTd[strSd.size()];
+                if (nextChar == '/' || nextChar == '\\') {
+                    inScripts = true;
+                }
+            }
+            
+            destDir = inScripts ? td : sd;
+        } catch (...) {
+            destDir = fs::path(scriptsPath);
+        }
+        // targetDir 자체가 아직 없으면 생성
+        try { fs::create_directories(destDir); } catch (...) {}
+    } else {
+        destDir = fs::path(scriptsPath);
+    }
+
     // Check if files already exist
-    fs::path headerPath = fs::path(scriptsPath) / (scriptName + ".h");
-    fs::path sourcePath = fs::path(scriptsPath) / (scriptName + ".cpp");
+    fs::path headerPath = destDir / (scriptName + ".h");
+    fs::path sourcePath = destDir / (scriptName + ".cpp");
 
     if (fs::exists(headerPath) || fs::exists(sourcePath)) {
         lastError = "Script '" + scriptName + "' already exists";
@@ -294,7 +352,8 @@ bool ScriptCompiler::CreateScriptTemplate(const std::string& scriptName) {
     sourceFile << sourceContent;
     sourceFile.close();
 
-    Log::Info("ScriptCompiler", "Created script template: " + scriptName);
+    Log::Info("ScriptCompiler", "Created script template: " + scriptName +
+              " in " + destDir.string());
     return true;
 }
 

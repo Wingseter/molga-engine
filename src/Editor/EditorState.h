@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 enum class EditorMode {
     Edit,   // Scene editing mode
@@ -21,6 +22,12 @@ public:
     void Pause();
     void Stop();
 
+    using PlayTransition = std::function<void()>;
+    void SetPlayCallbacks(PlayTransition onEnterPlay, PlayTransition onExitPlay) {
+        onEnterPlay_ = std::move(onEnterPlay);
+        onExitPlay_ = std::move(onExitPlay);
+    }
+
     // Time scale for play mode
     float GetTimeScale() const { return timeScale; }
     void SetTimeScale(float scale) { timeScale = scale; }
@@ -32,4 +39,6 @@ private:
 
     EditorMode currentMode = EditorMode::Edit;
     float timeScale = 1.0f;
+    PlayTransition onEnterPlay_;
+    PlayTransition onExitPlay_;
 };

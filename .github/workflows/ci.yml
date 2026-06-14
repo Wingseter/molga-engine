@@ -7,34 +7,50 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  build-test:
     runs-on: macos-latest
     strategy:
+      fail-fast: false
       matrix:
-        build-type: [Debug, Release]
-
+        preset: [debug, release]
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{ matrix.build-type }}
-
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
       - name: Build
-        run: cmake --build build --config ${{ matrix.build-type }} -j$(sysctl -n hw.ncpu)
-
-      - name: Run tests
-        working-directory: build
-        run: ctest --build-config ${{ matrix.build-type }} --output-on-failure --timeout 30
-
-      - name: Upload build artifacts
-        if: matrix.build-type == 'Release' && github.ref == 'refs/heads/main'
+        run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
+      - name: Run unit tests
+        run: ctest --preset ${{ matrix.preset }} -L unit -LE smoke --output-on-failure
+      - name: Run playable editor smoke
+        run: ctest --preset ${{ matrix.preset }} -L smoke --output-on-failure
+      - name: Upload smoke diagnostics
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: molga-engine-macos-${{ github.sha }}
+          name: smoke-${{ matrix.preset }}-${{ runner.os }}
           path: |
-            build/molga_engine
-            build/molga_runtime
-            build/Shaders/
-            build/assets/
+            build/${{ matrix.preset }}/smoke-e2e/editor-report.json
+            build/${{ matrix.preset }}/smoke-e2e/runtime-report.json
+            build/${{ matrix.preset }}/smoke-e2e/package/game.json
+          if-no-files-found: ignore
+
+  sanitizers:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [asan, ubsan]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
+      - name: Test
+        # Run unit and internal smoke tests under sanitizers.
+        # Exclude E2E smoke test (smoke_end_to_end) to avoid platform OpenGL driver conflicts under sanitizers.
+        run: ctest --preset ${{ matrix.preset }} -LE e2e --output-on-failure
