@@ -2,6 +2,7 @@
 #include "../../ECS/GameObject.h"
 #include "../../ECS/Component.h"
 #include "../../ECS/Components/Transform.h"
+#include "../../ECS/Components/SpriteRenderer.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
 #include "Editor/Editor.h"
@@ -53,8 +54,16 @@ void HierarchyWindow::OnGUI() {
             CreateEmptyGameObject();
         }
         if (ImGui::BeginMenu((std::string(Icons::Image) + " Create 2D Object").c_str())) {
-            if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {}
-            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap").c_str())) {}
+            if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {
+                CreateSpriteObject();
+            }
+            // Tilemap ECS 컴포넌트 미구현 — 빈 오브젝트만 생성됨
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap  [TODO]").c_str())) {
+                CreateTilemapObject();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Tilemap ECS component not yet implemented.\nCreates an empty GameObject only.");
+            }
             ImGui::EndMenu();
         }
         ImGui::EndPopup();
@@ -156,6 +165,25 @@ void HierarchyWindow::CreateEmptyGameObject() {
     selectedObject = Editor::Get().GetSelectedObject();
 }
 
+void HierarchyWindow::CreateSpriteObject() {
+    auto cmd = std::make_unique<molga::CreateObjectCommand>("Sprite");
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    // 생성된 오브젝트에 SpriteRenderer 부착
+    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
+        obj->AddComponent<SpriteRenderer>();
+        Editor::Get().MarkSceneModified();
+    }
+    selectedObject = Editor::Get().GetSelectedObject();
+}
+
+void HierarchyWindow::CreateTilemapObject() {
+    // TODO: Tilemap ECS 컴포넌트가 아직 없음 (src/Rendering/Tilemap.h는 독립 렌더러).
+    // 현재는 빈 GameObject만 생성. Tilemap 컴포넌트 구현 후 AddComponent<TilemapRenderer>() 추가 예정.
+    auto cmd = std::make_unique<molga::CreateObjectCommand>("Tilemap");
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();
+}
+
 void HierarchyWindow::DeleteSelectedObject() {
     if (!selectedObject) return;
     auto cmd = std::make_unique<molga::DeleteObjectCommand>(selectedObject);
@@ -166,24 +194,9 @@ void HierarchyWindow::DeleteSelectedObject() {
 
 void HierarchyWindow::DuplicateSelectedObject() {
     if (!gameObjects || !selectedObject) return;
-
-    // Create a new object with the same name + " (Copy)"
-    auto newObj = std::make_shared<GameObject>(selectedObject->GetName() + " (Copy)");
-    newObj->AddComponent<Transform>();
-
-    // Copy transform values if possible
-    auto* srcTransform = selectedObject->GetComponent<Transform>();
-    auto* dstTransform = newObj->GetComponent<Transform>();
-    if (srcTransform && dstTransform) {
-        dstTransform->SetPosition(srcTransform->GetPosition());
-        dstTransform->SetRotation(srcTransform->GetRotation());
-        dstTransform->SetScale(srcTransform->GetScale());
-    }
-
-    gameObjects->push_back(newObj);
-    Editor::Get().MarkSceneModified();
-
-    selectedObject = newObj.get();
+    auto cmd = std::make_unique<molga::DuplicateObjectCommand>(selectedObject);
+    Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    selectedObject = Editor::Get().GetSelectedObject();
     if (onSelectionChanged) {
         onSelectionChanged(selectedObject);
     }

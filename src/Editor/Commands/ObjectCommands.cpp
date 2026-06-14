@@ -1,6 +1,7 @@
 #include "Editor/Commands/ObjectCommands.h"
 #include "Editor/Editor.h"
 #include "ECS/Components/Transform.h"
+#include "ECS/Components/SpriteRenderer.h"
 #include <algorithm>
 
 namespace molga {
@@ -110,6 +111,55 @@ void ReparentObjectCommand::Undo() {
     if (!child) return;
     GameObject* op = oldParentId_ ? Editor::Get().FindObjectById(oldParentId_) : nullptr;
     child->SetParent(op);
+    Editor::Get().MarkSceneModified();
+}
+
+// ── DuplicateObjectCommand ─────────────────────────────────────────────
+DuplicateObjectCommand::DuplicateObjectCommand(GameObject* src)
+    : srcId_(src ? src->GetID() : 0u) {}
+
+void DuplicateObjectCommand::Execute() {
+    if (!copy_) {
+        // 최초 실행: src를 찾아 복제돈 생성
+        GameObject* src = Editor::Get().FindObjectById(srcId_);
+        if (!src) return;
+
+        copy_ = std::make_shared<GameObject>(src->GetName() + " (Copy)");
+
+        // Transform 복사
+        copy_->AddComponent<Transform>();
+        if (auto* st = src->GetComponent<Transform>()) {
+            if (auto* dt = copy_->GetComponent<Transform>()) {
+                dt->SetPosition(st->GetPosition());
+                dt->SetRotation(st->GetRotation());
+                dt->SetScale(st->GetScale());
+            }
+        }
+
+        // SpriteRenderer 복사
+        if (auto* sr = src->GetComponent<SpriteRenderer>()) {
+            copy_->AddComponent<SpriteRenderer>();
+            if (auto* dr = copy_->GetComponent<SpriteRenderer>()) {
+                dr->SetTexturePath(sr->GetTexturePath());
+                dr->SetColor(sr->GetColor());
+                dr->SetSortingOrder(sr->GetSortingOrder());
+                dr->SetFlipX(sr->GetFlipX());
+                dr->SetFlipY(sr->GetFlipY());
+            }
+        }
+
+        copyId_ = copy_->GetID();
+    }
+    Editor::Get().AddExistingObject(copy_);
+    Editor::Get().SetSelectedObject(copy_.get());
+    Editor::Get().MarkSceneModified();
+}
+
+void DuplicateObjectCommand::Undo() {
+    if (Editor::Get().GetSelectedObject() == copy_.get()) {
+        Editor::Get().SetSelectedObject(nullptr);
+    }
+    Editor::Get().RemoveObjectsByIds({ copyId_ });
     Editor::Get().MarkSceneModified();
 }
 

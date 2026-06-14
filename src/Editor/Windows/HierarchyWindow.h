@@ -26,6 +26,8 @@ public:
 private:
     void DrawGameObjectNode(GameObject* obj);
     void CreateEmptyGameObject();
+    void CreateSpriteObject();
+    void CreateTilemapObject();
     void DeleteSelectedObject();
     void DuplicateSelectedObject();
 

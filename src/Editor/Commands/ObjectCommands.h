@@ -64,4 +64,17 @@ private:
     unsigned int oldParentId_ = 0;
 };
 
+// Duplicate: 선택된 오브젝트를 복제(Transform + SpriteRenderer 복사). undo 지원.
+class DuplicateObjectCommand : public ICommand {
+public:
+    explicit DuplicateObjectCommand(GameObject* src);
+    void Execute() override;
+    void Undo() override;
+    std::string Name() const override { return "Duplicate Object"; }
+private:
+    unsigned int srcId_;
+    std::shared_ptr<GameObject> copy_;
+    unsigned int copyId_ = 0;
+};
+
 } // namespace molga
