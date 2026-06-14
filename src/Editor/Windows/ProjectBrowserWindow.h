@@ -36,9 +36,17 @@ private:
     void DrawFileGrid();
     void DrawBreadcrumb();
     void DrawContextMenu();
+    void DrawCreateInlineInput();  // 인라인 이름 입력 위젯
 
     void ScanDirectory(const std::string& path);
     void NavigateUp();
+
+    // Create helpers
+    void StartCreateScript();
+    void StartCreateFolder();
+    void StartCreateScene();
+    void FinishCreate();   // 이름 입력 확정
+    void CancelCreate();   // 취소
 
     // Get icon based on file type
     const char* GetFileIcon(const FileEntry& entry);
@@ -71,4 +79,10 @@ private:
     // Grid settings
     float iconSize = 64.0f;
     float padding = 10.0f;
+
+    // Inline create state
+    enum class CreateMode { None, Script, Folder, Scene };
+    CreateMode createMode = CreateMode::None;
+    char createNameBuffer[256] = "";
+    bool createFocusNextFrame = false;
 };
