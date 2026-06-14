@@ -62,7 +62,6 @@ set(ENGINE_SOURCES
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
-    src/ECS/Components/MarrowRenderer.cpp
     src/ECS/Components/BoxCollider2D.cpp
     src/ECS/Components/Collider2D.cpp
     src/Core/SceneSerializer.cpp
@@ -82,6 +81,17 @@ set(ENGINE_SOURCES
     src/Core/PackageLayout.cpp
 )
 
+# ── Marrow skeletal animation dependency check ───────────────────────────────
+set(MARROW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Maroow")
+if(EXISTS "${MARROW_DIR}/include/marrow/runtime/skeleton.hpp" AND EXISTS "${MARROW_DIR}/build/libmarrow_runtime.a")
+    message(STATUS "Marrow runtime dependency found. Enabling Marrow support.")
+    set(MOLGA_MARROW_SUPPORT ON)
+    list(APPEND ENGINE_SOURCES src/ECS/Components/MarrowRenderer.cpp)
+else()
+    message(WARNING "Marrow runtime dependency NOT found at ${MARROW_DIR}. Skeletal animation will be disabled.")
+    set(MOLGA_MARROW_SUPPORT OFF)
+endif()
+
 # ── molga_core static library ──────────────────────────────────────────────────
 add_library(molga_core STATIC ${ENGINE_SOURCES})
 target_include_directories(molga_core PUBLIC
@@ -89,9 +99,19 @@ target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/external/stb
     ${CMAKE_SOURCE_DIR}/external/miniaudio
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../Maroow/include
 )
-target_link_libraries(molga_core PUBLIC glad glfw ${CMAKE_CURRENT_SOURCE_DIR}/../Maroow/build/libmarrow_runtime.a)
+
+if(MOLGA_MARROW_SUPPORT)
+    target_include_directories(molga_core PUBLIC ${MARROW_DIR}/include)
+    target_compile_definitions(molga_core PUBLIC MOLGA_MARROW_SUPPORT)
+endif()
+
+target_link_libraries(molga_core PUBLIC glad glfw)
+
+if(MOLGA_MARROW_SUPPORT)
+    target_link_libraries(molga_core PUBLIC ${MARROW_DIR}/build/libmarrow_runtime.a)
+endif()
+
 target_link_libraries(molga_core PRIVATE molga_warnings)
 
 if(APPLE)

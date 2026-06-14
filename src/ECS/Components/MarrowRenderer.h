@@ -6,10 +6,14 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <map>
+#include <utility>
 
+#ifdef MOLGA_MARROW_SUPPORT
 #include <marrow/runtime/skeleton.hpp>
 #include <marrow/runtime/animation_state.hpp>
 #include <marrow/runtime/atlas.hpp>
+#endif
 
 class Texture;
 
@@ -58,7 +62,9 @@ private:
     std::string skeletonPath;
     std::string atlasPath;
     Color color = Color::White();
+    int sortingOrder = 0;
 
+#ifdef MOLGA_MARROW_SUPPORT
     // Marrow Runtime objects
     std::shared_ptr<const marrow::runtime::SkeletonData> skeletonData;
     std::shared_ptr<const marrow::runtime::AtlasData> atlasData;
@@ -76,12 +82,11 @@ private:
     unsigned int VBO = 0;
     unsigned int EBO = 0;
 
-    // Preallocated buffers to prevent per-frame heap allocations
+    // Preallocated buffers to prevent per-frame heap allocations (reused across draws)
     std::vector<float> vboData;
     std::vector<unsigned int> indices;
 
-    int sortingOrder = 0;
-
     void SetupGLBuffers();
     void CleanGLBuffers();
+#endif
 };

@@ -90,11 +90,13 @@ void InspectorWindow::OnGUI() {
                 target->AddComponent<BoxCollider2D>();
             }
         }
+#ifdef MOLGA_MARROW_SUPPORT
         if (ImGui::MenuItem((std::string(Icons::Image) + " Marrow Renderer").c_str())) {
             if (!target->HasComponent<MarrowRenderer>()) {
                 target->AddComponent<MarrowRenderer>();
             }
         }
+#endif
         ImGui::Separator();
         if (ImGui::BeginMenu((std::string(Icons::Code) + " Scripts").c_str())) {
             auto scripts = ScriptManager::Get().GetRegisteredScripts();

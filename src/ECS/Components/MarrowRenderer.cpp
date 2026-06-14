@@ -11,12 +11,9 @@
 
 #ifdef MOLGA_EDITOR
 #include "../../Editor/Project.h"
+#include "../../Editor/EditorState.h"
 #include <imgui.h>
 #endif
-
-#include <marrow/runtime/skeleton.hpp>
-#include <marrow/runtime/animation_state.hpp>
-#include <marrow/runtime/atlas.hpp>
 
 #include <cmath>
 #include <cstring>
@@ -25,6 +22,28 @@
 
 REGISTER_COMPONENT(MarrowRenderer)
 
+#ifndef MOLGA_MARROW_SUPPORT
+
+// Stub implementation when Marrow dependency is disabled
+MarrowRenderer::~MarrowRenderer() {}
+void MarrowRenderer::PlayAnimation(const std::string&, bool, int) {}
+void MarrowRenderer::SetMix(const std::string&, const std::string&, float) {}
+void MarrowRenderer::Update(float) {}
+void MarrowRenderer::RenderSprite(Renderer*) {}
+void MarrowRenderer::ResolveAssets(bool) {}
+void MarrowRenderer::OnDestroy() {}
+void MarrowRenderer::Serialize(nlohmann::json&) const {}
+void MarrowRenderer::Deserialize(const nlohmann::json&) {}
+void MarrowRenderer::OnInspectorGUI() {
+#ifdef MOLGA_EDITOR
+    ImGui::TextColored(ImVec4(0.8f, 0.3f, 0.3f, 1.0f), "Marrow Support Disabled");
+    ImGui::TextWrapped("The Marrow dependency was not found during CMake configure. Please place the Marrow project in the sibling directory and build it first.");
+#endif
+}
+
+#else
+
+// Full integration when Marrow is available
 MarrowRenderer::~MarrowRenderer() {
     CleanGLBuffers();
 }
@@ -70,10 +89,18 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
     Shader* activeShader = renderer->GetCurrentShader();
     if (!activeShader) return;
 
-    // 1. Bind texture atlas to unit 0
+#ifdef MOLGA_EDITOR
+    // 1. In Edit mode (stopped), manually update animation ticks so that preview previews in editor viewport.
+    if (EditorState::Get().IsEditMode()) {
+        float editorDt = ImGui::GetIO().DeltaTime;
+        Update(editorDt);
+    }
+#endif
+
+    // 2. Bind texture atlas to unit 0
     texture->Bind(0);
 
-    // 2. Set uniform parameters via Shader class API
+    // 3. Set identity model matrix (we calculate world space coords on CPU)
     float identity[16] = {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
@@ -81,7 +108,6 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
         0.0f, 0.0f, 0.0f, 1.0f
     };
     activeShader->SetMat4("model", identity);
-    activeShader->SetVec4("uColor", color.r, color.g, color.b, color.a);
     activeShader->SetVec4("uUV", 0.0f, 0.0f, 1.0f, 1.0f);
     activeShader->SetBool("useTexture", true);
     activeShader->SetInt("uTexture", 0);
@@ -100,8 +126,21 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
     }
     glBindVertexArray(VAO);
 
-    // 3. Draw slots in order
+    // 4. Batch construction: collect vertices/indices and state transitions
+    struct RenderBatch {
+        marrow::runtime::BlendMode blendMode;
+        float colorTint[4];
+        std::size_t startIndex;
+        std::size_t indexCount;
+    };
+
+    std::vector<RenderBatch> batches;
+    vboData.clear();
+    indices.clear();
+
     const auto& drawOrder = skeleton->draw_order();
+    const auto& slotStates = skeleton->slot_states();
+
     for (std::size_t slotIndex : drawOrder) {
         // Evaluate the active attachment pose for the slot
         auto poseOpt = skeleton->evaluate_current_mesh_attachment(slotIndex);
@@ -110,15 +149,53 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
         const auto& pose = poseOpt.value();
         if (pose.vertices.empty() || pose.triangles.empty()) continue;
 
-        // Clear and reuse vector buffers to avoid heap allocations per frame
-        vboData.clear();
-        vboData.reserve(pose.vertices.size() * 4);
+        // Resolve blend mode
+        marrow::runtime::BlendMode blendMode = marrow::runtime::BlendMode::Normal;
+        if (slotIndex < skeletonData->slots().size()) {
+            blendMode = skeletonData->slots()[slotIndex].blend_mode;
+        }
 
+        // Compute slot tint color combined with global component tint color
+        const auto& slotState = slotStates[slotIndex];
+        float r = static_cast<float>(slotState.color.r) * color.r;
+        float g = static_cast<float>(slotState.color.g) * color.g;
+        float b = static_cast<float>(slotState.color.b) * color.b;
+        float a = static_cast<float>(slotState.color.a) * color.a;
+
+        // Determine if we need to split the batch (if blend mode or color tint differs)
+        bool startNewBatch = false;
+        if (batches.empty()) {
+            startNewBatch = true;
+        } else {
+            const auto& lastBatch = batches.back();
+            if (lastBatch.blendMode != blendMode ||
+                lastBatch.colorTint[0] != r || lastBatch.colorTint[1] != g ||
+                lastBatch.colorTint[2] != b || lastBatch.colorTint[3] != a) {
+                startNewBatch = true;
+            }
+        }
+
+        std::size_t vertexOffset = vboData.size() / 4;
+
+        if (startNewBatch) {
+            RenderBatch batch;
+            batch.blendMode = blendMode;
+            batch.colorTint[0] = r;
+            batch.colorTint[1] = g;
+            batch.colorTint[2] = b;
+            batch.colorTint[3] = a;
+            batch.startIndex = indices.size();
+            batch.indexCount = 0;
+            batches.push_back(batch);
+        }
+
+        // Push vertices projected on CPU
+        vboData.reserve(vboData.size() + pose.vertices.size() * 4);
         for (std::size_t i = 0; i < pose.vertices.size(); ++i) {
             float vx = static_cast<float>(pose.vertices[i].x);
             float vy = static_cast<float>(pose.vertices[i].y);
 
-            // Apply GameObject transform (rotation -> scale -> translation)
+            // Translate local attachment coordinate to world coordinate
             float rx = vx * cosRot - vy * sinRot;
             float ry = vx * sinRot + vy * cosRot;
             float px = rx * worldScale.x + worldPos.x;
@@ -133,24 +210,55 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
             vboData.push_back(v);
         }
 
-        // Convert index triangles to unsigned int (reusing vector)
-        indices.clear();
-        indices.reserve(pose.triangles.size());
+        // Push triangles indices offset
+        indices.reserve(indices.size() + pose.triangles.size());
         for (std::size_t idx : pose.triangles) {
-            indices.push_back(static_cast<unsigned int>(idx));
+            indices.push_back(static_cast<unsigned int>(idx + vertexOffset));
+            batches.back().indexCount++;
         }
-
-        // Upload vertex & index data to dynamic GL buffers
-        glBindBuffer(GL_ARRAY_BUFFER, VBO);
-        glBufferData(GL_ARRAY_BUFFER, vboData.size() * sizeof(float), vboData.data(), GL_DYNAMIC_DRAW);
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_DYNAMIC_DRAW);
-
-        // Draw current slot mesh elements
-        glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices.size()), GL_UNSIGNED_INT, nullptr);
     }
 
+    if (indices.empty()) {
+        glBindVertexArray(0);
+        return;
+    }
+
+    // 5. Single GPU Buffer Upload (Batching optimization)
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, vboData.size() * sizeof(float), vboData.data(), GL_DYNAMIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_DYNAMIC_DRAW);
+
+    // 6. Draw each batch by applying GL state and draw call
+    for (const auto& batch : batches) {
+        // Apply Slot Blend Mode
+        glEnable(GL_BLEND);
+        if (batch.blendMode == marrow::runtime::BlendMode::Additive) {
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        } else if (batch.blendMode == marrow::runtime::BlendMode::Multiply) {
+            glBlendFunc(GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA);
+        } else if (batch.blendMode == marrow::runtime::BlendMode::Screen) {
+            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR);
+        } else {
+            // Normal
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        }
+
+        // Set combined color tint uniform
+        activeShader->SetVec4("uColor", batch.colorTint[0], batch.colorTint[1], batch.colorTint[2], batch.colorTint[3]);
+
+        // Draw indexed triangles for the batch
+        glDrawElements(
+            GL_TRIANGLES,
+            static_cast<GLsizei>(batch.indexCount),
+            GL_UNSIGNED_INT,
+            (void*)(batch.startIndex * sizeof(unsigned int))
+        );
+    }
+
+    // Restore default Blend Function
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glBindVertexArray(0);
 }
 
@@ -377,3 +485,5 @@ void MarrowRenderer::OnInspectorGUI() {
     }
 #endif
 }
+
+#endif
