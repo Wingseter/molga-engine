@@ -197,8 +197,19 @@ int main(int argc, char* argv[]) {
     }
 
     if (projectLoaded && Project::Get().IsOpen()) {
+        namespace fs = std::filesystem;
         PathService::Get().SetAssetRoot(Project::Get().GetPath());
-        sceneDoc.EditWorld().ResolveAssets();
+
+        const fs::path mainScene = fs::path(Project::Get().GetScenesPath()) / "main.json";
+        if (sceneDoc.Open(mainScene.string())) {
+            sceneDoc.EditWorld().ResolveAssets();
+            Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+            Editor::Get().SetCurrentScenePath(mainScene.string());
+            std::cout << "[Main] Loaded project main scene: " << mainScene << std::endl;
+        } else {
+            std::cerr << "[Main] Project main scene not found or invalid: "
+                      << mainScene << std::endl;
+        }
     }
 
     // If window was not closed during project selection, run editor

@@ -53,6 +53,10 @@ public:
     void OpenScene();
 
     const std::string& GetCurrentScenePath() const { return sceneOps.GetCurrentPath(); }
+    void SetCurrentScenePath(const std::string& path) {
+        sceneOps.SetCurrentPath(path);
+        sceneOps.ClearModified();
+    }
 
 private:
     Editor() = default;

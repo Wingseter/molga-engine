@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/World.h"
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -19,6 +20,18 @@ public:
         playWorld_->StartPending();
     }
     void ExitPlay() { playWorld_.reset(); }
+
+    bool Open(const std::string& path) {
+        World loaded;
+        if (!loaded.LoadFromFile(path)) return false;
+
+        const std::string sceneName = std::filesystem::path(path).stem().string();
+        loaded.SetName(sceneName.empty() ? "Untitled" : sceneName);
+        editWorld_ = std::move(loaded);
+        playWorld_.reset();
+        path_ = path;
+        return true;
+    }
 
     const std::string& Path() const { return path_; }
     void SetPath(std::string p) { path_ = std::move(p); }
