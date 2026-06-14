@@ -56,6 +56,7 @@ set(ENGINE_SOURCES
     src/Rendering/Animation.cpp
     src/Physics/Collision.cpp
     src/Physics/PhysicsWorld.cpp
+    src/Physics/Physics2D.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
     src/Systems/Audio.cpp
@@ -80,6 +81,7 @@ set(ENGINE_SOURCES
     src/Core/PrefabRegistry.cpp
     src/Core/PrefabUtil.cpp
     src/Core/World.cpp
+    src/Core/Scheduler.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp

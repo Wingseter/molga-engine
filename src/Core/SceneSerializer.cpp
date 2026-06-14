@@ -522,6 +522,15 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
         }
     }
 
+    // 참조 리매핑: 이 서브트리 내부를 가리키는 ObjectRef 등을 새 id로 갱신한다.
+    // (외부 씬 오브젝트를 가리키는 참조는 idRemap에 없으므로 그대로 유지된다.)
+    for (auto& [obj, parentId, originalId] : loaded) {
+        (void)parentId; (void)originalId;
+        for (auto* comp : obj->GetComponents()) {
+            if (comp) comp->RemapReferences(idRemap);
+        }
+    }
+
     return rootObj;
 }
 

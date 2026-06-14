@@ -27,6 +27,11 @@ public:
     nlohmann::json GetPrefabJson(const std::string& guid) const;
     bool HasPrefab(const std::string& guid) const;
 
+    // 등록된 모든 프리팹(guid -> 상대경로). 인스펙터 프리팹 선택 등에 사용.
+    const std::unordered_map<std::string, std::filesystem::path>& GetAllPrefabs() const {
+        return guidToPath_;
+    }
+
     // Helper to generate a new GUID
     static std::string GenerateGUID();
 

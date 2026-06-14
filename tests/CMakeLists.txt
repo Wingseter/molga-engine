@@ -35,6 +35,10 @@ molga_add_test(test_path_service       test_path_service.cpp)
 molga_add_test(test_shader_material   test_shader_material.cpp)
 molga_add_test(test_game_builder      test_game_builder.cpp)
 molga_add_test(test_script_compiler  test_script_compiler.cpp)
+molga_add_test(test_script_reflection test_script_reflection.cpp)
+molga_add_test(test_physics_query     test_physics_query.cpp)
+molga_add_test(test_scheduler         test_scheduler.cpp)
+molga_add_test(test_lifecycle         test_lifecycle.cpp)
 molga_add_test(test_input_actions     test_input_actions.cpp)
 target_sources(test_script_compiler PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp

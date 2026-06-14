@@ -1,10 +1,12 @@
 #include "Core/World.h"
 #include "Core/SceneSerializer.h"
+#include "Core/Scheduler.h"
 #include "ECS/GameObject.h"
 #include "Physics/PhysicsWorld.h"
 
 World::World()
-    : physicsWorld(std::make_unique<PhysicsWorld>()) {
+    : physicsWorld(std::make_unique<PhysicsWorld>()),
+      scheduler(std::make_unique<Scheduler>()) {
 }
 
 World::~World() = default;
@@ -34,6 +36,13 @@ GameObject* World::FindWithTag(const std::string& tag) const {
     return nullptr;
 }
 
+GameObject* World::Find(const std::string& name) const {
+    for (const auto& o : objects_) {
+        if (o && o->IsActive() && o->GetName() == name) return o.get();
+    }
+    return nullptr;
+}
+
 std::vector<GameObject*> World::FindAllWithTag(const std::string& tag) const {
     std::vector<GameObject*> result;
     for (const auto& o : objects_) {
@@ -47,7 +56,10 @@ std::vector<GameObject*> World::FindAllWithTag(const std::string& tag) const {
 void World::Clear() { objects_.clear(); }
 
 void World::StartPending() {
+    // 모든 Awake가 모든 Start보다 먼저 실행되도록 2-페이즈로 처리한다.
+    for (auto& o : objects_) if (o) o->AwakeScripts();
     for (auto& o : objects_) if (o) o->StartScripts();
+    running_ = true;  // 이후 SetActive가 라이프사이클 콜백을 발화
 }
 void World::FixedStep(float fixedDt) {
     for (auto& o : objects_) if (o && o->IsActive()) o->FixedUpdateScripts(fixedDt);
@@ -55,6 +67,7 @@ void World::FixedStep(float fixedDt) {
 }
 void World::Update(float dt) {
     for (auto& o : objects_) if (o && o->IsActive()) o->Update(dt);
+    scheduler->Tick(dt);  // Invoke/InvokeRepeating/코루틴 구동
 }
 void World::LateUpdate(float dt) {
     for (auto& o : objects_) if (o && o->IsActive()) o->LateUpdateScripts(dt);
@@ -172,6 +185,7 @@ void World::FlushDeferred(float dt) {
 
         for (auto* obj : allSubtreeObjects) {
             if (obj) {
+                scheduler->CancelByGameObject(obj->GetID());  // 대기 콜백 정리
                 obj->NotifyDestroy();
             }
         }
@@ -203,12 +217,15 @@ void World::FlushDeferred(float dt) {
             }
         }
 
-        // Call ResolveAssets and StartScripts for the new objects
+        // 새 오브젝트: 에셋 로드 → 모든 Awake → 모든 Start (배치 순서 보장)
         for (auto& obj : newAdds) {
-            if (obj) {
-                obj->ResolveAssets();
-                obj->StartScripts();
-            }
+            if (obj) obj->ResolveAssets();
+        }
+        for (auto& obj : newAdds) {
+            if (obj) obj->AwakeScripts();
+        }
+        for (auto& obj : newAdds) {
+            if (obj) obj->StartScripts();
         }
     }
 }

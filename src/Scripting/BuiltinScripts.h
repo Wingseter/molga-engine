@@ -36,11 +36,9 @@ public:
         transform->Translate(dx * moveSpeed * dt, dy * moveSpeed * dt);
     }
 
-#ifdef MOLGA_EDITOR
-    void OnInspectorGUI() override {
-        ImGui::DragFloat("Move Speed", &moveSpeed, 1.0f, 0.0f, 1000.0f);
+    void RegisterFields(ScriptFieldRegistry& r) override {
+        r.Float("Move Speed", &moveSpeed, 1.0f, 0.0f, 1000.0f);
     }
-#endif
 };
 
 // Example: Rotator Script
@@ -58,11 +56,9 @@ public:
         transform->SetRotation(currentRot + rotationSpeed * dt);
     }
 
-#ifdef MOLGA_EDITOR
-    void OnInspectorGUI() override {
-        ImGui::DragFloat("Rotation Speed", &rotationSpeed, 1.0f, -360.0f, 360.0f);
+    void RegisterFields(ScriptFieldRegistry& r) override {
+        r.Float("Rotation Speed", &rotationSpeed, 1.0f, -360.0f, 360.0f);
     }
-#endif
 };
 
 // Example: Oscillator Script (moves back and forth)
@@ -95,67 +91,42 @@ public:
         }
     }
 
-#ifdef MOLGA_EDITOR
-    void OnInspectorGUI() override {
-        ImGui::DragFloat("Amplitude", &amplitude, 1.0f, 0.0f, 500.0f);
-        ImGui::DragFloat("Frequency", &frequency, 0.1f, 0.0f, 10.0f);
-        ImGui::Checkbox("Horizontal", &horizontal);
+    void RegisterFields(ScriptFieldRegistry& r) override {
+        r.Float("Amplitude", &amplitude, 1.0f, 0.0f, 500.0f)
+         .Float("Frequency", &frequency, 0.1f, 0.0f, 10.0f)
+         .Bool("Horizontal", &horizontal);
     }
-#endif
 
 private:
     Vector2 startPosition;
     float time = 0.0f;
 };
 
-// Example: Spawner Script (clones a target object periodically)
+// Example: Spawner Script (clones a referenced object periodically)
 class Spawner : public Script {
 public:
     SCRIPT_CLASS(Spawner)
 
     float spawnInterval = 2.0f;
-    std::string targetName = "Bullet";
+    ObjectRef target;   // 복제할 대상. 인스펙터에서 씬 오브젝트를 지정한다.
 
     void Start() override {
-        timer = spawnInterval;
-    }
-
-    void Update(float dt) override {
-        timer -= dt;
-        if (timer <= 0.0f) {
-            timer = spawnInterval;
-            GameObject* target = nullptr;
-            if (gameObject && gameObject->GetWorld()) {
-                for (const auto& obj : gameObject->GetWorld()->Objects()) {
-                    if (obj && obj->GetName() == targetName) {
-                        target = obj.get();
-                        break;
-                    }
-                }
-            }
-            if (target) {
+        // 수동 타이머 대신 InvokeRepeating으로 주기적 스폰을 예약한다.
+        InvokeRepeating([this]() {
+            if (GameObject* src = Resolve(target)) {
                 Vector2 myPos = Vector2::Zero();
                 if (auto* transform = GetTransform()) {
                     myPos = transform->GetPosition();
                 }
-                Instantiate(target, myPos);
+                Instantiate(src, myPos);
             }
-        }
+        }, spawnInterval, spawnInterval);
     }
 
-#ifdef MOLGA_EDITOR
-    void OnInspectorGUI() override {
-        ImGui::DragFloat("Spawn Interval", &spawnInterval, 0.1f, 0.1f, 10.0f);
-        char buf[128];
-        strncpy(buf, targetName.c_str(), sizeof(buf));
-        if (ImGui::InputText("Target Name", buf, sizeof(buf))) {
-            targetName = buf;
-        }
+    void RegisterFields(ScriptFieldRegistry& r) override {
+        r.Float("Spawn Interval", &spawnInterval, 0.1f, 0.1f, 10.0f)
+         .Object("Target", &target);
     }
-#endif
-
-private:
-    float timer = 0.0f;
 };
 
 // Example: SelfDestruct Script (destroys itself after a delay)
@@ -169,11 +140,9 @@ public:
         Destroy(lifetime);
     }
 
-#ifdef MOLGA_EDITOR
-    void OnInspectorGUI() override {
-        ImGui::DragFloat("Lifetime", &lifetime, 0.1f, 0.0f, 60.0f);
+    void RegisterFields(ScriptFieldRegistry& r) override {
+        r.Float("Lifetime", &lifetime, 0.1f, 0.0f, 60.0f);
     }
-#endif
 };
 
 // Register all builtin scripts

@@ -13,7 +13,10 @@
 #include "../../ECS/Components/TextRenderer2D.h"
 #include "../../Scripting/Script.h"
 #include "../../Scripting/ScriptManager.h"
+#include "../../Scripting/ScriptField.h"
 #include "../../Scripting/BuiltinScripts.h"
+#include "../../Core/PrefabRegistry.h"
+#include "../../Core/World.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
 #include "../../Core/ProjectSettings.h"
@@ -22,6 +25,7 @@
 #include "../../ECS/Components/PrefabInstance.h"
 #include "../Commands/PrefabCommands.h"
 #include <imgui.h>
+#include <cstring>
 
 InspectorWindow::InspectorWindow()
     : EditorWindow("Inspector") {
@@ -264,6 +268,98 @@ void InspectorWindow::OnGUI() {
     ImGui::End();
 }
 
+namespace {
+
+// Script가 RegisterFields()로 노출한 필드를 인스펙터에 그린다.
+// 데이터(레지스트리)는 molga_core에, 렌더링(imgui)은 에디터에 있다.
+void DrawScriptFields(Script* script) {
+    const ScriptFieldRegistry& reg = script->Fields();
+    if (reg.Empty()) return;
+
+    World* world = script->GetGameObject() ? script->GetGameObject()->GetWorld() : nullptr;
+
+    for (const auto& f : reg.Fields()) {
+        switch (f.type) {
+            case ScriptFieldType::Float:
+                ImGui::DragFloat(f.name.c_str(), static_cast<float*>(f.ptr),
+                                 f.uiSpeed, f.uiMin, f.uiMax);
+                break;
+            case ScriptFieldType::Int:
+                ImGui::DragInt(f.name.c_str(), static_cast<int*>(f.ptr));
+                break;
+            case ScriptFieldType::Bool:
+                ImGui::Checkbox(f.name.c_str(), static_cast<bool*>(f.ptr));
+                break;
+            case ScriptFieldType::String: {
+                auto* s = static_cast<std::string*>(f.ptr);
+                char buf[256];
+                std::strncpy(buf, s->c_str(), sizeof(buf) - 1);
+                buf[sizeof(buf) - 1] = '\0';
+                if (ImGui::InputText(f.name.c_str(), buf, sizeof(buf))) {
+                    *s = buf;
+                }
+                break;
+            }
+            case ScriptFieldType::Vector2:
+                ImGui::DragFloat2(f.name.c_str(),
+                                  reinterpret_cast<float*>(static_cast<Vector2*>(f.ptr)),
+                                  f.uiSpeed);
+                break;
+            case ScriptFieldType::Color:
+                ImGui::ColorEdit4(f.name.c_str(),
+                                  reinterpret_cast<float*>(static_cast<Color*>(f.ptr)));
+                break;
+            case ScriptFieldType::ObjectRef: {
+                auto* ref = static_cast<ObjectRef*>(f.ptr);
+                const char* preview = "(None)";
+                if (ref->targetId != 0) {
+                    GameObject* target = world ? world->FindById(ref->targetId) : nullptr;
+                    preview = target ? target->GetName().c_str() : "(Missing)";
+                }
+                if (ImGui::BeginCombo(f.name.c_str(), preview)) {
+                    if (ImGui::Selectable("(None)", ref->targetId == 0)) ref->targetId = 0;
+                    if (world) {
+                        for (const auto& obj : world->Objects()) {
+                            if (!obj) continue;
+                            ImGui::PushID(static_cast<int>(obj->GetID()));
+                            std::string entry = obj->GetName() + " #" + std::to_string(obj->GetID());
+                            if (ImGui::Selectable(entry.c_str(), ref->targetId == obj->GetID())) {
+                                ref->targetId = obj->GetID();
+                            }
+                            ImGui::PopID();
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                break;
+            }
+            case ScriptFieldType::PrefabRef: {
+                auto* ref = static_cast<PrefabRef*>(f.ptr);
+                auto& registry = PrefabRegistry::Get();
+                std::string preview = "(None)";
+                if (!ref->guid.empty()) {
+                    auto path = registry.GetPrefabPath(ref->guid);
+                    preview = path.empty() ? "(Missing)" : path.filename().string();
+                }
+                if (ImGui::BeginCombo(f.name.c_str(), preview.c_str())) {
+                    if (ImGui::Selectable("(None)", ref->guid.empty())) ref->guid.clear();
+                    for (const auto& [guid, path] : registry.GetAllPrefabs()) {
+                        ImGui::PushID(guid.c_str());
+                        if (ImGui::Selectable(path.filename().string().c_str(), ref->guid == guid)) {
+                            ref->guid = guid;
+                        }
+                        ImGui::PopID();
+                    }
+                    ImGui::EndCombo();
+                }
+                break;
+            }
+        }
+    }
+}
+
+} // namespace
+
 void InspectorWindow::DrawComponent(Component* component) {
     if (!component) return;
 
@@ -308,7 +404,11 @@ void InspectorWindow::DrawComponent(Component* component) {
 
     if (open) {
         ImGui::Spacing();
-        // Use the component's own OnInspectorGUI method
+        // 스크립트는 RegisterFields()로 노출한 필드를 자동 렌더링한다.
+        if (auto* script = dynamic_cast<Script*>(component)) {
+            DrawScriptFields(script);
+        }
+        // 컴포넌트/스크립트의 커스텀 OnInspectorGUI (오버라이드 시).
         component->OnInspectorGUI();
         ImGui::TreePop();
     }
