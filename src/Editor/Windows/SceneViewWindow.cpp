@@ -148,13 +148,15 @@ void SceneViewWindow::OnGUI() {
             IM_COL32(200, 200, 200, 180),
             "Scene | Wheel: Zoom (cursor)  MMB+Drag: Pan  F: Frame All"
         );
-        // 카메라 정보 — Camera2D.x/y 는 뷰포트 중심의 월드 좌표
+        // 카메라 정보 — 뷰포트 중심의 월드 좌표를 표시
         float zoom = editorCamera_->GetZoom();
         float camX = editorCamera_->GetX();
         float camY = editorCamera_->GetY();
+        float centerX = camX + vpW * 0.5f;
+        float centerY = camY + vpH * 0.5f;
         char camInfo[128];
         snprintf(camInfo, sizeof(camInfo), "Cam: (%.1f, %.1f)  Zoom: %.2fx",
-            camX, camY, zoom);
+            centerX, centerY, zoom);
         wdl->AddText(
             ImVec2(overlayPos.x + 8.f, overlayPos.y + 24.f),
             IM_COL32(180, 180, 180, 140),
@@ -333,7 +335,7 @@ void SceneViewWindow::HandleInput(ImVec2 panelPos, ImVec2 panelSize) {
 void SceneViewWindow::FrameAll(ImVec2 panelSize) {
     if (!gameObjects_ || gameObjects_->empty()) {
         // 오브젝트 없으면 원점으로 리셋
-        editorCamera_->SetPosition(0.f, 0.f);
+        editorCamera_->SetPosition(-panelSize.x * 0.5f, -panelSize.y * 0.5f);
         editorCamera_->SetZoom(1.f);
         return;
     }
@@ -355,14 +357,14 @@ void SceneViewWindow::FrameAll(ImVec2 panelSize) {
     }
 
     if (count == 0) {
-        editorCamera_->SetPosition(0.f, 0.f);
+        editorCamera_->SetPosition(-panelSize.x * 0.5f, -panelSize.y * 0.5f);
         editorCamera_->SetZoom(1.f);
         return;
     }
 
     float cx = (minX + maxX) * 0.5f;
     float cy = (minY + maxY) * 0.5f;
-    editorCamera_->SetPosition(cx, cy);
+    editorCamera_->SetPosition(cx - panelSize.x * 0.5f, cy - panelSize.y * 0.5f);
 
     // AABB 크기 + 20% 여백에 맞는 줌 계산
     float spanX = (maxX - minX) + 200.f;
