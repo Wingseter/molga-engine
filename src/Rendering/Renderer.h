@@ -23,6 +23,7 @@ public:
     void End();
 
     bool IsDrawing() const;
+    Shader* GetCurrentShader() const { return currentShader; }
 
     void SetProjection(float left, float right, float bottom, float top);
 

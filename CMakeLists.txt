@@ -89,9 +89,9 @@ target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/external/stb
     ${CMAKE_SOURCE_DIR}/external/miniaudio
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
-    /Users/kwon/Workspace/C/Maroow/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Maroow/include
 )
-target_link_libraries(molga_core PUBLIC glad glfw /Users/kwon/Workspace/C/Maroow/build/libmarrow_runtime.a)
+target_link_libraries(molga_core PUBLIC glad glfw ${CMAKE_CURRENT_SOURCE_DIR}/../Maroow/build/libmarrow_runtime.a)
 target_link_libraries(molga_core PRIVATE molga_warnings)
 
 if(APPLE)

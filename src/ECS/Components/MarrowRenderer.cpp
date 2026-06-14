@@ -19,6 +19,7 @@
 #include <marrow/runtime/atlas.hpp>
 
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 
@@ -30,16 +31,23 @@ MarrowRenderer::~MarrowRenderer() {
 
 void MarrowRenderer::PlayAnimation(const std::string& animName, bool loop, int track) {
     if (animationState) {
-        animationState->set_animation(track, animName, loop);
+        std::optional<double> mixDuration = std::nullopt;
+        if (auto current = animationState->get_current(track)) {
+            std::string fromName = current->animation_name;
+            auto key = std::make_pair(fromName, animName);
+            auto it = customMixDurations.find(key);
+            if (it != customMixDurations.end()) {
+                mixDuration = static_cast<double>(it->second);
+            }
+        }
+        animationState->set_animation(track, animName, loop, mixDuration);
     } else {
         Log::Warn("MarrowRenderer", "Cannot play animation: AnimationState is null.");
     }
 }
 
 void MarrowRenderer::SetMix(const std::string& from, const std::string& to, float duration) {
-    // Note: Mix definitions can be added directly to SkeletonData or custom mixed.
-    // In Marrow, you can configure mix duration globally or in skeleton data.
-    // If you need manual mixing, you can configure it on the skeletonData mix definition.
+    customMixDurations[std::make_pair(from, to)] = duration;
 }
 
 void MarrowRenderer::Update(float dt) {
@@ -59,33 +67,24 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
     Transform* transform = gameObject->GetComponent<Transform>();
     if (!transform) return;
 
-    // Get current shader program ID (renderer is drawing inside Begin/End pass)
-    GLint currentProgram = 0;
-    glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
-    if (currentProgram == 0) return;
+    Shader* activeShader = renderer->GetCurrentShader();
+    if (!activeShader) return;
 
     // 1. Bind texture atlas to unit 0
     texture->Bind(0);
 
-    // 2. Set default uniform parameters
-    // In molga-engine, default shader expects:
-    // uniform mat4 model;
-    // uniform vec4 uColor;
-    // uniform vec4 uUV;
-    // uniform bool useTexture;
-    
-    // We compute world vertices on CPU, so model matrix is identity.
+    // 2. Set uniform parameters via Shader class API
     float identity[16] = {
         1.0f, 0.0f, 0.0f, 0.0f,
         0.0f, 1.0f, 0.0f, 0.0f,
         0.0f, 0.0f, 1.0f, 0.0f,
         0.0f, 0.0f, 0.0f, 1.0f
     };
-    glUniformMatrix4fv(glGetUniformLocation(currentProgram, "model"), 1, GL_FALSE, identity);
-    glUniform4f(glGetUniformLocation(currentProgram, "uColor"), 1.0f, 1.0f, 1.0f, 1.0f);
-    glUniform4f(glGetUniformLocation(currentProgram, "uUV"), 0.0f, 0.0f, 1.0f, 1.0f);
-    glUniform1i(glGetUniformLocation(currentProgram, "useTexture"), 1);
-    glUniform1i(glGetUniformLocation(currentProgram, "uTexture"), 0);
+    activeShader->SetMat4("model", identity);
+    activeShader->SetVec4("uColor", color.r, color.g, color.b, color.a);
+    activeShader->SetVec4("uUV", 0.0f, 0.0f, 1.0f, 1.0f);
+    activeShader->SetBool("useTexture", true);
+    activeShader->SetInt("uTexture", 0);
 
     // Get GameObject's world transform for CPU vertex projection
     Vector2 worldPos = transform->GetWorldPosition();
@@ -111,9 +110,8 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
         const auto& pose = poseOpt.value();
         if (pose.vertices.empty() || pose.triangles.empty()) continue;
 
-        // Construct dynamic vertex buffer containing projected Position and UV coordinates
-        // Vertex format: X (float), Y (float), U (float), V (float) -> 4 floats per vertex
-        std::vector<float> vboData;
+        // Clear and reuse vector buffers to avoid heap allocations per frame
+        vboData.clear();
         vboData.reserve(pose.vertices.size() * 4);
 
         for (std::size_t i = 0; i < pose.vertices.size(); ++i) {
@@ -135,8 +133,8 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
             vboData.push_back(v);
         }
 
-        // Convert index triangles from std::size_t to unsigned int
-        std::vector<unsigned int> indices;
+        // Convert index triangles to unsigned int (reusing vector)
+        indices.clear();
         indices.reserve(pose.triangles.size());
         for (std::size_t idx : pose.triangles) {
             indices.push_back(static_cast<unsigned int>(idx));
@@ -156,14 +154,28 @@ void MarrowRenderer::RenderSprite(Renderer* renderer) {
     glBindVertexArray(0);
 }
 
-void MarrowRenderer::ResolveAssets() {
+void MarrowRenderer::ResolveAssets(bool forceReload) {
+    // 1. Re-entry guard to prevent redundant asset loading
+    if (!forceReload && texture != nullptr) {
+        return;
+    }
+
     if (skeletonPath.empty() || atlasPath.empty()) return;
+
+    // 2. Clear old assets if force reloading
+    if (forceReload) {
+        skeleton.reset();
+        animationState.reset();
+        skeletonData.reset();
+        atlasData.reset();
+        texture = nullptr;
+    }
 
     // Resolve absolute paths
     std::string absMskl = PathService::Get().ResolveAsset(skeletonPath);
     std::string absMatl = PathService::Get().ResolveAsset(atlasPath);
 
-    // 1. Load Skeleton Data
+    // 3. Load Skeleton Data
     marrow::runtime::SkeletonDataResult msklResult = marrow::runtime::load_skeleton_data(absMskl);
     if (!msklResult) {
         Log::Error("MarrowRenderer", "Failed to load skeleton data: " + absMskl);
@@ -171,7 +183,7 @@ void MarrowRenderer::ResolveAssets() {
     }
     skeletonData = msklResult.skeleton_data;
 
-    // 2. Load Atlas Data
+    // 4. Load Atlas Data
     marrow::runtime::AtlasDataResult matlResult = marrow::runtime::AtlasLoader::load(absMatl);
     if (!matlResult) {
         Log::Error("MarrowRenderer", "Failed to load atlas data: " + absMatl);
@@ -179,7 +191,7 @@ void MarrowRenderer::ResolveAssets() {
     }
     atlasData = matlResult.atlas_data;
 
-    // 3. Resolve and load texture atlas image
+    // 5. Resolve and load texture atlas image
     std::string imgName = atlasData->info().image;
     std::filesystem::path matlDirectory = std::filesystem::path(absMatl).parent_path();
     std::string absTexturePath = (matlDirectory / imgName).string();
@@ -190,7 +202,7 @@ void MarrowRenderer::ResolveAssets() {
         return;
     }
 
-    // 4. Instantiate runtime instances
+    // 6. Instantiate runtime instances
     skeleton = std::make_unique<marrow::runtime::Skeleton>(skeletonData);
     animationState = std::make_unique<marrow::runtime::AnimationState>(skeletonData);
 
@@ -251,6 +263,18 @@ void MarrowRenderer::Serialize(nlohmann::json& j) const {
     j["skeletonPath"] = skeletonPath;
     j["atlasPath"] = atlasPath;
     j["sortingOrder"] = sortingOrder;
+    j["color"] = { color.r, color.g, color.b, color.a };
+
+    // Serialize custom mix durations
+    nlohmann::json mixArray = nlohmann::json::array();
+    for (const auto& [key, val] : customMixDurations) {
+        nlohmann::json mixEntry;
+        mixEntry["from"] = key.first;
+        mixEntry["to"] = key.second;
+        mixEntry["duration"] = val;
+        mixArray.push_back(mixEntry);
+    }
+    j["mixDurations"] = mixArray;
 }
 
 void MarrowRenderer::Deserialize(const nlohmann::json& j) {
@@ -262,6 +286,20 @@ void MarrowRenderer::Deserialize(const nlohmann::json& j) {
     }
     if (j.contains("sortingOrder")) {
         sortingOrder = j["sortingOrder"];
+    }
+    if (j.contains("color") && j["color"].is_array()) {
+        color = Color(j["color"][0], j["color"][1], j["color"][2], j["color"][3]);
+    }
+    if (j.contains("mixDurations") && j["mixDurations"].is_array()) {
+        customMixDurations.clear();
+        for (const auto& mixEntry : j["mixDurations"]) {
+            if (mixEntry.contains("from") && mixEntry.contains("to") && mixEntry.contains("duration")) {
+                std::string from = mixEntry["from"];
+                std::string to = mixEntry["to"];
+                float duration = mixEntry["duration"];
+                customMixDurations[std::make_pair(from, to)] = duration;
+            }
+        }
     }
 }
 
@@ -294,12 +332,36 @@ void MarrowRenderer::OnInspectorGUI() {
         sortingOrder = order;
     }
 
+    // Color Tint UI
+    float colorArr[4] = { color.r, color.g, color.b, color.a };
+    if (ImGui::ColorEdit4("Color Tint", colorArr)) {
+        SetColor(Color(colorArr[0], colorArr[1], colorArr[2], colorArr[3]));
+    }
+
     if (ImGui::Button("Reload / Resolve Assets")) {
-        ResolveAssets();
+        ResolveAssets(true);
     }
 
     ImGui::Spacing();
     
+    // Playback state display
+    if (animationState) {
+        ImGui::Text("Playback State:");
+        ImGui::Indent();
+        if (auto current = animationState->get_current(0)) {
+            ImGui::Text("Playing: %s", current->animation_name.c_str());
+            double animTime = current->animation_time();
+            double animDur = current->animation_duration();
+            ImGui::Text("Time: %.2f / %.2f s", animTime, animDur);
+            float progress = animDur > 0.0 ? static_cast<float>(animTime / animDur) : 0.0f;
+            ImGui::ProgressBar(progress, ImVec2(-1, 0));
+        } else {
+            ImGui::Text("No animation currently playing on Track 0");
+        }
+        ImGui::Unindent();
+        ImGui::Spacing();
+    }
+
     // Playback debug interface in editor
     if (skeletonData) {
         ImGui::Text("Animations:");

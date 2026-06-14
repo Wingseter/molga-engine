@@ -35,11 +35,16 @@ public:
     void SetSortingOrder(int order) { sortingOrder = order; }
     int GetSortingOrder() const { return sortingOrder; }
 
+    // Color/Tint
+    void SetColor(const Color& c) { color = c; }
+    const Color& GetColor() const { return color; }
+
     // Component lifecycle
     void Update(float dt) override;
     void Render() override {}
     void RenderSprite(Renderer* renderer) override;
-    void ResolveAssets() override;
+    void ResolveAssets() override { ResolveAssets(false); }
+    void ResolveAssets(bool forceReload);
     void OnDestroy() override;
 
     // Serialization
@@ -52,12 +57,16 @@ public:
 private:
     std::string skeletonPath;
     std::string atlasPath;
+    Color color = Color::White();
 
     // Marrow Runtime objects
     std::shared_ptr<const marrow::runtime::SkeletonData> skeletonData;
     std::shared_ptr<const marrow::runtime::AtlasData> atlasData;
     std::unique_ptr<marrow::runtime::Skeleton> skeleton;
     std::unique_ptr<marrow::runtime::AnimationState> animationState;
+
+    // Mix caching: {(from_anim, to_anim) -> mix_duration_seconds}
+    std::map<std::pair<std::string, std::string>, float> customMixDurations;
 
     // OpenGL texture
     Texture* texture = nullptr;
@@ -66,6 +75,10 @@ private:
     unsigned int VAO = 0;
     unsigned int VBO = 0;
     unsigned int EBO = 0;
+
+    // Preallocated buffers to prevent per-frame heap allocations
+    std::vector<float> vboData;
+    std::vector<unsigned int> indices;
 
     int sortingOrder = 0;
 
