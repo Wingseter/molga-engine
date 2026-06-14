@@ -19,6 +19,8 @@
 #include "../../Core/ProjectSettings.h"
 #include "../Editor.h"
 #include "../EditorConstants.h"
+#include "../../ECS/Components/PrefabInstance.h"
+#include "../Commands/PrefabCommands.h"
 #include <imgui.h>
 
 InspectorWindow::InspectorWindow()
@@ -114,6 +116,57 @@ void InspectorWindow::OnGUI() {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
+
+    // Prefab Header Controls
+    if (auto* pi = target->GetComponent<PrefabInstance>()) {
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.12f, 0.28f, 0.48f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.15f, 0.35f, 0.60f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.15f, 0.35f, 0.60f, 1.0f));
+        
+        bool openPrefabHeader = ImGui::CollapsingHeader((std::string(Icons::Sitemap) + " Prefab Instance").c_str(), ImGuiTreeNodeFlags_DefaultOpen);
+        
+        ImGui::PopStyleColor(3);
+        
+        if (openPrefabHeader) {
+            ImGui::Indent();
+            ImGui::TextDisabled("GUID: %s", pi->GetPrefabGuid().c_str());
+            
+            ImGui::Spacing();
+            if (ImGui::Button((std::string(Icons::Save) + " Apply").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ApplyPrefabCommand>(target->GetID()));
+            }
+            ImGui::SameLine();
+            if (ImGui::Button((std::string(Icons::Undo) + " Revert").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::RevertPrefabCommand>(target->GetID()));
+            }
+            ImGui::SameLine();
+            if (ImGui::Button((std::string(Icons::Times) + " Unpack").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::UnpackPrefabCommand>(target->GetID()));
+            }
+            
+            ImGui::Spacing();
+            const auto& mods = pi->GetModifications();
+            if (!mods.empty()) {
+                ImGui::Text("Overridden Properties (%d):", (int)mods.size());
+                for (const auto& mod : mods) {
+                    if (mod.contains("component") && mod.contains("key")) {
+                        ImGui::BulletText("%s: %s", 
+                            mod["component"].get<std::string>().c_str(),
+                            mod["key"].get<std::string>().c_str());
+                    }
+                }
+            } else {
+                ImGui::TextDisabled("No overrides (follows template)");
+            }
+            
+            ImGui::Unindent();
+            ImGui::Separator();
+            ImGui::Spacing();
+        }
+    }
 
     // Draw all components using their OnInspectorGUI
     for (auto* comp : target->GetComponents()) {
@@ -216,14 +269,35 @@ void InspectorWindow::DrawComponent(Component* component) {
 
     std::string typeName = component->GetTypeName();
 
+    // Check if this component has overrides in PrefabInstance
+    bool isOverridden = false;
+    if (target) {
+        if (auto* pi = target->GetComponent<PrefabInstance>()) {
+            for (const auto& mod : pi->GetModifications()) {
+                if (mod.contains("component") && mod["component"].get<std::string>() == typeName) {
+                    isOverridden = true;
+                    break;
+                }
+            }
+        }
+    }
+
     // Determine icon based on component type
     const char* icon = UIRegistry::GetComponentInfo(typeName).icon;
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_Framed |
                                ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
 
-    std::string label = std::string(icon) + " " + typeName;
+    if (isOverridden) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 0.7f, 1.0f, 1.0f)); // Style color for override highlight
+    }
+
+    std::string label = std::string(icon) + " " + typeName + (isOverridden ? " *" : "");
     bool open = ImGui::TreeNodeEx((void*)component, flags, "%s", label.c_str());
+
+    if (isOverridden) {
+        ImGui::PopStyleColor();
+    }
 
     // Enable/disable checkbox on the same line
     ImGui::SameLine(ImGui::GetWindowWidth() - 30);

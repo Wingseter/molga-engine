@@ -29,6 +29,7 @@ public:
 
     // Scene management
     void SetGameObjects(std::vector<std::shared_ptr<GameObject>>* objects);
+    std::vector<std::shared_ptr<GameObject>>* GetGameObjects() { return gameObjects; }
 
     // Selection
     GameObject* GetSelectedObject() const;

@@ -8,6 +8,8 @@
 #include "../UIRegistry.h"
 #include "Editor/Editor.h"
 #include "Editor/Commands/ObjectCommands.h"
+#include "Editor/Commands/PrefabCommands.h"
+#include "../../ECS/Components/PrefabInstance.h"
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
@@ -84,13 +86,31 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
         flags |= ImGuiTreeNodeFlags_Leaf;
     }
 
+    // Check if this object is a prefab root or child
+    bool isPrefabRoot = obj->GetComponent<PrefabInstance>() != nullptr;
+    bool isPrefabChild = false;
+    if (!isPrefabRoot) {
+        GameObject* curr = obj->GetParent();
+        while (curr) {
+            if (curr->GetComponent<PrefabInstance>()) {
+                isPrefabChild = true;
+                break;
+            }
+            curr = curr->GetParent();
+        }
+    }
+
     // Determine icon based on components
     const char* icon = Icons::Cube;  // Default icon
-    for (auto* comp : obj->GetComponents()) {
-        const auto& info = UIRegistry::GetComponentInfo(comp->GetTypeName());
-        if (info.icon != Icons::Cog) {  // Use first non-default component icon
-            icon = info.icon;
-            break;
+    if (isPrefabRoot) {
+        icon = Icons::Sitemap;
+    } else {
+        for (auto* comp : obj->GetComponents()) {
+            const auto& info = UIRegistry::GetComponentInfo(comp->GetTypeName());
+            if (info.icon != Icons::Cog) {  // Use first non-default component icon
+                icon = info.icon;
+                break;
+            }
         }
     }
 
@@ -116,8 +136,18 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
         return;
     }
 
+    if (isPrefabRoot) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.65f, 1.0f, 1.0f)); // Bright blue for root
+    } else if (isPrefabChild) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.80f, 1.0f, 1.0f)); // Dim blue for children
+    }
+
     std::string label = std::string(icon) + " " + obj->GetName();
     bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)obj->GetID(), flags, "%s", label.c_str());
+
+    if (isPrefabRoot || isPrefabChild) {
+        ImGui::PopStyleColor();
+    }
 
     if (ImGui::BeginDragDropSource()) {
         unsigned int objId = obj->GetID();
@@ -146,6 +176,30 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
             selectedObject = obj;
             DuplicateSelectedObject();
         }
+        
+        ImGui::Separator();
+        if (isPrefabRoot) {
+            if (ImGui::MenuItem((std::string(Icons::Save) + " Apply Prefab").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ApplyPrefabCommand>(obj->GetID()));
+            }
+            if (ImGui::MenuItem((std::string(Icons::Undo) + " Revert Prefab").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::RevertPrefabCommand>(obj->GetID()));
+            }
+            if (ImGui::MenuItem((std::string(Icons::Times) + " Unpack Prefab").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::UnpackPrefabCommand>(obj->GetID()));
+            }
+        } else if (!isPrefabChild) {
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Create Prefab").c_str())) {
+                std::string prefabName = obj->GetName() + ".prefab";
+                std::filesystem::path relPath = std::filesystem::path("assets") / prefabName;
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::CreatePrefabFromObjectCommand>(obj->GetID(), relPath));
+            }
+        }
+
         ImGui::Separator();
         if (ImGui::MenuItem((std::string(Icons::Trash) + " Delete").c_str())) {
             selectedObject = obj;

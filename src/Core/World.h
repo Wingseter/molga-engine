@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <unordered_map>
+#include "Common/Types.h"
 
 class GameObject;
 class PhysicsWorld;
@@ -35,6 +37,14 @@ public:
     void LateUpdate(float dt);       // 스크립트 LateUpdate
     void ResolveAssets();            // 모든 컴포넌트의 지연 에셋 로드
 
+    // 런타임 생명주기 API
+    GameObject* Instantiate(const GameObject* original);
+    GameObject* Instantiate(const GameObject* original, const Vector2& worldPos);
+    GameObject* Instantiate(const GameObject* original, GameObject* parent);
+    GameObject* InstantiatePrefab(const std::string& guid);
+    void Destroy(GameObject* obj, float delay = 0.0f);
+    void FlushDeferred(float dt);
+
     // 직렬화 기반 독립 복제
     std::unique_ptr<World> Clone() const;
 
@@ -48,4 +58,13 @@ private:
     std::vector<std::shared_ptr<GameObject>> objects_;
     std::string name_ = "Untitled";
     std::unique_ptr<PhysicsWorld> physicsWorld;
+
+    // 지연 추가/삭제 큐
+    std::vector<std::shared_ptr<GameObject>> pendingAdds_;
+    struct PendingDestroy {
+        unsigned int id;
+        float delay;
+    };
+    std::vector<PendingDestroy> pendingDestroys_;
 };
+

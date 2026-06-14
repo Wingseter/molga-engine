@@ -253,6 +253,7 @@ int main(int argc, char* argv[]) {
                 }
                 sceneDoc.ActiveWorld().Update(scaledDt);
                 sceneDoc.ActiveWorld().LateUpdate(scaledDt);
+                sceneDoc.ActiveWorld().FlushDeferred(scaledDt);
             }
 
             // 메인 백버퍼 클리어 (씬 렌더는 SceneViewWindow FBO 안에서 수행)

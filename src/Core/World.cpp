@@ -75,6 +75,8 @@ std::unique_ptr<World> World::Clone() const {
     return copy;
 }
 
+#include "ECS/Components/Transform.h"
+
 bool World::LoadFromFile(const std::string& path) {
     bool success = SceneSerializer::LoadScene(path, objects_);
     if (success) {
@@ -87,3 +89,127 @@ bool World::LoadFromFile(const std::string& path) {
 bool World::SaveToFile(const std::string& path) const {
     return SceneSerializer::SaveScene(path, objects_);
 }
+
+GameObject* World::Instantiate(const GameObject* original) {
+    if (!original) return nullptr;
+    nlohmann::json subtree = SceneSerializer::SerializeSubtree(original);
+    std::unordered_map<unsigned int, unsigned int> idRemap;
+    GameObject* root = SceneSerializer::DeserializeSubtreeRemapped(subtree, pendingAdds_, idRemap);
+    return root;
+}
+
+GameObject* World::Instantiate(const GameObject* original, const Vector2& worldPos) {
+    GameObject* root = Instantiate(original);
+    if (root) {
+        if (auto* transform = root->GetComponent<Transform>()) {
+            transform->SetPosition(worldPos);
+        }
+    }
+    return root;
+}
+
+#include "Core/PrefabRegistry.h"
+
+GameObject* World::Instantiate(const GameObject* original, GameObject* parent) {
+    GameObject* root = Instantiate(original);
+    if (root && parent) {
+        root->SetParent(parent);
+    }
+    return root;
+}
+
+GameObject* World::InstantiatePrefab(const std::string& guid) {
+    std::unordered_map<unsigned int, unsigned int> idRemap;
+    GameObject* root = PrefabRegistry::Get().Instantiate(guid, pendingAdds_, idRemap);
+    return root;
+}
+
+void World::Destroy(GameObject* obj, float delay) {
+    if (!obj) return;
+    unsigned int id = obj->GetID();
+    for (const auto& pd : pendingDestroys_) {
+        if (pd.id == id) return;
+    }
+    pendingDestroys_.push_back({ id, delay });
+}
+
+void World::FlushDeferred(float dt) {
+    // 1. Process pending destroys
+    std::vector<unsigned int> idsToDestroyNow;
+    auto it = pendingDestroys_.begin();
+    while (it != pendingDestroys_.end()) {
+        it->delay -= dt;
+        if (it->delay <= 0.0f) {
+            idsToDestroyNow.push_back(it->id);
+            it = pendingDestroys_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    if (!idsToDestroyNow.empty()) {
+        std::vector<GameObject*> allSubtreeObjects;
+        for (unsigned int id : idsToDestroyNow) {
+            GameObject* found = nullptr;
+            for (const auto& o : objects_) {
+                if (o && o->GetID() == id) {
+                    found = o.get();
+                    break;
+                }
+            }
+            if (!found) {
+                for (const auto& o : pendingAdds_) {
+                    if (o && o->GetID() == id) {
+                        found = o.get();
+                        break;
+                    }
+                }
+            }
+            if (found) {
+                found->CollectSubtree(allSubtreeObjects);
+            }
+        }
+
+        for (auto* obj : allSubtreeObjects) {
+            if (obj) {
+                obj->NotifyDestroy();
+            }
+        }
+
+        auto removePredicate = [&](const std::shared_ptr<GameObject>& o) {
+            if (!o) return true;
+            unsigned int oid = o->GetID();
+            for (auto* target : allSubtreeObjects) {
+                if (target && target->GetID() == oid) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        objects_.erase(std::remove_if(objects_.begin(), objects_.end(), removePredicate), objects_.end());
+        pendingAdds_.erase(std::remove_if(pendingAdds_.begin(), pendingAdds_.end(), removePredicate), pendingAdds_.end());
+    }
+
+    // 2. Process pending adds
+    if (!pendingAdds_.empty()) {
+        std::vector<std::shared_ptr<GameObject>> newAdds = std::move(pendingAdds_);
+        pendingAdds_.clear();
+
+        for (auto& obj : newAdds) {
+            if (obj) {
+                obj->SetWorld(this);
+                objects_.push_back(obj);
+            }
+        }
+
+        // Call ResolveAssets and StartScripts for the new objects
+        for (auto& obj : newAdds) {
+            if (obj) {
+                obj->ResolveAssets();
+                obj->StartScripts();
+            }
+        }
+    }
+}
+

@@ -2,12 +2,15 @@
 #include "../../Common/Log.h"
 #include "../Project.h"
 #include "../EditorConstants.h"
+#include "../Editor.h"
 #include "../EditorTheme.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
 #include "../../Scripting/ScriptCompiler.h"
 #include "../../Core/SceneSerializer.h"
 #include "../../ECS/GameObject.h"
+#include "Core/PrefabRegistry.h"
+#include "Editor/Commands/PrefabCommands.h"
 #include <imgui.h>
 #include <filesystem>
 #include <algorithm>
@@ -262,6 +265,29 @@ void ProjectBrowserWindow::DrawFileGrid() {
             } else if (onFileDoubleClicked) {
                 onFileDoubleClicked(entry.path);
             }
+        }
+
+        // Right-click context menu for this file/folder
+        if (ImGui::BeginPopupContextItem("FileContextMenu")) {
+            selectedIndex = static_cast<int>(i);
+            selectedPath = entry.path;
+
+            if (entry.extension == ".prefab") {
+                if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Instantiate into Scene").c_str())) {
+                    std::filesystem::path relPath = std::filesystem::relative(entry.path, Project::Get().GetAssetsPath());
+                    std::string guid = PrefabRegistry::Get().GetPrefabGuid(relPath);
+                    if (!guid.empty()) {
+                        Editor::Get().GetCommandHistory().Execute(
+                            std::make_unique<molga::InstantiatePrefabCommand>(guid));
+                    }
+                }
+            }
+
+            if (ImGui::MenuItem((std::string(Icons::Trash) + " Delete").c_str())) {
+                std::filesystem::remove(entry.path);
+                Refresh();
+            }
+            ImGui::EndPopup();
         }
 
         ImGui::PopStyleColor(2);

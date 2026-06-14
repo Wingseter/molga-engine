@@ -13,4 +13,12 @@ void RegisterBuiltinScripts() {
     ScriptManager::Get().RegisterBuiltin("Oscillator", []() -> std::unique_ptr<Script> {
         return std::make_unique<Oscillator>();
     });
+
+    ScriptManager::Get().RegisterBuiltin("Spawner", []() -> std::unique_ptr<Script> {
+        return std::make_unique<Spawner>();
+    });
+
+    ScriptManager::Get().RegisterBuiltin("SelfDestruct", []() -> std::unique_ptr<Script> {
+        return std::make_unique<SelfDestruct>();
+    });
 }

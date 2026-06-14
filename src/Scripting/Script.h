@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../ECS/Component.h"
+#include "Common/Types.h"
 
 class GameObject;
 class Transform;
@@ -46,6 +47,14 @@ public:
 
     // Helper to get Transform component
     Transform* GetTransform();
+
+    // Runtime lifecycle API helpers
+    GameObject* Instantiate(const GameObject* original);
+    GameObject* Instantiate(const GameObject* original, const Vector2& position);
+    GameObject* Instantiate(const GameObject* original, GameObject* parent);
+    GameObject* InstantiatePrefab(const std::string& guid);
+    void Destroy(GameObject* obj, float delay = 0.0f);
+    void Destroy(float delay = 0.0f);
 
     // Script name for identification
     virtual const char* GetScriptName() const { return "Script"; }

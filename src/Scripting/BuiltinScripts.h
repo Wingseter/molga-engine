@@ -3,6 +3,8 @@
 #include "Script.h"
 #include "../Systems/Input.h"
 #include "../ECS/Components/Transform.h"
+#include "../ECS/GameObject.h"
+#include "../Core/World.h"
 #include <GLFW/glfw3.h>
 
 #ifdef MOLGA_EDITOR
@@ -104,6 +106,74 @@ public:
 private:
     Vector2 startPosition;
     float time = 0.0f;
+};
+
+// Example: Spawner Script (clones a target object periodically)
+class Spawner : public Script {
+public:
+    SCRIPT_CLASS(Spawner)
+
+    float spawnInterval = 2.0f;
+    std::string targetName = "Bullet";
+
+    void Start() override {
+        timer = spawnInterval;
+    }
+
+    void Update(float dt) override {
+        timer -= dt;
+        if (timer <= 0.0f) {
+            timer = spawnInterval;
+            GameObject* target = nullptr;
+            if (gameObject && gameObject->GetWorld()) {
+                for (const auto& obj : gameObject->GetWorld()->Objects()) {
+                    if (obj && obj->GetName() == targetName) {
+                        target = obj.get();
+                        break;
+                    }
+                }
+            }
+            if (target) {
+                Vector2 myPos = Vector2::Zero();
+                if (auto* transform = GetTransform()) {
+                    myPos = transform->GetPosition();
+                }
+                Instantiate(target, myPos);
+            }
+        }
+    }
+
+#ifdef MOLGA_EDITOR
+    void OnInspectorGUI() override {
+        ImGui::DragFloat("Spawn Interval", &spawnInterval, 0.1f, 0.1f, 10.0f);
+        char buf[128];
+        strncpy(buf, targetName.c_str(), sizeof(buf));
+        if (ImGui::InputText("Target Name", buf, sizeof(buf))) {
+            targetName = buf;
+        }
+    }
+#endif
+
+private:
+    float timer = 0.0f;
+};
+
+// Example: SelfDestruct Script (destroys itself after a delay)
+class SelfDestruct : public Script {
+public:
+    SCRIPT_CLASS(SelfDestruct)
+
+    float lifetime = 3.0f;
+
+    void Start() override {
+        Destroy(lifetime);
+    }
+
+#ifdef MOLGA_EDITOR
+    void OnInspectorGUI() override {
+        ImGui::DragFloat("Lifetime", &lifetime, 0.1f, 0.0f, 60.0f);
+    }
+#endif
 };
 
 // Register all builtin scripts

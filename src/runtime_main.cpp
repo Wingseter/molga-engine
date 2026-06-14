@@ -208,6 +208,7 @@ int main(int argc, char* argv[]) {
         // Update all game objects
         world.Update(dt);
         world.LateUpdate(dt);
+        world.FlushDeferred(dt);
 
         // sortingOrder 오름차순으로 그릴 스프라이트 및 애니메이션 수집
         std::vector<std::pair<int, Component*>> drawList;

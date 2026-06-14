@@ -75,7 +75,10 @@ set(ENGINE_SOURCES
     src/ECS/Components/AudioSource.cpp
     src/ECS/Components/AudioListener.cpp
     src/ECS/Components/Camera.cpp
+    src/ECS/Components/PrefabInstance.cpp
     src/Core/SceneSerializer.cpp
+    src/Core/PrefabRegistry.cpp
+    src/Core/PrefabUtil.cpp
     src/Core/World.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
@@ -139,6 +142,7 @@ set(EDITOR_SOURCES
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
     src/Editor/Commands/ObjectCommands.cpp
+    src/Editor/Commands/PrefabCommands.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
     src/Editor/UIRegistry.cpp
