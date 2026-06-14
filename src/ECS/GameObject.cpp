@@ -173,11 +173,9 @@ void GameObject::StartScripts() {
     if (!active) return;
     for (auto& [id, comp] : componentMap) {
         if (!comp->IsEnabled()) continue;
-        if (auto* s = dynamic_cast<Script*>(comp.get())) {
-            if (!s->HasStarted()) {
-                s->Start();
-                s->MarkStarted();
-            }
+        if (!comp->HasStarted()) {
+            comp->Start();
+            comp->MarkStarted();
         }
     }
 }

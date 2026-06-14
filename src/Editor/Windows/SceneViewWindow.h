@@ -85,8 +85,8 @@ private:
 
     // 우클릭 Create 컨텍스트 메뉴
     void DrawContextMenu();
-    // 우클릭 위치에 오브젝트 생성 (withSprite면 SpriteRenderer 부착)
-    void CreateObjectAt(const char* name, bool withSprite, float worldX, float worldY);
+    // 우클릭 위치에 오브젝트 생성 (compType이 비어있지 않으면 해당 컴포넌트 부착)
+    void CreateObjectAt(const char* name, const std::string& compType, float worldX, float worldY);
 
     // 좌표 변환 유틸: 패널 내 스크린 픽셀 좌표 → 월드 좌표
     void ScreenToWorld(ImVec2 panelPos, ImVec2 panelSize, ImVec2 screen,

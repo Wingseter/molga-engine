@@ -1,5 +1,7 @@
 #include "Project.h"
 #include "../Common/Log.h"
+#include "../Core/ProjectSettings.h"
+#include "../Systems/Input.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -46,6 +48,16 @@ bool Project::Create(const std::string& parentPath, const std::string& name) {
     isOpen = true;
     AddToRecentProjects(projectPath);
 
+    // Initialize and save project settings
+    ProjectSettings::Get().SetDefaults();
+    std::string settingsPath = (fs::path(projectPath) / "ProjectSettings" / "project_settings.json").string();
+    ProjectSettings::Get().SaveToFile(settingsPath);
+
+    // Initialize and save input actions
+    Input::InitializeDefaultActions();
+    std::string inputPath = (fs::path(projectPath) / "ProjectSettings" / "input_actions.json").string();
+    Input::SaveActions(inputPath);
+
     Log::Info("Project", "Created project: " + projectName + " at " + projectPath);
     return true;
 }
@@ -73,6 +85,21 @@ bool Project::Open(const std::string& path) {
     isOpen = true;
     AddToRecentProjects(projectPath);
 
+    // Load project settings
+    std::string settingsPath = (fs::path(projectPath) / "ProjectSettings" / "project_settings.json").string();
+    if (!ProjectSettings::Get().LoadFromFile(settingsPath)) {
+        ProjectSettings::Get().SaveToFile(settingsPath);
+    }
+
+    // Load input actions
+    std::string inputPath = (fs::path(projectPath) / "ProjectSettings" / "input_actions.json").string();
+    if (fs::exists(inputPath)) {
+        Input::LoadActions(inputPath);
+    } else {
+        Input::InitializeDefaultActions();
+        Input::SaveActions(inputPath);
+    }
+
     Log::Info("Project", "Opened project: " + projectName + " at " + projectPath);
     return true;
 }
@@ -84,6 +111,7 @@ void Project::Close() {
     projectPath.clear();
     projectName.clear();
     isOpen = false;
+    ProjectSettings::Get().SetDefaults();
 }
 
 std::string Project::GetAssetsPath() const {

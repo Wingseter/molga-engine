@@ -246,6 +246,15 @@ void ProjectBrowserWindow::DrawFileGrid() {
             }
         }
 
+        // Drag source for audio files
+        if (!entry.isDirectory && (entry.extension == ".wav" || entry.extension == ".mp3" || entry.extension == ".ogg")) {
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                ImGui::SetDragDropPayload("AUDIO_PATH", entry.path.c_str(), entry.path.size() + 1);
+                ImGui::Text("Audio: %s", entry.name.c_str());
+                ImGui::EndDragDropSource();
+            }
+        }
+
         // Double click
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
             if (entry.isDirectory) {

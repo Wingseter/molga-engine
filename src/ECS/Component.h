@@ -63,6 +63,7 @@ public:
     void SetGameObject(GameObject* go) { gameObject = go; }
 
     // Lifecycle callbacks (override in derived classes)
+    virtual void Start() {}
     virtual void OnEnable() {}
     virtual void OnDisable() {}
 
@@ -75,9 +76,14 @@ public:
         else OnDisable();
     }
 
+    // Start state tracking
+    bool HasStarted() const { return started; }
+    void MarkStarted() { started = true; }
+
 protected:
     GameObject* gameObject = nullptr;
     bool enabled = true;
+    bool started = false;
 };
 
 // Macro to help define component type name and runtime type ID

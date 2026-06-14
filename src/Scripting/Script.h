@@ -17,7 +17,7 @@ public:
     virtual ~Script() = default;
 
     // Called once when the script is first enabled
-    virtual void Start() {}
+    void Start() override {}
 
     // Called every frame
     virtual void Update(float deltaTime) override {}
@@ -55,13 +55,6 @@ public:
 
     // Runtime type ID (default for Script base; overridden by SCRIPT_CLASS)
     size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<Script>(); }
-
-    // Has Start been called?
-    bool HasStarted() const { return started; }
-    void MarkStarted() { started = true; }
-
-protected:
-    bool started = false;
 };
 
 // Macro for easy script definition

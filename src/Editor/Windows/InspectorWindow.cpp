@@ -3,13 +3,22 @@
 #include "../../ECS/Component.h"
 #include "../../ECS/Components/Transform.h"
 #include "../../ECS/Components/SpriteRenderer.h"
+#include "../../ECS/Components/TilemapRenderer.h"
+#include "../../ECS/Components/ParticleSystem.h"
 #include "../../ECS/Components/BoxCollider2D.h"
 #include "../../ECS/Components/MarrowRenderer.h"
+#include "../../ECS/Components/AudioSource.h"
+#include "../../ECS/Components/AudioListener.h"
+#include "../../ECS/Components/Camera.h"
+#include "../../ECS/Components/TextRenderer2D.h"
 #include "../../Scripting/Script.h"
 #include "../../Scripting/ScriptManager.h"
 #include "../../Scripting/BuiltinScripts.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
+#include "../../Core/ProjectSettings.h"
+#include "../Editor.h"
+#include "../EditorConstants.h"
 #include <imgui.h>
 
 InspectorWindow::InspectorWindow()
@@ -40,6 +49,59 @@ void InspectorWindow::OnGUI() {
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputText("##Name", nameBuffer, sizeof(nameBuffer))) {
         target->SetName(nameBuffer);
+    }
+
+    ImGui::Spacing();
+
+    // Tag and Layer dropdowns
+    auto& settings = ProjectSettings::Get();
+    
+    // Tag Combo
+    std::string currentTag = target->GetTag();
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f - 8.0f);
+    if (ImGui::BeginCombo("##TagCombo", ("Tag: " + currentTag).c_str())) {
+        for (const auto& t : settings.tags) {
+            bool isSelected = (currentTag == t);
+            if (ImGui::Selectable(t.c_str(), isSelected)) {
+                target->SetTag(t);
+            }
+            if (isSelected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Add Tag...")) {
+            Editor::Get().GetWindowManager().SetVisible(EditorConstants::WIN_PROJECT_SETTINGS, true);
+        }
+        ImGui::EndCombo();
+    }
+    
+    ImGui::SameLine();
+    
+    // Layer Combo
+    int currentLayer = target->GetLayer();
+    std::string currentLayerName = settings.GetLayerName(currentLayer);
+    if (currentLayerName.empty()) {
+        currentLayerName = "Layer " + std::to_string(currentLayer);
+    }
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - 4.0f);
+    if (ImGui::BeginCombo("##LayerCombo", ("Layer: " + currentLayerName).c_str())) {
+        for (int i = 0; i < 32; ++i) {
+            std::string name = settings.GetLayerName(i);
+            std::string displayName = name.empty() ? ("Layer " + std::to_string(i) + " (Empty)") : name;
+            bool isSelected = (currentLayer == i);
+            if (ImGui::Selectable(displayName.c_str(), isSelected)) {
+                target->SetLayer(i);
+            }
+            if (isSelected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Edit Layers...")) {
+            Editor::Get().GetWindowManager().SetVisible(EditorConstants::WIN_PROJECT_SETTINGS, true);
+        }
+        ImGui::EndCombo();
     }
 
     ImGui::Spacing();
@@ -85,9 +147,39 @@ void InspectorWindow::OnGUI() {
                 target->AddComponent<SpriteRenderer>();
             }
         }
+        if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap Renderer").c_str())) {
+            if (!target->HasComponent<TilemapRenderer>()) {
+                target->AddComponent<TilemapRenderer>();
+            }
+        }
+        if (ImGui::MenuItem((std::string(Icons::Lightbulb) + " Particle System").c_str())) {
+            if (!target->HasComponent<ParticleSystem>()) {
+                target->AddComponent<ParticleSystem>();
+            }
+        }
         if (ImGui::MenuItem((std::string(Icons::Square) + " Box Collider 2D").c_str())) {
             if (!target->HasComponent<BoxCollider2D>()) {
                 target->AddComponent<BoxCollider2D>();
+            }
+        }
+        if (ImGui::MenuItem((std::string(Icons::Music) + " Audio Source").c_str())) {
+            if (!target->HasComponent<AudioSource>()) {
+                target->AddComponent<AudioSource>();
+            }
+        }
+        if (ImGui::MenuItem((std::string(Icons::VolumeUp) + " Audio Listener").c_str())) {
+            if (!target->HasComponent<AudioListener>()) {
+                target->AddComponent<AudioListener>();
+            }
+        }
+        if (ImGui::MenuItem((std::string(Icons::Camera) + " Camera").c_str())) {
+            if (!target->HasComponent<Camera>()) {
+                target->AddComponent<Camera>();
+            }
+        }
+        if (ImGui::MenuItem((std::string(Icons::ListUl) + " Text Renderer 2D").c_str())) {
+            if (!target->HasComponent<TextRenderer2D>()) {
+                target->AddComponent<TextRenderer2D>();
             }
         }
 #ifdef MOLGA_MARROW_SUPPORT

@@ -19,6 +19,7 @@ public:
     void SetViewport(int width, int height);
 
     void Begin(Shader* shader, Camera2D* camera = nullptr);
+    void SetShader(Shader* shader);
     void DrawSprite(Sprite* sprite);
     void End();
 

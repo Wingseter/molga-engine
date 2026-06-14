@@ -42,6 +42,8 @@ target_link_libraries(imgui glfw)
 # ── Common engine source files ─────────────────────────────────────────────────
 set(ENGINE_SOURCES
     src/Rendering/Shader.cpp
+    src/Rendering/ShaderManager.cpp
+    src/Rendering/Material.cpp
     src/Rendering/Texture.cpp
     src/Rendering/Sprite.cpp
     src/Rendering/Renderer.cpp
@@ -53,6 +55,7 @@ set(ENGINE_SOURCES
     src/Rendering/SpriteSheet.cpp
     src/Rendering/Animation.cpp
     src/Physics/Collision.cpp
+    src/Physics/PhysicsWorld.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
     src/Systems/Audio.cpp
@@ -62,8 +65,16 @@ set(ENGINE_SOURCES
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
+    src/ECS/Components/TilemapRenderer.cpp
+    src/ECS/Components/TextRenderer2D.cpp
+    src/ECS/Components/ParticleSystem.cpp
     src/ECS/Components/BoxCollider2D.cpp
+    src/ECS/Components/CircleCollider2D.cpp
+    src/ECS/Components/Rigidbody2D.cpp
     src/ECS/Components/Collider2D.cpp
+    src/ECS/Components/AudioSource.cpp
+    src/ECS/Components/AudioListener.cpp
+    src/ECS/Components/Camera.cpp
     src/Core/SceneSerializer.cpp
     src/Core/World.cpp
     src/Scripting/Script.cpp
@@ -73,6 +84,7 @@ set(ENGINE_SOURCES
     src/Rendering/TextRenderer.cpp
     src/Core/Bootstrap.cpp
     src/Core/EventBus.cpp
+    src/Core/ProjectSettings.cpp
     src/Common/Log.cpp
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
@@ -141,6 +153,7 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
+    src/Editor/Windows/ProjectSettingsWindow.cpp
     src/Editor/Project.cpp
     src/Scripting/ScriptCompiler.cpp
 )

@@ -3,6 +3,7 @@
 #include "EditorTheme.h"
 #include "Project.h"
 #include "../ECS/Components/SpriteRenderer.h"
+#include "../Rendering/ShaderManager.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/GameObject.h"
 #include "../Scripting/ScriptCompiler.h"
@@ -17,6 +18,7 @@
 #include "Windows/ScriptWindow.h"
 #include "Windows/SceneViewWindow.h"
 #include "Windows/StatsWindow.h"
+#include "Windows/ProjectSettingsWindow.h"
 #include "../Common/Log.h"
 #include "../Core/PathService.h"
 #include <cstring>
@@ -37,6 +39,7 @@ void Editor::Init() {
   windowManager.Register(EditorConstants::WIN_SCRIPTS, std::make_unique<ScriptWindow>());
   windowManager.Register(EditorConstants::WIN_SCENE, std::make_unique<SceneViewWindow>());
   windowManager.Register(EditorConstants::WIN_STATS, std::make_unique<StatsWindow>());
+  windowManager.Register(EditorConstants::WIN_PROJECT_SETTINGS, std::make_unique<ProjectSettingsWindow>());
 
   // Connect hierarchy selection to inspector
   auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
@@ -169,6 +172,14 @@ void Editor::RenderMenuBar() {
       }
       if (ImGui::MenuItem("Redo", "Ctrl+Y", false, commandHistory.CanRedo())) {
         commandHistory.Redo();
+      }
+      ImGui::Separator();
+      if (ImGui::MenuItem("Project Settings...")) {
+        windowManager.SetVisible(EditorConstants::WIN_PROJECT_SETTINGS, true);
+      }
+      ImGui::Separator();
+      if (ImGui::MenuItem("Reload Shaders")) {
+        ShaderManager::Get().ReloadAll();
       }
       ImGui::EndMenu();
     }

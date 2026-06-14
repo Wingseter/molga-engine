@@ -3,6 +3,7 @@
 #include "../../ECS/Component.h"
 #include "../../ECS/Components/Transform.h"
 #include "../../ECS/Components/SpriteRenderer.h"
+#include "../../ECS/Components/TilemapRenderer.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
 #include "Editor/Editor.h"
@@ -57,12 +58,8 @@ void HierarchyWindow::OnGUI() {
             if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {
                 CreateSpriteObject();
             }
-            // Tilemap ECS 컴포넌트 미구현 — 빈 오브젝트만 생성됨
-            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap  [TODO]").c_str())) {
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap").c_str())) {
                 CreateTilemapObject();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Tilemap ECS component not yet implemented.\nCreates an empty GameObject only.");
             }
             ImGui::EndMenu();
         }
@@ -122,6 +119,13 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
     std::string label = std::string(icon) + " " + obj->GetName();
     bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)obj->GetID(), flags, "%s", label.c_str());
 
+    if (ImGui::BeginDragDropSource()) {
+        unsigned int objId = obj->GetID();
+        ImGui::SetDragDropPayload("GAMEOBJECT_ID", &objId, sizeof(unsigned int));
+        ImGui::Text("%s", obj->GetName().c_str());
+        ImGui::EndDragDropSource();
+    }
+
     // Handle selection
     if (ImGui::IsItemClicked()) {
         selectedObject = obj;
@@ -177,10 +181,12 @@ void HierarchyWindow::CreateSpriteObject() {
 }
 
 void HierarchyWindow::CreateTilemapObject() {
-    // TODO: Tilemap ECS 컴포넌트가 아직 없음 (src/Rendering/Tilemap.h는 독립 렌더러).
-    // 현재는 빈 GameObject만 생성. Tilemap 컴포넌트 구현 후 AddComponent<TilemapRenderer>() 추가 예정.
     auto cmd = std::make_unique<molga::CreateObjectCommand>("Tilemap");
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
+        obj->AddComponent<TilemapRenderer>();
+        Editor::Get().MarkSceneModified();
+    }
     selectedObject = Editor::Get().GetSelectedObject();
 }
 

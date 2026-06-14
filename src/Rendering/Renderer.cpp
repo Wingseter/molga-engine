@@ -66,6 +66,16 @@ void Renderer::SetProjection(float left, float right, float bottom, float top) {
     mat4x4_ortho(projection, left, right, bottom, top, -1.0f, 1.0f);
 }
 
+void Renderer::SetShader(Shader* shader) {
+    if (shader == nullptr) return;
+    currentShader = shader;
+    currentShader->Use();
+
+    mat4x4 projView;
+    mat4x4_mul(projView, projection, view);
+    currentShader->SetMat4("projection", (float*)projView);
+}
+
 void Renderer::Begin(Shader* shader, Camera2D* camera) {
     if (!pass.TryBegin()) {
         Log::Error("Renderer", "Begin() called while a pass is already active; ignoring nested Begin");
@@ -76,8 +86,6 @@ void Renderer::Begin(Shader* shader, Camera2D* camera) {
         pass.TryEnd();
         return;
     }
-    currentShader = shader;
-    currentShader->Use();
 
     if (camera) {
         camera->GetProjectionMatrix(projection);
@@ -86,10 +94,7 @@ void Renderer::Begin(Shader* shader, Camera2D* camera) {
         mat4x4_identity(view);
     }
 
-    // Combine projection and view into one matrix
-    mat4x4 projView;
-    mat4x4_mul(projView, projection, view);
-    currentShader->SetMat4("projection", (float*)projView);
+    SetShader(shader);
 }
 
 void Renderer::DrawSprite(Sprite* sprite) {

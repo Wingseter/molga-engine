@@ -4,7 +4,15 @@
 #include "../ECS/ComponentFactory.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
+#include "../ECS/Components/TilemapRenderer.h"
+#include "../ECS/Components/ParticleSystem.h"
 #include "../ECS/Components/BoxCollider2D.h"
+#include "../ECS/Components/CircleCollider2D.h"
+#include "../ECS/Components/Rigidbody2D.h"
+#include "../ECS/Components/AudioSource.h"
+#include "../ECS/Components/AudioListener.h"
+#include "../ECS/Components/Camera.h"
+#include "../ECS/Components/TextRenderer2D.h"
 #include "../Scripting/ScriptManager.h"
 #include "../Scripting/Script.h"
 #include <nlohmann/json.hpp>
@@ -26,6 +34,8 @@ nlohmann::json SceneSerializer::SerializeScene(
         json objJson;
         objJson["name"] = obj->GetName();
         objJson["id"] = obj->GetID();
+        objJson["tag"] = obj->GetTag();
+        objJson["layer"] = obj->GetLayer();
         objJson["active"] = obj->IsActive();
         objJson["parentId"] = obj->GetParent()
             ? static_cast<int>(obj->GetParent()->GetID()) : -1;
@@ -83,6 +93,8 @@ bool SceneSerializer::DeserializeScene(
         if (objJson.contains("id")) {
             obj->SetID(objJson["id"].get<unsigned int>());
         }
+        obj->SetTag(objJson.value("tag", "Untagged"));
+        obj->SetLayer(objJson.value("layer", 0));
         obj->SetActive(active);
 
         if (objJson.contains("components")) {
@@ -147,6 +159,8 @@ std::string SceneSerializer::SerializeGameObject(const GameObject* obj) {
     json objJson;
     objJson["name"] = obj->GetName();
     objJson["id"] = obj->GetID();
+    objJson["tag"] = obj->GetTag();
+    objJson["layer"] = obj->GetLayer();
     objJson["active"] = obj->IsActive();
     objJson["parentId"] = obj->GetParent()
         ? static_cast<int>(obj->GetParent()->GetID())
@@ -183,6 +197,8 @@ std::shared_ptr<GameObject> SceneSerializer::DeserializeGameObject(const std::st
     if (objJson.contains("id")) {
         obj->SetID(objJson["id"].get<unsigned int>());
     }
+    obj->SetTag(objJson.value("tag", "Untagged"));
+    obj->SetLayer(objJson.value("layer", 0));
     obj->SetActive(objJson.value("active", true));
 
     auto& factory = ComponentFactory::Get();

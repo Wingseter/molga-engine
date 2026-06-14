@@ -8,14 +8,29 @@
 
 #include "Component.h"
 
+class World;
+
 class GameObject {
 public:
     explicit GameObject(const std::string& name = "GameObject");
     ~GameObject();
 
+    // World association
+    World* GetWorld() const { return world; }
+    void SetWorld(World* w) { world = w; }
+
     // Name
     const std::string& GetName() const { return name; }
     void SetName(const std::string& newName) { name = newName; }
+
+    // Tag
+    const std::string& GetTag() const { return tag; }
+    void SetTag(const std::string& newTag) { tag = newTag; }
+    bool CompareTag(const std::string& otherTag) const { return tag == otherTag; }
+
+    // Layer
+    int GetLayer() const { return layer; }
+    void SetLayer(int newLayer) { layer = newLayer; }
 
     // ID (unique identifier)
     unsigned int GetID() const { return id; }
@@ -123,6 +138,8 @@ private:
 
     unsigned int id;
     std::string name;
+    std::string tag = "Untagged";
+    int layer = 0;
     bool active = true;
     bool destroyed = false;
 
@@ -130,4 +147,5 @@ private:
 
     GameObject* parent = nullptr;
     std::vector<GameObject*> children;
+    World* world = nullptr;
 };

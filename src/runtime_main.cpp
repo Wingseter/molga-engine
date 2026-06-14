@@ -10,6 +10,7 @@
 
 #include "Core/Bootstrap.h"
 #include "Rendering/Shader.h"
+#include "Rendering/ShaderManager.h"
 #include "Rendering/Renderer.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
@@ -20,14 +21,20 @@
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
+#include "ECS/Components/TilemapRenderer.h"
 #include "ECS/Components/MarrowRenderer.h"
+#include "ECS/Components/ParticleSystem.h"
 #include "ECS/Components/BoxCollider2D.h"
+#include "ECS/Components/Camera.h"
+#include "ECS/Components/TextRenderer2D.h"
 #include "Core/SceneSerializer.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
 #include "Rendering/RenderPass.h"
 #include "Core/PathService.h"
 #include "Core/SmokeReport.h"
+#include "Core/EventBus.h"
+#include "Core/ProjectSettings.h"
 #include <nlohmann/json.hpp>
 #include <optional>
 
@@ -58,6 +65,12 @@ bool LoadGameConfig(const std::string& path, GameConfig& config) {
         if (j.contains("windowWidth")) config.windowWidth = j["windowWidth"];
         if (j.contains("windowHeight")) config.windowHeight = j["windowHeight"];
         if (j.contains("fullscreen")) config.fullscreen = j["fullscreen"];
+        if (j.contains("projectSettings")) {
+            ProjectSettings::Get().Deserialize(j["projectSettings"]);
+        }
+        if (j.contains("inputActions")) {
+            Input::DeserializeActions(j["inputActions"]);
+        }
 
         return true;
     } catch (const std::exception& e) {
@@ -124,6 +137,7 @@ int main(int argc, char* argv[]) {
 
     // Load game configuration
     GameConfig config;
+    Input::InitializeDefaultActions();
     std::string configPath = (PathService::Get().ExecutableDir() / "game.json").string();
     if (!LoadGameConfig(configPath, config)) {
         std::cout << "Using default configuration" << std::endl;
@@ -144,7 +158,7 @@ int main(int argc, char* argv[]) {
     renderer->Init();
     auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
     auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
-    auto shader = std::make_unique<Shader>(vertPath.c_str(), fragPath.c_str());
+    Shader* shader = ShaderManager::Get().Load("default", vertPath, fragPath);
     auto camera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
                                              static_cast<float>(config.windowHeight));
     World world;
@@ -202,20 +216,56 @@ int main(int argc, char* argv[]) {
                 if (auto sr = obj->GetComponent<SpriteRenderer>()) {
                     drawList.emplace_back(sr->GetSortingOrder(), sr);
                 }
+                if (auto tm = obj->GetComponent<TilemapRenderer>()) {
+                    drawList.emplace_back(tm->GetSortingOrder(), tm);
+                }
                 if (auto mr = obj->GetComponent<MarrowRenderer>()) {
                     drawList.emplace_back(mr->GetSortingOrder(), mr);
+                }
+                if (auto ps = obj->GetComponent<ParticleSystem>()) {
+                    drawList.emplace_back(ps->GetSortingOrder(), ps);
+                }
+                if (auto tr = obj->GetComponent<TextRenderer2D>()) {
+                    drawList.emplace_back(tr->GetSortingOrder(), tr);
                 }
             }
         }
         std::stable_sort(drawList.begin(), drawList.end(),
                          [](const auto& a, const auto& b) { return a.first < b.first; });
-        renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
-        {
-            molga::RenderPass pass(*renderer, shader.get(), camera.get());
-            for (auto& [order, comp] : drawList) {
-                comp->RenderSprite(renderer.get());
+
+        Camera* mainCam = nullptr;
+        for (const auto& obj : world.Objects()) {
+            if (obj && obj->IsActive()) {
+                if (auto cam = obj->GetComponent<Camera>()) {
+                    if (cam->IsEnabled() && cam->IsMain()) {
+                        if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
+                            mainCam = cam;
+                        }
+                    }
+                }
             }
         }
+
+        if (mainCam) {
+            Color clearColor = mainCam->GetBackgroundColor();
+            renderer->Clear(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
+            {
+                molga::RenderPass pass(*renderer, shader, mainCam->GetCamera2D());
+                for (auto& [order, comp] : drawList) {
+                    comp->RenderSprite(renderer.get());
+                }
+            }
+        } else {
+            renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
+            {
+                molga::RenderPass pass(*renderer, shader, camera.get());
+                for (auto& [order, comp] : drawList) {
+                    comp->RenderSprite(renderer.get());
+                }
+            }
+        }
+
+        EventBus::ProcessQueue();
 
         glfwSwapBuffers(window);
         glfwPollEvents();
@@ -251,7 +301,7 @@ int main(int argc, char* argv[]) {
     world.Clear();
     TextRenderer::Get().Shutdown();
     camera.reset();
-    shader.reset();
+    ShaderManager::Get().Shutdown();
     renderer.reset();
     EngineShutdown();
 

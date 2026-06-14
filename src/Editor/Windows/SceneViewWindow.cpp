@@ -6,8 +6,13 @@
 #include "../../Rendering/RenderPass.h"
 #include "../../ECS/GameObject.h"
 #include "../../ECS/Components/SpriteRenderer.h"
+#include "../../ECS/Components/TilemapRenderer.h"
 #include "../../ECS/Components/MarrowRenderer.h"
+#include "../../ECS/Components/ParticleSystem.h"
 #include "../../ECS/Components/Transform.h"
+#include "../../ECS/Components/Camera.h"
+#include "../../ECS/Components/TextRenderer2D.h"
+#include "../EditorState.h"
 #include "../../Common/Log.h"
 #include "../../Common/linmath.h"
 #include "../../Core/PathService.h"
@@ -185,8 +190,28 @@ void SceneViewWindow::OnGUI() {
 void SceneViewWindow::RenderSceneToFBO(float vpW, float vpH) {
     fbo_.Bind();
 
+    Camera* mainCam = nullptr;
+    if (EditorState::Get().IsPlayMode() && gameObjects_) {
+        for (auto& obj : *gameObjects_) {
+            if (obj && obj->IsActive()) {
+                if (auto cam = obj->GetComponent<Camera>()) {
+                    if (cam->IsEnabled() && cam->IsMain()) {
+                        if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
+                            mainCam = cam;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 배경 클리어
-    glClearColor(0.18f, 0.18f, 0.22f, 1.f);
+    if (mainCam) {
+        Color bg = mainCam->GetBackgroundColor();
+        glClearColor(bg.r, bg.g, bg.b, bg.a);
+    } else {
+        glClearColor(0.18f, 0.18f, 0.22f, 1.f);
+    }
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // 알파 블렌딩 활성화
@@ -247,16 +272,56 @@ void SceneViewWindow::DrawSprites() {
             if (auto sr = obj->GetComponent<SpriteRenderer>()) {
                 drawList.emplace_back(sr->GetSortingOrder(), sr);
             }
+            if (auto tm = obj->GetComponent<TilemapRenderer>()) {
+                drawList.emplace_back(tm->GetSortingOrder(), tm);
+            }
             if (auto mr = obj->GetComponent<MarrowRenderer>()) {
                 drawList.emplace_back(mr->GetSortingOrder(), mr);
+            }
+            if (auto ps = obj->GetComponent<ParticleSystem>()) {
+                drawList.emplace_back(ps->GetSortingOrder(), ps);
+            }
+            if (auto tr = obj->GetComponent<TextRenderer2D>()) {
+                drawList.emplace_back(tr->GetSortingOrder(), tr);
             }
         }
     }
     std::stable_sort(drawList.begin(), drawList.end(),
         [](const auto& a, const auto& b) { return a.first < b.first; });
 
+    Camera2D* activeCamera = editorCamera_.get();
+    if (EditorState::Get().IsPlayMode() && gameObjects_) {
+        for (auto& obj : *gameObjects_) {
+            if (obj && obj->IsActive()) {
+                if (auto cam = obj->GetComponent<Camera>()) {
+                    if (cam->IsEnabled() && cam->IsMain()) {
+                        if (!activeCamera || !dynamic_cast<Camera2D*>(activeCamera) || cam->GetDepth() > static_cast<Camera*>(obj->GetComponent<Camera>())->GetDepth()) {
+                            // Wait, let's keep it simple: just pick the main camera
+                        }
+                    }
+                }
+            }
+        }
+        // Let's rewrite the camera search to match exactly
+        Camera* mainCam = nullptr;
+        for (auto& obj : *gameObjects_) {
+            if (obj && obj->IsActive()) {
+                if (auto cam = obj->GetComponent<Camera>()) {
+                    if (cam->IsEnabled() && cam->IsMain()) {
+                        if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
+                            mainCam = cam;
+                        }
+                    }
+                }
+            }
+        }
+        if (mainCam) {
+            activeCamera = mainCam->GetCamera2D();
+        }
+    }
+
     {
-        molga::RenderPass pass(*renderer_, spriteShader_, editorCamera_.get());
+        molga::RenderPass pass(*renderer_, spriteShader_, activeCamera);
         for (auto& [order, comp] : drawList) {
             comp->RenderSprite(renderer_);
         }
@@ -386,17 +451,14 @@ void SceneViewWindow::FrameAll(ImVec2 panelSize) {
 void SceneViewWindow::DrawContextMenu() {
     if (ImGui::BeginPopup("SceneViewContextMenu")) {
         if (ImGui::MenuItem((std::string(Icons::Cube) + " Create Empty").c_str())) {
-            CreateObjectAt("New GameObject", false, ctxWorldX_, ctxWorldY_);
+            CreateObjectAt("New GameObject", "", ctxWorldX_, ctxWorldY_);
         }
         if (ImGui::BeginMenu((std::string(Icons::Image) + " Create 2D Object").c_str())) {
             if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {
-                CreateObjectAt("Sprite", true, ctxWorldX_, ctxWorldY_);
+                CreateObjectAt("Sprite", "SpriteRenderer", ctxWorldX_, ctxWorldY_);
             }
-            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap  [TODO]").c_str())) {
-                CreateObjectAt("Tilemap", false, ctxWorldX_, ctxWorldY_);
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Tilemap ECS component not yet implemented.\nCreates an empty GameObject only.");
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap").c_str())) {
+                CreateObjectAt("Tilemap", "TilemapRenderer", ctxWorldX_, ctxWorldY_);
             }
             ImGui::EndMenu();
         }
@@ -404,7 +466,7 @@ void SceneViewWindow::DrawContextMenu() {
     }
 }
 
-void SceneViewWindow::CreateObjectAt(const char* name, bool withSprite, float worldX, float worldY) {
+void SceneViewWindow::CreateObjectAt(const char* name, const std::string& compType, float worldX, float worldY) {
     auto cmd = std::make_unique<molga::CreateObjectCommand>(name);
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
     
@@ -412,8 +474,10 @@ void SceneViewWindow::CreateObjectAt(const char* name, bool withSprite, float wo
         if (auto* transform = obj->GetComponent<Transform>()) {
             transform->SetPosition(worldX, worldY);
         }
-        if (withSprite) {
+        if (compType == "SpriteRenderer") {
             obj->AddComponent<SpriteRenderer>();
+        } else if (compType == "TilemapRenderer") {
+            obj->AddComponent<TilemapRenderer>();
         }
         Editor::Get().MarkSceneModified();
     }

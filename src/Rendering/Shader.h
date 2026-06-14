@@ -11,6 +11,8 @@ public:
 
     void Use() const;
 
+    bool Reload();
+
     void SetInt(const char* name, int value) const;
     void SetFloat(const char* name, float value) const;
     void SetVec2(const char* name, float x, float y) const;
@@ -23,10 +25,13 @@ public:
 
 private:
     unsigned int programID;
+    std::string vertexPath;
+    std::string fragmentPath;
     mutable std::unordered_map<std::string, GLint> uniformCache;
 
     GLint GetUniformLocation(const char* name) const;
     std::string LoadShaderSource(const char* path);
     unsigned int CompileShader(const char* source, GLenum type);
-    void CheckCompileErrors(unsigned int shader, const std::string& type);
+    bool CheckCompileErrors(unsigned int shader, const std::string& type);
 };
+

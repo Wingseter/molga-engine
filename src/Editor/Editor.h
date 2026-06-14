@@ -38,6 +38,7 @@ public:
     std::shared_ptr<GameObject> CreateGameObject(const std::string& name = "GameObject");
 
     molga::CommandHistory& GetCommandHistory() { return commandHistory; }
+    WindowManager& GetWindowManager() { return windowManager; }
 
     // Command가 사용하는 저수준 헬퍼
     std::shared_ptr<GameObject> AddExistingObject(std::shared_ptr<GameObject> obj);

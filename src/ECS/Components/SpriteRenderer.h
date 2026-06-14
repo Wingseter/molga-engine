@@ -2,6 +2,7 @@
 
 #include "../Component.h"
 #include "../../Common/Types.h"
+#include "../../Rendering/Material.h"
 #include <string>
 
 class Texture;
@@ -14,6 +15,8 @@ public:
     COMPONENT_TYPE(SpriteRenderer)
 
     SpriteRenderer() = default;
+
+    Material material;
 
     // Texture
     void SetTexture(Texture* tex) { texture = tex; }

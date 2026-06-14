@@ -3,6 +3,8 @@
 #include "../Core/PathService.h"
 #include "../Core/BuildManifest.h"
 #include "../Core/PackageLayout.h"
+#include "../Core/ProjectSettings.h"
+#include "../Systems/Input.h"
 #include "Project.h"
 #include <fstream>
 #include <iostream>
@@ -199,6 +201,34 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::s
         config["windowWidth"] = settings.windowWidth;
         config["windowHeight"] = settings.windowHeight;
         config["fullscreen"] = settings.fullscreen;
+        config["projectSettings"] = ProjectSettings::Get().Serialize();
+
+        // Bundle input actions
+        nlohmann::json inputActionsJson = nlohmann::json::array();
+        for (const auto& action : Input::GetActions()) {
+            nlohmann::json actionJson;
+            actionJson["name"] = action.name;
+            actionJson["isAxis"] = action.isAxis;
+
+            nlohmann::json bindingsJson = nlohmann::json::array();
+            for (const auto& binding : action.bindings) {
+                nlohmann::json bindingJson;
+                std::string devStr = "Keyboard";
+                switch (binding.device) {
+                    case Input::DeviceType::Keyboard: devStr = "Keyboard"; break;
+                    case Input::DeviceType::Mouse: devStr = "Mouse"; break;
+                    case Input::DeviceType::GamepadButton: devStr = "GamepadButton"; break;
+                    case Input::DeviceType::GamepadAxis: devStr = "GamepadAxis"; break;
+                }
+                bindingJson["device"] = devStr;
+                bindingJson["code"] = binding.code;
+                bindingJson["multiplier"] = binding.multiplier;
+                bindingsJson.push_back(bindingJson);
+            }
+            actionJson["bindings"] = bindingsJson;
+            inputActionsJson.push_back(actionJson);
+        }
+        config["inputActions"] = inputActionsJson;
 
         // List all scenes
         nlohmann::json scenesList = nlohmann::json::array();

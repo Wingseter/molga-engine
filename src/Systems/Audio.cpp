@@ -153,3 +153,7 @@ void Audio::SetMasterVolume(float volume) {
 float Audio::GetMasterVolume() {
     return masterVolume;
 }
+
+ma_engine* Audio::GetEngine() {
+    return engine.get();
+}

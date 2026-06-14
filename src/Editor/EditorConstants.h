@@ -11,6 +11,7 @@ namespace EditorConstants {
     constexpr const char* WIN_SCENE = "Scene";
     constexpr const char* WIN_SCRIPTS = "Scripts";
     constexpr const char* WIN_STATS = "Stats";
+    constexpr const char* WIN_PROJECT_SETTINGS = "Project Settings";
     constexpr const char* WIN_BUILD_SETTINGS = "Build Settings";
     constexpr const char* WIN_SCRIPT_EDITOR = "Script Editor";
 

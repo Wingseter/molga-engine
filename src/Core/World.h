@@ -5,14 +5,21 @@
 #include <vector>
 
 class GameObject;
+class PhysicsWorld;
 
 // 편집/플레이/런타임이 공유하는 단일 씬 데이터 모델.
 class World {
 public:
-    World() = default;
+    World();
+    ~World();
+
+    World(World&&) noexcept;
+    World& operator=(World&&) noexcept;
 
     GameObject* Add(std::shared_ptr<GameObject> obj);
     GameObject* FindById(unsigned int id) const;
+    GameObject* FindWithTag(const std::string& tag) const;
+    std::vector<GameObject*> FindAllWithTag(const std::string& tag) const;
     void Clear();
 
     std::vector<std::shared_ptr<GameObject>>& Objects() { return objects_; }
@@ -35,7 +42,10 @@ public:
     bool LoadFromFile(const std::string& path);
     bool SaveToFile(const std::string& path) const;
 
+    PhysicsWorld* GetPhysicsWorld() const { return physicsWorld.get(); }
+
 private:
     std::vector<std::shared_ptr<GameObject>> objects_;
     std::string name_ = "Untitled";
+    std::unique_ptr<PhysicsWorld> physicsWorld;
 };

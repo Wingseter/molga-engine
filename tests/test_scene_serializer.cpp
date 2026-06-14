@@ -19,6 +19,9 @@ TEST_CASE("SceneSerializer: serialize and deserialize single GameObject") {
     t->SetRotation(45.0f);
     t->SetScale(2.0f, 3.0f);
 
+    original->SetTag("Player");
+    original->SetLayer(4);
+
     BoxCollider2D* bc = original->AddComponent<BoxCollider2D>(64.0f, 32.0f);
     bc->SetOffset(5.0f, 10.0f);
     bc->SetTrigger(true);
@@ -32,6 +35,8 @@ TEST_CASE("SceneSerializer: serialize and deserialize single GameObject") {
     auto restored = SceneSerializer::DeserializeGameObject(json);
     REQUIRE(restored != nullptr);
     CHECK(restored->GetName() == "TestObject");
+    CHECK(restored->GetTag() == "Player");
+    CHECK(restored->GetLayer() == 4);
     CHECK(restored->IsActive());
 
     // Verify Transform
@@ -60,11 +65,15 @@ TEST_CASE("SceneSerializer: scene save and load") {
     std::vector<std::shared_ptr<GameObject>> originalScene;
 
     auto obj1 = std::make_shared<GameObject>("Player");
+    obj1->SetTag("Player");
+    obj1->SetLayer(1);
     obj1->AddComponent<Transform>(10.0f, 20.0f);
     obj1->AddComponent<BoxCollider2D>(32.0f, 32.0f);
     originalScene.push_back(obj1);
 
     auto obj2 = std::make_shared<GameObject>("Enemy");
+    obj2->SetTag("Enemy");
+    obj2->SetLayer(2);
     obj2->SetActive(false);
     Transform* t2 = obj2->AddComponent<Transform>(50.0f, 60.0f);
     t2->SetRotation(90.0f);
@@ -83,6 +92,8 @@ TEST_CASE("SceneSerializer: scene save and load") {
 
     // Verify first object
     CHECK(loadedScene[0]->GetName() == "Player");
+    CHECK(loadedScene[0]->GetTag() == "Player");
+    CHECK(loadedScene[0]->GetLayer() == 1);
     CHECK(loadedScene[0]->IsActive());
     Transform* lt1 = loadedScene[0]->GetComponent<Transform>();
     REQUIRE(lt1 != nullptr);
@@ -93,6 +104,8 @@ TEST_CASE("SceneSerializer: scene save and load") {
 
     // Verify second object
     CHECK(loadedScene[1]->GetName() == "Enemy");
+    CHECK(loadedScene[1]->GetTag() == "Enemy");
+    CHECK(loadedScene[1]->GetLayer() == 2);
     CHECK(!loadedScene[1]->IsActive());
     Transform* lt2 = loadedScene[1]->GetComponent<Transform>();
     REQUIRE(lt2 != nullptr);
@@ -199,4 +212,32 @@ TEST_CASE("SceneSerializer: load nonexistent file") {
     std::vector<std::shared_ptr<GameObject>> objects;
     bool loaded = SceneSerializer::LoadScene("/tmp/nonexistent_test_file_12345.json", objects);
     CHECK(!loaded);
+}
+
+#include "Core/ProjectSettings.h"
+
+TEST_CASE("ProjectSettings: serialization round-trip") {
+    ProjectSettings settings;
+    settings.SetDefaults();
+
+    // Modify settings
+    settings.tags.push_back("CustomTag");
+    settings.layerNames[8] = "CustomLayer";
+    settings.SetCollisionEnabled(0, 8, false);
+    settings.sortingLayers.push_back("CustomSortingLayer");
+
+    // Serialize
+    nlohmann::json j = settings.Serialize();
+
+    // Deserialize into another settings instance
+    ProjectSettings restored;
+    restored.Deserialize(j);
+
+    // Verify
+    CHECK(restored.tags.size() == 4);
+    CHECK(restored.tags.back() == "CustomTag");
+    CHECK(restored.GetLayerName(8) == "CustomLayer");
+    CHECK_FALSE(restored.IsCollisionEnabled(0, 8));
+    CHECK(restored.sortingLayers.size() == 4);
+    CHECK(restored.sortingLayers.back() == "CustomSortingLayer");
 }
