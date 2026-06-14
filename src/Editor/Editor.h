@@ -58,6 +58,9 @@ public:
         sceneOps.ClearModified();
     }
 
+    // SceneView에 렌더 리소스 주입
+    void SetSceneViewResources(Renderer* renderer, Shader* shader);
+
 private:
     Editor() = default;
     Editor(const Editor&) = delete;

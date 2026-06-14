@@ -4,14 +4,12 @@
 #include <iostream>
 #include <sstream>
 #include <memory>
-#include <algorithm>
 
 #include "Core/Bootstrap.h"
 #include "Rendering/Shader.h"
 #include "Rendering/Renderer.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
-#include "Rendering/Camera2D.h"
 // removed Core/Scene.h include
 #include "Systems/Audio.h"
 #include "Editor/ImGuiLayer.h"
@@ -21,13 +19,11 @@
 #include "Editor/Project.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
-#include "ECS/Components/SpriteRenderer.h"
 #include "ECS/Components/BoxCollider2D.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
 #include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
-#include "Rendering/RenderPass.h"
 #include "Core/PathService.h"
 #include "Core/SmokeReport.h"
 #include "Editor/GameBuilder.h"
@@ -133,7 +129,6 @@ int main(int argc, char* argv[]) {
     auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
     auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
     auto shader = std::make_unique<Shader>(vertPath.c_str(), fragPath.c_str());
-    auto camera = std::make_unique<Camera2D>(static_cast<float>(SCR_WIDTH), static_cast<float>(SCR_HEIGHT));
     SceneDocument sceneDoc;
 
     // Initialize Scripting
@@ -145,6 +140,8 @@ int main(int argc, char* argv[]) {
     // Initialize Editor
     Editor::Get().Init();
     Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+    // SceneView에 렌더 리소스 주입 (FBO 렌더 활성화)
+    Editor::Get().SetSceneViewResources(renderer.get(), shader.get());
 
     EditorState& editorState = EditorState::Get();
     editorState.SetPlayCallbacks(
@@ -205,6 +202,8 @@ int main(int argc, char* argv[]) {
             sceneDoc.EditWorld().ResolveAssets();
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             Editor::Get().SetCurrentScenePath(mainScene.string());
+            // 씬 로드 후 SceneView 리소스 재주입 (오브젝트 목록 갱신)
+            Editor::Get().SetSceneViewResources(renderer.get(), shader.get());
             std::cout << "[Main] Loaded project main scene: " << mainScene << std::endl;
         } else {
             std::cerr << "[Main] Project main scene not found or invalid: "
@@ -253,24 +252,8 @@ int main(int argc, char* argv[]) {
                 sceneDoc.ActiveWorld().LateUpdate(scaledDt);
             }
 
-            // sortingOrder 오름차순으로 그릴 스프라이트 수집
-            std::vector<std::pair<int, SpriteRenderer*>> drawList;
-            for (auto& obj : sceneDoc.ActiveWorld().Objects()) {
-                if (obj && obj->IsActive()) {
-                    if (auto sr = obj->GetComponent<SpriteRenderer>()) {
-                        drawList.emplace_back(sr->GetSortingOrder(), sr);
-                    }
-                }
-            }
-            std::stable_sort(drawList.begin(), drawList.end(),
-                             [](const auto& a, const auto& b) { return a.first < b.first; });
-            renderer->Clear(0.15f, 0.15f, 0.2f, 1.0f);
-            {
-                molga::RenderPass pass(*renderer, shader.get(), camera.get());
-                for (auto& [order, sr] : drawList) {
-                    sr->RenderSprite(renderer.get());
-                }
-            }
+            // 메인 백버퍼 클리어 (씬 렌더는 SceneViewWindow FBO 안에서 수행)
+            renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
 
             // ImGui Editor UI
             ImGuiLayer::BeginFrame();
@@ -288,7 +271,6 @@ int main(int argc, char* argv[]) {
     Editor::Get().Shutdown();
     ImGuiLayer::Shutdown();
     TextRenderer::Get().Shutdown();
-    camera.reset();
     shader.reset();
     renderer.reset();
     EngineShutdown();
