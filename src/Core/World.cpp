@@ -56,8 +56,9 @@ std::vector<GameObject*> World::FindAllWithTag(const std::string& tag) const {
 void World::Clear() { objects_.clear(); }
 
 void World::StartPending() {
-    // 모든 Awake가 모든 Start보다 먼저 실행되도록 2-페이즈로 처리한다.
+    // Unity 순서: 모든 Awake → 모든 OnEnable → 모든 Start.
     for (auto& o : objects_) if (o) o->AwakeScripts();
+    for (auto& o : objects_) if (o) o->EnableScripts();
     for (auto& o : objects_) if (o) o->StartScripts();
     running_ = true;  // 이후 SetActive가 라이프사이클 콜백을 발화
 }
@@ -217,12 +218,15 @@ void World::FlushDeferred(float dt) {
             }
         }
 
-        // 새 오브젝트: 에셋 로드 → 모든 Awake → 모든 Start (배치 순서 보장)
+        // 새 오브젝트: 에셋 로드 → 모든 Awake → 모든 OnEnable → 모든 Start
         for (auto& obj : newAdds) {
             if (obj) obj->ResolveAssets();
         }
         for (auto& obj : newAdds) {
             if (obj) obj->AwakeScripts();
+        }
+        for (auto& obj : newAdds) {
+            if (obj) obj->EnableScripts();
         }
         for (auto& obj : newAdds) {
             if (obj) obj->StartScripts();

@@ -173,6 +173,19 @@ void GameObject::AwakeScripts() {
     }
 }
 
+void GameObject::EnableScripts() {
+    if (!active) return;
+    for (auto* comp : componentOrder_) {
+        if (comp->IsEnabled()) comp->OnEnable();
+    }
+}
+
+void GameObject::DisableScripts() {
+    for (auto* comp : componentOrder_) {
+        if (comp->IsEnabled()) comp->OnDisable();
+    }
+}
+
 void GameObject::StartScripts() {
     if (!active) return;
     for (auto* comp : componentOrder_) {
@@ -199,18 +212,10 @@ void GameObject::SetActive(bool value) {
     if (!world || !world->IsRunning()) return;
 
     if (value) {
-        for (auto* comp : componentOrder_) {
-            if (comp->IsEnabled() && !comp->HasAwoken()) { comp->Awake(); comp->MarkAwoken(); }
-        }
-        for (auto* comp : componentOrder_) {
-            if (comp->IsEnabled()) comp->OnEnable();
-        }
-        for (auto* comp : componentOrder_) {
-            if (comp->IsEnabled() && !comp->HasStarted()) { comp->Start(); comp->MarkStarted(); }
-        }
+        AwakeScripts();   // 최초 활성화면 Awake 1회
+        EnableScripts();  // OnEnable
+        StartScripts();   // 최초 활성화면 Start 1회
     } else {
-        for (auto* comp : componentOrder_) {
-            if (comp->IsEnabled()) comp->OnDisable();
-        }
+        DisableScripts(); // OnDisable
     }
 }

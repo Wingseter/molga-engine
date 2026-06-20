@@ -165,6 +165,10 @@ public:
     void LateUpdateScripts(float dt);
     // 아직 깨우지 않은 컴포넌트의 Awake()를 1회 호출
     void AwakeScripts();
+    // 활성 컴포넌트의 OnEnable()을 호출 (Awake 이후, Start 이전)
+    void EnableScripts();
+    // 활성 컴포넌트의 OnDisable()을 호출 (비활성화 시)
+    void DisableScripts();
     // 아직 시작 안 한 컴포넌트의 Start()를 1회 호출
     void StartScripts();
     void ResolveAssets();

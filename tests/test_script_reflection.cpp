@@ -55,10 +55,11 @@ TEST_CASE("Script reflection: serialize/deserialize round-trips every field type
     nlohmann::json j;
     src.Serialize(j);
 
-    // 저장된 키가 실제로 존재하는지 (씬 파일에 남는지) 확인.
-    CHECK(j.contains("f"));
-    CHECK(j.contains("s"));
-    CHECK(j.contains("c"));
+    // 필드는 "fields" 하위에 격리되어 저장된다(envelope 키 충돌 방지).
+    REQUIRE(j.contains("fields"));
+    CHECK(j["fields"].contains("f"));
+    CHECK(j["fields"].contains("s"));
+    CHECK(j["fields"].contains("c"));
 
     ReflectTestScript dst; // 기본값 상태
     dst.Deserialize(j);
@@ -77,7 +78,7 @@ TEST_CASE("Script reflection: serialize/deserialize round-trips every field type
 
 TEST_CASE("Script reflection: missing keys keep existing defaults") {
     nlohmann::json j;
-    j["f"] = 99.0f; // f만 존재
+    j["fields"]["f"] = 99.0f; // f만 존재
 
     ReflectTestScript dst;
     dst.Deserialize(j);
@@ -121,8 +122,8 @@ TEST_CASE("Object/Prefab ref: serialize round-trip") {
 
     nlohmann::json j;
     src.Serialize(j);
-    CHECK(j["target"] == 42u);
-    CHECK(j["prefab"] == "abc-123");
+    CHECK(j["fields"]["target"] == 42u);
+    CHECK(j["fields"]["prefab"] == "abc-123");
 
     RefTestScript dst;
     dst.Deserialize(j);

@@ -43,11 +43,14 @@ TEST_CASE("Lifecycle: all Awake run before all Start across objects") {
 
     w.StartPending();
 
-    REQUIRE(g_log.size() == 4);
+    // Unity 순서: 모든 Awake → 모든 OnEnable → 모든 Start.
+    REQUIRE(g_log.size() == 6);
     CHECK(g_log[0] == "A:Awake");
     CHECK(g_log[1] == "B:Awake");
-    CHECK(g_log[2] == "A:Start");
-    CHECK(g_log[3] == "B:Start");
+    CHECK(g_log[2] == "A:OnEnable");
+    CHECK(g_log[3] == "B:OnEnable");
+    CHECK(g_log[4] == "A:Start");
+    CHECK(g_log[5] == "B:Start");
 }
 
 TEST_CASE("Lifecycle: GetComponents preserves insertion order (deterministic)") {

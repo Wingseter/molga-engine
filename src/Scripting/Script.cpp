@@ -17,37 +17,45 @@ const ScriptFieldRegistry& Script::Fields() {
 void Script::Serialize(nlohmann::json& j) const {
     // const 메서드지만 레지스트리는 지연 구성이 필요하므로 1회 빌드.
     const ScriptFieldRegistry& reg = const_cast<Script*>(this)->Fields();
+    if (reg.Empty()) return;
+
+    // 사용자 필드명이 임의의 문자열이므로 컴포넌트 envelope("type","enabled")와
+    // 충돌하지 않도록 "fields" 하위 객체에 격리한다.
+    nlohmann::json fields = nlohmann::json::object();
     for (const auto& f : reg.Fields()) {
         switch (f.type) {
-            case ScriptFieldType::Float:  j[f.name] = *static_cast<const float*>(f.ptr); break;
-            case ScriptFieldType::Int:    j[f.name] = *static_cast<const int*>(f.ptr); break;
-            case ScriptFieldType::Bool:   j[f.name] = *static_cast<const bool*>(f.ptr); break;
-            case ScriptFieldType::String: j[f.name] = *static_cast<const std::string*>(f.ptr); break;
+            case ScriptFieldType::Float:  fields[f.name] = *static_cast<const float*>(f.ptr); break;
+            case ScriptFieldType::Int:    fields[f.name] = *static_cast<const int*>(f.ptr); break;
+            case ScriptFieldType::Bool:   fields[f.name] = *static_cast<const bool*>(f.ptr); break;
+            case ScriptFieldType::String: fields[f.name] = *static_cast<const std::string*>(f.ptr); break;
             case ScriptFieldType::Vector2: {
                 const auto* v = static_cast<const Vector2*>(f.ptr);
-                j[f.name] = { v->x, v->y };
+                fields[f.name] = { v->x, v->y };
                 break;
             }
             case ScriptFieldType::Color: {
                 const auto* c = static_cast<const Color*>(f.ptr);
-                j[f.name] = { c->r, c->g, c->b, c->a };
+                fields[f.name] = { c->r, c->g, c->b, c->a };
                 break;
             }
             case ScriptFieldType::ObjectRef:
-                j[f.name] = static_cast<const ObjectRef*>(f.ptr)->targetId;
+                fields[f.name] = static_cast<const ObjectRef*>(f.ptr)->targetId;
                 break;
             case ScriptFieldType::PrefabRef:
-                j[f.name] = static_cast<const PrefabRef*>(f.ptr)->guid;
+                fields[f.name] = static_cast<const PrefabRef*>(f.ptr)->guid;
                 break;
         }
     }
+    j["fields"] = std::move(fields);
 }
 
 void Script::Deserialize(const nlohmann::json& j) {
+    if (!j.contains("fields")) return;
+    const auto& fields = j.at("fields");
     const ScriptFieldRegistry& reg = Fields();
     for (const auto& f : reg.Fields()) {
-        if (!j.contains(f.name)) continue;
-        const auto& val = j.at(f.name);
+        if (!fields.contains(f.name)) continue;
+        const auto& val = fields.at(f.name);
         try {
             switch (f.type) {
                 case ScriptFieldType::Float:  *static_cast<float*>(f.ptr) = val.get<float>(); break;
