@@ -65,4 +65,3 @@ TEST_CASE("FinalizeStagedPackage restores final output when staging rename fails
     CHECK_FALSE(fs::exists(backupOutput));
     CHECK(fs::exists(stagingOutput / "new.txt"));
 }
-
