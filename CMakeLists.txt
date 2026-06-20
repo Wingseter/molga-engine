@@ -96,6 +96,8 @@ set(ENGINE_SOURCES
     src/Core/BuildManifest.cpp
     src/Core/SmokeReport.cpp
     src/Core/PackageLayout.cpp
+    src/Core/PackageFinalizer.cpp
+    src/Core/BuildProfile.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────

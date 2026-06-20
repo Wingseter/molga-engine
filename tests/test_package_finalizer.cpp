@@ -1,0 +1,39 @@
+#include "Core/PackageFinalizer.h"
+#include "SmokeTestSupport.h"
+#include "doctest.h"
+
+#include <filesystem>
+
+namespace fs = std::filesystem;
+
+TEST_CASE("FinalizeStagedPackage replaces final output after staging is ready") {
+    test_support::TempDirectory temp{"package-finalizer-replace"};
+    const fs::path finalOutput = temp.Path() / "Game";
+    const fs::path stagingOutput = temp.Path() / "Game.staging";
+    const fs::path backupOutput = temp.Path() / "Game.previous";
+
+    test_support::WriteText(finalOutput / "old.txt", "old build");
+    test_support::WriteText(stagingOutput / "new.txt", "new build");
+
+    const auto result = PackageFinalizer::FinalizeStagedPackage(stagingOutput, finalOutput);
+
+    REQUIRE(result.ok);
+    CHECK(fs::exists(finalOutput / "new.txt"));
+    CHECK_FALSE(fs::exists(finalOutput / "old.txt"));
+    CHECK_FALSE(fs::exists(stagingOutput));
+    CHECK_FALSE(fs::exists(backupOutput));
+}
+
+TEST_CASE("FinalizeStagedPackage keeps final output when staging is missing") {
+    test_support::TempDirectory temp{"package-finalizer-missing-staging"};
+    const fs::path finalOutput = temp.Path() / "Game";
+    const fs::path stagingOutput = temp.Path() / "Game.staging";
+
+    test_support::WriteText(finalOutput / "old.txt", "old build");
+
+    const auto result = PackageFinalizer::FinalizeStagedPackage(stagingOutput, finalOutput);
+
+    CHECK_FALSE(result.ok);
+    CHECK(result.error.find("staging") != std::string::npos);
+    CHECK(fs::exists(finalOutput / "old.txt"));
+}
