@@ -140,7 +140,31 @@ int main(int argc, char* argv[]) {
     Input::InitializeDefaultActions();
     std::string configPath = (PathService::Get().ExecutableDir() / "game.json").string();
     if (!LoadGameConfig(configPath, config)) {
-        std::cout << "Using default configuration" << std::endl;
+        std::cerr << "Packaged game config is required: " << configPath << std::endl;
+        if (smoke->enabled) {
+            SmokeReport report;
+            report.executable = "molga_runtime";
+            report.status = "error";
+            report.message = "Missing or invalid game.json";
+            report.Save(smoke->reportPath);
+        }
+        return 4;
+    }
+
+    // Validate required package directories
+    const auto exeDir = PathService::Get().ExecutableDir();
+    for (const auto& required : { "Assets", "Scenes", "Shaders" }) {
+        if (!std::filesystem::exists(exeDir / required)) {
+            std::cerr << "Missing package directory: " << (exeDir / required) << std::endl;
+            if (smoke->enabled) {
+                SmokeReport report;
+                report.executable = "molga_runtime";
+                report.status = "error";
+                report.message = std::string("Missing package directory: ") + required;
+                report.Save(smoke->reportPath);
+            }
+            return 4;
+        }
     }
 
     WindowConfig wc;

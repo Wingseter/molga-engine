@@ -1,17 +1,12 @@
 #pragma once
 
+#include "../Core/BuildProfile.h"
 #include <string>
 #include <vector>
 
 struct BuildSettings {
-    std::string gameName = "MyGame";
-    std::string outputPath = "build/export";
-    std::string mainScene = "scene.json";
-    std::vector<std::string> scenes;
-    int windowWidth = 800;
-    int windowHeight = 600;
-    bool fullscreen = false;
-    bool showConsole = false;  // For Windows
+    BuildProfile profile;
+    std::string projectRoot;
 };
 
 class GameBuilder {

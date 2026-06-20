@@ -1,4 +1,6 @@
 #include "Core/BuildManifest.h"
+#include "Core/PackageLayout.h"
+#include "Core/PathConstants.h"
 #include "Core/PathService.h"
 #include "doctest.h"
 #include <filesystem>
@@ -22,4 +24,18 @@ TEST_CASE("BuildManifest passes when every required file exists") {
     std::string err;
     CHECK(m.Validate(err));
     fs::remove(tmp);
+}
+
+TEST_CASE("Package constants use runtime package casing") {
+    CHECK(std::string(Paths::Build::ASSETS) == "Assets");
+    CHECK(std::string(Paths::Build::SCENES) == "Scenes");
+    CHECK(std::string(Paths::Build::SHADERS) == "Shaders");
+}
+
+TEST_CASE("PackageLayout executable name is platform aware") {
+#if defined(_WIN32)
+    CHECK(PackageLayout::ExecutableNameFor("Game") == "Game.exe");
+#else
+    CHECK(PackageLayout::ExecutableNameFor("Game") == "Game");
+#endif
 }

@@ -76,9 +76,9 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
     }
 
     BuildSettings settings;
-    settings.gameName = "SmokeGame";
-    settings.outputPath = options.outputRoot.string();
-    settings.mainScene = scenePath.string();
+    settings.profile = Project::Get().GetBuildProfile();
+    settings.projectRoot = Project::Get().GetPath();
+    settings.profile.outputPath = options.outputRoot.string();
 
     if (!GameBuilder::Get().Build(settings)) {
         report.status = "error";

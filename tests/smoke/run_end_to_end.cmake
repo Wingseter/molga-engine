@@ -54,6 +54,19 @@ foreach(required_path
     endif()
 endforeach()
 
+file(READ "${PACKAGE_ROOT}/game.json" game_config)
+foreach(expected
+    [["gameName": "SmokeGame"]]
+    [["productVersion": "0.1.0"]]
+    [["developmentBuild": true]]
+    [["mainScene": "Scenes/main.json"]]
+)
+    string(FIND "${game_config}" "${expected}" position)
+    if(position EQUAL -1)
+        message(FATAL_ERROR "game.json is missing ${expected}\n${game_config}")
+    endif()
+endforeach()
+
 execute_process(
     COMMAND "${GAME_EXECUTABLE}"
         --smoke --frames 3 --report "${RUNTIME_REPORT}"

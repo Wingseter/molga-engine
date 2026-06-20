@@ -191,15 +191,18 @@ void World::FlushDeferred(float dt) {
             }
         }
 
+        std::vector<unsigned int> subtreeIds;
+        subtreeIds.reserve(allSubtreeObjects.size());
+        for (auto* obj : allSubtreeObjects) {
+            if (obj) {
+                subtreeIds.push_back(obj->GetID());
+            }
+        }
+
         auto removePredicate = [&](const std::shared_ptr<GameObject>& o) {
             if (!o) return true;
             unsigned int oid = o->GetID();
-            for (auto* target : allSubtreeObjects) {
-                if (target && target->GetID() == oid) {
-                    return true;
-                }
-            }
-            return false;
+            return std::find(subtreeIds.begin(), subtreeIds.end(), oid) != subtreeIds.end();
         };
 
         objects_.erase(std::remove_if(objects_.begin(), objects_.end(), removePredicate), objects_.end());

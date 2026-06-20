@@ -35,6 +35,24 @@ jobs:
             build/${{ matrix.preset }}/smoke-e2e/runtime-report.json
             build/${{ matrix.preset }}/smoke-e2e/package/game.json
           if-no-files-found: ignore
+  build-test-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [debug, release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install GLFW dependencies
+        run: sudo apt-get update && sudo apt-get install -y libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }} -j$(nproc)
+      - name: Run unit tests
+        run: ctest --preset ${{ matrix.preset }} -L unit -LE smoke --output-on-failure
 
   sanitizers:
     runs-on: macos-latest
