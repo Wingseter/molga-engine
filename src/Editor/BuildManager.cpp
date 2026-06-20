@@ -101,6 +101,10 @@ void BuildManager::RenderBuildWindow(const std::string& currentScenePath) {
             const BuildProfile& profile = Project::Get().GetBuildProfile();
             ImGui::Text("Startup Scene: %s", profile.startupScene.c_str());
             ImGui::Text("Scenes in Build: %d", static_cast<int>(profile.scenes.size()));
+            bool canUseCurrent = !currentScenePath.empty();
+            if (!canUseCurrent) {
+                ImGui::BeginDisabled();
+            }
             if (ImGui::Button("Use Current Scene as Startup")) {
                 BuildProfile& profileMutable = Project::Get().GetBuildProfile();
                 profileMutable.startupScene = Project::Get().GetRelativePath(currentScenePath);
@@ -108,6 +112,9 @@ void BuildManager::RenderBuildWindow(const std::string& currentScenePath) {
                     profileMutable.scenes.push_back(profileMutable.startupScene);
                 }
                 Project::Get().SaveBuildProfile();
+            }
+            if (!canUseCurrent) {
+                ImGui::EndDisabled();
             }
         }
 
