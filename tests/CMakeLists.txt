@@ -49,6 +49,16 @@ target_sources(test_project_build_profile PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
 )
 target_include_directories(test_project_build_profile PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_build_manager test_build_manager.cpp)
+target_sources(test_build_manager PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/BuildManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/GameBuilder.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+)
+target_include_directories(test_build_manager PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_build_manager PRIVATE imgui)
+
 target_sources(test_script_compiler PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp

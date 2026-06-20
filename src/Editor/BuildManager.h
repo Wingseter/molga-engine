@@ -13,7 +13,11 @@ public:
                const std::vector<std::shared_ptr<GameObject>>* objects);
 
     bool IsShowingWindow() const { return showBuildWindow; }
-    void ShowWindow() { showBuildWindow = true; }
+    void ShowWindow();
+
+    bool LoadFromProjectProfile();
+    bool EnsureProfileLoaded();
+    bool SaveToProjectProfile();
 
 private:
     char buildGameName[128] = "MyGame";
@@ -23,4 +27,7 @@ private:
     bool buildFullscreen = false;
     bool isBuilding = false;
     bool showBuildWindow = false;
+    bool wasShowing = false;
+    bool profileLoaded = false;
+    std::string loadedProjectPath;
 };

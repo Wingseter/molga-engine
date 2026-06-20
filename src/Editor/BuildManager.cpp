@@ -2,15 +2,78 @@
 #include "EditorConstants.h"
 #include "EditorTheme.h"
 #include "GameBuilder.h"
+#include "Project.h"
 #include "../Common/Log.h"
 #include "../Core/SceneSerializer.h"
 #include "../ECS/GameObject.h"
 #include <imgui.h>
+#include <algorithm>
+#include <cstdio>
+
+void BuildManager::ShowWindow() {
+    showBuildWindow = true;
+    wasShowing = EnsureProfileLoaded();
+}
+
+bool BuildManager::LoadFromProjectProfile() {
+    if (!Project::Get().IsOpen()) {
+        profileLoaded = false;
+        loadedProjectPath.clear();
+        return false;
+    }
+
+    const BuildProfile& profile = Project::Get().GetBuildProfile();
+    std::snprintf(buildGameName, sizeof(buildGameName), "%s", profile.gameName.c_str());
+    std::snprintf(buildOutputPath, sizeof(buildOutputPath), "%s", profile.outputPath.c_str());
+    buildWidth = profile.window.width;
+    buildHeight = profile.window.height;
+    buildFullscreen = profile.window.fullscreen;
+    loadedProjectPath = Project::Get().GetPath();
+    profileLoaded = true;
+    return true;
+}
+
+bool BuildManager::EnsureProfileLoaded() {
+    if (!Project::Get().IsOpen()) {
+        profileLoaded = false;
+        loadedProjectPath.clear();
+        return false;
+    }
+
+    if (!profileLoaded || loadedProjectPath != Project::Get().GetPath()) {
+        return LoadFromProjectProfile();
+    }
+
+    return true;
+}
+
+bool BuildManager::SaveToProjectProfile() {
+    if (!Project::Get().IsOpen()) return false;
+    BuildProfile& profile = Project::Get().GetBuildProfile();
+    profile.gameName = buildGameName;
+    profile.outputPath = buildOutputPath;
+    profile.window.width = buildWidth;
+    profile.window.height = buildHeight;
+    profile.window.fullscreen = buildFullscreen;
+    std::string error;
+    if (!profile.Validate(error)) {
+        Log::Error("Editor", "Invalid build profile: " + error);
+        return false;
+    }
+    return Project::Get().SaveBuildProfile();
+}
 
 void BuildManager::RenderBuildWindow(const std::string& currentScenePath) {
-    if (!showBuildWindow) return;
+    if (!showBuildWindow) {
+        wasShowing = false;
+        return;
+    }
 
-    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+    if (!wasShowing) {
+        wasShowing = EnsureProfileLoaded();
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(400, 350), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(EditorConstants::WIN_BUILD_SETTINGS, &showBuildWindow)) {
         ImGui::Text("Game Build Settings");
         ImGui::Separator();
@@ -32,6 +95,20 @@ void BuildManager::RenderBuildWindow(const std::string& currentScenePath) {
             ImGui::TextColored(EditorTheme::WARNING_TEXT,
                                "Warning: No scene saved!");
             ImGui::Text("Save your scene first (File > Save Scene)");
+        }
+
+        if (Project::Get().IsOpen()) {
+            const BuildProfile& profile = Project::Get().GetBuildProfile();
+            ImGui::Text("Startup Scene: %s", profile.startupScene.c_str());
+            ImGui::Text("Scenes in Build: %d", static_cast<int>(profile.scenes.size()));
+            if (ImGui::Button("Use Current Scene as Startup")) {
+                BuildProfile& profileMutable = Project::Get().GetBuildProfile();
+                profileMutable.startupScene = Project::Get().GetRelativePath(currentScenePath);
+                if (std::find(profileMutable.scenes.begin(), profileMutable.scenes.end(), profileMutable.startupScene) == profileMutable.scenes.end()) {
+                    profileMutable.scenes.push_back(profileMutable.startupScene);
+                }
+                Project::Get().SaveBuildProfile();
+            }
         }
 
         ImGui::Separator();
@@ -71,20 +148,27 @@ void BuildManager::Build(const std::string& scenePath,
         SceneSerializer::SaveScene(mainScene, *objects);
     }
 
+    if (!EnsureProfileLoaded()) {
+        Log::Error("Editor", "Cannot build because no project build profile is loaded.");
+        return;
+    }
+
+    // Save UI fields to project build profile
+    if (!SaveToProjectProfile()) {
+        return;
+    }
+
+    BuildProfile& profile = Project::Get().GetBuildProfile();
     BuildSettings settings;
-    settings.gameName = buildGameName;
-    settings.outputPath = buildOutputPath;
-    settings.mainScene = mainScene;
-    settings.windowWidth = buildWidth;
-    settings.windowHeight = buildHeight;
-    settings.fullscreen = buildFullscreen;
+    settings.profile = profile;
+    settings.projectRoot = Project::Get().GetPath();
 
     isBuilding = true;
 
     GameBuilder& builder = GameBuilder::Get();
     if (builder.Build(settings)) {
         Log::Info("Editor", "Build successful!");
-        Log::Info("Editor", "Output: " + settings.outputPath + "/" + settings.gameName);
+        Log::Info("Editor", "Output: " + settings.profile.outputPath + "/" + settings.profile.gameName);
     } else {
         Log::Error("Editor", "Build failed: " + builder.GetLastError());
     }
