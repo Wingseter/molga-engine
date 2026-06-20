@@ -59,6 +59,14 @@ target_sources(test_build_manager PRIVATE
 target_include_directories(test_build_manager PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(test_build_manager PRIVATE imgui)
 
+molga_add_test(test_scene_operations test_scene_operations.cpp)
+target_sources(test_scene_operations PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/SceneOperations.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+)
+target_include_directories(test_scene_operations PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+
 target_sources(test_script_compiler PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
