@@ -209,6 +209,7 @@ void SceneViewWindow::OnGUI() {
     HandleInput(panelPos, ImVec2(vpW, vpH));
 
     GameObject* primaryTarget = Editor::Get().FindObjectById(Editor::Get().GetSelection().PrimaryId());
+    DrawSelectionOutline(panelPos, ImVec2(vpW, vpH));
     bool gizmoUsed = gizmo_.Draw(primaryTarget, ViewportCam(), panelPos, ImVec2(vpW, vpH));
 
     if (!gizmoUsed && ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
@@ -568,5 +569,31 @@ void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
         sel.Clear(molga::SelectionSource::SceneView);
     } else {
         sel.Select(hits.front(), molga::SelectionSource::SceneView);
+    }
+}
+
+void SceneViewWindow::DrawSelectionOutline(ImVec2 panelPos, ImVec2 panelSize) {
+    if (!gameObjects_) return;
+    auto& sel = Editor::Get().GetSelection();
+    if (!sel.HasSelection()) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    for (unsigned int id : sel.SelectedIds()) {
+        GameObject* go = Editor::Get().FindObjectById(id);
+        if (!go) continue;
+        auto* tr = go->GetComponent<Transform>();
+        auto* sr = go->GetComponent<SpriteRenderer>();
+        if (!tr || !sr) continue;
+        Vector2 wp = tr->GetWorldPosition();
+        float hw = sr->GetWidth() * 0.5f, hh = sr->GetHeight() * 0.5f;
+        float sx0, sy0, sx1, sy1;
+        molga::WorldToScreen(ViewportCam(), panelSize.x, panelSize.y,
+                             wp.x - hw, wp.y - hh, sx0, sy0);
+        molga::WorldToScreen(ViewportCam(), panelSize.x, panelSize.y,
+                             wp.x + hw, wp.y + hh, sx1, sy1);
+        bool primary = (id == sel.PrimaryId());
+        dl->AddRect(ImVec2(panelPos.x + sx0, panelPos.y + sy0),
+                    ImVec2(panelPos.x + sx1, panelPos.y + sy1),
+                    primary ? IM_COL32(255, 170, 0, 255) : IM_COL32(255, 170, 0, 140),
+                    0.f, 0, primary ? 2.f : 1.f);
     }
 }

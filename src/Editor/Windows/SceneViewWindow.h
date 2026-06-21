@@ -100,4 +100,6 @@ private:
     molga::ViewportCamera ViewportCam() const;
     // 좌클릭 픽킹: 패널 좌표 클릭 → 후보 수집 → SelectionService
     void HandlePick(ImVec2 panelPos, ImVec2 panelSize);
+    // 선택 외곽선 그리기
+    void DrawSelectionOutline(ImVec2 panelPos, ImVec2 panelSize);
 };
