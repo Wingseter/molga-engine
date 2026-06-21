@@ -22,6 +22,10 @@ molga_add_test(test_editor_console_sink test_editor_console_sink.cpp)
 target_sources(test_editor_console_sink PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/EditorConsoleSink.cpp)
 target_include_directories(test_editor_console_sink PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_add_test(test_editor_task_service test_editor_task_service.cpp)
+target_sources(test_editor_task_service PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorTaskService.cpp)
+target_include_directories(test_editor_task_service PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 molga_add_test(test_collision         test_collision.cpp)
 molga_add_test(test_physics           test_physics.cpp)
 molga_add_test(test_tilemap           test_tilemap.cpp)
