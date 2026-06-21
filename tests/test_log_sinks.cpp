@@ -5,6 +5,8 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <fstream>
+#include <iterator>
 
 using Log::RingBufferSink;
 
@@ -55,4 +57,41 @@ TEST_CASE("Emit fans out to a ring sink from multiple threads") {
     for (auto& w : workers) w.join();
     CHECK(ring->Snapshot().size() == 4000);
     Log::ClearSinks();
+}
+
+#include "Common/FileSink.h"
+#include "Common/SmokeReportSink.h"
+#include "SmokeTestSupport.h"
+
+TEST_CASE("FileSink writes one structured line per message to disk") {
+    test_support::TempDirectory dir("logsink");
+    auto path = dir.Path() / "session.log";
+    {
+        Log::FileSink file(path.string());
+        Log::LogMessage m; m.category = "Build"; m.severity = Log::Severity::Error;
+        m.message = "link failed";
+        file.Write(m);
+    } // flush on destruction
+    std::ifstream in(path);
+    std::string contents((std::istreambuf_iterator<char>(in)), {});
+    CHECK(contents.find("link failed") != std::string::npos);
+    CHECK(contents.find("ERROR") != std::string::npos);
+}
+
+TEST_CASE("SmokeReportSink collects errors and writes them to the report file") {
+    test_support::TempDirectory dir("smokesink");
+    auto report = dir.Path() / "smoke_log.txt";
+    Log::SmokeReportSink sink(report.string());
+
+    Log::LogMessage ok; ok.severity = Log::Severity::Info;  ok.message = "frame ok";
+    Log::LogMessage bad; bad.severity = Log::Severity::Error; bad.category = "Runtime";
+    bad.message = "missing asset texture.png";
+    sink.Write(ok);
+    sink.Write(bad);
+    sink.Flush();
+
+    std::ifstream in(report);
+    std::string contents((std::istreambuf_iterator<char>(in)), {});
+    CHECK(contents.find("missing asset texture.png") != std::string::npos);
+    CHECK(contents.find("frame ok") == std::string::npos);  // 실패만 기록
 }

@@ -92,6 +92,8 @@ set(ENGINE_SOURCES
     src/Core/ProjectSettings.cpp
     src/Common/Log.cpp
     src/Common/StdoutSink.cpp
+    src/Common/FileSink.cpp
+    src/Common/SmokeReportSink.cpp
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
     src/Core/BuildManifest.cpp
