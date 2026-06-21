@@ -149,17 +149,23 @@ int main(int argc, char* argv[]) {
     EditorState& editorState = EditorState::Get();
     editorState.SetPlayCallbacks(
         [&sceneDoc]() {  // Edit → Play
-            Editor::Get().SetSelectedObject(nullptr);
             Editor::Get().GetCommandHistory().Clear();
             sceneDoc.EnterPlay();
             sceneDoc.ActiveWorld().ResolveAssets();
             Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+            
+            World& pw = sceneDoc.ActiveWorld();
+            Editor::Get().GetSelection().Rebind(
+                [&pw](unsigned int id) { return pw.FindById(id) != nullptr; });
         },
         [&sceneDoc]() {  // Play/Pause → Stop
-            Editor::Get().SetSelectedObject(nullptr);
             Editor::Get().GetCommandHistory().Clear();
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             sceneDoc.ExitPlay();
+            
+            World& ew = sceneDoc.EditWorld();
+            Editor::Get().GetSelection().Rebind(
+                [&ew](unsigned int id) { return ew.FindById(id) != nullptr; });
         });
 
     // Project loading phase

@@ -42,16 +42,12 @@ void Editor::Init() {
   windowManager.Register(EditorConstants::WIN_STATS, std::make_unique<StatsWindow>());
   windowManager.Register(EditorConstants::WIN_PROJECT_SETTINGS, std::make_unique<ProjectSettingsWindow>());
 
-  // Connect hierarchy selection to inspector
-  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
-  auto* inspector = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
-  if (hierarchy && inspector) {
-    hierarchy->SetSelectionCallback(
-        [](GameObject *obj) {
-          auto* insp = Editor::Get().windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
-          if (insp) insp->SetTarget(obj);
-        });
-  }
+  // Register Selection listener to sync Inspector target
+  selection_.AddListener([this](const molga::SelectionService& s, molga::SelectionSource) {
+      if (auto* insp = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR)) {
+          insp->SetTarget(FindObjectById(s.InspectorTargetId()));
+      }
+  });
 
   // Set engine path for ScriptCompiler and VSCodeIntegration
   std::string enginePath = PathService::Get().ExecutableDir().string();
@@ -308,19 +304,11 @@ void Editor::SetGameObjects(std::vector<std::shared_ptr<GameObject>> *objects) {
 }
 
 GameObject *Editor::GetSelectedObject() const {
-  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
-  return hierarchy ? hierarchy->GetSelectedObject() : nullptr;
+  return FindObjectById(selection_.PrimaryId());
 }
 
 void Editor::SetSelectedObject(GameObject *obj) {
-  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
-  if (hierarchy) {
-    hierarchy->SetSelectedObject(obj);
-  }
-  auto* inspector = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
-  if (inspector) {
-    inspector->SetTarget(obj);
-  }
+  selection_.Select(obj ? obj->GetID() : 0u, molga::SelectionSource::Code);
 }
 
 std::shared_ptr<GameObject> Editor::CreateGameObject(const std::string &name) {

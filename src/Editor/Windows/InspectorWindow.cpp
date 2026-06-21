@@ -44,6 +44,17 @@ void InspectorWindow::OnGUI() {
         return;
     }
 
+    // Lock checkbox
+    bool locked = Editor::Get().GetSelection().IsInspectorLocked();
+    if (ImGui::Checkbox("Lock", &locked)) {
+        if (locked) {
+            Editor::Get().GetSelection().LockInspector(target->GetID());
+        } else {
+            Editor::Get().GetSelection().UnlockInspector();
+        }
+    }
+    ImGui::SameLine();
+
     // GameObject header with icon
     ImGui::Text("%s", Icons::Cube);
     ImGui::SameLine();

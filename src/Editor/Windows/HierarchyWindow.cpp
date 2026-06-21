@@ -77,7 +77,7 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 
     // Highlight selected object
-    if (obj == selectedObject) {
+    if (Editor::Get().GetSelection().IsSelected(obj->GetID())) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
 
@@ -158,10 +158,7 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 
     // Handle selection
     if (ImGui::IsItemClicked()) {
-        selectedObject = obj;
-        if (onSelectionChanged) {
-            onSelectionChanged(obj);
-        }
+        Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
     }
 
     // Right-click context menu
@@ -173,7 +170,7 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
             renameBuffer[sizeof(renameBuffer) - 1] = '\0';
         }
         if (ImGui::MenuItem((std::string(Icons::Cubes) + " Duplicate").c_str())) {
-            selectedObject = obj;
+            Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
             DuplicateSelectedObject();
         }
         
@@ -202,7 +199,7 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 
         ImGui::Separator();
         if (ImGui::MenuItem((std::string(Icons::Trash) + " Delete").c_str())) {
-            selectedObject = obj;
+            Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
             DeleteSelectedObject();
         }
         ImGui::EndPopup();
@@ -220,7 +217,6 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 void HierarchyWindow::CreateEmptyGameObject() {
     auto cmd = std::make_unique<molga::CreateObjectCommand>("New GameObject");
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    selectedObject = Editor::Get().GetSelectedObject();
 }
 
 void HierarchyWindow::CreateSpriteObject() {
@@ -231,7 +227,6 @@ void HierarchyWindow::CreateSpriteObject() {
         obj->AddComponent<SpriteRenderer>();
         Editor::Get().MarkSceneModified();
     }
-    selectedObject = Editor::Get().GetSelectedObject();
 }
 
 void HierarchyWindow::CreateTilemapObject() {
@@ -241,23 +236,18 @@ void HierarchyWindow::CreateTilemapObject() {
         obj->AddComponent<TilemapRenderer>();
         Editor::Get().MarkSceneModified();
     }
-    selectedObject = Editor::Get().GetSelectedObject();
 }
 
 void HierarchyWindow::DeleteSelectedObject() {
-    if (!selectedObject) return;
-    auto cmd = std::make_unique<molga::DeleteObjectCommand>(selectedObject);
+    GameObject* selected = Editor::Get().GetSelectedObject();
+    if (!selected) return;
+    auto cmd = std::make_unique<molga::DeleteObjectCommand>(selected);
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    selectedObject = Editor::Get().GetSelectedObject();  // Command가 nullptr로 비웠음
-    if (onSelectionChanged) onSelectionChanged(selectedObject);
 }
 
 void HierarchyWindow::DuplicateSelectedObject() {
-    if (!gameObjects || !selectedObject) return;
-    auto cmd = std::make_unique<molga::DuplicateObjectCommand>(selectedObject);
+    GameObject* selected = Editor::Get().GetSelectedObject();
+    if (!gameObjects || !selected) return;
+    auto cmd = std::make_unique<molga::DuplicateObjectCommand>(selected);
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    selectedObject = Editor::Get().GetSelectedObject();
-    if (onSelectionChanged) {
-        onSelectionChanged(selectedObject);
-    }
 }
