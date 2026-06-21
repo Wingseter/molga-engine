@@ -15,6 +15,7 @@ endfunction()
 
 molga_add_test(test_types             test_types.cpp)
 molga_add_test(test_text              test_text.cpp)
+molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_collision         test_collision.cpp)
 molga_add_test(test_physics           test_physics.cpp)
 molga_add_test(test_tilemap           test_tilemap.cpp)
