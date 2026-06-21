@@ -24,6 +24,7 @@
 #include "../Common/Log.h"
 #include "../Core/PathService.h"
 #include <cstring>
+#include <sstream>
 #include <filesystem>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -385,7 +386,26 @@ void Editor::RenderScriptingMenu() {
     if (ImGui::MenuItem("Compile Scripts", "Ctrl+Shift+B")) {
       ScriptCompiler &compiler = ScriptCompiler::Get();
       compiler.SetProjectPath(project.GetPath());
-      if (compiler.Compile()) {
+
+      if (auto* console = windowManager.GetAs<ConsoleWindow>(EditorConstants::WIN_CONSOLE)) {
+        if (console->IsClearOnRecompile()) {
+          console->RequestClear();
+        }
+      }
+
+      auto& tasks = GetTaskService();
+      molga::TaskId tid = tasks.Begin("Compile Scripts", molga::TaskCategory::ScriptCompile);
+
+      bool ok = compiler.Compile();
+
+      std::istringstream ss(compiler.GetCompileOutput());
+      for (std::string line; std::getline(ss, line); ) {
+        tasks.Update(tid, ok ? 1.0f : 0.5f, line);
+      }
+
+      tasks.Finish(tid, ok ? molga::TaskState::Succeeded : molga::TaskState::Failed);
+
+      if (ok) {
         Log::Info("Editor", "Scripts compiled successfully");
       } else {
         Log::Error("Editor", "Script compilation failed: " + compiler.GetLastError());

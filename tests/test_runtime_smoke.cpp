@@ -7,6 +7,11 @@
 #include "ECS/Components/SpriteRenderer.h"
 #include "SmokeTestSupport.h"
 
+#include "Common/Log.h"
+#include "Common/SmokeReportSink.h"
+#include <fstream>
+#include <iterator>
+
 TEST_CASE("runtime world loads a packaged scene with project relative assets") {
     // Force linker to include component translation units
     {
@@ -18,6 +23,10 @@ TEST_CASE("runtime world loads a packaged scene with project relative assets") {
 
     test_support::TempDirectory temp{"runtime-smoke"};
     const auto root = temp.Path();
+    const auto reportPath = root / "smoke_report.txt";
+    auto reportSink = std::make_shared<Log::SmokeReportSink>(reportPath.string());
+    Log::AddSink(reportSink);
+
     const auto scenePath = root / "Scenes/main.json";
 
     test_support::WriteText(root / "Assets/Textures/smoke.ppm",
@@ -67,4 +76,14 @@ TEST_CASE("runtime world loads a packaged scene with project relative assets") {
     world.FixedStep(1.0F / 60.0F);
     world.Update(1.0F / 60.0F);
     world.LateUpdate(1.0F / 60.0F);
+
+    Log::Error("SmokeTest", "simulated runtime asset missing");
+
+    Log::RemoveSink(reportSink);
+    reportSink->Flush();
+
+    std::ifstream in(reportPath);
+    std::string contents((std::istreambuf_iterator<char>(in)), {});
+    CHECK(contents.find("simulated runtime asset missing") != std::string::npos);
+    CHECK(contents.find("SmokeTest") != std::string::npos);
 }

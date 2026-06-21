@@ -35,3 +35,10 @@ TEST_CASE("BuildManager direct build loads project profile before saving UI fiel
 
     Project::Get().Close();
 }
+
+#include "Editor/Editor.h"
+
+Editor& Editor::Get() {
+    static Editor instance;
+    return instance;
+}

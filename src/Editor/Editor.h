@@ -10,6 +10,7 @@
 #include "Editor/Commands/CommandHistory.h"
 #include "Editor/Selection/SelectionService.h"
 #include "Editor/Commands/TransformCommand.h"
+#include "Editor/EditorTaskService.h"
 
 class GameObject;
 class Renderer;
@@ -43,6 +44,7 @@ public:
     molga::CommandHistory& GetCommandHistory() { return commandHistory; }
     WindowManager& GetWindowManager() { return windowManager; }
     molga::SelectionService& GetSelection() { return selection_; }
+    molga::EditorTaskService& GetTaskService() { return taskService; }
     void SubmitTransformEdit(unsigned int targetId,
                              const molga::TransformState& before,
                              const molga::TransformState& after);
@@ -87,6 +89,7 @@ private:
     WindowManager windowManager;
     SceneOperations sceneOps;
     BuildManager buildMgr;
+    molga::EditorTaskService taskService;
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
     molga::CommandHistory commandHistory;

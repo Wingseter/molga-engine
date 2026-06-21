@@ -78,6 +78,11 @@ target_sources(test_build_manager PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/BuildManager.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/GameBuilder.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorConsoleSink.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorTaskService.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorState.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/WindowManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Windows/ConsoleWindow.cpp
 )
 target_include_directories(test_build_manager PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(test_build_manager PRIVATE imgui)

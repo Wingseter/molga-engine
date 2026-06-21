@@ -2,6 +2,8 @@
 #include "EditorConstants.h"
 #include "EditorTheme.h"
 #include "GameBuilder.h"
+#include "Editor.h"
+#include "Windows/ConsoleWindow.h"
 #include "Project.h"
 #include "../Common/Log.h"
 #include "../Core/SceneSerializer.h"
@@ -155,6 +157,12 @@ void BuildManager::Build(const std::string& scenePath,
         SceneSerializer::SaveScene(mainScene, *objects);
     }
 
+    if (auto* console = Editor::Get().GetWindowManager().GetAs<ConsoleWindow>(EditorConstants::WIN_CONSOLE)) {
+        if (console->IsClearOnBuild()) {
+            console->RequestClear();
+        }
+    }
+
     if (!EnsureProfileLoaded()) {
         Log::Error("Editor", "Cannot build because no project build profile is loaded.");
         return;
@@ -172,11 +180,26 @@ void BuildManager::Build(const std::string& scenePath,
 
     isBuilding = true;
 
+    auto& tasks = Editor::Get().GetTaskService();
+    molga::TaskId tid = tasks.Begin("Build Game", molga::TaskCategory::Build);
+    tasks.Update(tid, 0.0f, "Starting build...");
+
     GameBuilder& builder = GameBuilder::Get();
-    if (builder.Build(settings)) {
+    bool ok = builder.Build(settings);
+
+    if (ok) {
+        tasks.Update(tid, 0.2f, "Copying assets...");
+        tasks.Update(tid, 0.4f, "Copying shaders...");
+        tasks.Update(tid, 0.5f, "Copying scenes...");
+        tasks.Update(tid, 0.7f, "Generating game configuration...");
+        tasks.Update(tid, 0.9f, "Copying executable...");
+        tasks.Update(tid, 1.0f, "Build successful!");
+        tasks.Finish(tid, molga::TaskState::Succeeded);
         Log::Info("Editor", "Build successful!");
         Log::Info("Editor", "Output: " + settings.profile.outputPath + "/" + settings.profile.gameName);
     } else {
+        tasks.Update(tid, builder.GetProgress(), "Step failed: " + builder.GetCurrentStep() + " - " + builder.GetLastError());
+        tasks.Finish(tid, molga::TaskState::Failed);
         Log::Error("Editor", "Build failed: " + builder.GetLastError());
     }
 
