@@ -15,14 +15,6 @@ public:
     // Scene objects to display
     void SetGameObjects(std::vector<std::shared_ptr<GameObject>>* objects) { gameObjects = objects; }
 
-    // Selection
-    GameObject* GetSelectedObject() const { return selectedObject; }
-    void SetSelectedObject(GameObject* obj) { selectedObject = obj; }
-
-    // Callback when selection changes
-    using SelectionCallback = void(*)(GameObject*);
-    void SetSelectionCallback(SelectionCallback callback) { onSelectionChanged = callback; }
-
 private:
     void DrawGameObjectNode(GameObject* obj);
     void CreateEmptyGameObject();
@@ -32,8 +24,6 @@ private:
     void DuplicateSelectedObject();
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
-    GameObject* selectedObject = nullptr;
-    SelectionCallback onSelectionChanged = nullptr;
 
     // Rename state
     bool isRenaming = false;

@@ -39,6 +39,9 @@ public:
     static void SetMasterVolume(float volume);
     static float GetMasterVolume();
 
+    // Engine access
+    static ma_engine* GetEngine();
+
 private:
     static std::unique_ptr<ma_engine, MaEngineDeleter> engine;
     static std::unique_ptr<ma_sound, MaSoundDeleter> musicSound;

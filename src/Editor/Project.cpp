@@ -1,5 +1,7 @@
 #include "Project.h"
 #include "../Common/Log.h"
+#include "../Core/ProjectSettings.h"
+#include "../Systems/Input.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -10,6 +12,10 @@ namespace fs = std::filesystem;
 Project& Project::Get() {
     static Project instance;
     return instance;
+}
+
+Project::Project() {
+    LoadRecentProjects();
 }
 
 bool Project::Create(const std::string& parentPath, const std::string& name) {
@@ -42,6 +48,20 @@ bool Project::Create(const std::string& parentPath, const std::string& name) {
     isOpen = true;
     AddToRecentProjects(projectPath);
 
+    // Initialize and save project settings
+    ProjectSettings::Get().SetDefaults();
+    std::string settingsPath = (fs::path(projectPath) / "ProjectSettings" / "project_settings.json").string();
+    ProjectSettings::Get().SaveToFile(settingsPath);
+
+    // Initialize and save input actions
+    Input::InitializeDefaultActions();
+    std::string inputPath = (fs::path(projectPath) / "ProjectSettings" / "input_actions.json").string();
+    Input::SaveActions(inputPath);
+
+    // Initialize and save build profile
+    buildProfile = BuildProfile::Defaults(projectName);
+    SaveBuildProfile();
+
     Log::Info("Project", "Created project: " + projectName + " at " + projectPath);
     return true;
 }
@@ -69,6 +89,27 @@ bool Project::Open(const std::string& path) {
     isOpen = true;
     AddToRecentProjects(projectPath);
 
+    // Load project settings
+    std::string settingsPath = (fs::path(projectPath) / "ProjectSettings" / "project_settings.json").string();
+    if (!ProjectSettings::Get().LoadFromFile(settingsPath)) {
+        ProjectSettings::Get().SaveToFile(settingsPath);
+    }
+
+    // Load input actions
+    std::string inputPath = (fs::path(projectPath) / "ProjectSettings" / "input_actions.json").string();
+    if (fs::exists(inputPath)) {
+        Input::LoadActions(inputPath);
+    } else {
+        Input::InitializeDefaultActions();
+        Input::SaveActions(inputPath);
+    }
+
+    // Load build profile (create defaults if missing)
+    if (!LoadBuildProfile()) {
+        buildProfile = BuildProfile::Defaults(projectName);
+        SaveBuildProfile();
+    }
+
     Log::Info("Project", "Opened project: " + projectName + " at " + projectPath);
     return true;
 }
@@ -80,6 +121,8 @@ void Project::Close() {
     projectPath.clear();
     projectName.clear();
     isOpen = false;
+    buildProfile = BuildProfile::Defaults("");
+    ProjectSettings::Get().SetDefaults();
 }
 
 std::string Project::GetAssetsPath() const {
@@ -297,5 +340,49 @@ void Project::SaveRecentProjects() {
         file.close();
     } catch (const std::exception& e) {
         Log::Error("Project", "Error saving recent projects: " + std::string(e.what()));
+    }
+}
+
+std::string Project::GetBuildProfilePath() const {
+    if (!isOpen) return "";
+    return (fs::path(projectPath) / "ProjectSettings" / "build_profile.json").string();
+}
+
+bool Project::LoadBuildProfile() {
+    const std::string path = GetBuildProfilePath();
+    if (path.empty() || !fs::exists(path)) return false;
+
+    try {
+        std::ifstream file(path);
+        nlohmann::json j;
+        file >> j;
+        BuildProfile loaded = BuildProfile::Defaults(projectName);
+        if (!loaded.Deserialize(j)) return false;
+        std::string error;
+        if (!loaded.Validate(error)) {
+            Log::Error("Project", "Invalid build profile: " + error);
+            return false;
+        }
+        buildProfile = loaded;
+        return true;
+    } catch (const std::exception& e) {
+        Log::Error("Project", "Failed to load build profile: " + std::string(e.what()));
+        return false;
+    }
+}
+
+bool Project::SaveBuildProfile() const {
+    const std::string path = GetBuildProfilePath();
+    if (path.empty()) return false;
+
+    try {
+        fs::create_directories(fs::path(path).parent_path());
+        std::ofstream file(path);
+        if (!file.is_open()) return false;
+        file << buildProfile.Serialize().dump(4);
+        return true;
+    } catch (const std::exception& e) {
+        Log::Error("Project", "Failed to save build profile: " + std::string(e.what()));
+        return false;
     }
 }

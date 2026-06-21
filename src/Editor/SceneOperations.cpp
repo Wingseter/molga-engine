@@ -27,33 +27,63 @@ bool SceneOperations::SaveScene(const std::vector<std::shared_ptr<GameObject>>& 
 
 bool SceneOperations::SaveSceneAs(const std::vector<std::shared_ptr<GameObject>>& objects) {
     namespace fs = std::filesystem;
+
+    fs::path filepath = EditorConstants::DEFAULT_SCENE_FILE;
     if (Project::Get().IsOpen()) {
-        fs::path dir = Project::Get().GetScenesPath();
-        fs::create_directories(dir);
-        currentScenePath = (dir / "main.json").string();
-    } else {
-        currentScenePath = EditorConstants::DEFAULT_SCENE_FILE;  // 프로젝트 없을 때 폴백
+        filepath = fs::path(Project::Get().GetScenesPath()) / "main.json";
     }
 
-    if (SceneSerializer::SaveScene(currentScenePath, objects)) {
-        sceneModified = false;
-        Log::Info("Editor", "Scene saved to: " + currentScenePath);
-        return true;
-    }
-    return false;
+    return SaveSceneAsPath(objects, filepath.string());
 }
 
 bool SceneOperations::OpenScene(std::vector<std::shared_ptr<GameObject>>& objects) {
     namespace fs = std::filesystem;
-    std::string filepath = EditorConstants::DEFAULT_SCENE_FILE;
+
+    fs::path filepath = EditorConstants::DEFAULT_SCENE_FILE;
     if (Project::Get().IsOpen()) {
-        filepath = (fs::path(Project::Get().GetScenesPath()) / "main.json").string();
+        filepath = fs::path(Project::Get().GetScenesPath()) / "main.json";
     }
 
-    if (SceneSerializer::LoadScene(filepath, objects)) {
-        currentScenePath = filepath;
+    return OpenScenePath(objects, filepath.string());
+}
+
+bool SceneOperations::SaveSceneAsPath(
+    const std::vector<std::shared_ptr<GameObject>>& objects,
+    const std::string& path) {
+    if (path.empty()) {
+        Log::Error("Editor", "Cannot save scene because the target path is empty.");
+        return false;
+    }
+
+    namespace fs = std::filesystem;
+    const fs::path target(path);
+    const fs::path parent = target.parent_path();
+    if (!parent.empty()) {
+        fs::create_directories(parent);
+    }
+
+    if (SceneSerializer::SaveScene(path, objects)) {
+        currentScenePath = path;
+        sceneModified = false;
+        Log::Info("Editor", "Scene saved to: " + currentScenePath);
+        return true;
+    }
+
+    return false;
+}
+
+bool SceneOperations::OpenScenePath(std::vector<std::shared_ptr<GameObject>>& objects,
+                                    const std::string& path) {
+    if (path.empty()) {
+        Log::Error("Editor", "Cannot open scene because the target path is empty.");
+        return false;
+    }
+
+    if (SceneSerializer::LoadScene(path, objects)) {
+        currentScenePath = path;
         sceneModified = false;
         return true;
     }
+
     return false;
 }

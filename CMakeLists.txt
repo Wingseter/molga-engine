@@ -42,6 +42,8 @@ target_link_libraries(imgui glfw)
 # ── Common engine source files ─────────────────────────────────────────────────
 set(ENGINE_SOURCES
     src/Rendering/Shader.cpp
+    src/Rendering/ShaderManager.cpp
+    src/Rendering/Material.cpp
     src/Rendering/Texture.cpp
     src/Rendering/Sprite.cpp
     src/Rendering/Renderer.cpp
@@ -53,6 +55,8 @@ set(ENGINE_SOURCES
     src/Rendering/SpriteSheet.cpp
     src/Rendering/Animation.cpp
     src/Physics/Collision.cpp
+    src/Physics/PhysicsWorld.cpp
+    src/Physics/Physics2D.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
     src/Systems/Audio.cpp
@@ -62,10 +66,22 @@ set(ENGINE_SOURCES
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
+    src/ECS/Components/TilemapRenderer.cpp
+    src/ECS/Components/TextRenderer2D.cpp
+    src/ECS/Components/ParticleSystem.cpp
     src/ECS/Components/BoxCollider2D.cpp
+    src/ECS/Components/CircleCollider2D.cpp
+    src/ECS/Components/Rigidbody2D.cpp
     src/ECS/Components/Collider2D.cpp
+    src/ECS/Components/AudioSource.cpp
+    src/ECS/Components/AudioListener.cpp
+    src/ECS/Components/Camera.cpp
+    src/ECS/Components/PrefabInstance.cpp
     src/Core/SceneSerializer.cpp
+    src/Core/PrefabRegistry.cpp
+    src/Core/PrefabUtil.cpp
     src/Core/World.cpp
+    src/Core/Scheduler.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/BuiltinScripts.cpp
@@ -73,13 +89,28 @@ set(ENGINE_SOURCES
     src/Rendering/TextRenderer.cpp
     src/Core/Bootstrap.cpp
     src/Core/EventBus.cpp
+    src/Core/ProjectSettings.cpp
     src/Common/Log.cpp
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
     src/Core/BuildManifest.cpp
     src/Core/SmokeReport.cpp
     src/Core/PackageLayout.cpp
+    src/Core/PackageFinalizer.cpp
+    src/Core/BuildProfile.cpp
+    src/Editor/Selection/SelectionService.cpp
 )
+
+# ── Marrow skeletal animation dependency check ───────────────────────────────
+set(MARROW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Maroow")
+if(EXISTS "${MARROW_DIR}/include/marrow/runtime/skeleton.hpp" AND EXISTS "${MARROW_DIR}/build/libmarrow_runtime.a")
+    message(STATUS "Marrow runtime dependency found. Enabling Marrow support.")
+    set(MOLGA_MARROW_SUPPORT ON)
+    list(APPEND ENGINE_SOURCES src/ECS/Components/MarrowRenderer.cpp)
+else()
+    message(WARNING "Marrow runtime dependency NOT found at ${MARROW_DIR}. Skeletal animation will be disabled.")
+    set(MOLGA_MARROW_SUPPORT OFF)
+endif()
 
 # ── molga_core static library ──────────────────────────────────────────────────
 add_library(molga_core STATIC ${ENGINE_SOURCES})
@@ -89,7 +120,18 @@ target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/external/miniaudio
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
 )
+
+if(MOLGA_MARROW_SUPPORT)
+    target_include_directories(molga_core PUBLIC ${MARROW_DIR}/include)
+    target_compile_definitions(molga_core PUBLIC MOLGA_MARROW_SUPPORT)
+endif()
+
 target_link_libraries(molga_core PUBLIC glad glfw)
+
+if(MOLGA_MARROW_SUPPORT)
+    target_link_libraries(molga_core PUBLIC ${MARROW_DIR}/build/libmarrow_runtime.a)
+endif()
+
 target_link_libraries(molga_core PRIVATE molga_warnings)
 
 if(APPLE)
@@ -105,6 +147,9 @@ set(EDITOR_SOURCES
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
     src/Editor/Commands/ObjectCommands.cpp
+    src/Editor/Commands/PrefabCommands.cpp
+    src/Editor/Commands/TransformCommand.cpp
+    src/Editor/Gizmos/TransformGizmo.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
     src/Editor/UIRegistry.cpp
@@ -119,6 +164,7 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ProjectWindow.cpp
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
+    src/Editor/Windows/ProjectSettingsWindow.cpp
     src/Editor/Project.cpp
     src/Scripting/ScriptCompiler.cpp
 )

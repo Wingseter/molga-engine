@@ -76,6 +76,8 @@ public:
 
     bool IsActive() const { return emitting || GetActiveCount() > 0; }
     int GetActiveCount() const;
+    const std::vector<Particle>& GetParticles() const { return particles; }
+    bool IsEmitting() const { return emitting; }
 
     float x, y;
     ParticleConfig config;

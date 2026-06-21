@@ -72,3 +72,37 @@ bool PathService::IsSafeOutputPath(const fs::path& path, std::string& reason) {
 
     return true;
 }
+
+bool PathService::IsSafeOutputPath(
+    const fs::path& path,
+    std::string& reason,
+    const fs::path& projectRoot,
+    const fs::path& engineRoot) {
+    if (!IsSafeOutputPath(path, reason)) {
+        return false;
+    }
+
+    std::error_code ec;
+    fs::path output = fs::weakly_canonical(path, ec);
+    if (ec) {
+        output = path.lexically_normal();
+    }
+
+    auto rejectsExactRoot = [&](const fs::path& root, const char* label) {
+        if (root.empty()) return false;
+        std::error_code rootEc;
+        fs::path protectedRoot = fs::weakly_canonical(root, rootEc);
+        if (rootEc) {
+            protectedRoot = root.lexically_normal();
+        }
+        if (output == protectedRoot) {
+            reason = std::string(label) + " root";
+            return true;
+        }
+        return false;
+    };
+
+    if (rejectsExactRoot(projectRoot, "project")) return false;
+    if (rejectsExactRoot(engineRoot, "engine")) return false;
+    return true;
+}

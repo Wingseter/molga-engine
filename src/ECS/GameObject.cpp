@@ -1,6 +1,7 @@
 #include "GameObject.h"
 #include "Component.h"
 #include "../Scripting/Script.h"
+#include "../Core/World.h"
 #include <algorithm>
 #include <cassert>
 
@@ -14,9 +15,10 @@ GameObject::GameObject(const std::string& name)
 
 GameObject::~GameObject() {
     NotifyDestroy();  // destroyed flag prevents double-call
-    for (auto& [id, comp] : componentMap) {
+    for (auto* comp : componentOrder_) {
         comp->OnDetach();
     }
+    componentOrder_.clear();
     componentMap.clear();
     if (parent) {
         parent->RemoveChild(this);
@@ -92,7 +94,7 @@ void GameObject::RemoveChild(GameObject* child) {
 void GameObject::Update(float dt) {
     if (!active) return;
 
-    for (auto& [id, comp] : componentMap) {
+    for (auto* comp : componentOrder_) {
         if (comp->IsEnabled()) {
             comp->Update(dt);
         }
@@ -102,7 +104,7 @@ void GameObject::Update(float dt) {
 void GameObject::Render() {
     if (!active) return;
 
-    for (auto& [id, comp] : componentMap) {
+    for (auto* comp : componentOrder_) {
         if (comp->IsEnabled()) {
             comp->Render();
         }
@@ -119,28 +121,20 @@ Component* GameObject::AddComponentRaw(Component* component) {
     component->SetGameObject(this);
     component->OnAttach();
     componentMap[typeId] = std::unique_ptr<Component>(component);
+    componentOrder_.push_back(component);
     return component;
 }
 
 std::vector<Component*> GameObject::GetComponents() const {
-    std::vector<Component*> result;
-    result.reserve(componentMap.size());
-    for (const auto& [id, comp] : componentMap) {
-        result.push_back(comp.get());
-    }
-    return result;
+    return componentOrder_;  // 삽입 순서(결정적)
 }
 
 void GameObject::NotifyDestroy() {
     if (destroyed) return;
     destroyed = true;
 
-    // Snapshot-based iteration (safe if callbacks modify componentMap)
-    std::vector<Component*> snapshot;
-    snapshot.reserve(componentMap.size());
-    for (auto& [id, comp] : componentMap) {
-        snapshot.push_back(comp.get());
-    }
+    // Snapshot-based iteration (safe if callbacks modify the component list)
+    std::vector<Component*> snapshot = componentOrder_;
     for (auto* comp : snapshot) {
         if (comp->IsEnabled()) comp->OnDisable();
         comp->OnDestroy();
@@ -149,9 +143,9 @@ void GameObject::NotifyDestroy() {
 
 void GameObject::FixedUpdateScripts(float fixedDt) {
     if (!active) return;
-    for (auto& [id, comp] : componentMap) {
+    for (auto* comp : componentOrder_) {
         if (comp->IsEnabled()) {
-            if (auto* script = dynamic_cast<Script*>(comp.get())) {
+            if (auto* script = dynamic_cast<Script*>(comp)) {
                 script->FixedUpdate(fixedDt);
             }
         }
@@ -160,30 +154,68 @@ void GameObject::FixedUpdateScripts(float fixedDt) {
 
 void GameObject::LateUpdateScripts(float dt) {
     if (!active) return;
-    for (auto& [id, comp] : componentMap) {
+    for (auto* comp : componentOrder_) {
         if (comp->IsEnabled()) {
-            if (auto* script = dynamic_cast<Script*>(comp.get())) {
+            if (auto* script = dynamic_cast<Script*>(comp)) {
                 script->LateUpdate(dt);
             }
         }
     }
 }
 
+void GameObject::AwakeScripts() {
+    if (!active) return;
+    for (auto* comp : componentOrder_) {
+        if (comp->IsEnabled() && !comp->HasAwoken()) {
+            comp->Awake();
+            comp->MarkAwoken();
+        }
+    }
+}
+
+void GameObject::EnableScripts() {
+    if (!active) return;
+    for (auto* comp : componentOrder_) {
+        if (comp->IsEnabled()) comp->OnEnable();
+    }
+}
+
+void GameObject::DisableScripts() {
+    for (auto* comp : componentOrder_) {
+        if (comp->IsEnabled()) comp->OnDisable();
+    }
+}
+
 void GameObject::StartScripts() {
     if (!active) return;
-    for (auto& [id, comp] : componentMap) {
+    for (auto* comp : componentOrder_) {
         if (!comp->IsEnabled()) continue;
-        if (auto* s = dynamic_cast<Script*>(comp.get())) {
-            if (!s->HasStarted()) {
-                s->Start();
-                s->MarkStarted();
-            }
+        if (!comp->HasStarted()) {
+            comp->Start();
+            comp->MarkStarted();
         }
     }
 }
 
 void GameObject::ResolveAssets() {
-    for (auto& [id, comp] : componentMap) {
+    for (auto* comp : componentOrder_) {
         if (comp) comp->ResolveAssets();
+    }
+}
+
+void GameObject::SetActive(bool value) {
+    if (active == value) return;
+    active = value;
+
+    // 라이프사이클 콜백은 월드가 Play(running) 중일 때만 발화한다.
+    // 에디트/로드 중 SetActive는 플래그만 바꾼다(오발화 방지).
+    if (!world || !world->IsRunning()) return;
+
+    if (value) {
+        AwakeScripts();   // 최초 활성화면 Awake 1회
+        EnableScripts();  // OnEnable
+        StartScripts();   // 최초 활성화면 Start 1회
+    } else {
+        DisableScripts(); // OnDisable
     }
 }

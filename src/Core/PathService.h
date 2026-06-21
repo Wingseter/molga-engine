@@ -31,6 +31,11 @@ public:
     // ── 순수 헬퍼(테스트 대상) ──────────────────────────────────────────────
     static std::string Resolve(const std::filesystem::path& root, const std::string& stored);
     static bool IsSafeOutputPath(const std::filesystem::path& path, std::string& reason);
+    static bool IsSafeOutputPath(
+        const std::filesystem::path& path,
+        std::string& reason,
+        const std::filesystem::path& projectRoot,
+        const std::filesystem::path& engineRoot);
 
 private:
     PathService() = default;

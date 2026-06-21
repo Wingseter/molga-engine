@@ -21,6 +21,9 @@ const std::unordered_map<std::string, UIRegistry::ComponentTypeInfo> UIRegistry:
     { "Transform",      { Icons::ArrowsAlt } },
     { "SpriteRenderer", { Icons::Image     } },
     { "BoxCollider2D",  { Icons::Square    } },
+    { "AudioSource",    { Icons::Music     } },
+    { "AudioListener",  { Icons::VolumeUp  } },
+    { "Camera",         { Icons::Camera    } },
 };
 
 const UIRegistry::FileTypeInfo& UIRegistry::GetFileTypeInfo(const std::string& extension, bool isDirectory) {

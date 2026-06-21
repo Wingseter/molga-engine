@@ -7,6 +7,7 @@
 
 #include "Core/Bootstrap.h"
 #include "Rendering/Shader.h"
+#include "Rendering/ShaderManager.h"
 #include "Rendering/Renderer.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
@@ -20,12 +21,14 @@
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/BoxCollider2D.h"
+#include "ECS/Components/Camera.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
 #include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
 #include "Core/PathService.h"
 #include "Core/SmokeReport.h"
+#include "Core/EventBus.h"
 #include "Editor/GameBuilder.h"
 #include <imgui.h>
 #include <optional>
@@ -73,9 +76,9 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
     }
 
     BuildSettings settings;
-    settings.gameName = "SmokeGame";
-    settings.outputPath = options.outputRoot.string();
-    settings.mainScene = scenePath.string();
+    settings.profile = Project::Get().GetBuildProfile();
+    settings.projectRoot = Project::Get().GetPath();
+    settings.profile.outputPath = options.outputRoot.string();
 
     if (!GameBuilder::Get().Build(settings)) {
         report.status = "error";
@@ -128,7 +131,7 @@ int main(int argc, char* argv[]) {
     renderer->Init();
     auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
     auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
-    auto shader = std::make_unique<Shader>(vertPath.c_str(), fragPath.c_str());
+    Shader* shader = ShaderManager::Get().Load("default", vertPath, fragPath);
     SceneDocument sceneDoc;
 
     // Initialize Scripting
@@ -141,22 +144,28 @@ int main(int argc, char* argv[]) {
     Editor::Get().Init();
     Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
     // SceneView에 렌더 리소스 주입 (FBO 렌더 활성화)
-    Editor::Get().SetSceneViewResources(renderer.get(), shader.get());
+    Editor::Get().SetSceneViewResources(renderer.get(), shader);
 
     EditorState& editorState = EditorState::Get();
     editorState.SetPlayCallbacks(
         [&sceneDoc]() {  // Edit → Play
-            Editor::Get().SetSelectedObject(nullptr);
             Editor::Get().GetCommandHistory().Clear();
             sceneDoc.EnterPlay();
             sceneDoc.ActiveWorld().ResolveAssets();
             Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+            
+            World& pw = sceneDoc.ActiveWorld();
+            Editor::Get().GetSelection().Rebind(
+                [&pw](unsigned int id) { return pw.FindById(id) != nullptr; });
         },
         [&sceneDoc]() {  // Play/Pause → Stop
-            Editor::Get().SetSelectedObject(nullptr);
             Editor::Get().GetCommandHistory().Clear();
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             sceneDoc.ExitPlay();
+            
+            World& ew = sceneDoc.EditWorld();
+            Editor::Get().GetSelection().Rebind(
+                [&ew](unsigned int id) { return ew.FindById(id) != nullptr; });
         });
 
     // Project loading phase
@@ -203,7 +212,7 @@ int main(int argc, char* argv[]) {
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             Editor::Get().SetCurrentScenePath(mainScene.string());
             // 씬 로드 후 SceneView 리소스 재주입 (오브젝트 목록 갱신)
-            Editor::Get().SetSceneViewResources(renderer.get(), shader.get());
+            Editor::Get().SetSceneViewResources(renderer.get(), shader);
             std::cout << "[Main] Loaded project main scene: " << mainScene << std::endl;
         } else {
             std::cerr << "[Main] Project main scene not found or invalid: "
@@ -250,16 +259,37 @@ int main(int argc, char* argv[]) {
                 }
                 sceneDoc.ActiveWorld().Update(scaledDt);
                 sceneDoc.ActiveWorld().LateUpdate(scaledDt);
+                sceneDoc.ActiveWorld().FlushDeferred(scaledDt);
             }
 
             // 메인 백버퍼 클리어 (씬 렌더는 SceneViewWindow FBO 안에서 수행)
-            renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
+            Camera* mainCam = nullptr;
+            for (const auto& obj : sceneDoc.ActiveWorld().Objects()) {
+                if (obj && obj->IsActive()) {
+                    if (auto cam = obj->GetComponent<Camera>()) {
+                        if (cam->IsEnabled() && cam->IsMain()) {
+                            if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
+                                mainCam = cam;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (mainCam) {
+                Color clearColor = mainCam->GetBackgroundColor();
+                renderer->Clear(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
+            } else {
+                renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
+            }
 
             // ImGui Editor UI
             ImGuiLayer::BeginFrame();
             Editor::Get().Update(dt);
             Editor::Get().RenderGUI();
             ImGuiLayer::EndFrame();
+
+            EventBus::ProcessQueue();
 
             glfwSwapBuffers(window);
             glfwPollEvents();
@@ -271,7 +301,7 @@ int main(int argc, char* argv[]) {
     Editor::Get().Shutdown();
     ImGuiLayer::Shutdown();
     TextRenderer::Get().Shutdown();
-    shader.reset();
+    ShaderManager::Get().Shutdown();
     renderer.reset();
     EngineShutdown();
     return 0;

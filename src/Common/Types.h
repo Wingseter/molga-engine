@@ -51,6 +51,24 @@ struct Vector2 {
 };
 
 // ============================================================================
+// Vector4 - 4D vector
+// ============================================================================
+struct Vector4 {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    float w = 0.0f;
+
+    Vector4() = default;
+    Vector4(float x, float y, float z, float w) : x(x), y(y), z(z), w(w) {}
+
+    bool operator==(const Vector4& other) const {
+        return x == other.x && y == other.y && z == other.z && w == other.w;
+    }
+    bool operator!=(const Vector4& other) const { return !(*this == other); }
+};
+
+// ============================================================================
 // Color - RGBA color representation
 // ============================================================================
 struct Color {

@@ -1,0 +1,666 @@
+{
+  "marrow": "1.0",
+  "version": 1,
+  "skeleton": {
+    "name": "player",
+    "width": 256,
+    "height": 256
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "spine",
+      "parent": "root",
+      "x": 0,
+      "y": 50
+    },
+    {
+      "name": "arm_l",
+      "parent": "spine",
+      "x": -30,
+      "y": 10
+    },
+    {
+      "name": "ik_upper",
+      "parent": "root",
+      "x": -160,
+      "y": 140
+    },
+    {
+      "name": "ik_lower",
+      "parent": "ik_upper",
+      "x": 70,
+      "y": 0
+    },
+    {
+      "name": "ik_tip",
+      "parent": "ik_lower",
+      "x": 50,
+      "y": 0
+    },
+    {
+      "name": "ik_target",
+      "parent": "root",
+      "x": -80,
+      "y": 210
+    },
+    {
+      "name": "path_a",
+      "parent": "root",
+      "x": -140,
+      "y": -20
+    },
+    {
+      "name": "path_b",
+      "parent": "path_a",
+      "x": 40,
+      "y": 0
+    },
+    {
+      "name": "path_c",
+      "parent": "path_b",
+      "x": 40,
+      "y": 0
+    },
+    {
+      "name": "transform_source",
+      "parent": "root",
+      "x": 180,
+      "y": 40,
+      "rotation": 30,
+      "scaleX": 1.3,
+      "scaleY": 0.8,
+      "shearX": 8,
+      "shearY": -4
+    },
+    {
+      "name": "transform_target",
+      "parent": "root",
+      "x": 230,
+      "y": -10,
+      "rotation": -20
+    },
+    {
+      "name": "pivot",
+      "parent": "root",
+      "x": 80,
+      "y": -120
+    },
+    {
+      "name": "ribbon_01",
+      "parent": "pivot",
+      "x": 60,
+      "y": 0
+    },
+    {
+      "name": "ribbon_02",
+      "parent": "ribbon_01",
+      "x": 50,
+      "y": 0
+    },
+    {
+      "name": "ribbon_tip",
+      "parent": "ribbon_02",
+      "x": 40,
+      "y": 0
+    }
+  ],
+  "slots": [
+    {
+      "name": "body",
+      "bone": "spine",
+      "attachment": "body",
+      "blend": "screen",
+      "color": "ffcc99ff",
+      "dark": "336699ff"
+    },
+    {
+      "name": "arm_l",
+      "bone": "arm_l",
+      "attachment": "arm_l",
+      "blend": "normal"
+    },
+    {
+      "name": "fx_mask",
+      "bone": "spine",
+      "attachment": "fx_mask"
+    },
+    {
+      "name": "spark_fx",
+      "bone": "spine",
+      "attachment": "spark_fx"
+    },
+    {
+      "name": "spawn_anchor",
+      "bone": "arm_l",
+      "attachment": "spawn_anchor"
+    },
+    {
+      "name": "hurtbox",
+      "bone": "arm_l",
+      "attachment": "hurtbox"
+    },
+    {
+      "name": "guide",
+      "bone": "root",
+      "attachment": "guide_path"
+    }
+  ],
+  "skins": {
+    "default": {
+      "body": {
+        "attachment": "body",
+        "type": "region",
+        "region": "body"
+      },
+      "arm_l": {
+        "attachment": "arm_l",
+        "type": "region",
+        "region": "arm_l"
+      },
+      "fx_mask": {
+        "attachment": "fx_mask",
+        "type": "clipping",
+        "end": "spark_fx",
+        "vertices": [
+          -6,
+          -10,
+          14,
+          -10,
+          14,
+          10,
+          -6,
+          10
+        ]
+      },
+      "spark_fx": {
+        "attachment": "spark_fx",
+        "type": "sequence",
+        "region": "spark_fx_",
+        "start": 0,
+        "end": 3,
+        "fps": 8,
+        "mode": "loop"
+      },
+      "spawn_anchor": {
+        "attachment": "spawn_anchor",
+        "type": "point",
+        "x": 40,
+        "y": 0,
+        "rotation": 15
+      },
+      "hurtbox": {
+        "attachment": "hurtbox",
+        "type": "bounding_box",
+        "vertices": [
+          0,
+          0,
+          30,
+          0,
+          30,
+          20,
+          0,
+          20
+        ]
+      },
+      "guide": {
+        "attachment": "guide_path",
+        "type": "path",
+        "points": [
+          0,
+          0,
+          33,
+          0,
+          66,
+          0,
+          100,
+          0,
+          100,
+          33,
+          100,
+          66,
+          100,
+          100
+        ]
+      }
+    },
+    "mage": {
+      "body": {
+        "attachment": "mage_body",
+        "type": "linked_mesh",
+        "region": "mage_body",
+        "parent": "body_mesh",
+        "skin": "mesh_base",
+        "deform": true
+      },
+      "arm_l": {
+        "attachment": "mage_arm_l",
+        "type": "region",
+        "region": "mage_arm_l"
+      }
+    },
+    "mage_arm": {
+      "arm_l": {
+        "attachment": "mage_arm_l",
+        "type": "region",
+        "region": "mage_arm_l"
+      }
+    },
+    "mesh_base": {
+      "body": {
+        "attachment": "body_mesh",
+        "type": "mesh",
+        "region": "body",
+        "vertices": [
+          -64,
+          -80,
+          64,
+          -80,
+          64,
+          80,
+          -64,
+          80
+        ],
+        "triangles": [
+          0,
+          1,
+          2,
+          2,
+          3,
+          0
+        ],
+        "uvs": [
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          0,
+          1
+        ],
+        "weights": [
+          [
+            {
+              "bone": "spine",
+              "x": -64,
+              "y": -80,
+              "weight": 1.0
+            }
+          ],
+          [
+            {
+              "bone": "spine",
+              "x": 64,
+              "y": -80,
+              "weight": 0.6
+            },
+            {
+              "bone": "arm_l",
+              "x": 94,
+              "y": -90,
+              "weight": 0.2
+            }
+          ],
+          [
+            {
+              "bone": "spine",
+              "x": 64,
+              "y": 80,
+              "weight": 0.2
+            },
+            {
+              "bone": "arm_l",
+              "x": 94,
+              "y": 70,
+              "weight": 0.6
+            }
+          ],
+          [
+            {
+              "bone": "spine",
+              "x": -64,
+              "y": 80,
+              "weight": 0.6
+            },
+            {
+              "bone": "arm_l",
+              "x": -34,
+              "y": 70,
+              "weight": 0.2
+            }
+          ]
+        ]
+      }
+    },
+    "warrior": {
+      "body": {
+        "attachment": "warrior_body",
+        "type": "linked_mesh",
+        "region": "warrior_body",
+        "parent": "body_mesh",
+        "skin": "mesh_base",
+        "deform": true
+      }
+    }
+  },
+  "events": {
+    "dust_vfx": {
+      "int": 2,
+      "float": 0.5,
+      "string": "dust_ring"
+    },
+    "footstep": {
+      "int": 0,
+      "float": 0.35,
+      "string": "heel",
+      "audio": "sfx/footstep.wav",
+      "volume": 0.8,
+      "balance": 0.0
+    }
+  },
+  "mixing": {
+    "default_mix": 0.2,
+    "entries": [
+      {
+        "from": "*",
+        "to": "aim",
+        "duration": 0.1
+      }
+    ]
+  },
+  "animations": {
+    "idle": {
+      "bones": {
+        "root": {
+          "translate": [
+            {
+              "time": 0.0,
+              "x": 0,
+              "y": 0,
+              "curve": "linear"
+            },
+            {
+              "time": 0.5,
+              "x": 20,
+              "y": 10,
+              "curve": "linear"
+            },
+            {
+              "time": 1.0,
+              "x": 40,
+              "y": 0,
+              "curve": "linear"
+            }
+          ]
+        },
+        "spine": {
+          "rotate": [
+            {
+              "time": 0.0,
+              "angle": 0,
+              "curve": "linear"
+            },
+            {
+              "time": 0.5,
+              "angle": 5,
+              "curve": [
+                0.25,
+                0.1,
+                0.75,
+                0.9
+              ]
+            },
+            {
+              "time": 1.0,
+              "angle": 0,
+              "curve": "stepped"
+            }
+          ],
+          "translate": [
+            {
+              "time": 0.0,
+              "x": 0,
+              "y": 50,
+              "curve": "linear"
+            },
+            {
+              "time": 0.5,
+              "x": 10,
+              "y": 60,
+              "curve": "stepped"
+            },
+            {
+              "time": 1.0,
+              "x": -5,
+              "y": 45,
+              "curve": "linear"
+            }
+          ],
+          "scale": [
+            {
+              "time": 0.0,
+              "x": 1.0,
+              "y": 1.0,
+              "curve": "linear"
+            },
+            {
+              "time": 1.0,
+              "x": 1.2,
+              "y": 0.8,
+              "curve": "linear"
+            }
+          ],
+          "shear": [
+            {
+              "time": 0.0,
+              "x": 0.0,
+              "y": 0.0,
+              "curve": "linear"
+            },
+            {
+              "time": 1.0,
+              "x": 10.0,
+              "y": -5.0,
+              "curve": "linear"
+            }
+          ]
+        }
+      },
+      "slots": {
+        "body": {
+          "attachment": [
+            {
+              "time": 0.0,
+              "attachment": "body"
+            },
+            {
+              "time": 0.5,
+              "attachment": "warrior_body"
+            },
+            {
+              "time": 1.0,
+              "attachment": "body"
+            }
+          ],
+          "color": [
+            {
+              "time": 0.0,
+              "r": 1.0,
+              "g": 1.0,
+              "b": 1.0,
+              "a": 1.0,
+              "curve": "linear"
+            },
+            {
+              "time": 0.5,
+              "r": 0.6,
+              "g": 0.8,
+              "b": 1.0,
+              "a": 0.5,
+              "curve": "stepped"
+            },
+            {
+              "time": 1.0,
+              "r": 1.0,
+              "g": 1.0,
+              "b": 1.0,
+              "a": 1.0,
+              "curve": "linear"
+            }
+          ]
+        }
+      },
+      "deform": {
+        "body": {
+          "body_mesh": [
+            {
+              "time": 0.0,
+              "vertices": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "curve": "linear"
+            },
+            {
+              "time": 0.5,
+              "vertices": [
+                0,
+                0,
+                12,
+                -8,
+                16,
+                20,
+                -4,
+                10
+              ],
+              "curve": "linear"
+            },
+            {
+              "time": 1.0,
+              "vertices": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "curve": "linear"
+            }
+          ]
+        }
+      },
+      "drawOrder": [
+        {
+          "time": 0.0,
+          "slots": [
+            "body",
+            "arm_l",
+            "fx_mask",
+            "spark_fx",
+            "spawn_anchor",
+            "hurtbox",
+            "guide"
+          ]
+        },
+        {
+          "time": 0.5,
+          "slots": [
+            "arm_l",
+            "body",
+            "fx_mask",
+            "spark_fx",
+            "spawn_anchor",
+            "hurtbox",
+            "guide"
+          ]
+        },
+        {
+          "time": 1.0,
+          "slots": [
+            "body",
+            "arm_l",
+            "fx_mask",
+            "spark_fx",
+            "spawn_anchor",
+            "hurtbox",
+            "guide"
+          ]
+        }
+      ],
+      "events": [
+        {
+          "time": 0.3,
+          "name": "footstep",
+          "int": 0,
+          "string": "left"
+        },
+        {
+          "time": 0.3,
+          "name": "dust_vfx",
+          "float": 0.65,
+          "string": "landing_dust"
+        },
+        {
+          "time": 0.6,
+          "name": "footstep",
+          "int": 1,
+          "string": "right",
+          "balance": 0.25
+        }
+      ]
+    },
+    "attack": {
+      "bones": {
+        "arm_l": {
+          "rotate": [
+            {
+              "time": 0.0,
+              "angle": 0.0,
+              "curve": "linear"
+            },
+            {
+              "time": 0.2,
+              "angle": 60.0,
+              "curve": "linear"
+            },
+            {
+              "time": 0.4,
+              "angle": 60.0,
+              "curve": "stepped"
+            }
+          ]
+        }
+      }
+    },
+    "aim": {
+      "bones": {
+        "arm_l": {
+          "rotate": [
+            {
+              "time": 0.0,
+              "angle": 30.0,
+              "curve": "linear"
+            },
+            {
+              "time": 0.5,
+              "angle": 30.0,
+              "curve": "linear"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

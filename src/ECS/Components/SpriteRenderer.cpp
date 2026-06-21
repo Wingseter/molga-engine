@@ -5,6 +5,7 @@
 
 REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Rendering/Renderer.h"
+#include <glad/glad.h>
 #include "../../Rendering/Shader.h"
 #include "../../Rendering/Camera2D.h"
 #include "../../Rendering/Sprite.h"
@@ -29,6 +30,9 @@ void SpriteRenderer::RenderSprite(Renderer* renderer) {
     Transform* transform = gameObject->GetComponent<Transform>();
     if (!transform) return;
 
+    // Apply material
+    material.Apply(renderer);
+
     // Create a temporary sprite for rendering
     Sprite sprite;
 
@@ -39,9 +43,11 @@ void SpriteRenderer::RenderSprite(Renderer* renderer) {
     sprite.SetPosition(worldPos.x, worldPos.y);
     sprite.SetSize(width * worldScale.x, height * worldScale.y);
     sprite.SetRotation(worldRot);
-    sprite.SetColor(color.r, color.g, color.b, color.a);
+    sprite.SetColor(color.r * material.tint.r, color.g * material.tint.g, color.b * material.tint.b, color.a * material.tint.a);
 
-    if (texture) {
+    if (material.mainTexture) {
+        sprite.SetTexture(material.mainTexture);
+    } else if (texture) {
         sprite.SetTexture(texture);
     }
 
@@ -56,6 +62,10 @@ void SpriteRenderer::RenderSprite(Renderer* renderer) {
     }
 
     renderer->DrawSprite(&sprite);
+
+    // Restore standard alpha blending
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void SpriteRenderer::Serialize(nlohmann::json& j) const {
@@ -65,6 +75,10 @@ void SpriteRenderer::Serialize(nlohmann::json& j) const {
     j["flipY"] = flipY;
     j["sortingOrder"] = sortingOrder;
     j["texturePath"] = texturePath;
+
+    nlohmann::json matJson;
+    material.Serialize(matJson);
+    j["material"] = matJson;
 }
 
 void SpriteRenderer::Deserialize(const nlohmann::json& j) {
@@ -86,18 +100,23 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
     if (j.contains("texturePath")) {
         SetTexturePath(j["texturePath"]);
     }
+    if (j.contains("material")) {
+        material.Deserialize(j["material"]);
+    }
 }
 
 void SpriteRenderer::ResolveAssets() {
-    if (texturePath.empty() || texture) return;
-    std::string abs = PathService::Get().ResolveAsset(texturePath);
-    texture = TextureManager::Get().Load(abs);
-    if (!texture) {
-        Log::Warn("SpriteRenderer", "Texture not found: " + abs);
-    } else if (width == 32.0f && height == 32.0f) {
-        width = static_cast<float>(texture->GetWidth());
-        height = static_cast<float>(texture->GetHeight());
+    if (!texturePath.empty() && !texture) {
+        std::string abs = PathService::Get().ResolveAsset(texturePath);
+        texture = TextureManager::Get().Load(abs);
+        if (!texture) {
+            Log::Warn("SpriteRenderer", "Texture not found: " + abs);
+        } else if (width == 32.0f && height == 32.0f) {
+            width = static_cast<float>(texture->GetWidth());
+            height = static_cast<float>(texture->GetHeight());
+        }
     }
+    material.ResolveAssets();
 }
 
 void SpriteRenderer::OnInspectorGUI() {
@@ -202,5 +221,140 @@ void SpriteRenderer::OnInspectorGUI() {
     if (ImGui::InputInt("Sorting Order", &order)) {
         SetSortingOrder(order);
     }
+
+    ImGui::Spacing();
+    ImGui::Text("Material");
+    ImGui::Separator();
+
+    // Shader Name
+    char shaderNameBuffer[128];
+    strncpy(shaderNameBuffer, material.shaderName.c_str(), sizeof(shaderNameBuffer) - 1);
+    shaderNameBuffer[sizeof(shaderNameBuffer)-1] = '\0';
+    if (ImGui::InputText("Shader Name", shaderNameBuffer, sizeof(shaderNameBuffer))) {
+        material.shaderName = shaderNameBuffer;
+    }
+
+    // Blend Mode
+    const char* blendModes[] = { "Opaque", "Alpha", "Additive", "Multiply" };
+    int currentBlendMode = static_cast<int>(material.blendMode);
+    if (ImGui::Combo("Blend Mode", &currentBlendMode, blendModes, 4)) {
+        material.blendMode = static_cast<BlendMode>(currentBlendMode);
+    }
+
+    // Tint
+    float tintArr[4] = { material.tint.r, material.tint.g, material.tint.b, material.tint.a };
+    if (ImGui::ColorEdit4("Tint", tintArr)) {
+        material.tint = Color(tintArr[0], tintArr[1], tintArr[2], tintArr[3]);
+    }
+
+    // Main Texture Path
+    char matTexPathBuffer[512];
+    strncpy(matTexPathBuffer, material.mainTexturePath.c_str(), sizeof(matTexPathBuffer) - 1);
+    matTexPathBuffer[sizeof(matTexPathBuffer)-1] = '\0';
+    if (ImGui::InputText("Material Texture", matTexPathBuffer, sizeof(matTexPathBuffer))) {
+        material.mainTexturePath = matTexPathBuffer;
+        material.mainTexture = nullptr; // force reload on ResolveAssets
+    }
+    // Drop target for material texture
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH")) {
+            const char* droppedPath = static_cast<const char*>(payload->Data);
+            std::string relativePath = droppedPath;
+            if (Project::Get().IsOpen()) {
+                relativePath = Project::Get().GetRelativePath(droppedPath);
+            }
+            material.mainTexturePath = relativePath;
+            material.mainTexture = TextureManager::Get().Load(droppedPath);
+        }
+        ImGui::EndDragDropTarget();
+    }
+    
+    // Load button for material texture
+    if (!material.mainTexturePath.empty() && !material.mainTexture) {
+        ImGui::SameLine();
+        if (ImGui::Button("Load Mat Tex")) {
+            std::string absPath = material.mainTexturePath;
+            if (Project::Get().IsOpen() && !fs::path(material.mainTexturePath).is_absolute()) {
+                absPath = Project::Get().GetAbsolutePath(material.mainTexturePath);
+            }
+            material.mainTexture = TextureManager::Get().Load(absPath);
+        }
+    }
+
+    // Custom properties
+    ImGui::Text("Custom Properties");
+    ImGui::Indent();
+    
+    std::string toRemove = "";
+    for (auto& [name, prop] : material.properties) {
+        ImGui::PushID(name.c_str());
+        ImGui::Text("%s:", name.c_str());
+        ImGui::SameLine();
+        
+        // Show type combo or select
+        const char* propTypes[] = { "Float", "Vec4", "Texture" };
+        int currentType = static_cast<int>(prop.type);
+        ImGui::SetNextItemWidth(100);
+        if (ImGui::Combo("##type", &currentType, propTypes, 3)) {
+            prop.type = static_cast<MaterialProperty::Type>(currentType);
+        }
+        ImGui::SameLine();
+
+        if (prop.type == MaterialProperty::Type::Float) {
+            ImGui::SetNextItemWidth(120);
+            ImGui::DragFloat("##val", &prop.floatVal, 0.1f);
+        } else if (prop.type == MaterialProperty::Type::Vec4) {
+            float v[4] = { prop.vec4Val.x, prop.vec4Val.y, prop.vec4Val.z, prop.vec4Val.w };
+            ImGui::SetNextItemWidth(200);
+            if (ImGui::DragFloat4("##val", v, 0.1f)) {
+                prop.vec4Val = Vector4(v[0], v[1], v[2], v[3]);
+            }
+        } else if (prop.type == MaterialProperty::Type::Texture) {
+            char texPathBuf[256];
+            strncpy(texPathBuf, prop.texturePath.c_str(), sizeof(texPathBuf) - 1);
+            texPathBuf[sizeof(texPathBuf)-1] = '\0';
+            ImGui::SetNextItemWidth(150);
+            if (ImGui::InputText("##texpath", texPathBuf, sizeof(texPathBuf))) {
+                prop.texturePath = texPathBuf;
+                prop.texture = nullptr;
+            }
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH")) {
+                    const char* droppedPath = static_cast<const char*>(payload->Data);
+                    std::string relativePath = droppedPath;
+                    if (Project::Get().IsOpen()) {
+                        relativePath = Project::Get().GetRelativePath(droppedPath);
+                    }
+                    prop.texturePath = relativePath;
+                    prop.texture = TextureManager::Get().Load(droppedPath);
+                }
+                ImGui::EndDragDropTarget();
+            }
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Remove")) {
+            toRemove = name;
+        }
+        ImGui::PopID();
+    }
+
+    if (!toRemove.empty()) {
+        material.properties.erase(toRemove);
+    }
+
+    // Add new property
+    static char newPropName[64] = "";
+    ImGui::SetNextItemWidth(120);
+    ImGui::InputText("##newpropname", newPropName, sizeof(newPropName));
+    ImGui::SameLine();
+    if (ImGui::Button("Add Property")) {
+        std::string nameStr(newPropName);
+        if (!nameStr.empty() && material.properties.find(nameStr) == material.properties.end()) {
+            material.properties[nameStr] = MaterialProperty{};
+            newPropName[0] = '\0';
+        }
+    }
+    ImGui::Unindent();
 #endif
 }

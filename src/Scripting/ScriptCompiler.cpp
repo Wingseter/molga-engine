@@ -379,12 +379,11 @@ std::string ScriptCompiler::GenerateHeaderTemplate(const std::string& className)
     ss << "    // Called every frame\n";
     ss << "    void Update(float deltaTime) override;\n\n";
 
-    ss << "    // Inspector-visible properties\n";
+    ss << "    // Inspector-visible & serialized properties\n";
     ss << "    float speed = 100.0f;\n\n";
 
-    ss << "#ifdef MOLGA_EDITOR\n";
-    ss << "    void OnInspectorGUI() override;\n";
-    ss << "#endif\n";
+    ss << "    // Expose fields: they are auto-saved to the scene AND shown in the inspector.\n";
+    ss << "    void RegisterFields(ScriptFieldRegistry& r) override;\n";
 
     ss << "};\n\n";
 
@@ -401,10 +400,6 @@ std::string ScriptCompiler::GenerateSourceTemplate(const std::string& className)
     ss << "#include \"" << className << ".h\"\n";
     ss << "#include <ECS/Components/Transform.h>\n\n";
 
-    ss << "#ifdef MOLGA_EDITOR\n";
-    ss << "#include <imgui.h>\n";
-    ss << "#endif\n\n";
-
     ss << "void " << className << "::Start() {\n";
     ss << "    // Initialization code here\n";
     ss << "}\n\n";
@@ -419,11 +414,9 @@ std::string ScriptCompiler::GenerateSourceTemplate(const std::string& className)
     ss << "    // transform->SetPosition(x + speed * deltaTime, y);\n";
     ss << "}\n\n";
 
-    ss << "#ifdef MOLGA_EDITOR\n";
-    ss << "void " << className << "::OnInspectorGUI() {\n";
-    ss << "    ImGui::DragFloat(\"Speed\", &speed, 1.0f, 0.0f, 500.0f);\n";
+    ss << "void " << className << "::RegisterFields(ScriptFieldRegistry& r) {\n";
+    ss << "    r.Float(\"Speed\", &speed, 1.0f, 0.0f, 500.0f);\n";
     ss << "}\n";
-    ss << "#endif\n";
 
     return ss.str();
 }

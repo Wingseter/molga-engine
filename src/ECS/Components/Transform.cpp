@@ -6,6 +6,8 @@
 REGISTER_COMPONENT(Transform)
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
+#include "Editor/Editor.h"
+#include "Editor/Commands/TransformCommand.h"
 #endif
 
 using json = nlohmann::json;
@@ -85,19 +87,25 @@ void Transform::Deserialize(const nlohmann::json& j) {
 
 void Transform::OnInspectorGUI() {
 #ifdef MOLGA_EDITOR
+    static molga::TransformState before;   // 활성화 순간의 스냅샷
+    unsigned int ownerId = gameObject ? gameObject->GetID() : 0u;
+
     float pos[2] = { position.x, position.y };
-    if (ImGui::DragFloat2("Position", pos, 0.5f)) {
-        SetPosition(pos[0], pos[1]);
-    }
+    if (ImGui::DragFloat2("Position", pos, 0.5f)) { SetPosition(pos[0], pos[1]); }
+    if (ImGui::IsItemActivated())           before = molga::TransformCommand::Capture(this);
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        Editor::Get().SubmitTransformEdit(ownerId, before, molga::TransformCommand::Capture(this));
 
     float rot = rotation;
-    if (ImGui::DragFloat("Rotation", &rot, 0.5f)) {
-        SetRotation(rot);
-    }
+    if (ImGui::DragFloat("Rotation", &rot, 0.5f)) { SetRotation(rot); }
+    if (ImGui::IsItemActivated())           before = molga::TransformCommand::Capture(this);
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        Editor::Get().SubmitTransformEdit(ownerId, before, molga::TransformCommand::Capture(this));
 
     float scaleArr[2] = { scale.x, scale.y };
-    if (ImGui::DragFloat2("Scale", scaleArr, 0.01f)) {
-        SetScale(scaleArr[0], scaleArr[1]);
-    }
+    if (ImGui::DragFloat2("Scale", scaleArr, 0.01f)) { SetScale(scaleArr[0], scaleArr[1]); }
+    if (ImGui::IsItemActivated())           before = molga::TransformCommand::Capture(this);
+    if (ImGui::IsItemDeactivatedAfterEdit())
+        Editor::Get().SubmitTransformEdit(ownerId, before, molga::TransformCommand::Capture(this));
 #endif
 }

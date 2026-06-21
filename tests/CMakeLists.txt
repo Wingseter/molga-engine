@@ -14,18 +14,71 @@ function(molga_add_test TEST_NAME TEST_SOURCE)
 endfunction()
 
 molga_add_test(test_types             test_types.cpp)
+molga_add_test(test_text              test_text.cpp)
 molga_add_test(test_collision         test_collision.cpp)
+molga_add_test(test_physics           test_physics.cpp)
+molga_add_test(test_tilemap           test_tilemap.cpp)
 molga_add_test(test_ecs               test_ecs.cpp)
 molga_add_test(test_scene_serializer  test_scene_serializer.cpp)
 molga_add_test(test_time              test_time.cpp)
 molga_add_test(test_event             test_event.cpp)
+molga_add_test(test_audio             test_audio.cpp)
+molga_add_test(test_particle          test_particle.cpp)
 molga_add_test(test_renderer_contract test_renderer_contract.cpp)
 molga_add_test(test_hierarchy         test_hierarchy.cpp)
 molga_add_test(test_command_history   test_command_history.cpp)
 molga_add_test(test_world             test_world.cpp)
+molga_add_test(test_world_lifecycle   test_world_lifecycle.cpp)
+molga_add_test(test_prefab            test_prefab.cpp)
+molga_add_test(test_camera            test_camera.cpp)
 molga_add_test(test_path_service       test_path_service.cpp)
+molga_add_test(test_shader_material   test_shader_material.cpp)
 molga_add_test(test_game_builder      test_game_builder.cpp)
+molga_add_test(test_package_finalizer test_package_finalizer.cpp)
+target_include_directories(test_package_finalizer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_selection_service test_selection_service.cpp)
+molga_add_test(test_viewport_math test_viewport_math.cpp)
+molga_add_test(test_scene_picker test_scene_picker.cpp)
+molga_add_test(test_transform_gizmo_math test_transform_gizmo_math.cpp)
+
+molga_add_test(test_transform_command test_transform_command.cpp)
+target_sources(test_transform_command PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/TransformCommand.cpp
+)
+target_include_directories(test_transform_command PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_transform_command PRIVATE imgui)
+
 molga_add_test(test_script_compiler  test_script_compiler.cpp)
+molga_add_test(test_script_reflection test_script_reflection.cpp)
+molga_add_test(test_physics_query     test_physics_query.cpp)
+molga_add_test(test_scheduler         test_scheduler.cpp)
+molga_add_test(test_lifecycle         test_lifecycle.cpp)
+molga_add_test(test_input_actions     test_input_actions.cpp)
+molga_add_test(test_build_profile     test_build_profile.cpp)
+molga_add_test(test_project_build_profile test_project_build_profile.cpp)
+target_sources(test_project_build_profile PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+)
+target_include_directories(test_project_build_profile PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_build_manager test_build_manager.cpp)
+target_sources(test_build_manager PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/BuildManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/GameBuilder.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+)
+target_include_directories(test_build_manager PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_build_manager PRIVATE imgui)
+
+molga_add_test(test_scene_operations test_scene_operations.cpp)
+target_sources(test_scene_operations PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/SceneOperations.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+)
+target_include_directories(test_scene_operations PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+
 target_sources(test_script_compiler PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp

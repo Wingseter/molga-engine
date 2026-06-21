@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 
 #include <nlohmann/json.hpp>
 
@@ -31,4 +32,12 @@ public:
 
     // Deserialize single GameObject from JSON string
     static std::shared_ptr<GameObject> DeserializeGameObject(const std::string& jsonStr);
+
+    // Subtree serialization/deserialization for Instantiate/Prefab
+    static nlohmann::json SerializeSubtree(const GameObject* root);
+    static GameObject* DeserializeSubtreeRemapped(
+        const nlohmann::json& subtree,
+        std::vector<std::shared_ptr<GameObject>>& outObjects,
+        std::unordered_map<unsigned int, unsigned int>& idRemap);
 };
+

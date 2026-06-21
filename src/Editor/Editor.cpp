@@ -3,6 +3,7 @@
 #include "EditorTheme.h"
 #include "Project.h"
 #include "../ECS/Components/SpriteRenderer.h"
+#include "../Rendering/ShaderManager.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/GameObject.h"
 #include "../Scripting/ScriptCompiler.h"
@@ -10,6 +11,7 @@
 #include "../Core/MolgaTime.h"
 #include "EditorState.h"
 #include "Commands/ObjectCommands.h"
+#include "Editor/Commands/TransformCommand.h"
 #include "VSCodeIntegration.h"
 #include "Windows/HierarchyWindow.h"
 #include "Windows/InspectorWindow.h"
@@ -17,6 +19,7 @@
 #include "Windows/ScriptWindow.h"
 #include "Windows/SceneViewWindow.h"
 #include "Windows/StatsWindow.h"
+#include "Windows/ProjectSettingsWindow.h"
 #include "../Common/Log.h"
 #include "../Core/PathService.h"
 #include <cstring>
@@ -37,17 +40,14 @@ void Editor::Init() {
   windowManager.Register(EditorConstants::WIN_SCRIPTS, std::make_unique<ScriptWindow>());
   windowManager.Register(EditorConstants::WIN_SCENE, std::make_unique<SceneViewWindow>());
   windowManager.Register(EditorConstants::WIN_STATS, std::make_unique<StatsWindow>());
+  windowManager.Register(EditorConstants::WIN_PROJECT_SETTINGS, std::make_unique<ProjectSettingsWindow>());
 
-  // Connect hierarchy selection to inspector
-  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
-  auto* inspector = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
-  if (hierarchy && inspector) {
-    hierarchy->SetSelectionCallback(
-        [](GameObject *obj) {
-          auto* insp = Editor::Get().windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
-          if (insp) insp->SetTarget(obj);
-        });
-  }
+  // Register Selection listener to sync Inspector target
+  selection_.AddListener([this](const molga::SelectionService& s, molga::SelectionSource) {
+      if (auto* insp = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR)) {
+          insp->SetTarget(FindObjectById(s.InspectorTargetId()));
+      }
+  });
 
   // Set engine path for ScriptCompiler and VSCodeIntegration
   std::string enginePath = PathService::Get().ExecutableDir().string();
@@ -169,6 +169,14 @@ void Editor::RenderMenuBar() {
       }
       if (ImGui::MenuItem("Redo", "Ctrl+Y", false, commandHistory.CanRedo())) {
         commandHistory.Redo();
+      }
+      ImGui::Separator();
+      if (ImGui::MenuItem("Project Settings...")) {
+        windowManager.SetVisible(EditorConstants::WIN_PROJECT_SETTINGS, true);
+      }
+      ImGui::Separator();
+      if (ImGui::MenuItem("Reload Shaders")) {
+        ShaderManager::Get().ReloadAll();
       }
       ImGui::EndMenu();
     }
@@ -296,19 +304,11 @@ void Editor::SetGameObjects(std::vector<std::shared_ptr<GameObject>> *objects) {
 }
 
 GameObject *Editor::GetSelectedObject() const {
-  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
-  return hierarchy ? hierarchy->GetSelectedObject() : nullptr;
+  return FindObjectById(selection_.PrimaryId());
 }
 
 void Editor::SetSelectedObject(GameObject *obj) {
-  auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
-  if (hierarchy) {
-    hierarchy->SetSelectedObject(obj);
-  }
-  auto* inspector = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR);
-  if (inspector) {
-    inspector->SetTarget(obj);
-  }
+  selection_.Select(obj ? obj->GetID() : 0u, molga::SelectionSource::Code);
 }
 
 std::shared_ptr<GameObject> Editor::CreateGameObject(const std::string &name) {
@@ -456,4 +456,11 @@ void Editor::SetSceneViewResources(Renderer* renderer, Shader* shader) {
     if (sceneView) {
         sceneView->SetSceneResources(renderer, shader, gameObjects);
     }
+}
+
+void Editor::SubmitTransformEdit(unsigned int targetId,
+                                 const molga::TransformState& before,
+                                 const molga::TransformState& after) {
+    commandHistory.Execute(
+        std::make_unique<molga::TransformCommand>(nullptr, targetId, before, after));
 }

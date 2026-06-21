@@ -3,6 +3,8 @@
 #include "EditorWindow.h"
 #include "Rendering/Framebuffer.h"
 #include "Rendering/Camera2D.h"
+#include "Editor/ViewportMath.h"
+#include "Editor/Gizmos/TransformGizmo.h"
 #include <imgui.h>
 #include <memory>
 #include <vector>
@@ -64,6 +66,8 @@ private:
     float lastMouseX_   = 0.f;
     float lastMouseY_   = 0.f;
 
+    molga::TransformGizmo gizmo_;
+
     // 우클릭 컨텍스트 메뉴: 우클릭한 지점의 월드 좌표(생성 위치)
     float ctxWorldX_ = 0.f;
     float ctxWorldY_ = 0.f;
@@ -85,10 +89,17 @@ private:
 
     // 우클릭 Create 컨텍스트 메뉴
     void DrawContextMenu();
-    // 우클릭 위치에 오브젝트 생성 (withSprite면 SpriteRenderer 부착)
-    void CreateObjectAt(const char* name, bool withSprite, float worldX, float worldY);
+    // 우클릭 위치에 오브젝트 생성 (compType이 비어있지 않으면 해당 컴포넌트 부착)
+    void CreateObjectAt(const char* name, const std::string& compType, float worldX, float worldY);
 
     // 좌표 변환 유틸: 패널 내 스크린 픽셀 좌표 → 월드 좌표
     void ScreenToWorld(ImVec2 panelPos, ImVec2 panelSize, ImVec2 screen,
                        float& outX, float& outY) const;
+
+    // 현재 에디터 카메라 상태를 ViewportMath 구조로 변환
+    molga::ViewportCamera ViewportCam() const;
+    // 좌클릭 픽킹: 패널 좌표 클릭 → 후보 수집 → SelectionService
+    void HandlePick(ImVec2 panelPos, ImVec2 panelSize);
+    // 선택 외곽선 그리기
+    void DrawSelectionOutline(ImVec2 panelPos, ImVec2 panelSize);
 };

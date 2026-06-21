@@ -22,3 +22,10 @@ TEST_CASE("IsSafeOutputPath accepts a normal nested export dir") {
     std::string why;
     CHECK(PathService::IsSafeOutputPath(fs::path("/tmp/molga_export_abc/dist"), why));
 }
+
+TEST_CASE("IsSafeOutputPath rejects project root and engine root when provided") {
+    std::string why;
+    CHECK_FALSE(PathService::IsSafeOutputPath("/tmp/project", why, "/tmp/project", "/tmp/engine"));
+    CHECK_FALSE(PathService::IsSafeOutputPath("/tmp/engine", why, "/tmp/project", "/tmp/engine"));
+    CHECK(PathService::IsSafeOutputPath("/tmp/project/Builds/Game", why, "/tmp/project", "/tmp/engine"));
+}

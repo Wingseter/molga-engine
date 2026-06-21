@@ -294,7 +294,10 @@ void TextRenderer::RenderText(Renderer* renderer, Shader* shader,
     float cursorX = x;
     float cursorY = y;
 
-    renderer->Begin(shader, nullptr);
+    bool wasDrawing = renderer->IsDrawing();
+    if (!wasDrawing) {
+        renderer->Begin(shader, nullptr);
+    }
 
     for (char c : text) {
         if (c == '\n') {
@@ -324,7 +327,9 @@ void TextRenderer::RenderText(Renderer* renderer, Shader* shader,
         cursorX += info.xAdvance * scale;
     }
 
-    renderer->End();
+    if (!wasDrawing) {
+        renderer->End();
+    }
 }
 
 float TextRenderer::GetTextWidth(const std::string& text, float scale) const {

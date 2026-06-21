@@ -24,3 +24,11 @@ bool PackageLayout::Validate(
     errorOut.clear();
     return true;
 }
+
+std::string PackageLayout::ExecutableNameFor(const std::string& gameName) {
+#ifdef _WIN32
+    return gameName + ".exe";
+#else
+    return gameName;
+#endif
+}

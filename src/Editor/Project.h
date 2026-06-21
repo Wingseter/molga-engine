@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../Core/BuildProfile.h"
 #include <string>
 #include <vector>
 
@@ -25,6 +26,13 @@ public:
     std::string GetScriptsBuildPath() const;
     std::string GetVSCodePath() const;
 
+    // Build profile
+    std::string GetBuildProfilePath() const;
+    bool LoadBuildProfile();
+    bool SaveBuildProfile() const;
+    BuildProfile& GetBuildProfile() { return buildProfile; }
+    const BuildProfile& GetBuildProfile() const { return buildProfile; }
+
     // Path conversion
     std::string GetAbsolutePath(const std::string& relativePath) const;
     std::string GetRelativePath(const std::string& absolutePath) const;
@@ -37,7 +45,7 @@ public:
     static bool IsValidProject(const std::string& path);
 
 private:
-    Project() = default;
+    Project();
     Project(const Project&) = delete;
     Project& operator=(const Project&) = delete;
 
@@ -50,6 +58,7 @@ private:
     std::string projectPath;
     std::string projectName;
     bool isOpen = false;
+    BuildProfile buildProfile;
 
     std::vector<std::string> recentProjects;
     static constexpr int MAX_RECENT_PROJECTS = 10;

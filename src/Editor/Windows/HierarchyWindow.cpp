@@ -3,10 +3,13 @@
 #include "../../ECS/Component.h"
 #include "../../ECS/Components/Transform.h"
 #include "../../ECS/Components/SpriteRenderer.h"
+#include "../../ECS/Components/TilemapRenderer.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
 #include "Editor/Editor.h"
 #include "Editor/Commands/ObjectCommands.h"
+#include "Editor/Commands/PrefabCommands.h"
+#include "../../ECS/Components/PrefabInstance.h"
 #include <imgui.h>
 #include <cstring>
 #include <algorithm>
@@ -57,12 +60,8 @@ void HierarchyWindow::OnGUI() {
             if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite").c_str())) {
                 CreateSpriteObject();
             }
-            // Tilemap ECS 컴포넌트 미구현 — 빈 오브젝트만 생성됨
-            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap  [TODO]").c_str())) {
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap").c_str())) {
                 CreateTilemapObject();
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Tilemap ECS component not yet implemented.\nCreates an empty GameObject only.");
             }
             ImGui::EndMenu();
         }
@@ -78,7 +77,7 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
 
     // Highlight selected object
-    if (obj == selectedObject) {
+    if (Editor::Get().GetSelection().IsSelected(obj->GetID())) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
 
@@ -87,13 +86,31 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
         flags |= ImGuiTreeNodeFlags_Leaf;
     }
 
+    // Check if this object is a prefab root or child
+    bool isPrefabRoot = obj->GetComponent<PrefabInstance>() != nullptr;
+    bool isPrefabChild = false;
+    if (!isPrefabRoot) {
+        GameObject* curr = obj->GetParent();
+        while (curr) {
+            if (curr->GetComponent<PrefabInstance>()) {
+                isPrefabChild = true;
+                break;
+            }
+            curr = curr->GetParent();
+        }
+    }
+
     // Determine icon based on components
     const char* icon = Icons::Cube;  // Default icon
-    for (auto* comp : obj->GetComponents()) {
-        const auto& info = UIRegistry::GetComponentInfo(comp->GetTypeName());
-        if (info.icon != Icons::Cog) {  // Use first non-default component icon
-            icon = info.icon;
-            break;
+    if (isPrefabRoot) {
+        icon = Icons::Sitemap;
+    } else {
+        for (auto* comp : obj->GetComponents()) {
+            const auto& info = UIRegistry::GetComponentInfo(comp->GetTypeName());
+            if (info.icon != Icons::Cog) {  // Use first non-default component icon
+                icon = info.icon;
+                break;
+            }
         }
     }
 
@@ -119,15 +136,29 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
         return;
     }
 
+    if (isPrefabRoot) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.65f, 1.0f, 1.0f)); // Bright blue for root
+    } else if (isPrefabChild) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.60f, 0.80f, 1.0f, 1.0f)); // Dim blue for children
+    }
+
     std::string label = std::string(icon) + " " + obj->GetName();
     bool nodeOpen = ImGui::TreeNodeEx((void*)(intptr_t)obj->GetID(), flags, "%s", label.c_str());
 
+    if (isPrefabRoot || isPrefabChild) {
+        ImGui::PopStyleColor();
+    }
+
+    if (ImGui::BeginDragDropSource()) {
+        unsigned int objId = obj->GetID();
+        ImGui::SetDragDropPayload("GAMEOBJECT_ID", &objId, sizeof(unsigned int));
+        ImGui::Text("%s", obj->GetName().c_str());
+        ImGui::EndDragDropSource();
+    }
+
     // Handle selection
     if (ImGui::IsItemClicked()) {
-        selectedObject = obj;
-        if (onSelectionChanged) {
-            onSelectionChanged(obj);
-        }
+        Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
     }
 
     // Right-click context menu
@@ -139,12 +170,36 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
             renameBuffer[sizeof(renameBuffer) - 1] = '\0';
         }
         if (ImGui::MenuItem((std::string(Icons::Cubes) + " Duplicate").c_str())) {
-            selectedObject = obj;
+            Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
             DuplicateSelectedObject();
         }
+        
+        ImGui::Separator();
+        if (isPrefabRoot) {
+            if (ImGui::MenuItem((std::string(Icons::Save) + " Apply Prefab").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ApplyPrefabCommand>(obj->GetID()));
+            }
+            if (ImGui::MenuItem((std::string(Icons::Undo) + " Revert Prefab").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::RevertPrefabCommand>(obj->GetID()));
+            }
+            if (ImGui::MenuItem((std::string(Icons::Times) + " Unpack Prefab").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::UnpackPrefabCommand>(obj->GetID()));
+            }
+        } else if (!isPrefabChild) {
+            if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Create Prefab").c_str())) {
+                std::string prefabName = obj->GetName() + ".prefab";
+                std::filesystem::path relPath = std::filesystem::path("assets") / prefabName;
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::CreatePrefabFromObjectCommand>(obj->GetID(), relPath));
+            }
+        }
+
         ImGui::Separator();
         if (ImGui::MenuItem((std::string(Icons::Trash) + " Delete").c_str())) {
-            selectedObject = obj;
+            Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
             DeleteSelectedObject();
         }
         ImGui::EndPopup();
@@ -162,7 +217,6 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 void HierarchyWindow::CreateEmptyGameObject() {
     auto cmd = std::make_unique<molga::CreateObjectCommand>("New GameObject");
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    selectedObject = Editor::Get().GetSelectedObject();
 }
 
 void HierarchyWindow::CreateSpriteObject() {
@@ -173,31 +227,27 @@ void HierarchyWindow::CreateSpriteObject() {
         obj->AddComponent<SpriteRenderer>();
         Editor::Get().MarkSceneModified();
     }
-    selectedObject = Editor::Get().GetSelectedObject();
 }
 
 void HierarchyWindow::CreateTilemapObject() {
-    // TODO: Tilemap ECS 컴포넌트가 아직 없음 (src/Rendering/Tilemap.h는 독립 렌더러).
-    // 현재는 빈 GameObject만 생성. Tilemap 컴포넌트 구현 후 AddComponent<TilemapRenderer>() 추가 예정.
     auto cmd = std::make_unique<molga::CreateObjectCommand>("Tilemap");
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    selectedObject = Editor::Get().GetSelectedObject();
+    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
+        obj->AddComponent<TilemapRenderer>();
+        Editor::Get().MarkSceneModified();
+    }
 }
 
 void HierarchyWindow::DeleteSelectedObject() {
-    if (!selectedObject) return;
-    auto cmd = std::make_unique<molga::DeleteObjectCommand>(selectedObject);
+    GameObject* selected = Editor::Get().GetSelectedObject();
+    if (!selected) return;
+    auto cmd = std::make_unique<molga::DeleteObjectCommand>(selected);
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    selectedObject = Editor::Get().GetSelectedObject();  // Command가 nullptr로 비웠음
-    if (onSelectionChanged) onSelectionChanged(selectedObject);
 }
 
 void HierarchyWindow::DuplicateSelectedObject() {
-    if (!gameObjects || !selectedObject) return;
-    auto cmd = std::make_unique<molga::DuplicateObjectCommand>(selectedObject);
+    GameObject* selected = Editor::Get().GetSelectedObject();
+    if (!gameObjects || !selected) return;
+    auto cmd = std::make_unique<molga::DuplicateObjectCommand>(selected);
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    selectedObject = Editor::Get().GetSelectedObject();
-    if (onSelectionChanged) {
-        onSelectionChanged(selectedObject);
-    }
 }

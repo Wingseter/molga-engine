@@ -3,7 +3,8 @@
 #include <sstream>
 #include <iostream>
 
-Shader::Shader(const char* vertexPath, const char* fragmentPath) {
+Shader::Shader(const char* vertexPath, const char* fragmentPath) 
+    : vertexPath(vertexPath), fragmentPath(fragmentPath) {
     std::string vertexSource = LoadShaderSource(vertexPath);
     std::string fragmentSource = LoadShaderSource(fragmentPath);
 
@@ -26,6 +27,60 @@ Shader::~Shader() {
 
 void Shader::Use() const {
     glUseProgram(programID);
+}
+
+bool Shader::Reload() {
+    std::string vertexSource = LoadShaderSource(vertexPath.c_str());
+    std::string fragmentSource = LoadShaderSource(fragmentPath.c_str());
+
+    if (vertexSource.empty() && !vertexPath.empty()) {
+        std::cerr << "ERROR::SHADER::RELOAD::FAILED_TO_LOAD_VERTEX_SOURCE: " << vertexPath << std::endl;
+        return false;
+    }
+    if (fragmentSource.empty() && !fragmentPath.empty()) {
+        std::cerr << "ERROR::SHADER::RELOAD::FAILED_TO_LOAD_FRAGMENT_SOURCE: " << fragmentPath << std::endl;
+        return false;
+    }
+
+    unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    const char* vertSrc = vertexSource.c_str();
+    glShaderSource(vertexShader, 1, &vertSrc, nullptr);
+    glCompileShader(vertexShader);
+    if (!CheckCompileErrors(vertexShader, "VERTEX")) {
+        glDeleteShader(vertexShader);
+        return false;
+    }
+
+    unsigned int fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    const char* fragSrc = fragmentSource.c_str();
+    glShaderSource(fragmentShader, 1, &fragSrc, nullptr);
+    glCompileShader(fragmentShader);
+    if (!CheckCompileErrors(fragmentShader, "FRAGMENT")) {
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        return false;
+    }
+
+    unsigned int newProgramID = glCreateProgram();
+    glAttachShader(newProgramID, vertexShader);
+    glAttachShader(newProgramID, fragmentShader);
+    glLinkProgram(newProgramID);
+
+    if (!CheckCompileErrors(newProgramID, "PROGRAM")) {
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        glDeleteProgram(newProgramID);
+        return false;
+    }
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    glDeleteProgram(programID);
+    programID = newProgramID;
+    uniformCache.clear();
+
+    return true;
 }
 
 GLint Shader::GetUniformLocation(const char* name) const {
@@ -89,7 +144,7 @@ unsigned int Shader::CompileShader(const char* source, GLenum type) {
     return shader;
 }
 
-void Shader::CheckCompileErrors(unsigned int shader, const std::string& type) {
+bool Shader::CheckCompileErrors(unsigned int shader, const std::string& type) {
     int success;
     char infoLog[1024];
 
@@ -98,12 +153,15 @@ void Shader::CheckCompileErrors(unsigned int shader, const std::string& type) {
         if (!success) {
             glGetShaderInfoLog(shader, 1024, nullptr, infoLog);
             std::cerr << "ERROR::SHADER::" << type << "::COMPILATION_FAILED\n" << infoLog << std::endl;
+            return false;
         }
     } else {
         glGetProgramiv(shader, GL_LINK_STATUS, &success);
         if (!success) {
             glGetProgramInfoLog(shader, 1024, nullptr, infoLog);
             std::cerr << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+            return false;
         }
     }
+    return true;
 }

@@ -49,3 +49,42 @@ TEST_CASE("SceneDocument restores edit world after Play/Stop") {
     CHECK_FALSE(doc.IsPlaying());
     CHECK(t->GetX() == doctest::Approx(5.0f)); // edit world unchanged
 }
+
+TEST_CASE("World::FindWithTag and GameObject tags and layers") {
+    World w;
+    auto a = std::make_shared<GameObject>("A");
+    a->SetTag("Player");
+    a->SetLayer(3);
+    w.Add(a);
+
+    auto b = std::make_shared<GameObject>("B");
+    b->SetTag("Enemy");
+    b->SetLayer(4);
+    w.Add(b);
+
+    auto c = std::make_shared<GameObject>("C");
+    c->SetTag("Player");
+    c->SetLayer(3);
+    w.Add(c);
+
+    // Initial search (all are active)
+    CHECK(w.FindWithTag("Player") == a.get());
+    
+    auto players = w.FindAllWithTag("Player");
+    REQUIRE(players.size() == 2);
+    CHECK(players[0] == a.get());
+    CHECK(players[1] == c.get());
+
+    CHECK(a->CompareTag("Player"));
+    CHECK_FALSE(a->CompareTag("Enemy"));
+
+    CHECK(a->GetLayer() == 3);
+    CHECK(b->GetLayer() == 4);
+
+    // Inactive object should not be found
+    a->SetActive(false);
+    CHECK(w.FindWithTag("Player") == c.get());
+    players = w.FindAllWithTag("Player");
+    REQUIRE(players.size() == 1);
+    CHECK(players[0] == c.get());
+}

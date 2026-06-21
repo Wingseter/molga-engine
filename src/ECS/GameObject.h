@@ -8,14 +8,29 @@
 
 #include "Component.h"
 
+class World;
+
 class GameObject {
 public:
     explicit GameObject(const std::string& name = "GameObject");
     ~GameObject();
 
+    // World association
+    World* GetWorld() const { return world; }
+    void SetWorld(World* w) { world = w; }
+
     // Name
     const std::string& GetName() const { return name; }
     void SetName(const std::string& newName) { name = newName; }
+
+    // Tag
+    const std::string& GetTag() const { return tag; }
+    void SetTag(const std::string& newTag) { tag = newTag; }
+    bool CompareTag(const std::string& otherTag) const { return tag == otherTag; }
+
+    // Layer
+    int GetLayer() const { return layer; }
+    void SetLayer(int newLayer) { layer = newLayer; }
 
     // ID (unique identifier)
     unsigned int GetID() const { return id; }
@@ -31,13 +46,19 @@ public:
     T* AddComponent(Args&&... args) {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
         auto id = ComponentTypeID::Get<T>();
-        assert(componentMap.find(id) == componentMap.end()
-               && "Duplicate component type. Use RemoveComponent first.");
+        auto existing = componentMap.find(id);
+        if (existing != componentMap.end()) {
+            // 중복 추가는 계약 위반. release에서 map을 덮어쓰면 componentOrder_에
+            // 죽은 포인터가 남으므로, 덮어쓰지 않고 기존 컴포넌트를 반환한다.
+            assert(false && "Duplicate component type. Use RemoveComponent first.");
+            return static_cast<T*>(existing->second.get());
+        }
         auto component = std::make_unique<T>(std::forward<Args>(args)...);
         T* ptr = component.get();
         ptr->SetGameObject(this);
         ptr->OnAttach();
         componentMap[id] = std::move(component);
+        componentOrder_.push_back(ptr);  // 결정적 실행 순서(삽입 순) 유지
         return ptr;
     }
 
@@ -66,13 +87,38 @@ public:
         return componentMap.count(ComponentTypeID::Get<T>()) > 0;
     }
 
+    // 자신부터 자손까지 DFS로 타입 T 컴포넌트를 찾는다 (Unity GetComponentInChildren).
+    template<typename T>
+    T* GetComponentInChildren() {
+        if (T* c = GetComponent<T>()) return c;
+        for (auto* child : children) {
+            if (child) {
+                if (T* c = child->GetComponentInChildren<T>()) return c;
+            }
+        }
+        return nullptr;
+    }
+
+    // 자신부터 조상까지 거슬러 올라가며 타입 T 컴포넌트를 찾는다 (Unity GetComponentInParent).
+    template<typename T>
+    T* GetComponentInParent() {
+        for (GameObject* node = this; node; node = node->parent) {
+            if (T* c = node->GetComponent<T>()) return c;
+        }
+        return nullptr;
+    }
+
     template<typename T>
     void RemoveComponent() {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
         auto it = componentMap.find(ComponentTypeID::Get<T>());
         if (it != componentMap.end()) {
+            Component* raw = it->second.get();
             if (it->second->IsEnabled()) it->second->OnDisable();
             it->second->OnDetach();
+            componentOrder_.erase(
+                std::remove(componentOrder_.begin(), componentOrder_.end(), raw),
+                componentOrder_.end());
             componentMap.erase(it);
         }
     }
@@ -99,7 +145,10 @@ public:
 
     // Active state
     bool IsActive() const { return active; }
-    void SetActive(bool value) { active = value; }
+    // 활성/비활성 전환 시(월드가 Play 중이면) 컴포넌트 라이프사이클을 전파한다:
+    //   활성화 → (필요 시)Awake → OnEnable → (필요 시)Start
+    //   비활성화 → OnDisable
+    void SetActive(bool value);
 
     // Update all components
     void Update(float dt);
@@ -114,7 +163,13 @@ public:
     // Script lifecycle hooks (avoid duplicating dynamic_cast loops in entry points)
     void FixedUpdateScripts(float fixedDt);
     void LateUpdateScripts(float dt);
-    // 아직 시작 안 한 스크립트의 Start()를 1회 호출
+    // 아직 깨우지 않은 컴포넌트의 Awake()를 1회 호출
+    void AwakeScripts();
+    // 활성 컴포넌트의 OnEnable()을 호출 (Awake 이후, Start 이전)
+    void EnableScripts();
+    // 활성 컴포넌트의 OnDisable()을 호출 (비활성화 시)
+    void DisableScripts();
+    // 아직 시작 안 한 컴포넌트의 Start()를 1회 호출
     void StartScripts();
     void ResolveAssets();
 
@@ -123,11 +178,16 @@ private:
 
     unsigned int id;
     std::string name;
+    std::string tag = "Untagged";
+    int layer = 0;
     bool active = true;
     bool destroyed = false;
 
     std::unordered_map<size_t, std::unique_ptr<Component>> componentMap;
+    // 삽입 순서를 보존하는 컴포넌트 목록(결정적 실행 순서). 소유권은 map이 가진다.
+    std::vector<Component*> componentOrder_;
 
     GameObject* parent = nullptr;
     std::vector<GameObject*> children;
+    World* world = nullptr;
 };

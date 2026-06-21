@@ -49,3 +49,24 @@ file(WRITE "${FIXTURE_ROOT}/Scenes/main.json" [=[
   }]
 }
 ]=])
+
+file(WRITE "${FIXTURE_ROOT}/ProjectSettings/build_profile.json" [=[
+{
+  "schemaVersion": 1,
+  "gameName": "SmokeGame",
+  "productVersion": "0.1.0",
+  "companyName": "Molga",
+  "outputPath": "Builds/SmokeGame",
+  "startupScene": "Scenes/main.json",
+  "scenes": ["Scenes/main.json"],
+  "window": {
+    "width": 640,
+    "height": 360,
+    "fullscreen": false,
+    "resizable": true
+  },
+  "developmentBuild": true,
+  "showConsole": false,
+  "target": "host"
+}
+]=])

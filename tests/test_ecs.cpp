@@ -367,3 +367,42 @@ TEST_CASE("Collider2D: negative scale bounds normalization") {
     CHECK(bounds.width > 0.0f);
     CHECK(bounds.height > 0.0f);
 }
+
+#ifdef MOLGA_MARROW_SUPPORT
+#include "ECS/Components/MarrowRenderer.h"
+
+TEST_CASE("ECS: MarrowRenderer component basics and loading") {
+    auto obj = std::make_shared<GameObject>("MarrowObj");
+    auto* marrow = obj->AddComponent<MarrowRenderer>();
+    REQUIRE(marrow != nullptr);
+    CHECK(marrow->GetTypeName() == "MarrowRenderer");
+    CHECK(marrow->GetSortingOrder() == 0);
+    
+    marrow->SetSortingOrder(15);
+    CHECK(marrow->GetSortingOrder() == 15);
+    
+    marrow->SetColor(Color(0.2f, 0.4f, 0.6f, 0.8f));
+    CHECK(marrow->GetColor().r == doctest::Approx(0.2f));
+    CHECK(marrow->GetColor().a == doctest::Approx(0.8f));
+    
+    marrow->SetMix("idle", "run", 0.35f);
+    
+    // Test serialization/deserialization
+    nlohmann::json j;
+    marrow->Serialize(j);
+    
+    auto obj2 = std::make_shared<GameObject>("MarrowObj2");
+    auto* marrow2 = obj2->AddComponent<MarrowRenderer>();
+    marrow2->Deserialize(j);
+    
+    CHECK(marrow2->GetSortingOrder() == 15);
+    CHECK(marrow2->GetColor().g == doctest::Approx(0.4f));
+    CHECK(marrow2->GetColor().a == doctest::Approx(0.8f));
+    
+    // Test path assignments
+    marrow2->SetSkeletonPath("assets/marrow/player_idle.mskl");
+    marrow2->SetAtlasPath("assets/marrow/player_idle.matl");
+    CHECK(marrow2->GetSkeletonPath() == "assets/marrow/player_idle.mskl");
+    CHECK(marrow2->GetAtlasPath() == "assets/marrow/player_idle.matl");
+}
+#endif

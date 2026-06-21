@@ -3,23 +3,21 @@
 #include "../Core/PathService.h"
 #include "../Core/BuildManifest.h"
 #include "../Core/PackageLayout.h"
+#include "../Core/PackageFinalizer.h"
+#include "../Core/ProjectSettings.h"
+#include "../Systems/Input.h"
 #include "Project.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
 
-namespace {
-std::string RuntimeOutputName(const std::string& gameName) {
-#ifdef _WIN32
-    return gameName + ".exe";
-#else
-    return gameName;
-#endif
-}
-}
-
 namespace fs = std::filesystem;
+
+static fs::path ResolveProjectPath(const fs::path& projectRoot, const std::string& stored) {
+    fs::path p(stored);
+    return p.is_absolute() ? p : projectRoot / p;
+}
 
 GameBuilder& GameBuilder::Get() {
     static GameBuilder instance;
@@ -30,15 +28,40 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     progress = 0.0f;
     lastError.clear();
 
-    // 필수 입력 검증(절대 경로)
+    // Validate the profile
+    std::string profileError;
+    if (!settings.profile.Validate(profileError)) {
+        lastError = profileError;
+        return false;
+    }
+
+    // Resolve output paths
+    const fs::path finalOutput = settings.projectRoot.empty()
+        ? fs::path(settings.profile.outputPath)
+        : ResolveProjectPath(settings.projectRoot, settings.profile.outputPath);
+    const fs::path stagingOutput = fs::path(finalOutput.string() + ".staging");
+
+    // Safety check (rejects project root and engine root)
+    {
+        std::string reason;
+        if (!PathService::IsSafeOutputPath(finalOutput, reason,
+                settings.projectRoot, PathService::Get().ExecutableDir())) {
+            lastError = "Refusing to use output path '" + finalOutput.string() + "': " + reason;
+            return false;
+        }
+    }
+
+    // Build required-file manifest
     {
         BuildManifest manifest;
         if (Project::Get().IsOpen()) {
             manifest.requiredFiles.push_back(Project::Get().GetAssetsPath());
         }
         manifest.requiredFiles.push_back(PathService::Get().EngineResource("Shaders").string());
-        manifest.requiredFiles.push_back(settings.mainScene);
         manifest.requiredFiles.push_back((PathService::Get().ExecutableDir() / "molga_runtime").string());
+        for (const auto& scene : settings.profile.scenes) {
+            manifest.requiredFiles.push_back(ResolveProjectPath(settings.projectRoot, scene).string());
+        }
 
         std::string err;
         if (!manifest.Validate(err)) {
@@ -47,62 +70,88 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         }
     }
 
-    // Step 1: Create output directory
-    currentStep = "Creating output directory...";
-    progress = 0.1f;
-    if (!CreateOutputDirectory(settings.outputPath)) {
+    // Prepare staging directory
+    try {
+        if (fs::exists(stagingOutput)) {
+            fs::remove_all(stagingOutput);
+        }
+        fs::create_directories(stagingOutput);
+    } catch (const std::exception& e) {
+        lastError = "Failed to create staging directory: " + std::string(e.what());
         return false;
     }
+
+    auto cleanupStaging = [&]() {
+        std::error_code ec;
+        fs::remove_all(stagingOutput, ec);
+    };
+
+    const std::string stagingPathStr = stagingOutput.string();
 
     // Step 2: Copy assets
     currentStep = "Copying assets...";
     progress = 0.2f;
-    if (!CopyAssets(settings.outputPath)) {
+    if (!CopyAssets(stagingPathStr)) {
+        cleanupStaging();
         return false;
     }
 
     // Step 3: Copy shaders
     currentStep = "Copying shaders...";
     progress = 0.4f;
-    if (!CopyShaders(settings.outputPath)) {
+    if (!CopyShaders(stagingPathStr)) {
+        cleanupStaging();
         return false;
     }
 
     // Step 4: Copy scenes
     currentStep = "Copying scenes...";
     progress = 0.5f;
-    if (!CopyScenes(settings, settings.outputPath)) {
+    if (!CopyScenes(settings, stagingPathStr)) {
+        cleanupStaging();
         return false;
     }
 
     // Step 5: Generate game config
     currentStep = "Generating game configuration...";
     progress = 0.7f;
-    if (!GenerateGameConfig(settings, settings.outputPath)) {
+    if (!GenerateGameConfig(settings, stagingPathStr)) {
+        cleanupStaging();
         return false;
     }
 
     // Step 6: Copy executable
     currentStep = "Copying executable...";
     progress = 0.9f;
-    if (!CopyExecutable(settings.outputPath, settings.gameName)) {
+    if (!CopyExecutable(stagingPathStr, settings.profile.gameName)) {
+        cleanupStaging();
         return false;
     }
 
     // Validate output package layout
     std::string packageError;
     if (!PackageLayout::Validate(
-            settings.outputPath,
-            RuntimeOutputName(settings.gameName),
+            stagingOutput,
+            PackageLayout::ExecutableNameFor(settings.profile.gameName),
             packageError)) {
         lastError = packageError;
+        cleanupStaging();
+        return false;
+    }
+
+    // Atomic swap: staging -> final
+    const auto finalizeResult =
+        PackageFinalizer::FinalizeStagedPackage(stagingOutput, finalOutput);
+    if (!finalizeResult) {
+        lastError = "Failed to finalize output: " + finalizeResult.error;
+        cleanupStaging();
         return false;
     }
 
     currentStep = "Build complete!";
     progress = 1.0f;
 
-    std::cout << "[GameBuilder] Build successful: " << settings.outputPath << "/" << settings.gameName << std::endl;
+    std::cout << "[GameBuilder] Build successful: " << finalOutput.string() << std::endl;
     return true;
 }
 
@@ -135,7 +184,7 @@ bool GameBuilder::CopyAssets(const std::string& outputPath) {
             lastError = "Project Assets folder not found: " + src.string();
             return false;
         }
-        fs::path dest = fs::path(outputPath) / "Assets"; // casing preserved
+        fs::path dest = fs::path(outputPath) / Paths::Build::ASSETS;
         fs::create_directories(dest);
         fs::copy(src, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
         return true;
@@ -152,7 +201,7 @@ bool GameBuilder::CopyShaders(const std::string& outputPath) {
             lastError = "Engine Shaders folder not found next to the editor: " + src.string();
             return false;
         }
-        fs::path dest = fs::path(outputPath) / "Shaders";
+        fs::path dest = fs::path(outputPath) / Paths::Build::SHADERS;
         fs::create_directories(dest);
         fs::copy(src, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
         return true;
@@ -164,24 +213,17 @@ bool GameBuilder::CopyShaders(const std::string& outputPath) {
 
 bool GameBuilder::CopyScenes(const BuildSettings& settings, const std::string& outputPath) {
     try {
-        std::string scenesPath = outputPath + "/" + Paths::Build::SCENES;
-        fs::create_directories(scenesPath);
+        const fs::path scenesDir = fs::path(outputPath) / Paths::Build::SCENES;
+        fs::create_directories(scenesDir);
 
-        // Copy main scene
-        if (!fs::exists(settings.mainScene)) {
-            lastError = "Main scene not found: " + settings.mainScene;
-            return false;
-        }
-        fs::copy_file(settings.mainScene, scenesPath + "/main.json",
-                     fs::copy_options::overwrite_existing);
-
-        // Copy additional scenes
-        for (const auto& scene : settings.scenes) {
-            if (fs::exists(scene)) {
-                std::string filename = fs::path(scene).filename().string();
-                fs::copy_file(scene, scenesPath + "/" + filename,
-                             fs::copy_options::overwrite_existing);
+        for (const auto& sceneRel : settings.profile.scenes) {
+            const fs::path src = ResolveProjectPath(settings.projectRoot, sceneRel);
+            if (!fs::exists(src)) {
+                lastError = "Scene listed in build profile is missing: " + src.string();
+                return false;
             }
+            const fs::path dest = scenesDir / fs::path(sceneRel).filename();
+            fs::copy_file(src, dest, fs::copy_options::overwrite_existing);
         }
 
         return true;
@@ -194,16 +236,49 @@ bool GameBuilder::CopyScenes(const BuildSettings& settings, const std::string& o
 bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::string& outputPath) {
     try {
         nlohmann::json config;
-        config["gameName"] = settings.gameName;
-        config["mainScene"] = std::string(Paths::Build::SCENES) + "/main.json";
-        config["windowWidth"] = settings.windowWidth;
-        config["windowHeight"] = settings.windowHeight;
-        config["fullscreen"] = settings.fullscreen;
+        config["schemaVersion"] = 1;
+        config["gameName"] = settings.profile.gameName;
+        config["productVersion"] = settings.profile.productVersion;
+        config["companyName"] = settings.profile.companyName;
+        config["mainScene"] = std::string(Paths::Build::SCENES) + "/" +
+                              fs::path(settings.profile.startupScene).filename().string();
+        config["windowWidth"] = settings.profile.window.width;
+        config["windowHeight"] = settings.profile.window.height;
+        config["fullscreen"] = settings.profile.window.fullscreen;
+        config["resizable"] = settings.profile.window.resizable;
+        config["developmentBuild"] = settings.profile.developmentBuild;
+        config["projectSettings"] = ProjectSettings::Get().Serialize();
+
+        // Bundle input actions
+        nlohmann::json inputActionsJson = nlohmann::json::array();
+        for (const auto& action : Input::GetActions()) {
+            nlohmann::json actionJson;
+            actionJson["name"] = action.name;
+            actionJson["isAxis"] = action.isAxis;
+
+            nlohmann::json bindingsJson = nlohmann::json::array();
+            for (const auto& binding : action.bindings) {
+                nlohmann::json bindingJson;
+                std::string devStr = "Keyboard";
+                switch (binding.device) {
+                    case Input::DeviceType::Keyboard: devStr = "Keyboard"; break;
+                    case Input::DeviceType::Mouse: devStr = "Mouse"; break;
+                    case Input::DeviceType::GamepadButton: devStr = "GamepadButton"; break;
+                    case Input::DeviceType::GamepadAxis: devStr = "GamepadAxis"; break;
+                }
+                bindingJson["device"] = devStr;
+                bindingJson["code"] = binding.code;
+                bindingJson["multiplier"] = binding.multiplier;
+                bindingsJson.push_back(bindingJson);
+            }
+            actionJson["bindings"] = bindingsJson;
+            inputActionsJson.push_back(actionJson);
+        }
+        config["inputActions"] = inputActionsJson;
 
         // List all scenes
         nlohmann::json scenesList = nlohmann::json::array();
-        scenesList.push_back(std::string(Paths::Build::SCENES) + "/main.json");
-        for (const auto& scene : settings.scenes) {
+        for (const auto& scene : settings.profile.scenes) {
             std::string filename = fs::path(scene).filename().string();
             scenesList.push_back(std::string(Paths::Build::SCENES) + "/" + filename);
         }
@@ -233,11 +308,7 @@ bool GameBuilder::CopyExecutable(const std::string& outputPath, const std::strin
             return false;
         }
 
-#ifdef __APPLE__
-        std::string execName = gameName;
-#else
-        std::string execName = gameName + ".exe";
-#endif
+        std::string execName = PackageLayout::ExecutableNameFor(gameName);
 
         fs::copy_file(runtimePath, outputPath + "/" + execName,
                      fs::copy_options::overwrite_existing);
