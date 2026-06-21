@@ -18,6 +18,7 @@
 #include "../../Core/PathService.h"
 #include "Editor/Editor.h"
 #include "Editor/Commands/ObjectCommands.h"
+#include "Editor/ScenePicker.h"
 #include "../FontManager.h"
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -172,6 +173,11 @@ void SceneViewWindow::OnGUI() {
 
     // ── 입력 처리 (Image 위젯이 렌더된 후) ──────────────────────────────────
     HandleInput(panelPos, ImVec2(vpW, vpH));
+
+    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+        && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        HandlePick(panelPos, ImVec2(vpW, vpH));
+    }
 
     // ── 우클릭 컨텍스트 메뉴 트리거 ──────────────────────────────────────────
     if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -484,18 +490,39 @@ void SceneViewWindow::CreateObjectAt(const char* name, const std::string& compTy
 }
 
 void SceneViewWindow::ScreenToWorld(ImVec2 panelPos, ImVec2 panelSize, ImVec2 screen,
-                                   float& outX, float& outY) const {
-    float zoom = editorCamera_->GetZoom();
-    float camX = editorCamera_->GetX();
-    float camY = editorCamera_->GetY();
-    
-    // Screen coordinates relative to panel
-    float sx = screen.x - panelPos.x;
-    float sy = screen.y - panelPos.y;
-    
-    // Screen to World translation:
-    // Centered at camera (camX, camY) + panelSize*0.5f in world,
-    // and scaled by zoom around the center.
-    outX = camX + panelSize.x * 0.5f + (sx - panelSize.x * 0.5f) / zoom;
-    outY = camY + panelSize.y * 0.5f + (sy - panelSize.y * 0.5f) / zoom;
+                                    float& outX, float& outY) const {
+    molga::ScreenToWorld(ViewportCam(), panelSize.x, panelSize.y,
+                         screen.x - panelPos.x, screen.y - panelPos.y, outX, outY);
+}
+
+molga::ViewportCamera SceneViewWindow::ViewportCam() const {
+    return { editorCamera_->GetX(), editorCamera_->GetY(), editorCamera_->GetZoom() };
+}
+
+void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
+    if (!gameObjects_) return;
+    ImVec2 m = ImGui::GetMousePos();
+    float wx, wy;
+    molga::ScreenToWorld(ViewportCam(), panelSize.x, panelSize.y,
+                         m.x - panelPos.x, m.y - panelPos.y, wx, wy);
+
+    std::vector<molga::PickCandidate> cands;
+    for (auto& obj : *gameObjects_) {
+        if (!obj || !obj->IsActive()) continue;
+        auto* tr = obj->GetComponent<Transform>();
+        auto* sr = obj->GetComponent<SpriteRenderer>();
+        if (!tr || !sr) continue;
+        Vector2 wp = tr->GetWorldPosition();
+        cands.push_back({ obj->GetID(), wp.x, wp.y,
+                          sr->GetWidth() * 0.5f, sr->GetHeight() * 0.5f,
+                          sr->GetSortingOrder() });
+    }
+    auto hits = molga::PickAt(cands, wx, wy);
+
+    auto& sel = Editor::Get().GetSelection();
+    if (hits.empty()) {
+        sel.Clear(molga::SelectionSource::SceneView);
+    } else {
+        sel.Select(hits.front(), molga::SelectionSource::SceneView);
+    }
 }

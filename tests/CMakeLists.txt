@@ -38,6 +38,8 @@ molga_add_test(test_package_finalizer test_package_finalizer.cpp)
 target_include_directories(test_package_finalizer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 molga_add_test(test_selection_service test_selection_service.cpp)
+molga_add_test(test_viewport_math test_viewport_math.cpp)
+molga_add_test(test_scene_picker test_scene_picker.cpp)
 
 molga_add_test(test_script_compiler  test_script_compiler.cpp)
 molga_add_test(test_script_reflection test_script_reflection.cpp)

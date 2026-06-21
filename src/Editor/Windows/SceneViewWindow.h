@@ -3,6 +3,7 @@
 #include "EditorWindow.h"
 #include "Rendering/Framebuffer.h"
 #include "Rendering/Camera2D.h"
+#include "Editor/ViewportMath.h"
 #include <imgui.h>
 #include <memory>
 #include <vector>
@@ -91,4 +92,9 @@ private:
     // 좌표 변환 유틸: 패널 내 스크린 픽셀 좌표 → 월드 좌표
     void ScreenToWorld(ImVec2 panelPos, ImVec2 panelSize, ImVec2 screen,
                        float& outX, float& outY) const;
+
+    // 현재 에디터 카메라 상태를 ViewportMath 구조로 변환
+    molga::ViewportCamera ViewportCam() const;
+    // 좌클릭 픽킹: 패널 좌표 클릭 → 후보 수집 → SelectionService
+    void HandlePick(ImVec2 panelPos, ImVec2 panelSize);
 };
