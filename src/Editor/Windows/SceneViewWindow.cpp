@@ -171,10 +171,47 @@ void SceneViewWindow::OnGUI() {
         );
     }
 
+    // ── 툴바 오버레이 (Floating Toolbar) ──────────────────────────────────────
+    {
+        ImGui::SetCursorScreenPos(ImVec2(panelPos.x + 8.f, panelPos.y + 40.f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.f);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.25f, 0.7f));
+        
+        const char* toolNames[] = { "Select", "Move", "Rotate", "Scale" };
+        molga::GizmoTool tools[] = { molga::GizmoTool::Select, molga::GizmoTool::Move, molga::GizmoTool::Rotate, molga::GizmoTool::Scale };
+        for (int i = 0; i < 4; ++i) {
+            bool active = (gizmo_.Tool() == tools[i]);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.4f, 0.6f, 0.9f));
+            if (ImGui::Button(toolNames[i])) {
+                gizmo_.SetTool(tools[i]);
+            }
+            if (active) ImGui::PopStyleColor();
+            ImGui::SameLine();
+        }
+        
+        ImGui::Spacing(); ImGui::SameLine();
+        
+        static int currentSnap = 0; // 0: Off, 1: 16px, 2: 32px, 3: 64px
+        const char* snapNames[] = { "Snap: Off", "Snap: 16", "Snap: 32", "Snap: 64" };
+        if (ImGui::Button(snapNames[currentSnap])) {
+            currentSnap = (currentSnap + 1) % 4;
+            if (currentSnap == 0) gizmo_.SetSnap(molga::SnapMode::Off, 0.f);
+            else if (currentSnap == 1) gizmo_.SetSnap(molga::SnapMode::Grid, 16.f);
+            else if (currentSnap == 2) gizmo_.SetSnap(molga::SnapMode::Grid, 32.f);
+            else if (currentSnap == 3) gizmo_.SetSnap(molga::SnapMode::Grid, 64.f);
+        }
+        
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+    }
+
     // ── 입력 처리 (Image 위젯이 렌더된 후) ──────────────────────────────────
     HandleInput(panelPos, ImVec2(vpW, vpH));
 
-    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+    GameObject* primaryTarget = Editor::Get().FindObjectById(Editor::Get().GetSelection().PrimaryId());
+    bool gizmoUsed = gizmo_.Draw(primaryTarget, ViewportCam(), panelPos, ImVec2(vpW, vpH));
+
+    if (!gizmoUsed && ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
         && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         HandlePick(panelPos, ImVec2(vpW, vpH));
     }
@@ -343,6 +380,13 @@ void SceneViewWindow::HandleInput(ImVec2 panelPos, ImVec2 panelSize) {
     // ── F키: Frame All — 씬 오브젝트 AABB를 화면에 맞춤 ────────────────────
     if (hovered && ImGui::IsKeyPressed(ImGuiKey_F)) {
         FrameAll(panelSize);
+    }
+
+    if (hovered && !ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Q)) gizmo_.SetTool(molga::GizmoTool::Select);
+        if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmo_.SetTool(molga::GizmoTool::Move);
+        if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmo_.SetTool(molga::GizmoTool::Rotate);
+        if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmo_.SetTool(molga::GizmoTool::Scale);
     }
 
     // ── 마우스 휠 줌 (커서 위치 기준) ───────────────────────────────────────

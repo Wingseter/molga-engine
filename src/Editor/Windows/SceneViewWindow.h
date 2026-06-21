@@ -4,6 +4,7 @@
 #include "Rendering/Framebuffer.h"
 #include "Rendering/Camera2D.h"
 #include "Editor/ViewportMath.h"
+#include "Editor/Gizmos/TransformGizmo.h"
 #include <imgui.h>
 #include <memory>
 #include <vector>
@@ -64,6 +65,8 @@ private:
     bool  isPanning_    = false;
     float lastMouseX_   = 0.f;
     float lastMouseY_   = 0.f;
+
+    molga::TransformGizmo gizmo_;
 
     // 우클릭 컨텍스트 메뉴: 우클릭한 지점의 월드 좌표(생성 위치)
     float ctxWorldX_ = 0.f;

@@ -40,6 +40,7 @@ target_include_directories(test_package_finalizer PRIVATE "${CMAKE_CURRENT_SOURC
 molga_add_test(test_selection_service test_selection_service.cpp)
 molga_add_test(test_viewport_math test_viewport_math.cpp)
 molga_add_test(test_scene_picker test_scene_picker.cpp)
+molga_add_test(test_transform_gizmo_math test_transform_gizmo_math.cpp)
 
 molga_add_test(test_transform_command test_transform_command.cpp)
 target_sources(test_transform_command PRIVATE
