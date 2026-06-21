@@ -7,6 +7,9 @@
 #include "MolgaTime.h"
 #include "../Systems/Input.h"
 #include "../Systems/Audio.h"
+#include "Common/Log.h"
+#include "Common/StdoutSink.h"
+#include <memory>
 
 static void FramebufferSizeCallback(GLFWwindow* window, int width, int height) {
     glViewport(0, 0, width, height);
@@ -45,6 +48,8 @@ GLFWwindow* EngineInit(const WindowConfig& config) {
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    Log::AddSink(std::make_shared<Log::StdoutSink>());
+
     Time::Init();
     Input::Init(window);
     Audio::Init();
@@ -54,5 +59,6 @@ GLFWwindow* EngineInit(const WindowConfig& config) {
 
 void EngineShutdown() {
     Audio::Shutdown();
+    Log::ClearSinks();
     glfwTerminate();
 }

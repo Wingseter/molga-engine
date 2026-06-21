@@ -91,6 +91,7 @@ set(ENGINE_SOURCES
     src/Core/EventBus.cpp
     src/Core/ProjectSettings.cpp
     src/Common/Log.cpp
+    src/Common/StdoutSink.cpp
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
     src/Core/BuildManifest.cpp
