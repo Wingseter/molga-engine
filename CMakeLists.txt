@@ -149,6 +149,7 @@ set(EDITOR_SOURCES
     src/Editor/ImGuiLayer.cpp
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
+    src/Editor/EditorConsoleSink.cpp
     src/Editor/Commands/ObjectCommands.cpp
     src/Editor/Commands/PrefabCommands.cpp
     src/Editor/Commands/TransformCommand.cpp
@@ -168,6 +169,7 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ProjectBrowserWindow.cpp
     src/Editor/Windows/ScriptWindow.cpp
     src/Editor/Windows/ProjectSettingsWindow.cpp
+    src/Editor/Windows/ConsoleWindow.cpp
     src/Editor/Project.cpp
     src/Scripting/ScriptCompiler.cpp
 )

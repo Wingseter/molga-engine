@@ -20,6 +20,7 @@
 #include "Windows/SceneViewWindow.h"
 #include "Windows/StatsWindow.h"
 #include "Windows/ProjectSettingsWindow.h"
+#include "Windows/ConsoleWindow.h"
 #include "../Common/Log.h"
 #include "../Core/PathService.h"
 #include <cstring>
@@ -42,6 +43,13 @@ void Editor::Init() {
   windowManager.Register(EditorConstants::WIN_STATS, std::make_unique<StatsWindow>());
   windowManager.Register(EditorConstants::WIN_PROJECT_SETTINGS, std::make_unique<ProjectSettingsWindow>());
 
+  auto console = std::make_unique<ConsoleWindow>();
+  Log::AddSink(console->Sink());
+  console->SetOpenFileHandler([](const std::string& path, int line) {
+      VSCodeIntegration::Get().OpenFileInVSCode(path, line);
+  });
+  windowManager.Register(EditorConstants::WIN_CONSOLE, std::move(console));
+
   // Register Selection listener to sync Inspector target
   selection_.AddListener([this](const molga::SelectionService& s, molga::SelectionSource) {
       if (auto* insp = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR)) {
@@ -56,6 +64,9 @@ void Editor::Init() {
 }
 
 void Editor::Shutdown() {
+  if (auto* console = windowManager.GetAs<ConsoleWindow>(EditorConstants::WIN_CONSOLE)) {
+      Log::RemoveSink(console->Sink());
+  }
   windowManager.ShutdownAll();
 }
 
