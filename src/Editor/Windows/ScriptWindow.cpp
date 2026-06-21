@@ -3,6 +3,8 @@
 #include "../../Scripting/ScriptCompiler.h"
 #include "../../Scripting/ScriptManager.h"
 #include "../Project.h"
+#include "Editor/Editor.h"
+#include "Editor/EditorState.h"
 #include <imgui.h>
 #include <filesystem>
 
@@ -58,40 +60,43 @@ void ScriptWindow::DrawToolbar() {
     ImGui::SameLine();
 
     // Compile button
+    bool isPlaying = EditorState::Get().IsPlayMode();
     if (ImGui::Button("Compile")) {
         ScriptCompiler& compiler = ScriptCompiler::Get();
         compiler.SetProjectPath(project.GetPath());
+        compiler.GenerateCMakeLists();
 
-        isCompiling = true;
-        if (compiler.Compile()) {
-            compileStatus = "Compilation successful!";
-            lastCompileSuccess = true;
-        } else {
-            compileStatus = "Compilation failed: " + compiler.GetLastError();
-            lastCompileSuccess = false;
+        auto& tasks = Editor::Get().GetTaskService();
+        molga::TaskId tid = tasks.Begin("Compile Scripts", molga::TaskCategory::ScriptCompile);
+        Editor::Get().LaunchScriptCompile(tid, compiler.ScriptsDir(), compiler.ConfigureCommand(), compiler.BuildCommand());
+    }
+    if (isPlaying) {
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Reload will apply after Stop");
         }
-        isCompiling = false;
-        RefreshScriptList();
     }
 
     ImGui::SameLine();
 
     // Hot Reload button
+    ImGui::BeginDisabled(isPlaying);
     if (ImGui::Button("Hot Reload")) {
         ScriptCompiler& compiler = ScriptCompiler::Get();
         std::string libPath = compiler.GetCompiledLibraryPath();
 
         if (fs::exists(libPath)) {
-            if (ScriptManager::Get().LoadScriptLibrary(libPath)) {
-                compileStatus = "Scripts reloaded successfully!";
-                lastCompileSuccess = true;
-            } else {
-                compileStatus = "Failed to reload scripts";
-                lastCompileSuccess = false;
-            }
+            Editor::Get().GetScriptReload().RequestReload(libPath);
+            compileStatus = "Hot reload requested...";
+            lastCompileSuccess = true;
         } else {
             compileStatus = "No compiled library found. Compile first!";
             lastCompileSuccess = false;
+        }
+    }
+    ImGui::EndDisabled();
+    if (isPlaying) {
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Cannot hot reload while playing");
         }
     }
 
@@ -223,6 +228,34 @@ void ScriptWindow::DrawCreateScriptDialog() {
 }
 
 void ScriptWindow::DrawCompileStatus() {
+    bool compiling = false;
+    std::string taskLog;
+    bool hasFinishedTask = false;
+    bool finishedTaskSuccess = false;
+
+    for (const auto& t : Editor::Get().GetTaskService().Snapshot()) {
+        if (t.category == molga::TaskCategory::ScriptCompile) {
+            if (t.state == molga::TaskState::Queued || t.state == molga::TaskState::Running) {
+                compiling = true;
+            } else {
+                hasFinishedTask = true;
+                finishedTaskSuccess = (t.state == molga::TaskState::Succeeded);
+                taskLog = t.log;
+            }
+        }
+    }
+    isCompiling = compiling;
+
+    if (hasFinishedTask && !compiling) {
+        if (finishedTaskSuccess) {
+            compileStatus = "Compilation successful!";
+            lastCompileSuccess = true;
+        } else {
+            compileStatus = "Compilation failed.";
+            lastCompileSuccess = false;
+        }
+    }
+
     // Status line
     if (isCompiling) {
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.3f, 1.0f), "Compiling...");
@@ -236,8 +269,7 @@ void ScriptWindow::DrawCompileStatus() {
     }
 
     // Show compile output button
-    ScriptCompiler& compiler = ScriptCompiler::Get();
-    if (!compiler.GetCompileOutput().empty()) {
+    if (!taskLog.empty()) {
         ImGui::SameLine();
         if (ImGui::SmallButton("Show Output")) {
             ImGui::OpenPopup("Compile Output");
@@ -248,7 +280,7 @@ void ScriptWindow::DrawCompileStatus() {
             ImGui::Text("Compile Output:");
             ImGui::Separator();
             ImGui::BeginChild("output", ImVec2(500, 300), true);
-            ImGui::TextWrapped("%s", compiler.GetCompileOutput().c_str());
+            ImGui::TextWrapped("%s", taskLog.c_str());
             ImGui::EndChild();
             ImGui::EndPopup();
         }

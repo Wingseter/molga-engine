@@ -11,6 +11,7 @@
 #include "Editor/Selection/SelectionService.h"
 #include "Editor/Commands/TransformCommand.h"
 #include "Editor/EditorTaskService.h"
+#include "Scripting/ScriptReloadService.h"
 
 class GameObject;
 class Renderer;
@@ -45,6 +46,14 @@ public:
     WindowManager& GetWindowManager() { return windowManager; }
     molga::SelectionService& GetSelection() { return selection_; }
     molga::EditorTaskService& GetTaskService() { return taskService; }
+    molga::ScriptReloadService& GetScriptReload() { return *reloadService_; }
+
+    void PumpScriptReload(bool isEditMode);
+    void LaunchScriptCompile(molga::TaskId id,
+                             const std::string& scriptsDir,
+                             const std::string& configureCmd,
+                             const std::string& buildCmd);
+
     void SubmitTransformEdit(unsigned int targetId,
                              const molga::TransformState& before,
                              const molga::TransformState& after);
@@ -90,6 +99,8 @@ private:
     SceneOperations sceneOps;
     BuildManager buildMgr;
     molga::EditorTaskService taskService;
+    std::unique_ptr<molga::ILibraryPort> libraryPort_;
+    std::unique_ptr<molga::ScriptReloadService> reloadService_;
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
     molga::CommandHistory commandHistory;

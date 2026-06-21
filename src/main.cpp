@@ -311,6 +311,8 @@ int main(int argc, char* argv[]) {
 
             EventBus::ProcessQueue();
 
+            Editor::Get().PumpScriptReload(editorState.IsEditMode());
+
             glfwSwapBuffers(window);
             glfwPollEvents();
         }

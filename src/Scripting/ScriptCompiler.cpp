@@ -465,3 +465,11 @@ bool ScriptCompiler::ExecuteCommand(const std::string& command, std::string& out
 
     return result == 0;
 }
+
+std::string ScriptCompiler::ConfigureCommand() const {
+    return "cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug";
+}
+
+std::string ScriptCompiler::BuildCommand() const {
+    return "cmake --build build";
+}

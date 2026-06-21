@@ -125,6 +125,19 @@ Component* GameObject::AddComponentRaw(Component* component) {
     return component;
 }
 
+void GameObject::RemoveComponentById(size_t typeId) {
+    auto it = componentMap.find(typeId);
+    if (it != componentMap.end()) {
+        Component* raw = it->second.get();
+        if (it->second->IsEnabled()) it->second->OnDisable();
+        it->second->OnDetach();
+        componentOrder_.erase(
+            std::remove(componentOrder_.begin(), componentOrder_.end(), raw),
+            componentOrder_.end());
+        componentMap.erase(it);
+    }
+}
+
 std::vector<Component*> GameObject::GetComponents() const {
     return componentOrder_;  // 삽입 순서(결정적)
 }

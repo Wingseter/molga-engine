@@ -93,6 +93,16 @@ void Script::Deserialize(const nlohmann::json& j) {
     }
 }
 
+nlohmann::json Script::SnapshotFields() const {
+    nlohmann::json j = nlohmann::json::object();
+    Serialize(j);
+    return j;
+}
+
+void Script::RestoreFields(const nlohmann::json& snapshot) {
+    Deserialize(snapshot);
+}
+
 void Script::RemapReferences(const std::unordered_map<unsigned int, unsigned int>& idRemap) {
     for (const auto& f : Fields().Fields()) {
         if (f.type != ScriptFieldType::ObjectRef) continue;

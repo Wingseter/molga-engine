@@ -44,6 +44,10 @@ public:
     std::string GetEnginePath() const { return enginePath; }
     void SetEnginePath(const std::string& path) { enginePath = path; }
 
+    std::string ConfigureCommand() const;
+    std::string BuildCommand() const;
+    const std::string& ScriptsDir() const { return scriptsPath; }
+
 private:
     ScriptCompiler() = default;
 

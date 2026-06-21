@@ -132,6 +132,11 @@ public:
     void Serialize(nlohmann::json& j) const override;
     void Deserialize(const nlohmann::json& j) override;
 
+    // reload 경계에서 사용하는 필드 스냅샷/복원. Serialize/Deserialize의
+    // "fields" 페이로드를 그대로 재사용한다.
+    nlohmann::json SnapshotFields() const;
+    void RestoreFields(const nlohmann::json& snapshot);
+
     // 복제 시 ObjectRef 필드의 id를 새 id로 리매핑한다.
     void RemapReferences(const std::unordered_map<unsigned int, unsigned int>& idRemap) override;
 

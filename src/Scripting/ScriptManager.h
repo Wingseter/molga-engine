@@ -34,10 +34,18 @@ public:
     // Check if a script is registered
     bool IsScriptRegistered(const std::string& name) const;
 
+    bool IsDynamicScript(const std::string& name) const {
+        return dynamicFactories.find(name) != dynamicFactories.end();
+    }
+
     // Dynamic library loading
     bool LoadScriptLibrary(const std::string& path);
     void UnloadScriptLibrary(const std::string& path);
     void ReloadScriptLibraries();
+
+    bool ValidateLibrary(const std::string& path, void*& outHandle, std::string& error);
+    void SwapToValidatedLibrary(void* newHandle, const std::string& newPath);
+    const std::string& ActiveLibraryPath() const { return activeLibraryPath_; }
 
     // Get loaded library paths
     const std::vector<std::string>& GetLoadedLibraries() const { return loadedLibraries; }
@@ -50,6 +58,7 @@ private:
     std::unordered_map<std::string, ScriptFactory> builtinFactories;
     std::unordered_map<std::string, ScriptFactory> dynamicFactories;
     std::vector<std::string> loadedLibraries;
+    std::string activeLibraryPath_;
 
     // Platform-specific library handles
     std::unordered_map<std::string, void*> libraryHandles;

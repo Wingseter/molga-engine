@@ -84,6 +84,7 @@ set(ENGINE_SOURCES
     src/Core/Scheduler.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
+    src/Scripting/ScriptReloadService.cpp
     src/Scripting/BuiltinScripts.cpp
     src/Platform/Platform.cpp
     src/Rendering/TextRenderer.cpp
@@ -155,6 +156,7 @@ set(EDITOR_SOURCES
     src/Editor/Editor.cpp
     src/Editor/EditorConsoleSink.cpp
     src/Editor/EditorTaskService.cpp
+    src/Platform/Process.cpp
     src/Editor/Commands/ObjectCommands.cpp
     src/Editor/Commands/PrefabCommands.cpp
     src/Editor/Commands/TransformCommand.cpp

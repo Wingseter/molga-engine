@@ -125,6 +125,7 @@ public:
 
     // Add component from raw pointer (takes ownership, uses runtime type ID)
     Component* AddComponentRaw(Component* component);
+    void RemoveComponentById(size_t typeId);
 
     // Get all components (returns vector of raw pointers for iteration)
     std::vector<Component*> GetComponents() const;

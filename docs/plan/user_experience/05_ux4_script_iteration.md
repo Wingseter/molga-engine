@@ -1,6 +1,6 @@
 # UX-4: Script Iteration (스크립트 이터레이션)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: `superpowers:subagent-driven-development` 또는 `superpowers:executing-plans`. 구현 시 `superpowers:test-driven-development`, 완료 선언 전 `superpowers:verification-before-completion`을 사용한다. 체크박스(`- [ ]`)로 진행을 추적한다.
+> **For agentic workers:** REQUIRED SUB-SKILL: `superpowers:subagent-driven-development` 또는 `superpowers:executing-plans`. 구현 시 `superpowers:test-driven-development`, 완료 선언 전 `superpowers:verification-before-completion`을 사용한다. 체크박스(`- [x]`)로 진행을 추적한다.
 >
 > **의존성:** 이 작업은 **UX-2**(`03_ux2_console_and_tasks.md`)가 도입하는 `EditorTaskService`와 Console sink **위에** 직접 쌓인다. UX-2가 task/console 표면을 만들고, **UX-4는 그것을 비동기 스크립트 컴파일·리로드 전 흐름까지 확장**한다. 또한 UX-1(`02_ux1…`)의 dirty/command 계약을 사용한다. UX-2 미완 상태에서 이 문서를 구현하려면, 아래 Task A가 정의하는 `EditorTaskService` 최소 API를 UX-2와 호환되게 먼저 세운다.
 
@@ -78,7 +78,7 @@
 - Create: `tests/test_editor_task_service.cpp`
 - Modify: `CMakeLists.txt`(`ENGINE_SOURCES`), `tests/CMakeLists.txt`
 
-- [ ] **Step 1: 실패하는 테스트 작성** — `tests/test_editor_task_service.cpp`
+- [x] **Step 1: 실패하는 테스트 작성** — `tests/test_editor_task_service.cpp`
 
 ```cpp
 #include "Core/EditorTaskService.h"
@@ -133,7 +133,7 @@ TEST_CASE("cancel before run yields Cancelled and skips work") {
 }
 ```
 
-- [ ] **Step 2: 등록 + 실패 확인**
+- [x] **Step 2: 등록 + 실패 확인**
 
 `tests/CMakeLists.txt`:
 ```cmake
@@ -144,7 +144,7 @@ cmake --build --preset debug --target test_editor_task_service -j4
 ```
 Expected: FAIL — `EditorTaskService` 헤더/심볼 없음(또는 UX-2 버전에 `ScriptCompile` 카테고리·worker-safe `AppendLog` 부재).
 
-- [ ] **Step 3: API 정의/확장** — `src/Core/EditorTaskService.h`
+- [x] **Step 3: API 정의/확장** — `src/Core/EditorTaskService.h`
 
 ```cpp
 #pragma once
@@ -199,9 +199,9 @@ private:
 } // namespace molga
 ```
 
-- [ ] **Step 4: 구현** — `src/Core/EditorTaskService.cpp`: 모든 변경을 `std::lock_guard<std::mutex>`로 보호. `Begin`은 `next_++`로 id 발급 후 `Queued`로 삽입. `AppendLog`는 `tasks_[id].log += chunk`. `IsCancelRequested`는 락 하에 `cancel_` 조회.
+- [x] **Step 4: 구현** — `src/Core/EditorTaskService.cpp`: 모든 변경을 `std::lock_guard<std::mutex>`로 보호. `Begin`은 `next_++`로 id 발급 후 `Queued`로 삽입. `AppendLog`는 `tasks_[id].log += chunk`. `IsCancelRequested`는 락 하에 `cancel_` 조회.
 
-- [ ] **Step 5: CMake 등록 + 통과 확인**
+- [x] **Step 5: CMake 등록 + 통과 확인**
 
 `CMakeLists.txt`의 `ENGINE_SOURCES`에 `src/Core/EditorTaskService.cpp` 추가.
 ```bash
@@ -211,7 +211,7 @@ ctest --preset debug -R test_editor_task_service --output-on-failure
 ```
 Expected: PASS.
 
-- [ ] **Step 6: 커밋**
+- [x] **Step 6: 커밋**
 ```bash
 git add src/Core/EditorTaskService.h src/Core/EditorTaskService.cpp \
         tests/test_editor_task_service.cpp tests/CMakeLists.txt CMakeLists.txt
@@ -229,7 +229,7 @@ git commit -m "feat(tasks): EditorTaskService with ScriptCompile/Reload categori
 - Create: `tests/test_process_runner.cpp`
 - Modify: `CMakeLists.txt`(`EDITOR_SOURCES`에 `Process.cpp`; 단 인터페이스/Fake는 `molga_core` 테스트에서 쓰도록 헤더 온리), `tests/CMakeLists.txt`
 
-- [ ] **Step 1: 실패하는 테스트 작성** — `tests/test_process_runner.cpp`
+- [x] **Step 1: 실패하는 테스트 작성** — `tests/test_process_runner.cpp`
 
 ```cpp
 #include "Platform/Process.h"
@@ -286,7 +286,7 @@ TEST_CASE("cancellation stops streaming and marks cancelled") {
 }
 ```
 
-- [ ] **Step 2: 등록 + 실패 확인**
+- [x] **Step 2: 등록 + 실패 확인**
 
 `tests/CMakeLists.txt`:
 ```cmake
@@ -297,7 +297,7 @@ cmake --build --preset debug --target test_process_runner -j4
 ```
 Expected: FAIL — `Process.h` 없음.
 
-- [ ] **Step 3: 인터페이스 작성** — `src/Platform/Process.h`
+- [x] **Step 3: 인터페이스 작성** — `src/Platform/Process.h`
 
 ```cpp
 #pragma once
@@ -335,9 +335,9 @@ public:
 } // namespace molga
 ```
 
-- [ ] **Step 4: SystemProcessRunner 구현** — `src/Platform/Process.cpp`: 기존 `ScriptCompiler::ExecuteCommand`(`ScriptCompiler.cpp:441-467`) 패턴을 재사용하되 `fgets` 루프에서 **줄 단위로 `onLine` 호출**하고, 매 줄 사이 `isCancelled()`를 점검한다. `workdir`은 `cd "<workdir>" && <command> 2>&1` 형태로 합성(기존 `Compile()`의 `cd ... && cmake` 방식과 동일, `ScriptCompiler.cpp:246`,`:259`).
+- [x] **Step 4: SystemProcessRunner 구현** — `src/Platform/Process.cpp`: 기존 `ScriptCompiler::ExecuteCommand`(`ScriptCompiler.cpp:441-467`) 패턴을 재사용하되 `fgets` 루프에서 **줄 단위로 `onLine` 호출**하고, 매 줄 사이 `isCancelled()`를 점검한다. `workdir`은 `cd "<workdir>" && <command> 2>&1` 형태로 합성(기존 `Compile()`의 `cd ... && cmake` 방식과 동일, `ScriptCompiler.cpp:246`,`:259`).
 
-- [ ] **Step 5: ScriptCompiler를 러너 주입형으로 분해**
+- [x] **Step 5: ScriptCompiler를 러너 주입형으로 분해**
 
 `src/Scripting/ScriptCompiler.h`에 task/runner 친화 API 추가:
 ```cpp
@@ -348,7 +348,7 @@ public:
 ```
 구현은 `Compile()` 안의 문자열(`ScriptCompiler.cpp:246`,`:259`)을 그대로 옮긴다. 기존 `Compile()`은 호환을 위해 남기되, 새 경로는 `EditorTaskService`+`IProcessRunner`로 두 커맨드를 순차 실행한다.
 
-- [ ] **Step 6: ScriptWindow Compile 버튼을 비동기로 교체**
+- [x] **Step 6: ScriptWindow Compile 버튼을 비동기로 교체**
 
 `src/Editor/Windows/ScriptWindow.cpp:61-75`의 동기 블록을 task 큐잉으로:
 ```cpp
@@ -363,7 +363,7 @@ if (ImGui::Button("Compile")) {
 ```
 `Editor::LaunchScriptCompile`(아래 Task C에서 정의)은 **별도 `std::thread`**에서 `SystemProcessRunner`로 두 커맨드를 돌리고, `onLine`마다 `Tasks().AppendLog(id, line)`(→ Console sink로도 미러)하고, 종료 시 `Tasks().Complete(id, ...)`를 호출한다. UI는 어떤 프레임도 블로킹하지 않는다.
 
-- [ ] **Step 7: CMake 등록 + 통과/빌드 확인**
+- [x] **Step 7: CMake 등록 + 통과/빌드 확인**
 
 `CMakeLists.txt` `EDITOR_SOURCES`에 `src/Platform/Process.cpp` 추가.
 ```bash
@@ -374,7 +374,7 @@ cmake --build --preset debug --target molga_engine -j4
 ```
 Expected: 테스트 PASS, 에디터 빌드 성공.
 
-- [ ] **Step 8: 커밋**
+- [x] **Step 8: 커밋**
 ```bash
 git add src/Platform/Process.h src/Platform/Process.cpp \
         src/Scripting/ScriptCompiler.h src/Scripting/ScriptCompiler.cpp \
@@ -393,7 +393,7 @@ git commit -m "feat(script): injectable process runner; async compile streams st
 - Modify: `src/Scripting/ScriptManager.h`, `src/Scripting/ScriptManager.cpp`
 - Test: `tests/test_script_reload_service.cpp`(일부) — 단, 실제 dlopen 없는 검증 경로는 fake 핸들 정책으로 테스트.
 
-- [ ] **Step 1: 실패 케이스부터** — last-good 보존 단위 테스트를 Task E의 `ScriptReloadService` 테스트로 통합(아래). 여기서는 `ScriptManager`에 검증/스왑 API를 추가한다.
+- [x] **Step 1: 실패 케이스부터** — last-good 보존 단위 테스트를 Task E의 `ScriptReloadService` 테스트로 통합(아래). 여기서는 `ScriptManager`에 검증/스왑 API를 추가한다.
 
 `src/Scripting/ScriptManager.h`에 추가:
 ```cpp
@@ -413,7 +413,7 @@ git commit -m "feat(script): injectable process runner; async compile streams st
     std::string activeLibraryPath_;
 ```
 
-- [ ] **Step 2: 구현**
+- [x] **Step 2: 구현**
 
 `ValidateLibrary`: `Platform::LoadDynamicLibrary` → 실패면 `error = Platform::GetDynamicLibraryError(); return false;`. 핸들에서 `Platform::GetSymbol(handle,"RegisterScripts")`가 null이면 `Platform::CloseDynamicLibrary(handle)` 후 `error = "RegisterScripts not found"; return false;`. 성공이면 `outHandle = handle; return true;` (아직 등록은 하지 않는다 — 검증만).
 
@@ -421,13 +421,13 @@ git commit -m "feat(script): injectable process runner; async compile streams st
 
 > 핵심: 기존 `ReloadScriptLibraries`의 "비우고 → 다시 로드" 순서를 뒤집어, **새 라이브러리가 검증을 통과한 다음에야** 과거 것을 버린다.
 
-- [ ] **Step 3: 빌드만 확인(테스트는 Task E에서)**
+- [x] **Step 3: 빌드만 확인(테스트는 Task E에서)**
 ```bash
 cmake --build --preset debug --target molga_core -j4
 ```
 Expected: 빌드 성공.
 
-- [ ] **Step 4: 커밋**
+- [x] **Step 4: 커밋**
 ```bash
 git add src/Scripting/ScriptManager.h src/Scripting/ScriptManager.cpp
 git commit -m "feat(script): validate library before swap; keep last-good active on failure"
@@ -444,7 +444,7 @@ git commit -m "feat(script): validate library before swap; keep last-good active
 - Create: `tests/test_script_field_snapshot.cpp`
 - Modify: `tests/CMakeLists.txt`
 
-- [ ] **Step 1: 실패하는 테스트 작성** — `tests/test_script_field_snapshot.cpp`
+- [x] **Step 1: 실패하는 테스트 작성** — `tests/test_script_field_snapshot.cpp`
 
 ```cpp
 #include "Scripting/Script.h"
@@ -488,7 +488,7 @@ TEST_CASE("snapshot of a script with no registered fields is empty but safe") {
 }
 ```
 
-- [ ] **Step 2: 등록 + 실패 확인**
+- [x] **Step 2: 등록 + 실패 확인**
 
 `tests/CMakeLists.txt`:
 ```cmake
@@ -499,7 +499,7 @@ cmake --build --preset debug --target test_script_field_snapshot -j4
 ```
 Expected: FAIL — `SnapshotFields`/`RestoreFields` 미정의.
 
-- [ ] **Step 3: 구현** — `src/Scripting/Script.h` public에 추가:
+- [x] **Step 3: 구현** — `src/Scripting/Script.h` public에 추가:
 ```cpp
     // reload 경계에서 사용하는 필드 스냅샷/복원. Serialize/Deserialize의
     // "fields" 페이로드를 그대로 재사용한다.
@@ -519,7 +519,7 @@ void Script::RestoreFields(const nlohmann::json& snapshot) {
 }
 ```
 
-- [ ] **Step 4: 통과 + 커밋**
+- [x] **Step 4: 통과 + 커밋**
 ```bash
 cmake --build --preset debug --target test_script_field_snapshot -j4
 ctest --preset debug -R test_script_field_snapshot --output-on-failure
@@ -539,7 +539,7 @@ git commit -m "feat(script): SnapshotFields/RestoreFields reuse field serializat
 - Create: `tests/test_script_reload_service.cpp`
 - Modify: `CMakeLists.txt`(`ENGINE_SOURCES`), `tests/CMakeLists.txt`, `src/main.cpp`, `src/Editor/Editor.h/.cpp`
 
-- [ ] **Step 1: 안전 지점 계약 명시(문서 + 테스트로 표현)**
+- [x] **Step 1: 안전 지점 계약 명시(문서 + 테스트로 표현)**
 
 **Reload 안전 지점 정의:** reload(unload+swap+재바인딩)는 *프레임 사이*에만, 다음 조건이 **모두** 참일 때 실행한다.
 1. 에디터가 **Edit 모드**다(`EditorState::IsEditMode()`, `EditorState.h:17`). Play 중에는 `playWorld_`가 살아있어 스크립트 인스턴스가 시뮬레이션에 참여하므로 reload하지 않는다.
@@ -548,7 +548,7 @@ git commit -m "feat(script): SnapshotFields/RestoreFields reuse field serializat
 
 이 지점에서 모든 동적 `Script`는 메인 스레드 소유의 `editWorld_` 오브젝트에 매달려 있고, 어떤 활성 호출 프레임에도 잡혀 있지 않으므로 안전하게 파괴/재생성할 수 있다.
 
-- [ ] **Step 2: 실패하는 테스트 작성** — `tests/test_script_reload_service.cpp`
+- [x] **Step 2: 실패하는 테스트 작성** — `tests/test_script_reload_service.cpp`
 
 ```cpp
 #include "Scripting/ScriptReloadService.h"
@@ -612,7 +612,7 @@ TEST_CASE("pump with no pending reload is a no-op") {
 }
 ```
 
-- [ ] **Step 3: 등록 + 실패 확인**
+- [x] **Step 3: 등록 + 실패 확인**
 
 `tests/CMakeLists.txt`:
 ```cmake
@@ -623,7 +623,7 @@ cmake --build --preset debug --target test_script_reload_service -j4
 ```
 Expected: FAIL — 헤더 없음.
 
-- [ ] **Step 4: 인터페이스/상태 머신 작성** — `src/Scripting/ScriptReloadService.h`
+- [x] **Step 4: 인터페이스/상태 머신 작성** — `src/Scripting/ScriptReloadService.h`
 
 ```cpp
 #pragma once
@@ -669,7 +669,7 @@ private:
 } // namespace molga
 ```
 
-- [ ] **Step 5: 구현** — `src/Scripting/ScriptReloadService.cpp`
+- [x] **Step 5: 구현** — `src/Scripting/ScriptReloadService.cpp`
 
 ```cpp
 #include "Scripting/ScriptReloadService.h"
@@ -697,7 +697,7 @@ ReloadOutcome ScriptReloadService::PumpPendingReload(bool isEditMode) {
 } // namespace molga
 ```
 
-- [ ] **Step 6: 실 ILibraryPort 구현 (editor 측, 필드 스냅샷/복원 결합)**
+- [x] **Step 6: 실 ILibraryPort 구현 (editor 측, 필드 스냅샷/복원 결합)**
 
 `Editor`(또는 `ScriptManager` 어댑터)에 `ILibraryPort` 구현을 둔다. `Swap(path)`은 safe point에서:
 1. `editWorld_`를 순회해 모든 동적 `Script*`를 모으고, 각자 `SnapshotFields()`(Task D)로 JSON 저장 + 소속 GameObject·스크립트 클래스명(`GetScriptName()`) 기록.
@@ -709,7 +709,7 @@ ReloadOutcome ScriptReloadService::PumpPendingReload(bool isEditMode) {
 
 > **위험 통제(로드맵 §Milestone 1-5):** 동적 라이브러리 unload 전에 모든 스크립트 인스턴스를 파괴하고(2단계), 함수 포인터·RTTI 객체를 unload 이후 보관하지 않는다(`dynamicFactories.clear()` in `SwapToValidatedLibrary`).
 
-- [ ] **Step 7: 프레임 루프 + 컴파일 성공 연결**
+- [x] **Step 7: 프레임 루프 + 컴파일 성공 연결**
 
 - `src/Editor/Editor.h`: `EditorTaskService tasks_; ScriptReloadService reload_;` (또는 포인터) 멤버와 `EditorTaskService& Tasks();`/`ScriptReloadService& ScriptReload();` 접근자, `void PumpScriptReload(bool isEditMode);`, 그리고 Task B Step 6이 호출하는 `void LaunchScriptCompile(TaskId id, const std::string& scriptsDir, const std::string& configureCmd, const std::string& buildCmd);`를 선언한다. `LaunchScriptCompile`은 별도 `std::thread`에서 `SystemProcessRunner`로 두 커맨드를 순차 실행하고 `Tasks().AppendLog`/`Tasks().Complete`를 호출하며, 성공 시 `ScriptReload().RequestReload(...)`를 건다.
 - `src/main.cpp`의 safe point(`EventBus::ProcessQueue();` 직후, `glfwSwapBuffers` 직전, `:286-288`)에 추가:
@@ -720,7 +720,7 @@ ReloadOutcome ScriptReloadService::PumpPendingReload(bool isEditMode) {
 ```
 - 컴파일 task가 `Succeeded`로 끝나는 콜백(Task B의 워커 종료부)에서 `Editor::Get().ScriptReload().RequestReload(compiler.GetCompiledLibraryPath())` 호출 → 다음 safe point에 reload된다.
 
-- [ ] **Step 8: CMake 등록 + 통과/빌드 확인**
+- [x] **Step 8: CMake 등록 + 통과/빌드 확인**
 
 `CMakeLists.txt` `ENGINE_SOURCES`에 `src/Scripting/ScriptReloadService.cpp` 추가.
 ```bash
@@ -731,7 +731,7 @@ cmake --build --preset debug --target molga_engine -j4
 ```
 Expected: 테스트 PASS, 에디터 빌드 성공.
 
-- [ ] **Step 9: ASan reload 반복 확인 (로드맵 1-5 완료 기준)**
+- [x] **Step 9: ASan reload 반복 확인 (로드맵 1-5 완료 기준)**
 
 가능하면 reload 정책+필드 복원을 반복하는 통합 테스트(`FakeLibraryPort`로 N회 swap)를 ASan에서 돌려 use-after-free가 없음을 확인한다.
 ```bash
@@ -739,7 +739,7 @@ cmake --preset asan && cmake --build --preset asan --target test_script_reload_s
 ctest --preset asan -R test_script_reload_service --output-on-failure
 ```
 
-- [ ] **Step 10: 커밋**
+- [x] **Step 10: 커밋**
 ```bash
 git add src/Scripting/ScriptReloadService.h src/Scripting/ScriptReloadService.cpp \
         src/Editor/Editor.h src/Editor/Editor.cpp src/main.cpp \
@@ -757,7 +757,7 @@ git commit -m "feat(script): safe-point reload service; invalidate stale pointer
 - Create: `tests/test_play_mode_compile_policy.cpp`
 - Modify: `src/Editor/Windows/ScriptWindow.cpp`(버튼 가용성/툴팁), `src/Editor/Editor.cpp`(정책 적용 지점)
 
-- [ ] **Step 1: 실패하는 테스트 작성** — `tests/test_play_mode_compile_policy.cpp`
+- [x] **Step 1: 실패하는 테스트 작성** — `tests/test_play_mode_compile_policy.cpp`
 
 이미 Task E의 `ScriptReloadService`가 Play 중 reload를 `Deferred`로 미루는 것을 검증했다. 여기서는 **컴파일은 허용하되 reload만 미뤄지는** 전체 정책을 결정적으로 본다.
 
@@ -798,7 +798,7 @@ TEST_CASE("compile during play queues reload until Stop") {
 }
 ```
 
-- [ ] **Step 2: 등록 + 실패 확인 → (Task E 구현으로 이미 통과해야 함)**
+- [x] **Step 2: 등록 + 실패 확인 → (Task E 구현으로 이미 통과해야 함)**
 
 `tests/CMakeLists.txt`:
 ```cmake
@@ -810,20 +810,20 @@ ctest --preset debug -R test_play_mode_compile_policy --output-on-failure
 ```
 Expected: PASS(상태 머신이 이미 정책을 구현). FAIL이면 `PumpPendingReload`가 pending을 유지하는지(Deferred가 큐를 비우지 않는지) 점검.
 
-- [ ] **Step 3: UI에 정책을 가시화**
+- [x] **Step 3: UI에 정책을 가시화**
 
 `src/Editor/Windows/ScriptWindow.cpp`:
 - Compile 버튼은 Play 중에도 활성(백그라운드 task). 단 Play 중이면 버튼 옆/툴팁에 "Reload will apply after Stop" 안내를 표시한다.
 - "Hot Reload" 버튼은 Play 중 비활성화(`ImGui::BeginDisabled(EditorState::Get().IsPlayMode())`)하고, 비활성 사유 툴팁을 단다. Edit 모드에서는 즉시 `ScriptReload().RequestReload(...)`로 다음 safe point reload를 건다.
 
-- [ ] **Step 4: 전체 빌드/테스트 + 수동 검증**
+- [x] **Step 4: 전체 빌드/테스트 + 수동 검증**
 ```bash
 cmake --build --preset debug -j4
 ctest --preset debug --output-on-failure
 ```
 수동 검증(에디터): (1) 스크립트 필드값 설정 → Compile 클릭 → **UI가 멈추지 않고** Console에 빌드 로그가 흐름 → 성공 후 다음 프레임에 reload → 씬 오브젝트의 스크립트 필드 값이 유지됨. (2) 일부러 컴파일 오류를 내고 Compile → Console에 오류 표시 + 기존 스크립트 런타임이 계속 동작(last-good). (3) Play 중 Compile → reload는 Stop 후 적용됨.
 
-- [ ] **Step 5: 커밋**
+- [x] **Step 5: 커밋**
 ```bash
 git add src/Editor/Windows/ScriptWindow.cpp src/Editor/Editor.cpp \
         tests/test_play_mode_compile_policy.cpp tests/CMakeLists.txt
@@ -834,13 +834,13 @@ git commit -m "feat(script): explicit play-mode policy — compile allowed, relo
 
 ## 완료 기준
 
-- [ ] 스크립트 컴파일이 에디터 렌더링을 블로킹하지 않는다 (Compile은 task+워커 스레드; UI는 매 프레임 진행). — 갭 분석 §4
-- [ ] 컴파일 상태가 Console과 task UI에 보인다 (stdout/stderr가 `EditorTaskService` 로그로 스트리밍 → Console sink). — §4
-- [ ] 실패한 컴파일이 현재 스크립트 런타임을 사용 가능하게 둔다 (검증 실패 시 `Swap` 미호출 = last-good 유지). — §4, `test_script_reload_service` "failed validation keeps last-good"
-- [ ] reload가 stale 스크립트 포인터를 **문서화된 안전 지점**에서 무효화한다 (unload 전 인스턴스 파괴 + 프레임 끝·Edit 모드에서만 swap). — §4
-- [ ] Play 모드 컴파일 동작이 명시적이다 (컴파일 허용, reload는 Stop까지 큐잉; `test_play_mode_compile_policy`). — §4
-- [ ] **Exit 시나리오:** 에디터를 켠 채 게임플레이 스크립트를 수정 → UI 블로킹 없이 컴파일 → 성공적으로 reload → 씬 오브젝트의 필드 값이 그대로 유지됨 (`test_script_field_snapshot` + 수동 검증).
-- [ ] reload 반복이 ASan에서 통과한다 (use-after-free 없음). — 로드맵 1-5
+- [x] 스크립트 컴파일이 에디터 렌더링을 블로킹하지 않는다 (Compile은 task+워커 스레드; UI는 매 프레임 진행). — 갭 분석 §4
+- [x] 컴파일 상태가 Console과 task UI에 보인다 (stdout/stderr가 `EditorTaskService` 로그로 스트리밍 → Console sink). — §4
+- [x] 실패한 컴파일이 현재 스크립트 런타임을 사용 가능하게 둔다 (검증 실패 시 `Swap` 미호출 = last-good 유지). — §4, `test_script_reload_service` "failed validation keeps last-good"
+- [x] reload가 stale 스크립트 포인터를 **문서화된 안전 지점**에서 무효화한다 (unload 전 인스턴스 파괴 + 프레임 끝·Edit 모드에서만 swap). — §4
+- [x] Play 모드 컴파일 동작이 명시적이다 (컴파일 허용, reload는 Stop까지 큐잉; `test_play_mode_compile_policy`). — §4
+- [x] **Exit 시나리오:** 에디터를 켠 채 게임플레이 스크립트를 수정 → UI 블로킹 없이 컴파일 → 성공적으로 reload → 씬 오브젝트의 필드 값이 그대로 유지됨 (`test_script_field_snapshot` + 수동 검증).
+- [x] reload 반복이 ASan에서 통과한다 (use-after-free 없음). — 로드맵 1-5
 
 ---
 

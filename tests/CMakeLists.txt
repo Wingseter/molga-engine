@@ -47,6 +47,13 @@ molga_add_test(test_editor_task_service test_editor_task_service.cpp)
 target_sources(test_editor_task_service PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/EditorTaskService.cpp)
 target_include_directories(test_editor_task_service PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_add_test(test_process_runner test_process_runner.cpp)
+target_sources(test_process_runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Platform/Process.cpp)
+target_include_directories(test_process_runner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_add_test(test_script_field_snapshot test_script_field_snapshot.cpp)
+molga_add_test(test_script_reload_service test_script_reload_service.cpp)
+molga_add_test(test_play_mode_compile_policy test_play_mode_compile_policy.cpp)
 molga_add_test(test_collision         test_collision.cpp)
 molga_add_test(test_physics           test_physics.cpp)
 molga_add_test(test_tilemap           test_tilemap.cpp)

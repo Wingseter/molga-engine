@@ -18,8 +18,85 @@ Log::LogContext EditorTaskService::ContextFor(TaskCategory c) {
 TaskId EditorTaskService::Begin(const std::string& name, TaskCategory category) {
     std::lock_guard<std::mutex> lock(mutex_);
     TaskId id = nextId_++;
-    tasks_[id] = Task{name, category, TaskState::Running, 0.0f};
+    tasks_[id] = Task{id, name, category, TaskState::Queued, 0.0f, "", ""};
     return id;
+}
+
+void EditorTaskService::MarkRunning(TaskId id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = tasks_.find(id);
+    if (it != tasks_.end()) {
+        it->second.state = TaskState::Running;
+    }
+}
+
+void EditorTaskService::SetProgress(TaskId id, float p) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = tasks_.find(id);
+    if (it != tasks_.end()) {
+        it->second.progress = p;
+    }
+}
+
+void EditorTaskService::AppendLog(TaskId id, const std::string& chunk) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = tasks_.find(id);
+    if (it != tasks_.end()) {
+        it->second.log += chunk;
+    }
+}
+
+void EditorTaskService::SetResult(TaskId id, const std::string& payload) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = tasks_.find(id);
+    if (it != tasks_.end()) {
+        it->second.result = payload;
+    }
+}
+
+void EditorTaskService::Complete(TaskId id, TaskState terminal) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = tasks_.find(id);
+    if (it != tasks_.end()) {
+        it->second.state = terminal;
+        if (terminal == TaskState::Succeeded) {
+            it->second.progress = 1.0f;
+        }
+    }
+}
+
+void EditorTaskService::RequestCancel(TaskId id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    cancel_[id] = true;
+    auto it = tasks_.find(id);
+    if (it != tasks_.end() && it->second.state == TaskState::Queued) {
+        it->second.state = TaskState::Cancelled;
+    }
+}
+
+bool EditorTaskService::IsCancelRequested(TaskId id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = cancel_.find(id);
+    return it != cancel_.end() && it->second;
+}
+
+TaskInfo EditorTaskService::Get(TaskId id) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = tasks_.find(id);
+    if (it == tasks_.end()) {
+        return TaskInfo{};
+    }
+    const auto& t = it->second;
+    return TaskInfo{t.id, t.name, t.category, t.state, t.progress, t.log, t.result};
+}
+
+std::vector<TaskInfo> EditorTaskService::Snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<TaskInfo> out;
+    for (auto& [id, t] : tasks_) {
+        out.push_back({t.id, t.name, t.category, t.state, t.progress, t.log, t.result});
+    }
+    return out;
 }
 
 void EditorTaskService::Update(TaskId id, float progress, const std::string& line) {
@@ -29,6 +106,12 @@ void EditorTaskService::Update(TaskId id, float progress, const std::string& lin
         auto it = tasks_.find(id);
         if (it == tasks_.end()) return;
         it->second.progress = progress;
+        if (!line.empty()) {
+            it->second.log += line;
+            if (line.back() != '\n') {
+                it->second.log += "\n";
+            }
+        }
         cat = it->second.category;
     }
     if (line.empty()) return;
@@ -46,11 +129,7 @@ void EditorTaskService::Update(TaskId id, float progress, const std::string& lin
 }
 
 void EditorTaskService::Finish(TaskId id, TaskState state) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    auto it = tasks_.find(id);
-    if (it == tasks_.end()) return;
-    it->second.state = state;
-    if (state == TaskState::Succeeded) it->second.progress = 1.0f;
+    Complete(id, state);
 }
 
 TaskState EditorTaskService::GetState(TaskId id) const {
@@ -63,14 +142,6 @@ float EditorTaskService::GetProgress(TaskId id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = tasks_.find(id);
     return it == tasks_.end() ? 0.0f : it->second.progress;
-}
-
-std::vector<EditorTaskService::TaskView> EditorTaskService::Snapshot() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::vector<TaskView> out;
-    for (auto& [id, t] : tasks_)
-        out.push_back({id, t.name, t.category, t.state, t.progress});
-    return out;
 }
 
 bool EditorTaskService::ParseDiagnostic(const std::string& line, Log::LogMessage& out) {

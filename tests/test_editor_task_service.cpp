@@ -4,10 +4,12 @@
 #include "doctest.h"
 #include <memory>
 #include <vector>
+#include <thread>
 
 using molga::EditorTaskService;
 using molga::TaskCategory;
 using molga::TaskState;
+using molga::TaskId;
 
 namespace {
 struct CapturingSink : Log::ILogSink {
@@ -19,6 +21,7 @@ struct CapturingSink : Log::ILogSink {
 TEST_CASE("Begin/Update/Finish drives a task through its state machine") {
     EditorTaskService svc;
     auto id = svc.Begin("Compile Scripts", TaskCategory::ScriptCompile);
+    svc.MarkRunning(id);
     CHECK(svc.GetState(id) == TaskState::Running);
 
     svc.Update(id, 0.5f, "compiling Player.cpp");
@@ -55,4 +58,46 @@ TEST_CASE("ParseDiagnostic extracts path and line from a compiler error line") {
     CHECK(m.externalPath == "Scripts/Player.cpp");
     CHECK(m.externalLine == 42);
     CHECK(m.severity == Log::Severity::Error);
+}
+
+TEST_CASE("queued task is observable and transitions to running then succeeded") {
+    EditorTaskService svc;
+    TaskId id = svc.Begin("Compile UserScripts", TaskCategory::ScriptCompile);
+    CHECK(svc.Get(id).state == TaskState::Queued);
+
+    svc.MarkRunning(id);
+    CHECK(svc.Get(id).state == TaskState::Running);
+
+    svc.AppendLog(id, "=== CMake Build ===\n");
+    svc.Complete(id, TaskState::Succeeded);
+
+    auto info = svc.Get(id);
+    CHECK(info.state == TaskState::Succeeded);
+    CHECK(info.category == TaskCategory::ScriptCompile);
+    CHECK(info.log.find("CMake Build") != std::string::npos);
+}
+
+TEST_CASE("logs appended from a worker thread are visible on the main thread") {
+    EditorTaskService svc;
+    TaskId id = svc.Begin("Compile", TaskCategory::ScriptCompile);
+    svc.MarkRunning(id);
+
+    std::thread worker([&]{
+        for (int i = 0; i < 100; ++i) svc.AppendLog(id, "line\n");
+        svc.Complete(id, TaskState::Failed);
+    });
+    worker.join();
+
+    auto info = svc.Get(id);
+    CHECK(info.state == TaskState::Failed);
+    CHECK(info.log.size() >= 500);   // 100 * "line\n"
+}
+
+TEST_CASE("cancel before run yields Cancelled and skips work") {
+    EditorTaskService svc;
+    TaskId id = svc.Begin("Compile", TaskCategory::ScriptCompile);
+    svc.RequestCancel(id);
+    CHECK(svc.IsCancelRequested(id));
+    svc.Complete(id, TaskState::Cancelled);
+    CHECK(svc.Get(id).state == TaskState::Cancelled);
 }

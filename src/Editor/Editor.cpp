@@ -28,6 +28,131 @@
 #include <filesystem>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include "Scripting/Script.h"
+#include "Platform/Platform.h"
+#include "Platform/Process.h"
+
+namespace {
+class EditorLibraryPort : public molga::ILibraryPort {
+public:
+    explicit EditorLibraryPort(Editor* editor) : editor_(editor) {}
+
+    bool Validate(const std::string& path, std::string& error) override {
+        CleanValidated();
+        void* handle = nullptr;
+        if (ScriptManager::Get().ValidateLibrary(path, handle, error)) {
+            validatedHandle_ = handle;
+            validatedPath_ = path;
+            return true;
+        }
+        return false;
+    }
+
+    void Swap(const std::string& path) override {
+        void* handleToUse = nullptr;
+        if (validatedPath_ == path && validatedHandle_) {
+            handleToUse = validatedHandle_;
+            validatedHandle_ = nullptr;
+            validatedPath_.clear();
+        } else {
+            CleanValidated();
+            std::string err;
+            if (!ScriptManager::Get().ValidateLibrary(path, handleToUse, err)) {
+                Log::Error("Editor", "Failed to validate library during swap: " + err);
+                return;
+            }
+        }
+
+        // 1. Gather all dynamic Script instances currently attached to game objects in the scene.
+        struct ScriptSnapshot {
+            unsigned int gameObjectId;
+            std::string scriptName;
+            nlohmann::json fields;
+        };
+        std::vector<ScriptSnapshot> snapshots;
+
+        auto* gameObjects = editor_->GetGameObjects();
+        if (gameObjects) {
+            for (auto& obj : *gameObjects) {
+                if (!obj) continue;
+                for (auto* comp : obj->GetComponents()) {
+                    if (auto* script = dynamic_cast<Script*>(comp)) {
+                        std::string scriptName = script->GetScriptName();
+                        if (ScriptManager::Get().IsDynamicScript(scriptName)) {
+                            snapshots.push_back({
+                                obj->GetID(),
+                                scriptName,
+                                script->SnapshotFields()
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Remove those dynamic scripts from their GameObjects to prevent stale pointers/vtables.
+        if (gameObjects) {
+            for (auto& obj : *gameObjects) {
+                if (!obj) continue;
+                std::vector<size_t> dynamicTypesToRemove;
+                for (auto* comp : obj->GetComponents()) {
+                    if (auto* script = dynamic_cast<Script*>(comp)) {
+                        std::string scriptName = script->GetScriptName();
+                        if (ScriptManager::Get().IsDynamicScript(scriptName)) {
+                            dynamicTypesToRemove.push_back(script->GetRuntimeTypeID());
+                        }
+                    }
+                }
+                for (size_t typeId : dynamicTypesToRemove) {
+                    obj->RemoveComponentById(typeId);
+                }
+            }
+        }
+
+        // 3. Swap the active library handle in ScriptManager.
+        ScriptManager::Get().SwapToValidatedLibrary(handleToUse, path);
+
+        // 4. Recreate scripts and restore their fields.
+        if (gameObjects) {
+            for (const auto& snap : snapshots) {
+                GameObject* obj = editor_->FindObjectById(snap.gameObjectId);
+                if (!obj) continue;
+
+                auto newScript = ScriptManager::Get().CreateScript(snap.scriptName);
+                if (newScript) {
+                    newScript->RestoreFields(snap.fields);
+                    obj->AddComponentRaw(newScript.release());
+                } else {
+                    Log::Error("Editor", "Failed to recreate script '" + snap.scriptName + "' after reload");
+                }
+            }
+        }
+
+        Log::Info("Editor", "Successfully swapped and reloaded library: " + path);
+    }
+
+    std::string Active() const override {
+        return ScriptManager::Get().ActiveLibraryPath();
+    }
+
+    ~EditorLibraryPort() override {
+        CleanValidated();
+    }
+
+private:
+    void CleanValidated() {
+        if (validatedHandle_) {
+            Platform::CloseDynamicLibrary(validatedHandle_);
+            validatedHandle_ = nullptr;
+        }
+        validatedPath_.clear();
+    }
+
+    Editor* editor_;
+    void* validatedHandle_ = nullptr;
+    std::string validatedPath_;
+};
+}
 
 Editor &Editor::Get() {
   static Editor instance;
@@ -62,6 +187,9 @@ void Editor::Init() {
   std::string enginePath = PathService::Get().ExecutableDir().string();
   ScriptCompiler::Get().SetEnginePath(enginePath);
   VSCodeIntegration::Get().SetEnginePath(enginePath);
+
+  libraryPort_ = std::make_unique<EditorLibraryPort>(this);
+  reloadService_ = std::make_unique<molga::ScriptReloadService>(libraryPort_.get());
 }
 
 void Editor::Shutdown() {
@@ -386,6 +514,7 @@ void Editor::RenderScriptingMenu() {
     if (ImGui::MenuItem("Compile Scripts", "Ctrl+Shift+B")) {
       ScriptCompiler &compiler = ScriptCompiler::Get();
       compiler.SetProjectPath(project.GetPath());
+      compiler.GenerateCMakeLists();
 
       if (auto* console = windowManager.GetAs<ConsoleWindow>(EditorConstants::WIN_CONSOLE)) {
         if (console->IsClearOnRecompile()) {
@@ -395,36 +524,15 @@ void Editor::RenderScriptingMenu() {
 
       auto& tasks = GetTaskService();
       molga::TaskId tid = tasks.Begin("Compile Scripts", molga::TaskCategory::ScriptCompile);
-
-      bool ok = compiler.Compile();
-
-      std::istringstream ss(compiler.GetCompileOutput());
-      for (std::string line; std::getline(ss, line); ) {
-        tasks.Update(tid, ok ? 1.0f : 0.5f, line);
-      }
-
-      tasks.Finish(tid, ok ? molga::TaskState::Succeeded : molga::TaskState::Failed);
-
-      if (ok) {
-        Log::Info("Editor", "Scripts compiled successfully");
-      } else {
-        Log::Error("Editor", "Script compilation failed: " + compiler.GetLastError());
-      }
-      auto* scriptWin = windowManager.GetAs<ScriptWindow>(EditorConstants::WIN_SCRIPTS);
-      if (scriptWin) {
-        scriptWin->RefreshScriptList();
-      }
+      LaunchScriptCompile(tid, compiler.ScriptsDir(), compiler.ConfigureCommand(), compiler.BuildCommand());
     }
 
-    if (ImGui::MenuItem("Hot Reload", "Ctrl+R")) {
+    bool isPlaying = EditorState::Get().IsPlayMode();
+    if (ImGui::MenuItem("Hot Reload", "Ctrl+R", nullptr, !isPlaying)) {
       ScriptCompiler &compiler = ScriptCompiler::Get();
       std::string libPath = compiler.GetCompiledLibraryPath();
       if (std::filesystem::exists(libPath)) {
-        if (ScriptManager::Get().LoadScriptLibrary(libPath)) {
-          Log::Info("Editor", "Scripts reloaded successfully");
-        } else {
-          Log::Error("Editor", "Failed to reload scripts");
-        }
+        reloadService_->RequestReload(libPath);
       } else {
         Log::Error("Editor", "No compiled library found");
       }
@@ -494,4 +602,67 @@ void Editor::SubmitTransformEdit(unsigned int targetId,
                                  const molga::TransformState& after) {
     commandHistory.Execute(
         std::make_unique<molga::TransformCommand>(nullptr, targetId, before, after));
+}
+
+void Editor::PumpScriptReload(bool isEditMode) {
+    if (reloadService_) {
+        reloadService_->PumpPendingReload(isEditMode);
+    }
+}
+
+void Editor::LaunchScriptCompile(molga::TaskId id,
+                                 const std::string& scriptsDir,
+                                 const std::string& configureCmd,
+                                 const std::string& buildCmd) {
+    std::thread worker([this, id, scriptsDir, configureCmd, buildCmd]() {
+        taskService.MarkRunning(id);
+
+        molga::SystemProcessRunner runner;
+
+        taskService.AppendLog(id, "=== CMake Configure ===\n");
+        auto configRes = runner.Run(configureCmd, scriptsDir,
+            [this, id](const std::string& line) {
+                taskService.Update(id, 0.25f, line);
+            },
+            [this, id]() {
+                return taskService.IsCancelRequested(id);
+            });
+
+        if (configRes.cancelled) {
+            taskService.Complete(id, molga::TaskState::Cancelled);
+            return;
+        }
+
+        if (configRes.exitCode != 0) {
+            taskService.AppendLog(id, "\nCMake configuration failed with exit code: " + std::to_string(configRes.exitCode) + "\n");
+            taskService.Complete(id, molga::TaskState::Failed);
+            return;
+        }
+
+        taskService.AppendLog(id, "=== CMake Build ===\n");
+        auto buildRes = runner.Run(buildCmd, scriptsDir,
+            [this, id](const std::string& line) {
+                taskService.Update(id, 0.75f, line);
+            },
+            [this, id]() {
+                return taskService.IsCancelRequested(id);
+            });
+
+        if (buildRes.cancelled) {
+            taskService.Complete(id, molga::TaskState::Cancelled);
+            return;
+        }
+
+        if (buildRes.exitCode != 0) {
+            taskService.AppendLog(id, "\nBuild failed with exit code: " + std::to_string(buildRes.exitCode) + "\n");
+            taskService.Complete(id, molga::TaskState::Failed);
+            return;
+        }
+
+        taskService.Complete(id, molga::TaskState::Succeeded);
+        
+        std::string libPath = ScriptCompiler::Get().GetCompiledLibraryPath();
+        reloadService_->RequestReload(libPath);
+    });
+    worker.detach();
 }
