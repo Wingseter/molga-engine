@@ -5,6 +5,8 @@
 #include <sstream>
 #include <memory>
 
+#include "Core/AssetDatabase.h"
+#include "Editor/Watcher/AssetWatcher.h"
 #include "Core/Bootstrap.h"
 #include "Rendering/Shader.h"
 #include "Rendering/ShaderManager.h"
@@ -38,6 +40,7 @@ const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 GLFWwindow* g_window = nullptr;
+static molga::AssetWatcher g_AssetWatcher;
 
 namespace {
 
@@ -206,6 +209,9 @@ int main(int argc, char* argv[]) {
         namespace fs = std::filesystem;
         PathService::Get().SetAssetRoot(Project::Get().GetPath());
 
+        molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+        g_AssetWatcher.Prime(Project::Get().GetAssetsPath());
+
         const fs::path mainScene = fs::path(Project::Get().GetScenesPath()) / "main.json";
         if (sceneDoc.Open(mainScene.string())) {
             sceneDoc.EditWorld().ResolveAssets();
@@ -220,13 +226,27 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // If window was not closed during project selection, run editor
     if (!glfwWindowShouldClose(window)) {
         // Main editor loop
         while (!glfwWindowShouldClose(window)) {
             Time::Update();
             Input::Update();
             float dt = Time::GetDeltaTime();
+
+            if (projectLoaded) {
+                static float assetPollTimer = 0.0f;
+                assetPollTimer += dt;
+                if (assetPollTimer > 0.5f) {
+                    auto ch = g_AssetWatcher.Poll(Project::Get().GetAssetsPath());
+                    for (auto& a : ch.added)   molga::AssetDatabase::Get().OnSourceAdded(a);
+                    for (auto& r : ch.removed) molga::AssetDatabase::Get().OnSourceRemoved(r);
+                    for (auto& m : ch.modified) {
+                        std::string g = molga::AssetDatabase::Get().GuidForSource(m);
+                        if (!g.empty()) molga::AssetDatabase::Get().Reimport(g);
+                    }
+                    assetPollTimer = 0.0f;
+                }
+            }
 
             // Get editor state
             EditorState& editorState = EditorState::Get();

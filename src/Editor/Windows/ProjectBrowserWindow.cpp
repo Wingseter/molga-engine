@@ -195,7 +195,31 @@ void ProjectBrowserWindow::BuildFolderTree(FolderNode& node) {
     }
 }
 
+static int AssetTypeIndex(const std::string& ext) {
+    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") return 1; // Texture
+    if (ext == ".wav" || ext == ".mp3" || ext == ".ogg")  return 2; // Audio
+    if (ext == ".prefab")                                  return 3; // Prefab
+    if (ext == ".cpp" || ext == ".h" || ext == ".lua")     return 4; // Script
+    if (ext == ".json" || ext == ".scene")                 return 5; // Scene
+    return 0; // All or Other
+}
+
+static void DrawBadge(ImVec2 minPos, ImU32 color, const char* text) {
+    ImVec2 badgePos = ImVec2(minPos.x + 8.0f, minPos.y + 8.0f);
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    drawList->AddCircleFilled(badgePos, 8.0f, color);
+    ImVec2 textSize = ImGui::CalcTextSize(text);
+    drawList->AddText(ImVec2(badgePos.x - textSize.x * 0.5f, badgePos.y - textSize.y * 0.5f), IM_COL32(255, 255, 255, 255), text);
+}
+
 void ProjectBrowserWindow::DrawFileGrid() {
+    // 검색 바 + 타입 필터(그리드 위)
+    ImGui::InputTextWithHint("##search", "Search assets...", searchBuffer_, sizeof(searchBuffer_));
+    ImGui::SameLine();
+    const char* kFilters[] = {"All","Texture","Audio","Prefab","Script","Scene"};
+    ImGui::SetNextItemWidth(120);
+    ImGui::Combo("##typeFilter", &typeFilter_, kFilters, IM_ARRAYSIZE(kFilters));
+
     float windowWidth = ImGui::GetContentRegionAvail().x;
     float cellSize = iconSize + padding * 2;
     int columns = std::max(1, static_cast<int>(windowWidth / cellSize));
@@ -205,9 +229,21 @@ void ProjectBrowserWindow::DrawFileGrid() {
     for (size_t i = 0; i < currentEntries.size(); i++) {
         FileEntry& entry = currentEntries[i];
 
+        // 검색 필터 + 타입 필터 적용
+        std::string needle = searchBuffer_;
+        if (!needle.empty()) {
+            std::string nameLower = entry.name;
+            std::string needleLower = needle;
+            std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+            std::transform(needleLower.begin(), needleLower.end(), needleLower.begin(), ::tolower);
+            if (nameLower.find(needleLower) == std::string::npos) continue;
+        }
+        if (typeFilter_ != 0 && AssetTypeIndex(entry.extension) != typeFilter_) continue;
+
         if (itemIndex > 0 && itemIndex % columns != 0) {
             ImGui::SameLine();
         }
+        itemIndex++;
 
         ImGui::PushID(static_cast<int>(i));
 
@@ -240,6 +276,19 @@ void ProjectBrowserWindow::DrawFileGrid() {
             if (onFileSelected) {
                 onFileSelected(entry.path);
             }
+        }
+
+        // badge 오버레이
+        ImVec2 buttonMinPos = ImGui::GetItemRectMin();
+        std::string guid = molga::AssetDatabase::Get().GuidForSource(
+            Project::Get().GetRelativePath(entry.path));
+        const molga::AssetRecord* rec = molga::AssetDatabase::Get().Find(guid);
+        if (guid.empty() && !entry.isDirectory) {
+            DrawBadge(buttonMinPos, IM_COL32(255,80,80,255), "?");      // missing/미인덱스
+        } else if (rec && rec->importFailed) {
+            DrawBadge(buttonMinPos, IM_COL32(255,160,0,255), "!");      // import-failed
+        } else if (rec && rec->generated) {
+            DrawBadge(buttonMinPos, IM_COL32(120,120,255,255), "G");    // generated
         }
 
         // Drag source for image files

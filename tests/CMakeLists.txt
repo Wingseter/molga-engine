@@ -29,6 +29,9 @@ target_sources(test_asset_reference_scan PRIVATE
 molga_add_test(test_project_file_commands test_project_file_commands.cpp)
 target_sources(test_project_file_commands PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Commands/ProjectFileCommands.cpp)
+molga_add_test(test_asset_watcher test_asset_watcher.cpp)
+target_sources(test_asset_watcher PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Watcher/AssetWatcher.cpp)
 molga_add_test(test_text              test_text.cpp)
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)

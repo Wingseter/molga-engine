@@ -179,6 +179,7 @@ set(EDITOR_SOURCES
     src/Scripting/ScriptCompiler.cpp
     src/Editor/AssetReferenceScan.cpp
     src/Editor/Commands/ProjectFileCommands.cpp
+    src/Editor/Watcher/AssetWatcher.cpp
 )
 
 # ── Main editor executable ─────────────────────────────────────────────────────
