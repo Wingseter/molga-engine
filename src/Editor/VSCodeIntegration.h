@@ -18,6 +18,7 @@ public:
     // Open VSCode
     bool OpenInVSCode(const std::string& projectPath);
     bool OpenFileInVSCode(const std::string& filePath);
+    bool OpenFileInVSCode(const std::string& filePath, int line);
 
     // Check if VSCode is available
     bool IsVSCodeAvailable() const;

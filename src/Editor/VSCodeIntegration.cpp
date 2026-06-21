@@ -244,6 +244,16 @@ bool VSCodeIntegration::OpenFileInVSCode(const std::string& filePath) {
     return ExecuteCommand(cmd);
 }
 
+bool VSCodeIntegration::OpenFileInVSCode(const std::string& filePath, int line) {
+    if (line <= 0) return OpenFileInVSCode(filePath);   // 줄 정보 없으면 기존 경로
+    if (!IsVSCodeAvailable()) {
+        std::cerr << "[VSCode] Visual Studio Code is not available" << std::endl;
+        return false;
+    }
+    std::string cmd = GetVSCodeCommand() + " -g \"" + filePath + ":" + std::to_string(line) + "\"";
+    return ExecuteCommand(cmd);
+}
+
 bool VSCodeIntegration::IsVSCodeAvailable() const {
     std::string cmd = GetVSCodeCommand() + " --version";
 
