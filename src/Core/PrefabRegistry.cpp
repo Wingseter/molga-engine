@@ -122,16 +122,8 @@ bool PrefabRegistry::HasPrefab(const std::string& guid) const {
     return guidToCache_.count(guid) > 0;
 }
 
-std::string PrefabRegistry::GenerateGUID() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
+#include "Core/Guid.h"
 
-    std::stringstream ss;
-    ss << std::hex << std::setfill('0')
-       << std::setw(8) << dis(gen)
-       << std::setw(8) << dis(gen)
-       << std::setw(8) << dis(gen)
-       << std::setw(8) << dis(gen);
-    return ss.str();
+std::string PrefabRegistry::GenerateGUID() {
+    return molga::Guid::Generate();
 }
