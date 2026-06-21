@@ -177,6 +177,8 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ConsoleWindow.cpp
     src/Editor/Project.cpp
     src/Scripting/ScriptCompiler.cpp
+    src/Editor/AssetReferenceScan.cpp
+    src/Editor/Commands/ProjectFileCommands.cpp
 )
 
 # ── Main editor executable ─────────────────────────────────────────────────────

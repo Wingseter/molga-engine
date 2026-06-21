@@ -11,6 +11,9 @@
 #include "../../ECS/GameObject.h"
 #include "Core/PrefabRegistry.h"
 #include "Editor/Commands/PrefabCommands.h"
+#include "Core/AssetDatabase.h"
+#include "Editor/AssetReferenceScan.h"
+#include "Editor/Commands/ProjectFileCommands.h"
 #include <imgui.h>
 #include <filesystem>
 #include <algorithm>
@@ -284,7 +287,19 @@ void ProjectBrowserWindow::DrawFileGrid() {
             }
 
             if (ImGui::MenuItem((std::string(Icons::Trash) + " Delete").c_str())) {
-                std::filesystem::remove(entry.path);
+                std::string guid = molga::AssetDatabase::Get().GuidForSource(
+                    Project::Get().GetRelativePath(entry.path));
+                auto refs = molga::AssetReferenceScan::FindReferencers(
+                    Project::Get().GetAssetsPath(), guid);
+                if (!refs.empty()) {
+                    Log::Warn("ProjectBrowser",
+                        "Deleting '" + entry.name + "' still referenced by " +
+                        std::to_string(refs.size()) + " document(s). Moved to trash (recoverable).");
+                }
+                std::filesystem::path trash =
+                    std::filesystem::path(Project::Get().GetAssetsPath()) / ".trash";
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ProjectFileDeleteCommand>(entry.path, trash));
                 Refresh();
             }
             ImGui::EndPopup();

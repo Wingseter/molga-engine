@@ -23,6 +23,12 @@ target_sources(test_importer PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Core/Importers/AudioImporter.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/Importers/PrefabImporter.cpp)
 molga_add_test(test_asset_reference_migration test_asset_reference_migration.cpp)
+molga_add_test(test_asset_reference_scan test_asset_reference_scan.cpp)
+target_sources(test_asset_reference_scan PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/AssetReferenceScan.cpp)
+molga_add_test(test_project_file_commands test_project_file_commands.cpp)
+target_sources(test_project_file_commands PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/ProjectFileCommands.cpp)
 molga_add_test(test_text              test_text.cpp)
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)
