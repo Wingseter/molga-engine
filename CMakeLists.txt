@@ -148,6 +148,7 @@ set(EDITOR_SOURCES
     src/Editor/Editor.cpp
     src/Editor/Commands/ObjectCommands.cpp
     src/Editor/Commands/PrefabCommands.cpp
+    src/Editor/Commands/TransformCommand.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
     src/Editor/UIRegistry.cpp

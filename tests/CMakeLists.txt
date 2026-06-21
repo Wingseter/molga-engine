@@ -41,6 +41,13 @@ molga_add_test(test_selection_service test_selection_service.cpp)
 molga_add_test(test_viewport_math test_viewport_math.cpp)
 molga_add_test(test_scene_picker test_scene_picker.cpp)
 
+molga_add_test(test_transform_command test_transform_command.cpp)
+target_sources(test_transform_command PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/TransformCommand.cpp
+)
+target_include_directories(test_transform_command PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_transform_command PRIVATE imgui)
+
 molga_add_test(test_script_compiler  test_script_compiler.cpp)
 molga_add_test(test_script_reflection test_script_reflection.cpp)
 molga_add_test(test_physics_query     test_physics_query.cpp)

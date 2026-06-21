@@ -8,6 +8,8 @@
 #include "BuildManager.h"
 
 #include "Editor/Commands/CommandHistory.h"
+#include "Editor/Selection/SelectionService.h"
+#include "Editor/Commands/TransformCommand.h"
 
 class GameObject;
 class Renderer;
@@ -40,6 +42,10 @@ public:
 
     molga::CommandHistory& GetCommandHistory() { return commandHistory; }
     WindowManager& GetWindowManager() { return windowManager; }
+    molga::SelectionService& GetSelection() { return selection_; }
+    void SubmitTransformEdit(unsigned int targetId,
+                             const molga::TransformState& before,
+                             const molga::TransformState& after);
 
     // Command가 사용하는 저수준 헬퍼
     std::shared_ptr<GameObject> AddExistingObject(std::shared_ptr<GameObject> obj);
@@ -84,6 +90,7 @@ private:
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
     molga::CommandHistory commandHistory;
+    molga::SelectionService selection_;
 
     // DockSpace
     bool firstTimeLayout = true;

@@ -11,6 +11,7 @@
 #include "../Core/MolgaTime.h"
 #include "EditorState.h"
 #include "Commands/ObjectCommands.h"
+#include "Editor/Commands/TransformCommand.h"
 #include "VSCodeIntegration.h"
 #include "Windows/HierarchyWindow.h"
 #include "Windows/InspectorWindow.h"
@@ -467,4 +468,11 @@ void Editor::SetSceneViewResources(Renderer* renderer, Shader* shader) {
     if (sceneView) {
         sceneView->SetSceneResources(renderer, shader, gameObjects);
     }
+}
+
+void Editor::SubmitTransformEdit(unsigned int targetId,
+                                 const molga::TransformState& before,
+                                 const molga::TransformState& after) {
+    commandHistory.Execute(
+        std::make_unique<molga::TransformCommand>(nullptr, targetId, before, after));
 }
