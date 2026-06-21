@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/Importers/Importer.h"
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -49,10 +50,17 @@ public:
 
     static std::string NormalizeRel(const std::filesystem::path& rel);
 
+    // guid가 인덱스에 없으면 누락. 호출자는 placeholder를 사용해야 한다.
+    bool IsMissing(const std::string& guid) const { return Find(guid) == nullptr; }
+
+    // 누락 텍스처용 placeholder 절대 경로(엔진 리소스). ResolveAssets가 사용.
+    static std::filesystem::path MissingTexturePath();
+
 public:
     AssetDatabase() = default;
 
 private:
+    static ImportResult RunImporter(const std::string& importer, const std::string& abs);
 
     void IndexOne(const std::filesystem::path& absPath);
     static std::string ImporterForExtension(const std::string& ext, int& versionOut);

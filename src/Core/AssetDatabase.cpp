@@ -1,9 +1,21 @@
 #include "Core/AssetDatabase.h"
 #include "Core/AssetMeta.h"
 #include "Common/Log.h"
+#include "Core/Guid.h"
+#include "Core/Importers/PrefabImporter.h"
+#include "Core/Importers/TextureImporter.h"
+#include "Core/Importers/AudioImporter.h"
+#include "Core/PathService.h"
 #include <algorithm>
 
 namespace molga {
+
+static ImportResult RunImporterImpl(const std::string& importer, const std::string& abs) {
+    if (importer == "TextureImporter") return TextureImporter().Import(abs);
+    if (importer == "AudioImporter")   return AudioImporter().Import(abs);
+    if (importer == "PrefabImporter")  return PrefabImporter().Import(abs);
+    ImportResult ok; ok.success = true; return ok;  // GenericImporter
+}
 
 AssetDatabase& AssetDatabase::Get() {
     static AssetDatabase instance;
@@ -31,16 +43,28 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
 
     int version = 1;
     std::string importer = ImporterForExtension(ext, version);
-    
-    // .prefab 이면 임시로 guid 추출 기능을 추후 PrefabImporter 구현 시 보완하도록, 
-    // 여기서는 기본 생성/로드 위주로 진행하고, 임베디드 guid가 있는지 체크하는 얇은 마이그레이션만 둡니다.
     AssetMeta meta = AssetMeta::CreateOrLoad(absPath, importer, version);
+
+    if (ext == ".prefab") {
+        std::string embedded = PrefabImporter::ReadEmbeddedGuid(absPath.string());
+        if (Guid::IsValid(embedded)) {
+            meta.guid = embedded;  // PrefabRegistry와 동일 guid 공유
+            // 변경된 guid를 meta 파일에 다시 쓴다 (persist)
+            AssetMeta::Write(absPath, meta);
+        }
+    }
 
     AssetRecord rec;
     rec.guid = meta.guid;
     rec.sourcePath = NormalizeRel(std::filesystem::relative(absPath, assetRoot_));
     rec.importer = meta.importer;
     rec.importerVersion = meta.importerVersion;
+
+    ImportResult res = RunImporter(importer, absPath.string());
+    rec.importFailed = !res.success;
+    rec.artifactPath = res.artifactPath;
+    if (res.width > 0)  rec.textureWidth  = res.width;
+    if (res.height > 0) rec.textureHeight = res.height;
 
     sourceToGuid_[rec.sourcePath] = rec.guid;
     byGuid_[rec.guid] = std::move(rec);
@@ -120,6 +144,14 @@ void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
     sourceToGuid_[newKey] = guid;
     auto recIt = byGuid_.find(guid);
     if (recIt != byGuid_.end()) recIt->second.sourcePath = newKey;
+}
+
+std::filesystem::path AssetDatabase::MissingTexturePath() {
+    return PathService::Get().EngineResource("Editor/missing_texture.png");
+}
+
+ImportResult AssetDatabase::RunImporter(const std::string& importer, const std::string& abs) {
+    return RunImporterImpl(importer, abs);
 }
 
 } // namespace molga

@@ -17,6 +17,11 @@ molga_add_test(test_types             test_types.cpp)
 molga_add_test(test_guid              test_guid.cpp)
 molga_add_test(test_asset_meta        test_asset_meta.cpp)
 molga_add_test(test_asset_database    test_asset_database.cpp)
+molga_add_test(test_importer          test_importer.cpp)
+target_sources(test_importer PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/TextureImporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/AudioImporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/PrefabImporter.cpp)
 molga_add_test(test_text              test_text.cpp)
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)

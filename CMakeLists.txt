@@ -103,6 +103,9 @@ set(ENGINE_SOURCES
     src/Core/BuildProfile.cpp
     src/Editor/Selection/SelectionService.cpp
     src/Core/AssetDatabase.cpp
+    src/Core/Importers/TextureImporter.cpp
+    src/Core/Importers/AudioImporter.cpp
+    src/Core/Importers/PrefabImporter.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
