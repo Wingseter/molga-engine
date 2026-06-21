@@ -1,5 +1,6 @@
 #include "Editor/Windows/ConsoleWindow.h"
 #include "Editor/EditorConstants.h"
+#include "Editor/EditorState.h"
 #include "imgui.h"
 #include <memory>
 
@@ -8,7 +9,11 @@ ConsoleWindow::ConsoleWindow()
       sink_(std::make_shared<molga::EditorConsoleSink>()) {}
 
 void ConsoleWindow::PullPending() {
+    bool hasError = false;
     for (auto& m : sink_->Drain()) {
+        if (m.severity >= Log::Severity::Error) {
+            hasError = true;
+        }
         if (collapse_ && !rows_.empty()) {
             Row& last = rows_.back();
             if (last.msg.severity == m.severity &&
@@ -19,6 +24,10 @@ void ConsoleWindow::PullPending() {
             }
         }
         rows_.push_back(Row{m, 1});
+    }
+
+    if (hasError && errorPause_ && EditorState::Get().IsPlayMode()) {
+        EditorState::Get().Pause();
     }
 }
 

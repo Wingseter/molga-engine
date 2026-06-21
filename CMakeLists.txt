@@ -150,6 +150,7 @@ set(EDITOR_SOURCES
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
     src/Editor/EditorConsoleSink.cpp
+    src/Editor/EditorTaskService.cpp
     src/Editor/Commands/ObjectCommands.cpp
     src/Editor/Commands/PrefabCommands.cpp
     src/Editor/Commands/TransformCommand.cpp
