@@ -98,6 +98,7 @@ set(ENGINE_SOURCES
     src/Core/PackageLayout.cpp
     src/Core/PackageFinalizer.cpp
     src/Core/BuildProfile.cpp
+    src/Editor/Selection/SelectionService.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
