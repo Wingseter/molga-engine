@@ -102,6 +102,7 @@ set(ENGINE_SOURCES
     src/Core/PackageFinalizer.cpp
     src/Core/BuildProfile.cpp
     src/Editor/Selection/SelectionService.cpp
+    src/Core/AssetDatabase.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
