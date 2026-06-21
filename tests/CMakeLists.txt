@@ -32,6 +32,9 @@ target_sources(test_project_file_commands PRIVATE
 molga_add_test(test_asset_watcher test_asset_watcher.cpp)
 target_sources(test_asset_watcher PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Watcher/AssetWatcher.cpp)
+molga_add_test(test_create_sprite_from_asset test_create_sprite_from_asset.cpp)
+target_sources(test_create_sprite_from_asset PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/CreateSpriteFromAssetCommand.cpp)
 molga_add_test(test_text              test_text.cpp)
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)

@@ -295,6 +295,9 @@ void ProjectBrowserWindow::DrawFileGrid() {
         if (!entry.isDirectory && (entry.extension == ".png" || entry.extension == ".jpg" || entry.extension == ".jpeg")) {
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 // Store the path in drag data
+                std::string guid = molga::AssetDatabase::Get().GuidForSource(
+                    Project::Get().GetRelativePath(entry.path));
+                ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
                 ImGui::SetDragDropPayload("TEXTURE_PATH", entry.path.c_str(), entry.path.size() + 1);
                 ImGui::Text("Texture: %s", entry.name.c_str());
                 ImGui::EndDragDropSource();

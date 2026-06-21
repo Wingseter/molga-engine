@@ -20,6 +20,10 @@
 #include "Editor/Commands/ObjectCommands.h"
 #include "Editor/ScenePicker.h"
 #include "../FontManager.h"
+#include "Core/AssetDatabase.h"
+#include "Editor/Commands/CreateSpriteFromAssetCommand.h"
+#include "Editor/Project.h"
+#include <cstring>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glad/glad.h>
@@ -136,6 +140,42 @@ void SceneViewWindow::OnGUI() {
         ImTextureID texId = (ImTextureID)(uintptr_t)fbo_.ColorTexture();
         // GL 텍스처는 좌하단 원점이므로 UV Y를 뒤집어야 한다
         ImGui::Image(texId, ImVec2(vpW, vpH), ImVec2(0, 1), ImVec2(1, 0));
+        
+        if (ImGui::BeginDragDropTarget()) {
+            const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ASSET_GUID");
+            if (!p) p = ImGui::AcceptDragDropPayload("TEXTURE_PATH"); // 구 payload 호환
+            if (p) {
+                std::string guid;
+                if (std::strcmp(p->DataType, "ASSET_GUID") == 0) {
+                    guid.assign(static_cast<const char*>(p->Data), p->DataSize - 1);
+                } else { // TEXTURE_PATH → guid 변환
+                    std::string path(static_cast<const char*>(p->Data), p->DataSize - 1);
+                    guid = molga::AssetDatabase::Get().GuidForSource(
+                        Project::Get().GetRelativePath(path));
+                }
+                if (!guid.empty()) {
+                    float worldX = 0.0f;
+                    float worldY = 0.0f;
+                    ScreenToWorld(panelPos, ImVec2(vpW, vpH), ImGui::GetMousePos(), worldX, worldY);
+                    Vector2 world(worldX, worldY);
+                    
+                    auto* activeObjects = Editor::Get().GetGameObjects();
+                    if (activeObjects) {
+                        auto cmd = std::make_unique<molga::CreateSpriteFromAssetCommand>(
+                            guid, "Sprite", world, activeObjects);
+                        auto* createdObj = cmd->created(); // Execute() 전에는 nullptr일 수 있음. 아래에서 Execute 후 캐스팅합니다.
+                        Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+                        
+                        // commandHistory.Execute() 가 command를 소유해서 실행했으므로, 
+                        // 생성된 오브젝트는 activeObjects의 맨 뒤에 추가되어 있습니다.
+                        if (!activeObjects->empty()) {
+                            Editor::Get().SetSelectedObject(activeObjects->back().get());
+                        }
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
     } else {
         // 폴백: placeholder 사각형
         ImDrawList* dl = ImGui::GetWindowDrawList();

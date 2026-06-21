@@ -166,19 +166,24 @@ void SpriteRenderer::OnInspectorGUI() {
 
     // Drop target for texture
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH")) {
-            const char* droppedPath = static_cast<const char*>(payload->Data);
-
-            // Convert to relative path if in project
-            std::string relativePath = droppedPath;
-            if (Project::Get().IsOpen()) {
-                relativePath = Project::Get().GetRelativePath(droppedPath);
+        const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID");
+        if (!payload) payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH");
+        if (payload) {
+            std::string guid;
+            std::string path;
+            if (std::strcmp(payload->DataType, "ASSET_GUID") == 0) {
+                guid = static_cast<const char*>(payload->Data);
+                path = molga::AssetDatabase::Get().AbsoluteSourcePath(guid).string();
+            } else {
+                path = static_cast<const char*>(payload->Data);
+                guid = molga::AssetDatabase::Get().GuidForSource(
+                    Project::Get().GetRelativePath(path));
             }
-
-            texturePath = relativePath;
+            textureGuid = guid;
+            texturePath = Project::Get().IsOpen() ? Project::Get().GetRelativePath(path) : path;
 
             // Load the texture
-            texture = TextureManager::Get().Load(droppedPath);
+            texture = TextureManager::Get().Load(path);
 
             // Auto-set size from texture if not set
             if (texture && (width == 32.0f && height == 32.0f)) {
@@ -279,14 +284,22 @@ void SpriteRenderer::OnInspectorGUI() {
     }
     // Drop target for material texture
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH")) {
-            const char* droppedPath = static_cast<const char*>(payload->Data);
-            std::string relativePath = droppedPath;
-            if (Project::Get().IsOpen()) {
-                relativePath = Project::Get().GetRelativePath(droppedPath);
+        const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID");
+        if (!payload) payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH");
+        if (payload) {
+            std::string guid;
+            std::string path;
+            if (std::strcmp(payload->DataType, "ASSET_GUID") == 0) {
+                guid = static_cast<const char*>(payload->Data);
+                path = molga::AssetDatabase::Get().AbsoluteSourcePath(guid).string();
+            } else {
+                path = static_cast<const char*>(payload->Data);
+                guid = molga::AssetDatabase::Get().GuidForSource(
+                    Project::Get().GetRelativePath(path));
             }
-            material.mainTexturePath = relativePath;
-            material.mainTexture = TextureManager::Get().Load(droppedPath);
+            material.mainTextureGuid = guid;
+            material.mainTexturePath = Project::Get().IsOpen() ? Project::Get().GetRelativePath(path) : path;
+            material.mainTexture = TextureManager::Get().Load(path);
         }
         ImGui::EndDragDropTarget();
     }
@@ -341,14 +354,22 @@ void SpriteRenderer::OnInspectorGUI() {
                 prop.texture = nullptr;
             }
             if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH")) {
-                    const char* droppedPath = static_cast<const char*>(payload->Data);
-                    std::string relativePath = droppedPath;
+                const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID");
+                if (!payload) payload = ImGui::AcceptDragDropPayload("TEXTURE_PATH");
+                if (payload) {
+                    std::string path;
+                    if (std::strcmp(payload->DataType, "ASSET_GUID") == 0) {
+                        std::string guid = static_cast<const char*>(payload->Data);
+                        path = molga::AssetDatabase::Get().AbsoluteSourcePath(guid).string();
+                    } else {
+                        path = static_cast<const char*>(payload->Data);
+                    }
+                    std::string relativePath = path;
                     if (Project::Get().IsOpen()) {
-                        relativePath = Project::Get().GetRelativePath(droppedPath);
+                        relativePath = Project::Get().GetRelativePath(path);
                     }
                     prop.texturePath = relativePath;
-                    prop.texture = TextureManager::Get().Load(droppedPath);
+                    prop.texture = TextureManager::Get().Load(path);
                 }
                 ImGui::EndDragDropTarget();
             }
