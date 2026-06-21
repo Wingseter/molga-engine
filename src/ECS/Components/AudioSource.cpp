@@ -5,6 +5,7 @@
 #include "../ComponentFactory.h"
 #include "../../Core/PathService.h"
 #include "../../Common/Log.h"
+#include "Core/AssetDatabase.h"
 #ifdef MOLGA_EDITOR
 #include "../../Editor/Project.h"
 #include <imgui.h>
@@ -121,11 +122,18 @@ void AudioSource::OnDestroy() {
 }
 
 void AudioSource::ResolveAssets() {
-    if (clipPath.empty()) return;
-
     sound.reset();
 
-    std::string absPath = PathService::Get().ResolveAsset(clipPath);
+    std::filesystem::path src;
+    if (!clipGuid.empty()) {
+        src = molga::AssetDatabase::Get().AbsoluteSourcePath(clipGuid);
+    }
+    if (src.empty() && !clipPath.empty()) {
+        src = PathService::Get().ResolveAsset(clipPath);  // guid 미해석 시 폴백
+    }
+
+    if (src.empty()) return;
+
     ma_engine* engine = Audio::GetEngine();
     if (!engine) {
         Log::Warn("AudioSource", "Cannot resolve assets, audio engine not initialized");
@@ -133,9 +141,9 @@ void AudioSource::ResolveAssets() {
     }
 
     auto raw = new ma_sound();
-    ma_result result = ma_sound_init_from_file(engine, absPath.c_str(), 0, nullptr, nullptr, raw);
+    ma_result result = ma_sound_init_from_file(engine, src.string().c_str(), 0, nullptr, nullptr, raw);
     if (result != MA_SUCCESS) {
-        Log::Warn("AudioSource", "Failed to load sound file: " + absPath);
+        Log::Warn("AudioSource", "Failed to load sound file: " + src.string());
         delete raw;
         return;
     }
@@ -146,6 +154,7 @@ void AudioSource::ResolveAssets() {
 
 void AudioSource::Serialize(nlohmann::json& j) const {
     j["clipPath"] = clipPath;
+    j["clipGuid"] = clipGuid;   // 권위값. clipPath는 하위 호환용으로 함께 보존.
     j["volume"] = volume;
     j["pitch"] = pitch;
     j["loop"] = loop;
@@ -156,7 +165,17 @@ void AudioSource::Serialize(nlohmann::json& j) const {
 }
 
 void AudioSource::Deserialize(const nlohmann::json& j) {
-    if (j.contains("clipPath")) clipPath = j["clipPath"].get<std::string>();
+    if (j.contains("clipGuid") && j["clipGuid"].is_string()) {
+        clipGuid = j["clipGuid"].get<std::string>();
+    }
+    if (j.contains("clipPath")) {
+        clipPath = j["clipPath"].get<std::string>();
+    }
+    // 구버전 마이그레이션: guid가 없고 path만 있으면 path를 guid로 승격(메모리에서만).
+    if (clipGuid.empty() && !clipPath.empty()) {
+        std::string g = molga::AssetDatabase::Get().GuidForSource(clipPath);
+        if (!g.empty()) clipGuid = g;
+    }
     if (j.contains("volume")) volume = j["volume"].get<float>();
     if (j.contains("pitch")) pitch = j["pitch"].get<float>();
     if (j.contains("loop")) loop = j["loop"].get<bool>();

@@ -2,6 +2,7 @@
 #include "Transform.h"
 #include "../GameObject.h"
 #include "../ComponentFactory.h"
+#include "Core/AssetDatabase.h"
 
 REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Rendering/Renderer.h"
@@ -75,6 +76,7 @@ void SpriteRenderer::Serialize(nlohmann::json& j) const {
     j["flipY"] = flipY;
     j["sortingOrder"] = sortingOrder;
     j["texturePath"] = texturePath;
+    j["textureGuid"] = textureGuid;   // 권위값. texturePath는 하위 호환용으로 함께 보존.
 
     nlohmann::json matJson;
     material.Serialize(matJson);
@@ -97,8 +99,16 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
     if (j.contains("sortingOrder")) {
         SetSortingOrder(j["sortingOrder"]);
     }
+    if (j.contains("textureGuid") && j["textureGuid"].is_string()) {
+        textureGuid = j["textureGuid"].get<std::string>();
+    }
     if (j.contains("texturePath")) {
-        SetTexturePath(j["texturePath"]);
+        SetTexturePath(j["texturePath"].get<std::string>());
+    }
+    // 구버전 마이그레이션: guid가 없고 path만 있으면 path를 guid로 승격(메모리에서만).
+    if (textureGuid.empty() && !texturePath.empty()) {
+        std::string g = molga::AssetDatabase::Get().GuidForSource(texturePath);
+        if (!g.empty()) textureGuid = g;
     }
     if (j.contains("material")) {
         material.Deserialize(j["material"]);
@@ -106,11 +116,23 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
 }
 
 void SpriteRenderer::ResolveAssets() {
-    if (!texturePath.empty() && !texture) {
-        std::string abs = PathService::Get().ResolveAsset(texturePath);
-        texture = TextureManager::Get().Load(abs);
+    if (!texture) {
+        std::filesystem::path src;
+        if (!textureGuid.empty()) {
+            src = molga::AssetDatabase::Get().AbsoluteSourcePath(textureGuid);
+        }
+        if (src.empty() && !texturePath.empty()) {
+            src = PathService::Get().ResolveAsset(texturePath);  // guid 미해석 시 폴백
+        }
+        if (!src.empty()) {
+            texture = TextureManager::Get().Load(src.string());
+        }
         if (!texture) {
-            Log::Warn("SpriteRenderer", "Texture not found: " + abs);
+            // UX-2 Console로 경고(없으면 stdout). 시각적 placeholder는 missing_texture.
+            Log::Warn("SpriteRenderer", "Missing texture for guid '" + textureGuid +
+                      "' (path '" + texturePath + "')");
+            texture = TextureManager::Get().Load(
+                molga::AssetDatabase::MissingTexturePath().string());
         } else if (width == 32.0f && height == 32.0f) {
             width = static_cast<float>(texture->GetWidth());
             height = static_cast<float>(texture->GetHeight());

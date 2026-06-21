@@ -30,9 +30,13 @@ public:
     std::string shaderName = "default";
     Color tint = Color::White();
     std::string mainTexturePath;
+    std::string mainTextureGuid;
     Texture* mainTexture = nullptr;
     BlendMode blendMode = BlendMode::Alpha;
     std::unordered_map<std::string, MaterialProperty> properties;
+
+    void SetMainTextureGuid(const std::string& g) { mainTextureGuid = g; }
+    const std::string& GetMainTextureGuid() const { return mainTextureGuid; }
 
     void Apply(Renderer* renderer);
     void ResolveAssets();

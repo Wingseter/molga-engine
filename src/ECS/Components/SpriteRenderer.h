@@ -25,6 +25,9 @@ public:
     void SetTexturePath(const std::string& path) { texturePath = path; }
     const std::string& GetTexturePath() const { return texturePath; }
 
+    void SetTextureGuid(const std::string& g) { textureGuid = g; }
+    const std::string& GetTextureGuid() const { return textureGuid; }
+
     // Color/Tint
     void SetColor(const Color& c) { color = c; }
     void SetColor(float r, float g, float b, float a = 1.0f) { color = Color(r, g, b, a); }
@@ -62,6 +65,7 @@ public:
 private:
     Texture* texture = nullptr;
     std::string texturePath;
+    std::string textureGuid;
     Color color = Color::White();
 
     float width = 32.0f;

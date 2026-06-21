@@ -5,6 +5,7 @@
 #include "Texture.h"
 #include "../Core/TextureManager.h"
 #include "../Core/PathService.h"
+#include "Core/AssetDatabase.h"
 #include <glad/glad.h>
 #include <iostream>
 
@@ -68,14 +69,28 @@ void Material::Apply(Renderer* renderer) {
 }
 
 void Material::ResolveAssets() {
-    if (!mainTexturePath.empty() && !mainTexture) {
-        std::string abs = PathService::Get().ResolveAsset(mainTexturePath);
-        mainTexture = TextureManager::Get().Load(abs);
+    if (!mainTexture) {
+        std::filesystem::path src;
+        if (!mainTextureGuid.empty()) {
+            src = molga::AssetDatabase::Get().AbsoluteSourcePath(mainTextureGuid);
+        }
+        if (src.empty() && !mainTexturePath.empty()) {
+            src = PathService::Get().ResolveAsset(mainTexturePath);  // guid 미해석 시 폴백
+        }
+        if (!src.empty()) {
+            mainTexture = TextureManager::Get().Load(src.string());
+        }
+        if (!mainTexture) {
+            mainTexture = TextureManager::Get().Load(
+                molga::AssetDatabase::MissingTexturePath().string());
+        }
     }
     for (auto& [name, prop] : properties) {
-        if (prop.type == MaterialProperty::Type::Texture && !prop.texturePath.empty() && !prop.texture) {
-            std::string abs = PathService::Get().ResolveAsset(prop.texturePath);
-            prop.texture = TextureManager::Get().Load(abs);
+        if (prop.type == MaterialProperty::Type::Texture && !prop.texture) {
+            if (!prop.texturePath.empty()) {
+                std::string abs = PathService::Get().ResolveAsset(prop.texturePath);
+                prop.texture = TextureManager::Get().Load(abs);
+            }
         }
     }
 }
@@ -84,6 +99,7 @@ void Material::Serialize(nlohmann::json& j) const {
     j["shaderName"] = shaderName;
     j["tint"] = { tint.r, tint.g, tint.b, tint.a };
     j["mainTexturePath"] = mainTexturePath;
+    j["mainTextureGuid"] = mainTextureGuid;   // 권위값. mainTexturePath는 하위 호환용으로 함께 보존.
     j["blendMode"] = static_cast<int>(blendMode);
 
     json propsJson = json::object();
@@ -107,7 +123,17 @@ void Material::Deserialize(const nlohmann::json& j) {
     if (j.contains("tint") && j["tint"].is_array()) {
         tint = Color(j["tint"][0], j["tint"][1], j["tint"][2], j["tint"][3]);
     }
-    if (j.contains("mainTexturePath")) mainTexturePath = j["mainTexturePath"];
+    if (j.contains("mainTextureGuid") && j["mainTextureGuid"].is_string()) {
+        mainTextureGuid = j["mainTextureGuid"].get<std::string>();
+    }
+    if (j.contains("mainTexturePath")) {
+        mainTexturePath = j["mainTexturePath"].get<std::string>();
+    }
+    // 구버전 마이그레이션: guid가 없고 path만 있으면 path를 guid로 승격(메모리에서만).
+    if (mainTextureGuid.empty() && !mainTexturePath.empty()) {
+        std::string g = molga::AssetDatabase::Get().GuidForSource(mainTexturePath);
+        if (!g.empty()) mainTextureGuid = g;
+    }
     if (j.contains("blendMode")) {
         blendMode = static_cast<BlendMode>(j["blendMode"].get<int>());
     }

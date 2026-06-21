@@ -33,6 +33,9 @@ public:
     void SetClipPath(const std::string& path) { clipPath = path; }
     const std::string& GetClipPath() const { return clipPath; }
 
+    void SetClipGuid(const std::string& g) { clipGuid = g; }
+    const std::string& GetClipGuid() const { return clipGuid; }
+
     void SetPlayOnAwake(bool val) { playOnAwake = val; }
     bool GetPlayOnAwake() const { return playOnAwake; }
 
@@ -62,6 +65,7 @@ private:
     void ApplyProperties();
 
     std::string clipPath;
+    std::string clipGuid;
     float volume = 1.0f;
     float pitch = 1.0f;
     bool loop = false;
