@@ -97,6 +97,7 @@ set(ENGINE_SOURCES
     src/Common/SmokeReportSink.cpp
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
+    src/Core/Profiling/ProfilerService.cpp
     src/Core/BuildManifest.cpp
     src/Core/SmokeReport.cpp
     src/Core/PackageLayout.cpp
