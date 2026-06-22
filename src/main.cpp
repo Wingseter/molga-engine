@@ -18,6 +18,8 @@
 #include "Editor/ImGuiLayer.h"
 #include "Editor/EditorState.h"
 #include "Editor/Editor.h"
+#include "Core/Profiling/ProfileScope.h"
+#include "Core/Profiling/ProfilerService.h"
 #include "Editor/Windows/ProjectWindow.h"
 #include "Editor/Project.h"
 #include "ECS/GameObject.h"
@@ -304,10 +306,13 @@ int main(int argc, char* argv[]) {
             }
 
             // ImGui Editor UI
-            ImGuiLayer::BeginFrame();
-            Editor::Get().Update(dt);
-            Editor::Get().RenderGUI();
-            ImGuiLayer::EndFrame();
+            {
+                MOLGA_PROFILE_SCOPE("Editor.UI", molga::ProfileCategory::EditorUI);
+                ImGuiLayer::BeginFrame();
+                Editor::Get().Update(dt);
+                Editor::Get().RenderGUI();
+                ImGuiLayer::EndFrame();
+            }
 
             EventBus::ProcessQueue();
 
@@ -315,6 +320,13 @@ int main(int argc, char* argv[]) {
 
             glfwSwapBuffers(window);
             glfwPollEvents();
+
+            // 한 프레임의 스코프·카운터를 굳혀 ring buffer에 넣는다.
+            molga::FrameCounters frameCounters = Editor::Get().TakeFrameCounters();
+            molga::RenderStats   renderStats   = Editor::Get().TakeRenderStats();
+            molga::ProfilerService::Get().EndFrame(
+                static_cast<unsigned long long>(Time::GetFrameCount()),
+                dt, frameCounters, renderStats);
         }
     }
 

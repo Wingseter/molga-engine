@@ -6,6 +6,7 @@
 #include "WindowManager.h"
 #include "SceneOperations.h"
 #include "BuildManager.h"
+#include "Core/Profiling/FrameProfile.h"
 
 #include "Editor/Commands/CommandHistory.h"
 #include "Editor/Selection/SelectionService.h"
@@ -109,4 +110,14 @@ private:
     // DockSpace
     bool firstTimeLayout = true;
     ImGuiID dockspaceId = 0;
+
+public:
+    molga::FrameCounters TakeFrameCounters() { auto c = frameCounters_; frameCounters_.Reset(); return c; }
+    molga::RenderStats   TakeRenderStats()   { auto r = renderStats_;   renderStats_.Reset();   return r; }
+    molga::FrameCounters& FrameCounters() { return frameCounters_; }
+    molga::RenderStats&   RenderStats()   { return renderStats_; }
+
+private:
+    molga::FrameCounters frameCounters_;
+    molga::RenderStats   renderStats_;
 };

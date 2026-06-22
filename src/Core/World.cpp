@@ -3,6 +3,8 @@
 #include "Core/Scheduler.h"
 #include "ECS/GameObject.h"
 #include "Physics/PhysicsWorld.h"
+#include "Core/Profiling/ProfileScope.h"
+#include "Core/Profiling/ProfilerService.h"
 
 World::World()
     : physicsWorld(std::make_unique<PhysicsWorld>()),
@@ -63,14 +65,17 @@ void World::StartPending() {
     running_ = true;  // 이후 SetActive가 라이프사이클 콜백을 발화
 }
 void World::FixedStep(float fixedDt) {
+    MOLGA_PROFILE_SCOPE("World.FixedStep", molga::ProfileCategory::Physics);
     for (auto& o : objects_) if (o && o->IsActive()) o->FixedUpdateScripts(fixedDt);
     physicsWorld->Step(*this, fixedDt);
 }
 void World::Update(float dt) {
+    MOLGA_PROFILE_SCOPE("World.Update", molga::ProfileCategory::Scripts);
     for (auto& o : objects_) if (o && o->IsActive()) o->Update(dt);
     scheduler->Tick(dt);  // Invoke/InvokeRepeating/코루틴 구동
 }
 void World::LateUpdate(float dt) {
+    MOLGA_PROFILE_SCOPE("World.LateUpdate", molga::ProfileCategory::Scripts);
     for (auto& o : objects_) if (o && o->IsActive()) o->LateUpdateScripts(dt);
 }
 
