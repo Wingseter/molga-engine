@@ -19,6 +19,7 @@
 #include "Windows/ScriptWindow.h"
 #include "Windows/SceneViewWindow.h"
 #include "Windows/StatsWindow.h"
+#include "Windows/ProfilerWindow.h"
 #include "Windows/ProjectSettingsWindow.h"
 #include "Windows/ConsoleWindow.h"
 #include "../Common/Log.h"
@@ -167,6 +168,7 @@ void Editor::Init() {
   windowManager.Register(EditorConstants::WIN_SCRIPTS, std::make_unique<ScriptWindow>());
   windowManager.Register(EditorConstants::WIN_SCENE, std::make_unique<SceneViewWindow>());
   windowManager.Register(EditorConstants::WIN_STATS, std::make_unique<StatsWindow>());
+  windowManager.Register(EditorConstants::WIN_PROFILER, std::make_unique<ProfilerWindow>());
   windowManager.Register(EditorConstants::WIN_PROJECT_SETTINGS, std::make_unique<ProjectSettingsWindow>());
 
   auto console = std::make_unique<ConsoleWindow>();

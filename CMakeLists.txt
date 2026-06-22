@@ -171,6 +171,7 @@ set(EDITOR_SOURCES
     src/Editor/GameBuilder.cpp
     src/Editor/Windows/SceneViewWindow.cpp
     src/Editor/Windows/StatsWindow.cpp
+    src/Editor/Windows/ProfilerWindow.cpp
     src/Editor/Windows/HierarchyWindow.cpp
     src/Editor/Windows/InspectorWindow.cpp
     src/Editor/Windows/ProjectWindow.cpp

@@ -15,6 +15,7 @@ namespace EditorConstants {
     constexpr const char* WIN_BUILD_SETTINGS = "Build Settings";
     constexpr const char* WIN_SCRIPT_EDITOR = "Script Editor";
     constexpr const char* WIN_CONSOLE = "Console";
+    constexpr const char* WIN_PROFILER = "Profiler";
 
     // Default Files
     constexpr const char* DEFAULT_SCENE_FILE = "scene.json";
