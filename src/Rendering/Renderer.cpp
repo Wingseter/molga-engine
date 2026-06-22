@@ -68,6 +68,7 @@ void Renderer::SetProjection(float left, float right, float bottom, float top) {
 
 void Renderer::SetShader(Shader* shader) {
     if (shader == nullptr) return;
+    stats_.shaderSwitches++;
     currentShader = shader;
     currentShader->Use();
 
@@ -115,6 +116,7 @@ void Renderer::DrawSprite(Sprite* sprite) {
         currentShader->SetBool("useTexture", true);
         currentShader->SetInt("uTexture", 0);
         sprite->texture->Bind(0);
+        stats_.textureBinds++;
     } else {
         currentShader->SetBool("useTexture", false);
     }
@@ -122,6 +124,8 @@ void Renderer::DrawSprite(Sprite* sprite) {
     glBindVertexArray(VAO);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
+
+    stats_.drawCalls++;
 }
 
 void Renderer::End() {

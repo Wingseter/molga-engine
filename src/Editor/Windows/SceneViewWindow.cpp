@@ -121,11 +121,13 @@ void SceneViewWindow::OnGUI() {
         vpHeight_ = vpH;
         fbo_.Resize(ivpW, ivpH);
         editorCamera_->SetScreenSize(vpW, vpH);
+        Editor::Get().RenderStats().fboResizes++;
     }
 
     // ── FBO가 아직 미초기화면 생성 ───────────────────────────────────────────
     if (!fbo_.IsValid()) {
         fbo_.Init(static_cast<int>(vpW), static_cast<int>(vpH));
+        Editor::Get().RenderStats().fboResizes++;
     }
 
     // ── 씬을 FBO에 렌더 ──────────────────────────────────────────────────────
@@ -349,24 +351,33 @@ void SceneViewWindow::DrawGrid() {
 void SceneViewWindow::DrawSprites() {
     if (!renderer_ || !spriteShader_ || !gameObjects_) return;
 
+    // Reset stats before drawing
+    renderer_->ResetStats();
+
+    auto& fc = Editor::Get().FrameCounters();
+
     // 정렬 후 렌더
     std::vector<std::pair<int, Component*>> drawList;
     for (auto& obj : *gameObjects_) {
         if (obj && obj->IsActive()) {
             if (auto sr = obj->GetComponent<SpriteRenderer>()) {
                 drawList.emplace_back(sr->GetSortingOrder(), sr);
+                fc.sprites++;
             }
             if (auto tm = obj->GetComponent<TilemapRenderer>()) {
                 drawList.emplace_back(tm->GetSortingOrder(), tm);
+                fc.tileChunks++;
             }
             if (auto mr = obj->GetComponent<MarrowRenderer>()) {
                 drawList.emplace_back(mr->GetSortingOrder(), mr);
             }
             if (auto ps = obj->GetComponent<ParticleSystem>()) {
                 drawList.emplace_back(ps->GetSortingOrder(), ps);
+                fc.particles += ps->GetEmitter().GetActiveCount();
             }
             if (auto tr = obj->GetComponent<TextRenderer2D>()) {
                 drawList.emplace_back(tr->GetSortingOrder(), tr);
+                fc.text++;
             }
         }
     }
@@ -375,17 +386,6 @@ void SceneViewWindow::DrawSprites() {
 
     Camera2D* activeCamera = editorCamera_.get();
     if (EditorState::Get().IsPlayMode() && gameObjects_) {
-        for (auto& obj : *gameObjects_) {
-            if (obj && obj->IsActive()) {
-                if (auto cam = obj->GetComponent<Camera>()) {
-                    if (cam->IsEnabled() && cam->IsMain()) {
-                        if (!activeCamera || !dynamic_cast<Camera2D*>(activeCamera) || cam->GetDepth() > static_cast<Camera*>(obj->GetComponent<Camera>())->GetDepth()) {
-                            // Wait, let's keep it simple: just pick the main camera
-                        }
-                    }
-                }
-            }
-        }
         // Let's rewrite the camera search to match exactly
         Camera* mainCam = nullptr;
         for (auto& obj : *gameObjects_) {
@@ -410,6 +410,11 @@ void SceneViewWindow::DrawSprites() {
             comp->RenderSprite(renderer_);
         }
     }
+
+    // Collect renderer stats after drawing
+    Editor::Get().RenderStats() = renderer_->Stats();
+    Editor::Get().RenderStats().batches = renderer_->Stats().drawCalls;
+    Editor::Get().FrameCounters().drawCalls = renderer_->Stats().drawCalls;
 }
 
 // ── 입력 처리 ─────────────────────────────────────────────────────────────────

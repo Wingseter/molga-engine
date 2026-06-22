@@ -42,3 +42,15 @@ TEST_CASE("one pass can host 100+ draws") {
     REQUIRE(s.TryEnd());
     CHECK(s.violations() == 0);
 }
+
+#include "Rendering/Renderer.h"
+
+TEST_CASE("Renderer counts draw calls and shader switches between resets") {
+    Renderer r;
+    molga::RenderStats before = r.Stats();
+    CHECK(before.drawCalls == 0);
+    CHECK(before.shaderSwitches == 0);
+    r.ResetStats();
+    CHECK(r.Stats().drawCalls == 0);
+    CHECK(r.Stats().shaderSwitches == 0);
+}

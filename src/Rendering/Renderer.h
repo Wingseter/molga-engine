@@ -4,6 +4,7 @@
 #include "../Common/linmath.h"
 
 #include "Rendering/RenderPassState.h"
+#include "Core/Profiling/FrameProfile.h"
 
 class Shader;
 class Sprite;
@@ -28,6 +29,9 @@ public:
 
     void SetProjection(float left, float right, float bottom, float top);
 
+    const molga::RenderStats& Stats() const { return stats_; }
+    void ResetStats() { stats_.Reset(); }
+
 private:
     molga::RenderPassState pass;
 
@@ -37,6 +41,8 @@ private:
     Shader* currentShader; // non-owning; lifetime managed by caller
     mat4x4 projection;
     mat4x4 view;
+
+    molga::RenderStats stats_;
 
     void SetupQuadBuffers();
 };
