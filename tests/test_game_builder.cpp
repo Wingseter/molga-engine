@@ -2,11 +2,29 @@
 #include "Core/PackageLayout.h"
 #include "Core/PathConstants.h"
 #include "Core/PathService.h"
+#include "Editor/Profiling/ProfilerReportSink.h"
 #include "doctest.h"
 #include <filesystem>
 #include <fstream>
+#include <vector>
 
 namespace fs = std::filesystem;
+
+struct CapturingSink : molga::IProfilerReportSink {
+    std::vector<std::string> labels;
+    void ReportTiming(const std::string& label, double, const std::string&) override {
+        labels.push_back(label);
+    }
+};
+
+TEST_CASE("report sink can be swapped and captures timings") {
+    CapturingSink sink;
+    molga::SetReportSink(&sink);
+    molga::ActiveReportSink().ReportTiming("Build: Total", 12.5, "Game");
+    molga::SetReportSink(nullptr);  // 폴백 복귀
+    REQUIRE(sink.labels.size() == 1);
+    CHECK(sink.labels[0] == "Build: Total");
+}
 
 TEST_CASE("BuildManifest fails and names a missing required file") {
     BuildManifest m;

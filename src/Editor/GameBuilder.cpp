@@ -7,6 +7,8 @@
 #include "../Core/ProjectSettings.h"
 #include "../Systems/Input.h"
 #include "Project.h"
+#include "Editor/Profiling/ProfilerReportSink.h"
+#include "Core/Profiling/ScopedTimer.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
@@ -25,6 +27,8 @@ GameBuilder& GameBuilder::Get() {
 }
 
 bool GameBuilder::Build(const BuildSettings& settings) {
+    long long totalStart = molga::NowNanos();
+
     progress = 0.0f;
     lastError.clear();
 
@@ -53,6 +57,7 @@ bool GameBuilder::Build(const BuildSettings& settings) {
 
     // Build required-file manifest
     {
+        long long t0 = molga::NowNanos();
         BuildManifest manifest;
         if (Project::Get().IsOpen()) {
             manifest.requiredFiles.push_back(Project::Get().GetAssetsPath());
@@ -68,17 +73,24 @@ bool GameBuilder::Build(const BuildSettings& settings) {
             lastError = err;
             return false;
         }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Validate manifest", ms, "");
     }
 
     // Prepare staging directory
-    try {
-        if (fs::exists(stagingOutput)) {
-            fs::remove_all(stagingOutput);
+    {
+        long long t0 = molga::NowNanos();
+        try {
+            if (fs::exists(stagingOutput)) {
+                fs::remove_all(stagingOutput);
+            }
+            fs::create_directories(stagingOutput);
+        } catch (const std::exception& e) {
+            lastError = "Failed to create staging directory: " + std::string(e.what());
+            return false;
         }
-        fs::create_directories(stagingOutput);
-    } catch (const std::exception& e) {
-        lastError = "Failed to create staging directory: " + std::string(e.what());
-        return false;
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Prepare staging", ms, "");
     }
 
     auto cleanupStaging = [&]() {
@@ -91,67 +103,100 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     // Step 2: Copy assets
     currentStep = "Copying assets...";
     progress = 0.2f;
-    if (!CopyAssets(stagingPathStr)) {
-        cleanupStaging();
-        return false;
+    {
+        long long t0 = molga::NowNanos();
+        if (!CopyAssets(stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Copy assets", ms, "");
     }
 
     // Step 3: Copy shaders
     currentStep = "Copying shaders...";
     progress = 0.4f;
-    if (!CopyShaders(stagingPathStr)) {
-        cleanupStaging();
-        return false;
+    {
+        long long t0 = molga::NowNanos();
+        if (!CopyShaders(stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Copy shaders", ms, "");
     }
 
     // Step 4: Copy scenes
     currentStep = "Copying scenes...";
     progress = 0.5f;
-    if (!CopyScenes(settings, stagingPathStr)) {
-        cleanupStaging();
-        return false;
+    {
+        long long t0 = molga::NowNanos();
+        if (!CopyScenes(settings, stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Copy scenes", ms, "");
     }
 
     // Step 5: Generate game config
     currentStep = "Generating game configuration...";
     progress = 0.7f;
-    if (!GenerateGameConfig(settings, stagingPathStr)) {
-        cleanupStaging();
-        return false;
+    {
+        long long t0 = molga::NowNanos();
+        if (!GenerateGameConfig(settings, stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Generate game config", ms, "");
     }
 
     // Step 6: Copy executable
     currentStep = "Copying executable...";
     progress = 0.9f;
-    if (!CopyExecutable(stagingPathStr, settings.profile.gameName)) {
-        cleanupStaging();
-        return false;
+    {
+        long long t0 = molga::NowNanos();
+        if (!CopyExecutable(stagingPathStr, settings.profile.gameName)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Copy executable", ms, "");
     }
 
-    // Validate output package layout
-    std::string packageError;
-    if (!PackageLayout::Validate(
-            stagingOutput,
-            PackageLayout::ExecutableNameFor(settings.profile.gameName),
-            packageError)) {
-        lastError = packageError;
-        cleanupStaging();
-        return false;
-    }
+    // Validate output package layout and finalize
+    {
+        long long t0 = molga::NowNanos();
+        std::string packageError;
+        if (!PackageLayout::Validate(
+                stagingOutput,
+                PackageLayout::ExecutableNameFor(settings.profile.gameName),
+                packageError)) {
+            lastError = packageError;
+            cleanupStaging();
+            return false;
+        }
 
-    // Atomic swap: staging -> final
-    const auto finalizeResult =
-        PackageFinalizer::FinalizeStagedPackage(stagingOutput, finalOutput);
-    if (!finalizeResult) {
-        lastError = "Failed to finalize output: " + finalizeResult.error;
-        cleanupStaging();
-        return false;
+        // Atomic swap: staging -> final
+        const auto finalizeResult =
+            PackageFinalizer::FinalizeStagedPackage(stagingOutput, finalOutput);
+        if (!finalizeResult) {
+            lastError = "Failed to finalize output: " + finalizeResult.error;
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Finalize package", ms, "");
     }
 
     currentStep = "Build complete!";
     progress = 1.0f;
 
-    std::cout << "[GameBuilder] Build successful: " << finalOutput.string() << std::endl;
+    double totalMs = (molga::NowNanos() - totalStart) / 1.0e6;
+    molga::ActiveReportSink().ReportTiming("Build: Total", totalMs, settings.profile.gameName);
+
+    std::cout << "[GameBuilder] Build successful: " << finalOutput.string() << " (" << totalMs << " ms)" << std::endl;
     return true;
 }
 

@@ -11,7 +11,7 @@ public:
     static TextureManager& Get();
 
     // Load texture (cached)
-    Texture* Load(const std::string& path);
+    Texture* Load(const std::string& path, const char* caller = "Unknown");
 
     // Get already loaded texture
     Texture* Get(const std::string& path);
