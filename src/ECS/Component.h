@@ -7,6 +7,7 @@
 
 class GameObject;
 class Renderer;
+namespace molga { class RenderQueue; }
 
 // Compile-time type ID for O(1) component lookup
 class ComponentTypeID {
@@ -39,6 +40,7 @@ public:
     // Called for rendering (optional)
     virtual void Render() {}
     virtual void RenderSprite(Renderer* renderer) {}
+    virtual void CollectRender(molga::RenderQueue& queue) {}
 
     // Called when the owning GameObject is being destroyed.
     // Use for releasing external resources (physics bodies, GPU handles, etc.)

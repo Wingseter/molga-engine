@@ -47,6 +47,8 @@ set(ENGINE_SOURCES
     src/Rendering/Texture.cpp
     src/Rendering/Sprite.cpp
     src/Rendering/Renderer.cpp
+    src/Rendering/RenderSystem2D.cpp
+    src/Rendering/SpriteBatcher.cpp
     src/Rendering/RenderPassState.cpp
     src/Rendering/Framebuffer.cpp
     src/Core/MolgaTime.cpp

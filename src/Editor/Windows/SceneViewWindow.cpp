@@ -4,6 +4,9 @@
 #include "../../Rendering/Shader.h"
 #include "../../Rendering/Camera2D.h"
 #include "../../Rendering/RenderPass.h"
+#include "Rendering/RenderQueue.h"
+#include "Rendering/RenderSystem2D.h"
+#include "Core/Profiling/ProfileScope.h"
 #include "../../ECS/GameObject.h"
 #include "../../ECS/Components/SpriteRenderer.h"
 #include "../../ECS/Components/TilemapRenderer.h"
@@ -356,33 +359,34 @@ void SceneViewWindow::DrawSprites() {
 
     auto& fc = Editor::Get().FrameCounters();
 
-    // 정렬 후 렌더
-    std::vector<std::pair<int, Component*>> drawList;
-    for (auto& obj : *gameObjects_) {
-        if (obj && obj->IsActive()) {
-            if (auto sr = obj->GetComponent<SpriteRenderer>()) {
-                drawList.emplace_back(sr->GetSortingOrder(), sr);
-                fc.sprites++;
-            }
-            if (auto tm = obj->GetComponent<TilemapRenderer>()) {
-                drawList.emplace_back(tm->GetSortingOrder(), tm);
-                fc.tileChunks++;
-            }
-            if (auto mr = obj->GetComponent<MarrowRenderer>()) {
-                drawList.emplace_back(mr->GetSortingOrder(), mr);
-            }
-            if (auto ps = obj->GetComponent<ParticleSystem>()) {
-                drawList.emplace_back(ps->GetSortingOrder(), ps);
-                fc.particles += ps->GetEmitter().GetActiveCount();
-            }
-            if (auto tr = obj->GetComponent<TextRenderer2D>()) {
-                drawList.emplace_back(tr->GetSortingOrder(), tr);
-                fc.text++;
+    // Collect render commands
+    molga::RenderQueue queue;
+    {
+        MOLGA_PROFILE_SCOPE("RenderQueue.Collect", molga::ProfileCategory::Rendering);
+        for (auto& obj : *gameObjects_) {
+            if (obj && obj->IsActive()) {
+                if (auto sr = obj->GetComponent<SpriteRenderer>()) {
+                    sr->CollectRender(queue);
+                    fc.sprites++;
+                }
+                if (auto tm = obj->GetComponent<TilemapRenderer>()) {
+                    tm->CollectRender(queue);
+                    fc.tileChunks++;
+                }
+                if (auto mr = obj->GetComponent<MarrowRenderer>()) {
+                    mr->CollectRender(queue);
+                }
+                if (auto ps = obj->GetComponent<ParticleSystem>()) {
+                    ps->CollectRender(queue);
+                    fc.particles += ps->GetEmitter().GetActiveCount();
+                }
+                if (auto tr = obj->GetComponent<TextRenderer2D>()) {
+                    tr->CollectRender(queue);
+                    fc.text++;
+                }
             }
         }
     }
-    std::stable_sort(drawList.begin(), drawList.end(),
-        [](const auto& a, const auto& b) { return a.first < b.first; });
 
     Camera2D* activeCamera = editorCamera_.get();
     if (EditorState::Get().IsPlayMode() && gameObjects_) {
@@ -406,14 +410,11 @@ void SceneViewWindow::DrawSprites() {
 
     {
         molga::RenderPass pass(*renderer_, spriteShader_, activeCamera);
-        for (auto& [order, comp] : drawList) {
-            comp->RenderSprite(renderer_);
-        }
+        molga::RenderSystem2D::Get().Render(queue, renderer_, activeCamera);
     }
 
     // Collect renderer stats after drawing
     Editor::Get().RenderStats() = renderer_->Stats();
-    Editor::Get().RenderStats().batches = renderer_->Stats().drawCalls;
     Editor::Get().FrameCounters().drawCalls = renderer_->Stats().drawCalls;
 }
 

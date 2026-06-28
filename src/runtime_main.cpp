@@ -12,6 +12,8 @@
 #include "Rendering/Shader.h"
 #include "Rendering/ShaderManager.h"
 #include "Rendering/Renderer.h"
+#include "Rendering/RenderSystem2D.h"
+#include "Core/Profiling/ProfileScope.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
 #include "Core/World.h"
@@ -143,9 +145,14 @@ int main(int argc, char* argv[]) {
     // Initialize renderer
     auto renderer = std::make_unique<Renderer>();
     renderer->Init();
+    molga::RenderSystem2D::Get().Init();
     auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
     auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
     Shader* shader = ShaderManager::Get().Load("default", vertPath, fragPath);
+
+    auto batchVertPath = PathService::Get().EngineResource("Shaders/batch.vert").string();
+    auto batchFragPath = PathService::Get().EngineResource("Shaders/batch.frag").string();
+    ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
     auto camera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
                                              static_cast<float>(config.windowHeight));
     World world;
@@ -207,29 +214,20 @@ int main(int argc, char* argv[]) {
         world.LateUpdate(dt);
         world.FlushDeferred(dt);
 
-        // sortingOrder 오름차순으로 그릴 스프라이트 및 애니메이션 수집
-        std::vector<std::pair<int, Component*>> drawList;
-        for (auto& obj : world.Objects()) {
-            if (obj && obj->IsActive()) {
-                if (auto sr = obj->GetComponent<SpriteRenderer>()) {
-                    drawList.emplace_back(sr->GetSortingOrder(), sr);
-                }
-                if (auto tm = obj->GetComponent<TilemapRenderer>()) {
-                    drawList.emplace_back(tm->GetSortingOrder(), tm);
-                }
-                if (auto mr = obj->GetComponent<MarrowRenderer>()) {
-                    drawList.emplace_back(mr->GetSortingOrder(), mr);
-                }
-                if (auto ps = obj->GetComponent<ParticleSystem>()) {
-                    drawList.emplace_back(ps->GetSortingOrder(), ps);
-                }
-                if (auto tr = obj->GetComponent<TextRenderer2D>()) {
-                    drawList.emplace_back(tr->GetSortingOrder(), tr);
+        // Collect render commands
+        molga::RenderQueue queue;
+        {
+            MOLGA_PROFILE_SCOPE("RenderQueue.Collect", molga::ProfileCategory::Rendering);
+            for (auto& obj : world.Objects()) {
+                if (obj && obj->IsActive()) {
+                    for (auto* comp : obj->GetComponents()) {
+                        if (comp && comp->IsEnabled()) {
+                            comp->CollectRender(queue);
+                        }
+                    }
                 }
             }
         }
-        std::stable_sort(drawList.begin(), drawList.end(),
-                         [](const auto& a, const auto& b) { return a.first < b.first; });
 
         Camera* mainCam = nullptr;
         for (const auto& obj : world.Objects()) {
@@ -249,17 +247,13 @@ int main(int argc, char* argv[]) {
             renderer->Clear(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
             {
                 molga::RenderPass pass(*renderer, shader, mainCam->GetCamera2D());
-                for (auto& [order, comp] : drawList) {
-                    comp->RenderSprite(renderer.get());
-                }
+                molga::RenderSystem2D::Get().Render(queue, renderer.get(), mainCam->GetCamera2D());
             }
         } else {
             renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
             {
                 molga::RenderPass pass(*renderer, shader, camera.get());
-                for (auto& [order, comp] : drawList) {
-                    comp->RenderSprite(renderer.get());
-                }
+                molga::RenderSystem2D::Get().Render(queue, renderer.get(), camera.get());
             }
         }
 
@@ -315,6 +309,7 @@ int main(int argc, char* argv[]) {
     world.Clear();
     TextRenderer::Get().Shutdown();
     camera.reset();
+    molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
     renderer.reset();
     EngineShutdown();

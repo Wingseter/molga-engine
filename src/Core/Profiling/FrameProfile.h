@@ -37,6 +37,15 @@ struct RenderStats {
     int textureBinds = 0;
     int shaderSwitches = 0;
     int fboResizes = 0;
+
+    int submittedSprites = 0;
+    int submittedCommands = 0;
+    int batchFlushes = 0;
+    int batchBreaks = 0;
+    int maxSpritesPerBatch = 0;
+    size_t verticesUploadedBytes = 0;
+    long long queueSortNanos = 0;
+
     void Reset() { *this = RenderStats{}; }
 };
 

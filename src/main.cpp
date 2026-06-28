@@ -11,6 +11,7 @@
 #include "Rendering/Shader.h"
 #include "Rendering/ShaderManager.h"
 #include "Rendering/Renderer.h"
+#include "Rendering/RenderSystem2D.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
 // removed Core/Scene.h include
@@ -146,9 +147,14 @@ int main(int argc, char* argv[]) {
     // Initialize resources (local to main)
     auto renderer = std::make_unique<Renderer>();
     renderer->Init();
+    molga::RenderSystem2D::Get().Init();
     auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
     auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
     Shader* shader = ShaderManager::Get().Load("default", vertPath, fragPath);
+
+    auto batchVertPath = PathService::Get().EngineResource("Shaders/batch.vert").string();
+    auto batchFragPath = PathService::Get().EngineResource("Shaders/batch.frag").string();
+    ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
     SceneDocument sceneDoc;
 
     // Initialize Scripting
@@ -349,6 +355,7 @@ int main(int argc, char* argv[]) {
     Editor::Get().Shutdown();
     ImGuiLayer::Shutdown();
     TextRenderer::Get().Shutdown();
+    molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
     renderer.reset();
     EngineShutdown();

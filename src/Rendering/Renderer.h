@@ -30,6 +30,7 @@ public:
     void SetProjection(float left, float right, float bottom, float top);
 
     const molga::RenderStats& Stats() const { return stats_; }
+    molga::RenderStats& Stats() { return stats_; }
     void ResetStats() { stats_.Reset(); }
 
 private:

@@ -122,6 +122,18 @@ void ProfilerWindow::DrawSelectedFrame() {
     if (ImGui::CollapsingHeader("Renderer stats", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Text("Draw calls: %d", f->render.drawCalls);
         ImGui::Text("Batches: %d", f->render.batches);
+        
+        float efficiency = f->render.submittedSprites > 0 
+            ? (1.0f - (float)f->render.batches / f->render.submittedSprites) * 100.0f 
+            : 0.0f;
+        ImGui::Text("Batch efficiency: %.1f%%", efficiency);
+        ImGui::Text("Submitted sprites: %d", f->render.submittedSprites);
+        ImGui::Text("Submitted commands: %d", f->render.submittedCommands);
+        ImGui::Text("Batch flushes: %d", f->render.batchFlushes);
+        ImGui::Text("Batch breaks: %d", f->render.batchBreaks);
+        ImGui::Text("Max sprites/batch: %d", f->render.maxSpritesPerBatch);
+        ImGui::Text("Vertices uploaded: %.1f KB", f->render.verticesUploadedBytes / 1024.0f);
+        ImGui::Text("Queue sort: %.3f ms", MsOf(f->render.queueSortNanos));
         ImGui::Text("Texture binds: %d", f->render.textureBinds);
         ImGui::Text("Shader switches: %d", f->render.shaderSwitches);
         ImGui::Text("FBO resizes: %d", f->render.fboResizes);

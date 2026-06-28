@@ -4,17 +4,12 @@
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 #include "../Common/Types.h"
+#include "Rendering/BlendMode.h"
+#include "Rendering/RenderQueue.h"
 
 class Texture;
 class Renderer;
 class Shader;
-
-enum class BlendMode {
-    Opaque,
-    Alpha,
-    Additive,
-    Multiply
-};
 
 struct MaterialProperty {
     enum class Type { Float, Vec4, Texture };
@@ -37,6 +32,10 @@ public:
 
     void SetMainTextureGuid(const std::string& g) { mainTextureGuid = g; }
     const std::string& GetMainTextureGuid() const { return mainTextureGuid; }
+
+    Shader* ResolveShader() const;
+    molga::BatchKey GetBatchKey() const;
+    void ApplyForBatchStart(Renderer* renderer);
 
     void Apply(Renderer* renderer);
     void ResolveAssets();

@@ -5,6 +5,7 @@
 #include "../../Rendering/Renderer.h"
 #include "../../Rendering/Sprite.h"
 #include <glad/glad.h>
+#include "Rendering/RenderQueue.h"
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
 #endif
@@ -278,3 +279,19 @@ void ParticleSystem::OnInspectorGUI() {
     ImGui::Text("Active Particles: %d / %d", emitter.GetActiveCount(), config.maxParticles);
 #endif
 }
+
+void ParticleSystem::CollectRender(molga::RenderQueue& queue) {
+    if (!gameObject || !enabled) return;
+
+    molga::RenderCommand cmd;
+    cmd.sortKey.cameraPass = 0;
+    cmd.sortKey.sortingLayer = 0;
+    cmd.sortKey.sortingOrder = sortingOrder;
+    cmd.sortKey.depthOrYSort = 0.0f;
+    cmd.batchKey.isBatchable = false;
+    cmd.fallbackRender = [this](Renderer* r) {
+        this->RenderSprite(r);
+    };
+    queue.Submit(cmd);
+}
+

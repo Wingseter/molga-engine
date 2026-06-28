@@ -39,6 +39,7 @@ public:
 
     // Lifecycle
     void RenderSprite(Renderer* renderer) override;
+    void CollectRender(molga::RenderQueue& queue) override;
 
     // Serialization
     void Serialize(nlohmann::json& j) const override;

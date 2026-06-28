@@ -14,6 +14,7 @@ REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Core/TextureManager.h"
 #include "../../Core/PathService.h"
 #include "../../Common/Log.h"
+#include "Rendering/RenderQueue.h"
 #ifdef MOLGA_EDITOR
 #include "../../Editor/Project.h"
 #endif
@@ -67,6 +68,93 @@ void SpriteRenderer::RenderSprite(Renderer* renderer) {
     // Restore standard alpha blending
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
+namespace {
+    inline void TransformVertex(const mat4x4 model, float localX, float localY, float& outX, float& outY) {
+        outX = model[0][0] * localX + model[1][0] * localY + model[3][0];
+        outY = model[0][1] * localX + model[1][1] * localY + model[3][1];
+    }
+}
+
+void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
+    if (!gameObject || !enabled) return;
+
+    Transform* transform = gameObject->GetComponent<Transform>();
+    if (!transform) return;
+
+    molga::RenderCommand cmd;
+    
+    // Sort key setup
+    cmd.sortKey.cameraPass = 0;
+    cmd.sortKey.sortingLayer = 0;
+    cmd.sortKey.sortingOrder = sortingOrder;
+    cmd.sortKey.depthOrYSort = 0.0f;
+
+    // Batch key setup
+    cmd.batchKey = material.GetBatchKey();
+    if (!cmd.batchKey.texture) {
+        cmd.batchKey.texture = texture;
+    }
+
+    if (cmd.batchKey.isBatchable) {
+        cmd.isBatchableSprite = true;
+
+        Sprite sprite;
+        Vector2 worldPos = transform->GetWorldPosition();
+        Vector2 worldScale = transform->GetWorldScale();
+        float worldRot = transform->GetWorldRotation();
+
+        sprite.SetPosition(worldPos.x, worldPos.y);
+        sprite.SetSize(width * worldScale.x, height * worldScale.y);
+        sprite.SetRotation(worldRot);
+
+        if (flipX) {
+            sprite.x += sprite.width;
+            sprite.width = -sprite.width;
+        }
+        if (flipY) {
+            sprite.y += sprite.height;
+            sprite.height = -sprite.height;
+        }
+
+        mat4x4 model;
+        sprite.GetModelMatrix(model);
+
+        // Combined color/tint
+        float r = color.r * material.tint.r;
+        float g = color.g * material.tint.g;
+        float b = color.b * material.tint.b;
+        float a = color.a * material.tint.a;
+
+        // Setup vertices (TL, TR, BR, BL)
+        TransformVertex(model, 0.0f, 1.0f, cmd.vertices[0].x, cmd.vertices[0].y);
+        cmd.vertices[0].u = sprite.uv[0];
+        cmd.vertices[0].v = sprite.uv[3];
+        cmd.vertices[0].r = r; cmd.vertices[0].g = g; cmd.vertices[0].b = b; cmd.vertices[0].a = a;
+
+        TransformVertex(model, 1.0f, 1.0f, cmd.vertices[1].x, cmd.vertices[1].y);
+        cmd.vertices[1].u = sprite.uv[2];
+        cmd.vertices[1].v = sprite.uv[3];
+        cmd.vertices[1].r = r; cmd.vertices[1].g = g; cmd.vertices[1].b = b; cmd.vertices[1].a = a;
+
+        TransformVertex(model, 1.0f, 0.0f, cmd.vertices[2].x, cmd.vertices[2].y);
+        cmd.vertices[2].u = sprite.uv[2];
+        cmd.vertices[2].v = sprite.uv[1];
+        cmd.vertices[2].r = r; cmd.vertices[2].g = g; cmd.vertices[2].b = b; cmd.vertices[2].a = a;
+
+        TransformVertex(model, 0.0f, 0.0f, cmd.vertices[3].x, cmd.vertices[3].y);
+        cmd.vertices[3].u = sprite.uv[0];
+        cmd.vertices[3].v = sprite.uv[1];
+        cmd.vertices[3].r = r; cmd.vertices[3].g = g; cmd.vertices[3].b = b; cmd.vertices[3].a = a;
+    } else {
+        cmd.isBatchableSprite = false;
+        cmd.fallbackRender = [this](Renderer* r) {
+            this->RenderSprite(r);
+        };
+    }
+
+    queue.Submit(cmd);
 }
 
 void SpriteRenderer::Serialize(nlohmann::json& j) const {

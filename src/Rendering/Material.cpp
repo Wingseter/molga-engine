@@ -158,3 +158,47 @@ void Material::Deserialize(const nlohmann::json& j) {
         }
     }
 }
+
+Shader* Material::ResolveShader() const {
+    Shader* shader = ShaderManager::Get().Get(shaderName);
+    if (!shader) {
+        shader = ShaderManager::Get().Get("default");
+    }
+    return shader;
+}
+
+molga::BatchKey Material::GetBatchKey() const {
+    molga::BatchKey key;
+    key.shader = ResolveShader();
+    key.texture = mainTexture;
+    key.blendMode = blendMode;
+    key.isBatchable = (shaderName == "default" || shaderName == "batch") && properties.empty();
+    return key;
+}
+
+void Material::ApplyForBatchStart(Renderer* renderer) {
+    Shader* shader = ResolveShader();
+    if (!shader) return;
+
+    renderer->SetShader(shader);
+
+    // Apply GL blending
+    switch (blendMode) {
+        case BlendMode::Opaque:
+            glDisable(GL_BLEND);
+            break;
+        case BlendMode::Alpha:
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            break;
+        case BlendMode::Additive:
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            break;
+        case BlendMode::Multiply:
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_DST_COLOR, GL_ZERO);
+            break;
+    }
+}
+

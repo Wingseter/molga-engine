@@ -47,6 +47,7 @@ public:
     void Update(float dt) override;
     void Render() override {}
     void RenderSprite(Renderer* renderer) override;
+    void CollectRender(molga::RenderQueue& queue) override;
     void ResolveAssets() override { ResolveAssets(false); }
     void ResolveAssets(bool forceReload);
     void OnDestroy() override;

@@ -68,9 +68,11 @@ void Renderer::SetProjection(float left, float right, float bottom, float top) {
 
 void Renderer::SetShader(Shader* shader) {
     if (shader == nullptr) return;
-    stats_.shaderSwitches++;
-    currentShader = shader;
-    currentShader->Use();
+    if (currentShader != shader) {
+        stats_.shaderSwitches++;
+        currentShader = shader;
+        currentShader->Use();
+    }
 
     mat4x4 projView;
     mat4x4_mul(projView, projection, view);

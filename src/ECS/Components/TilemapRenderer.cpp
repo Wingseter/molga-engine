@@ -11,6 +11,7 @@ REGISTER_COMPONENT(TilemapRenderer)
 #include "../../Core/TextureManager.h"
 #include "../../Core/PathService.h"
 #include "../../Common/Log.h"
+#include "Rendering/RenderQueue.h"
 #include "../../Physics/Collision.h"
 
 #ifdef MOLGA_EDITOR
@@ -299,3 +300,19 @@ void TilemapRenderer::OnInspectorGUI() {
     ImGui::EndChild();
 #endif
 }
+
+void TilemapRenderer::CollectRender(molga::RenderQueue& queue) {
+    if (!gameObject || !enabled) return;
+
+    molga::RenderCommand cmd;
+    cmd.sortKey.cameraPass = 0;
+    cmd.sortKey.sortingLayer = 0;
+    cmd.sortKey.sortingOrder = sortingOrder;
+    cmd.sortKey.depthOrYSort = 0.0f;
+    cmd.batchKey.isBatchable = false;
+    cmd.fallbackRender = [this](Renderer* r) {
+        this->RenderSprite(r);
+    };
+    queue.Submit(cmd);
+}
+
