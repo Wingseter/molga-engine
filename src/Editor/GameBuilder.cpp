@@ -13,12 +13,56 @@
 #include <iostream>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+#include "../ECS/GameObject.h"
+#include "../ECS/ComponentFactory.h"
+#include "../Scripting/ScriptManager.h"
+#include "../Scripting/ScriptCompiler.h"
 
 namespace fs = std::filesystem;
 
 static fs::path ResolveProjectPath(const fs::path& projectRoot, const std::string& stored) {
     fs::path p(stored);
     return p.is_absolute() ? p : projectRoot / p;
+}
+
+static bool CheckScenesForUserScripts(const BuildSettings& settings, bool hasUserLib, std::string& outMsg) {
+    for (const auto& scene : settings.profile.scenes) {
+        fs::path scenePath = ResolveProjectPath(settings.projectRoot, scene);
+        if (!fs::exists(scenePath)) continue;
+
+        std::ifstream file(scenePath);
+        if (!file.is_open()) continue;
+
+        try {
+            nlohmann::json j;
+            file >> j;
+
+            if (j.contains("gameObjects")) {
+                for (const auto& objJson : j["gameObjects"]) {
+                    if (objJson.contains("components")) {
+                        for (const auto& compJson : objJson["components"]) {
+                            std::string type = compJson.value("type", "");
+                            if (type.empty()) continue;
+
+                            bool isBuiltinComp = ComponentFactory::Get().HasType(type);
+                            bool isBuiltinScript = ScriptManager::Get().IsScriptRegistered(type) && !ScriptManager::Get().IsDynamicScript(type);
+
+                            if (!isBuiltinComp && !isBuiltinScript) {
+                                if (!hasUserLib) {
+                                    outMsg = "Scene '" + scene + "' references user script component '" + type + 
+                                             "' but no user script library is available. Please build the script library first.";
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (const std::exception&) {
+            // Ignore parse errors
+        }
+    }
+    return true;
 }
 
 GameBuilder& GameBuilder::Get() {
@@ -66,6 +110,13 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         manifest.requiredFiles.push_back((PathService::Get().ExecutableDir() / "molga_runtime").string());
         for (const auto& scene : settings.profile.scenes) {
             manifest.requiredFiles.push_back(ResolveProjectPath(settings.projectRoot, scene).string());
+        }
+
+        // Require user script library if scenes reference user script types
+        std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
+        std::string checkError;
+        if (!CheckScenesForUserScripts(settings, false, checkError)) {
+            manifest.requiredFiles.push_back(userLibPath);
         }
 
         std::string err;
@@ -139,12 +190,32 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         molga::ActiveReportSink().ReportTiming("Build: Copy scenes", ms, "");
     }
 
+    // Verify scenes do not require missing user scripts
+    std::string userScriptLibPath;
+    std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
+    bool hasUserLib = !userLibPath.empty() && fs::exists(userLibPath);
+
+    std::string checkError;
+    if (!CheckScenesForUserScripts(settings, hasUserLib, checkError)) {
+        lastError = checkError;
+        cleanupStaging();
+        return false;
+    }
+
+    if (hasUserLib) {
+        currentStep = "Copying user scripts...";
+        if (!CopyUserScripts(stagingPathStr, userScriptLibPath)) {
+            cleanupStaging();
+            return false;
+        }
+    }
+
     // Step 5: Generate game config
     currentStep = "Generating game configuration...";
     progress = 0.7f;
     {
         long long t0 = molga::NowNanos();
-        if (!GenerateGameConfig(settings, stagingPathStr)) {
+        if (!GenerateGameConfig(settings, stagingPathStr, userScriptLibPath)) {
             cleanupStaging();
             return false;
         }
@@ -278,7 +349,7 @@ bool GameBuilder::CopyScenes(const BuildSettings& settings, const std::string& o
     }
 }
 
-bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::string& outputPath) {
+bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::string& outputPath, const std::string& scriptLibPath) {
     try {
         nlohmann::json config;
         config["schemaVersion"] = 1;
@@ -329,6 +400,16 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::s
         }
         config["scenes"] = scenesList;
 
+        // Scripts manifest (Phase 4)
+        if (!scriptLibPath.empty()) {
+            nlohmann::json scriptsJson;
+            scriptsJson["enabled"] = true;
+            scriptsJson["library"] = scriptLibPath;
+            scriptsJson["apiVersion"] = 1;
+            scriptsJson["buildHash"] = "source-or-library-hash";
+            config["scripts"] = scriptsJson;
+        }
+
         std::ofstream file(outputPath + "/game.json");
         if (!file.is_open()) {
             lastError = "Failed to create game.json";
@@ -368,6 +449,32 @@ bool GameBuilder::CopyExecutable(const std::string& outputPath, const std::strin
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to copy executable: " + std::string(e.what());
+        return false;
+    }
+}
+
+bool GameBuilder::CopyUserScripts(const std::string& outputPath, std::string& outLibraryPath) {
+    outLibraryPath.clear();
+    std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
+    if (userLibPath.empty() || !fs::exists(userLibPath)) {
+        return true;
+    }
+
+    try {
+        fs::path destDir = fs::path(outputPath) / Paths::Project::SCRIPTS;
+        fs::create_directories(destDir);
+
+        fs::path srcFile(userLibPath);
+        fs::path destFile = destDir / srcFile.filename();
+
+        fs::copy_file(srcFile, destFile, fs::copy_options::overwrite_existing);
+
+        outLibraryPath = (fs::path(Paths::Project::SCRIPTS) / srcFile.filename()).string();
+        std::replace(outLibraryPath.begin(), outLibraryPath.end(), '\\', '/');
+
+        return true;
+    } catch (const std::exception& e) {
+        lastError = "Failed to copy user scripts library: " + std::string(e.what());
         return false;
     }
 }

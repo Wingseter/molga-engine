@@ -29,9 +29,10 @@ private:
     bool CreateOutputDirectory(const std::string& path);
     bool CopyAssets(const std::string& outputPath);
     bool CopyShaders(const std::string& outputPath);
-    bool GenerateGameConfig(const BuildSettings& settings, const std::string& outputPath);
+    bool GenerateGameConfig(const BuildSettings& settings, const std::string& outputPath, const std::string& scriptLibPath = "");
     bool CopyExecutable(const std::string& outputPath, const std::string& gameName);
     bool CopyScenes(const BuildSettings& settings, const std::string& outputPath);
+    bool CopyUserScripts(const std::string& outputPath, std::string& outLibraryPath);
 
     std::string lastError;
     float progress = 0.0f;

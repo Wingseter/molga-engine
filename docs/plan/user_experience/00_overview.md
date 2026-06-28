@@ -121,3 +121,12 @@ The first three items should be treated as foundations. Adding advanced editors 
 
 - `01_commercial_engine_gap_analysis.md`: detailed workflow-by-workflow research and Molga gap analysis.
 
+Per-milestone implementation plans (derived from the gap analysis; each is a TDD, task-by-task plan):
+
+- `02_ux1_authoring_control_backbone.md`: UX-1 — SelectionService, Scene View picking, selection outline, transform gizmo + snap, TransformCommand, inspector transform edits through commands. Foundation for UX-2/3/6.
+- `03_ux2_console_and_task_status.md`: UX-2 — structured `LogMessage` + sink model, `ConsoleWindow`, `EditorTaskService`, build/script output routed to Console.
+- `04_ux3_asset_browser_and_identity.md`: UX-3 — GUID/`.meta`/AssetIndex, importer interface, safe Project Browser file commands, missing-reference UX, drag-texture-to-Scene-View.
+- `05_ux4_script_iteration.md`: UX-4 — async script compile, last-good library, field preservation, reload-safe pointer invalidation, play-mode compile policy (extends UX-2's `EditorTaskService`).
+- `06_ux5_profiler_and_trace_lite.md`: UX-5 — `ProfileScope`, frame ring buffer, `ProfilerWindow`, renderer/build/asset counters (reports timings into UX-2's Console).
+- `07_ux6_advanced_production_ux.md`: UX-6 — multi-object editing, component copy/paste/reset/remove, property-level prefab overrides, preferences/shortcuts/layout, command palette. Requires UX-1/2/3 stable.
+

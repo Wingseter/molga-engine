@@ -9,6 +9,7 @@ target_link_libraries(doctest_main PUBLIC doctest)
 function(molga_add_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
     target_link_libraries(${TEST_NAME} PRIVATE molga_core doctest_main molga_warnings)
+    set_target_properties(${TEST_NAME} PROPERTIES ENABLE_EXPORTS ON)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     set_tests_properties(${TEST_NAME} PROPERTIES LABELS "unit")
 endfunction()
@@ -115,6 +116,7 @@ target_sources(test_build_manager PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/EditorState.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/WindowManager.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/Windows/ConsoleWindow.cpp
+    ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp
 )
 target_include_directories(test_build_manager PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(test_build_manager PRIVATE imgui)
@@ -149,3 +151,40 @@ molga_add_test(runtime_smoke
 )
 target_include_directories(runtime_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(runtime_smoke PROPERTIES LABELS "unit;smoke")
+
+molga_add_test(test_runtime_script_package_loader
+    test_runtime_script_package_loader.cpp
+)
+target_include_directories(test_runtime_script_package_loader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+add_library(dummy_valid_lib SHARED dummy_valid_lib.cpp)
+target_include_directories(dummy_valid_lib PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
+)
+if(APPLE)
+    set_target_properties(dummy_valid_lib PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+endif()
+
+add_library(dummy_missing_register_lib SHARED dummy_missing_register_lib.cpp)
+target_link_libraries(dummy_missing_register_lib PRIVATE molga_core)
+
+add_library(dummy_missing_api_lib SHARED dummy_missing_api_lib.cpp)
+target_link_libraries(dummy_missing_api_lib PRIVATE molga_core)
+
+add_library(dummy_mismatch_api_lib SHARED dummy_mismatch_api_lib.cpp)
+target_link_libraries(dummy_mismatch_api_lib PRIVATE molga_core)
+
+add_dependencies(test_runtime_script_package_loader
+    dummy_valid_lib
+    dummy_missing_register_lib
+    dummy_missing_api_lib
+    dummy_mismatch_api_lib
+)
+
+target_compile_definitions(test_runtime_script_package_loader PRIVATE
+    DUMMY_VALID_LIB_PATH="$<TARGET_FILE:dummy_valid_lib>"
+    DUMMY_MISSING_REGISTER_LIB_PATH="$<TARGET_FILE:dummy_missing_register_lib>"
+    DUMMY_MISSING_API_PATH="$<TARGET_FILE:dummy_missing_api_lib>"
+    DUMMY_MISMATCH_API_PATH="$<TARGET_FILE:dummy_mismatch_api_lib>"
+)

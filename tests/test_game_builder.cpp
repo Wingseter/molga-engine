@@ -57,3 +57,56 @@ TEST_CASE("PackageLayout executable name is platform aware") {
     CHECK(PackageLayout::ExecutableNameFor("Game") == "Game");
 #endif
 }
+
+TEST_CASE("PackageLayout script manifest validation") {
+    fs::path tmpDir = fs::temp_directory_path() / "molga_pkg_layout_test";
+    fs::create_directories(tmpDir);
+
+    std::string exeName = PackageLayout::ExecutableNameFor("TestGame");
+    
+    { std::ofstream(tmpDir / exeName); }
+    { std::ofstream(tmpDir / "game.json") << "{}"; }
+    fs::create_directories(tmpDir / "Scenes");
+    { std::ofstream(tmpDir / "Scenes/main.json"); }
+    fs::create_directories(tmpDir / "Assets");
+    fs::create_directories(tmpDir / "Shaders");
+
+    std::string error;
+    bool valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    CHECK(valid);
+    CHECK(error.empty());
+
+    {
+        std::ofstream f(tmpDir / "game.json");
+        f << R"({
+            "scripts": {
+                "enabled": false,
+                "library": "Scripts/libUserScripts.dylib"
+            }
+        })";
+    }
+    valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    CHECK(valid);
+    CHECK(error.empty());
+
+    {
+        std::ofstream f(tmpDir / "game.json");
+        f << R"({
+            "scripts": {
+                "enabled": true,
+                "library": "Scripts/libUserScripts.dylib"
+            }
+        })";
+    }
+    valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    CHECK_FALSE(valid);
+    CHECK(error.find("missing from package") != std::string::npos);
+
+    fs::create_directories(tmpDir / "Scripts");
+    { std::ofstream(tmpDir / "Scripts/libUserScripts.dylib"); }
+    valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    CHECK(valid);
+    CHECK(error.empty());
+
+    fs::remove_all(tmpDir);
+}

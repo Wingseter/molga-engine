@@ -84,6 +84,7 @@ set(ENGINE_SOURCES
     src/Core/Scheduler.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
+    src/Scripting/ScriptPackageLoader.cpp
     src/Scripting/ScriptReloadService.cpp
     src/Scripting/BuiltinScripts.cpp
     src/Platform/Platform.cpp
@@ -103,6 +104,7 @@ set(ENGINE_SOURCES
     src/Core/PackageLayout.cpp
     src/Core/PackageFinalizer.cpp
     src/Core/BuildProfile.cpp
+    src/Core/GameConfig.cpp
     src/Editor/Selection/SelectionService.cpp
     src/Core/AssetDatabase.cpp
     src/Core/Importers/TextureImporter.cpp
@@ -192,11 +194,13 @@ add_executable(molga_engine src/main.cpp ${EDITOR_SOURCES})
 target_link_libraries(molga_engine PRIVATE molga_core imgui)
 target_link_libraries(molga_engine PRIVATE molga_warnings)
 target_compile_definitions(molga_engine PRIVATE MOLGA_EDITOR)
+set_target_properties(molga_engine PROPERTIES ENABLE_EXPORTS ON)
 
 # ── Runtime executable ─────────────────────────────────────────────────────────
 add_executable(molga_runtime src/runtime_main.cpp)
 target_link_libraries(molga_runtime PRIVATE molga_core)
 target_link_libraries(molga_runtime PRIVATE molga_warnings)
+set_target_properties(molga_runtime PROPERTIES ENABLE_EXPORTS ON)
 
 # ── Copy assets to build directory ─────────────────────────────────────────────
 add_custom_command(TARGET molga_engine POST_BUILD
@@ -227,6 +231,7 @@ add_test(
         "-DEDITOR=$<TARGET_FILE:molga_engine>"
         "-DFIXTURE_SCRIPT=${CMAKE_SOURCE_DIR}/tests/smoke/create_fixture.cmake"
         "-DWORK_ROOT=${CMAKE_BINARY_DIR}/smoke-e2e"
+        "-DDUMMY_LIB=$<TARGET_FILE:dummy_valid_lib>"
         -P "${CMAKE_SOURCE_DIR}/tests/smoke/run_end_to_end.cmake"
 )
 set_tests_properties(smoke_end_to_end PROPERTIES

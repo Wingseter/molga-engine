@@ -28,6 +28,8 @@
 #include "ECS/Components/Camera.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
+#include "Scripting/ScriptManager.h"
+#include "Scripting/ScriptCompiler.h"
 #include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
 #include "Core/PathService.h"
@@ -69,6 +71,13 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
         report.message = "Could not open smoke project";
         report.Save(options.reportPath);
         return 3;
+    }
+
+    // Set script compiler path and load script library if present
+    ScriptCompiler::Get().SetProjectPath(options.projectRoot.string());
+    std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
+    if (!userLibPath.empty() && std::filesystem::exists(userLibPath)) {
+        ScriptManager::Get().LoadScriptLibrary(userLibPath);
     }
 
     World world;

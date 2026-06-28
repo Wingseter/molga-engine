@@ -185,10 +185,24 @@ void Editor::Init() {
       }
   });
 
+  // Find engine source root from executable dir
+  std::filesystem::path current = PathService::Get().ExecutableDir();
+  std::filesystem::path enginePath = current;
+  for (int i = 0; i < 5; ++i) {
+      if (std::filesystem::exists(current / "CMakeLists.txt") && std::filesystem::exists(current / "src")) {
+          enginePath = current;
+          break;
+      }
+      if (current.has_parent_path()) {
+          current = current.parent_path();
+      } else {
+          break;
+      }
+  }
+
   // Set engine path for ScriptCompiler and VSCodeIntegration
-  std::string enginePath = PathService::Get().ExecutableDir().string();
-  ScriptCompiler::Get().SetEnginePath(enginePath);
-  VSCodeIntegration::Get().SetEnginePath(enginePath);
+  ScriptCompiler::Get().SetEnginePath(enginePath.string());
+  VSCodeIntegration::Get().SetEnginePath(enginePath.string());
 
   libraryPort_ = std::make_unique<EditorLibraryPort>(this);
   reloadService_ = std::make_unique<molga::ScriptReloadService>(libraryPort_.get());

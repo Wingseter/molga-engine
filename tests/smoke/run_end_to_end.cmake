@@ -13,9 +13,15 @@ set(TEST_HOME "${WORK_ROOT}/home")
 file(REMOVE_RECURSE "${WORK_ROOT}")
 file(MAKE_DIRECTORY "${WORK_ROOT}" "${TEST_HOME}")
 
+# Pass DUMMY_LIB forward if defined
+set(FIXTURE_ARGS "-DFIXTURE_ROOT=${PROJECT_ROOT}")
+if(DEFINED DUMMY_LIB)
+    list(APPEND FIXTURE_ARGS "-DDUMMY_LIB=${DUMMY_LIB}")
+endif()
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}"
-        "-DFIXTURE_ROOT=${PROJECT_ROOT}"
+        ${FIXTURE_ARGS}
         -P "${FIXTURE_SCRIPT}"
     RESULT_VARIABLE fixture_result
 )
@@ -54,13 +60,38 @@ foreach(required_path
     endif()
 endforeach()
 
+if(DEFINED DUMMY_LIB AND EXISTS "${DUMMY_LIB}")
+    if(WIN32)
+        set(EXPECTED_LIB "${PACKAGE_ROOT}/Scripts/UserScripts.dll")
+    elseif(APPLE)
+        set(EXPECTED_LIB "${PACKAGE_ROOT}/Scripts/libUserScripts.dylib")
+    else()
+        set(EXPECTED_LIB "${PACKAGE_ROOT}/Scripts/libUserScripts.so")
+    endif()
+    if(NOT EXISTS "${EXPECTED_LIB}")
+        message(FATAL_ERROR "Missing package output script library: ${EXPECTED_LIB}")
+    endif()
+endif()
+
 file(READ "${PACKAGE_ROOT}/game.json" game_config)
-foreach(expected
+set(EXPECTED_CONFIGS
     [["gameName": "SmokeGame"]]
     [["productVersion": "0.1.0"]]
     [["developmentBuild": true]]
     [["mainScene": "Scenes/main.json"]]
 )
+if(DEFINED DUMMY_LIB AND EXISTS "${DUMMY_LIB}")
+    if(WIN32)
+        list(APPEND EXPECTED_CONFIGS [["library": "Scripts/UserScripts.dll"]])
+    elseif(APPLE)
+        list(APPEND EXPECTED_CONFIGS [["library": "Scripts/libUserScripts.dylib"]])
+    else()
+        list(APPEND EXPECTED_CONFIGS [["library": "Scripts/libUserScripts.so"]])
+    endif()
+    list(APPEND EXPECTED_CONFIGS [["enabled": true]])
+endif()
+
+foreach(expected ${EXPECTED_CONFIGS})
     string(FIND "${game_config}" "${expected}" position)
     if(position EQUAL -1)
         message(FATAL_ERROR "game.json is missing ${expected}\n${game_config}")
@@ -82,12 +113,21 @@ if(NOT runtime_result EQUAL 0)
 endif()
 
 file(READ "${RUNTIME_REPORT}" runtime_report)
-foreach(expected
+set(EXPECTED_REPORTS
     [["status": "ok"]]
     [["objectCount": 1]]
     [["frames": 3]]
     [["assetsResolved": true]]
 )
+if(DEFINED DUMMY_LIB AND EXISTS "${DUMMY_LIB}")
+    list(APPEND EXPECTED_REPORTS "Scripts: loaded")
+    list(APPEND EXPECTED_REPORTS "UserScriptComponents: 1")
+else()
+    list(APPEND EXPECTED_REPORTS "Scripts: none")
+    list(APPEND EXPECTED_REPORTS "UserScriptComponents: 0")
+endif()
+
+foreach(expected ${EXPECTED_REPORTS})
     string(FIND "${runtime_report}" "${expected}" position)
     if(position EQUAL -1)
         message(FATAL_ERROR

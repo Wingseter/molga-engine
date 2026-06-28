@@ -35,49 +35,12 @@
 #include "Core/SmokeReport.h"
 #include "Core/EventBus.h"
 #include "Core/ProjectSettings.h"
+#include "Core/GameConfig.h"
+#include "Scripting/ScriptPackageLoader.h"
 #include <nlohmann/json.hpp>
 #include <optional>
 
-// Game configuration
-struct GameConfig {
-    std::string gameName = "Molga Game";
-    std::string mainScene = "scenes/main.json";
-    int windowWidth = 800;
-    int windowHeight = 600;
-    bool fullscreen = false;
-};
-
 GLFWwindow* g_window = nullptr;
-
-bool LoadGameConfig(const std::string& path, GameConfig& config) {
-    std::ifstream file(path);
-    if (!file.is_open()) {
-        std::cerr << "Could not open game config: " << path << std::endl;
-        return false;
-    }
-
-    try {
-        nlohmann::json j;
-        file >> j;
-
-        if (j.contains("gameName")) config.gameName = j["gameName"];
-        if (j.contains("mainScene")) config.mainScene = j["mainScene"];
-        if (j.contains("windowWidth")) config.windowWidth = j["windowWidth"];
-        if (j.contains("windowHeight")) config.windowHeight = j["windowHeight"];
-        if (j.contains("fullscreen")) config.fullscreen = j["fullscreen"];
-        if (j.contains("projectSettings")) {
-            ProjectSettings::Get().Deserialize(j["projectSettings"]);
-        }
-        if (j.contains("inputActions")) {
-            Input::DeserializeActions(j["inputActions"]);
-        }
-
-        return true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error parsing game config: " << e.what() << std::endl;
-        return false;
-    }
-}
 
 namespace {
 
@@ -189,6 +152,16 @@ int main(int argc, char* argv[]) {
 
     // Initialize scripting
     RegisterBuiltinScripts();
+
+    // Load and validate user script package
+    std::string loaderError;
+    std::string smokeReportPathStr = smoke->reportPath.string();
+    if (!ScriptPackageLoader::Load(config, smoke->enabled, smokeReportPathStr, loaderError)) {
+        std::cerr << "Script package initialization failed: " << loaderError << std::endl;
+        renderer.reset();
+        EngineShutdown();
+        return 4;
+    }
 
     // Initialize text renderer
     TextRenderer::Get().Init();
@@ -308,6 +281,18 @@ int main(int argc, char* argv[]) {
 
     int exitCode = 0;
     if (smoke->enabled) {
+        int scriptComponentCount = 0;
+        for (const auto& obj : world.Objects()) {
+            if (!obj) continue;
+            for (auto* comp : obj->GetComponents()) {
+                if (comp && ScriptManager::Get().IsDynamicScript(comp->GetTypeName())) {
+                    scriptComponentCount++;
+                }
+            }
+        }
+
+        std::string scriptStatus = config.scripts.enabled ? "loaded" : "none";
+
         SmokeReport report;
         report.executable = "molga_runtime";
         report.status = AllSpriteAssetsResolved(world) ? "ok" : "error";
@@ -315,9 +300,13 @@ int main(int argc, char* argv[]) {
         report.objectCount = world.Objects().size();
         report.frames = renderedFrames;
         report.assetsResolved = AllSpriteAssetsResolved(world);
-        report.message = report.assetsResolved
-            ? "Runtime smoke completed"
-            : "One or more sprite assets failed to resolve";
+        if (report.assetsResolved) {
+            report.message = "Runtime smoke completed. Scripts: " + scriptStatus + 
+                             ", UserScriptComponents: " + std::to_string(scriptComponentCount);
+        } else {
+            report.message = "One or more sprite assets failed to resolve. Scripts: " + scriptStatus + 
+                             ", UserScriptComponents: " + std::to_string(scriptComponentCount);
+        }
         report.Save(smoke->reportPath);
         exitCode = report.assetsResolved ? 0 : 4;
     }

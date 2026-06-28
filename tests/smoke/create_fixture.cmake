@@ -16,8 +16,23 @@ file(WRITE "${FIXTURE_ROOT}/project.molga" [=[
 }
 ]=])
 
-# stb_image의 PNM loader는 binary P6만 지원한다.
-# header 뒤의 세 문자는 RGB bytes 64, 32, 96이다.
+# Copy dummy user script library if DUMMY_LIB is defined and exists
+if(DEFINED DUMMY_LIB AND EXISTS "${DUMMY_LIB}")
+    file(MAKE_DIRECTORY "${FIXTURE_ROOT}/Scripts/build")
+    if(WIN32)
+        set(LIB_NAME "UserScripts.dll")
+    elseif(APPLE)
+        set(LIB_NAME "libUserScripts.dylib")
+    else()
+        set(LIB_NAME "libUserScripts.so")
+    endif()
+    file(COPY "${DUMMY_LIB}" DESTINATION "${FIXTURE_ROOT}/Scripts/build")
+    get_filename_component(DUMMY_NAME "${DUMMY_LIB}" NAME)
+    file(RENAME "${FIXTURE_ROOT}/Scripts/build/${DUMMY_NAME}" "${FIXTURE_ROOT}/Scripts/build/${LIB_NAME}")
+endif()
+
+# stb_image's PNM loader only supports binary P6.
+# Three characters after header are RGB bytes 64, 32, 96.
 file(WRITE "${FIXTURE_ROOT}/Assets/Textures/smoke.ppm"
     "P6\n1 1\n255\n@ `")
 
@@ -45,6 +60,9 @@ file(WRITE "${FIXTURE_ROOT}/Scenes/main.json" [=[
       "flipX": false,
       "flipY": false,
       "sortingOrder": 0
+    }, {
+      "type": "MyUserScript",
+      "enabled": true
     }]
   }]
 }

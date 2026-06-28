@@ -154,7 +154,12 @@ std::string ScriptCompiler::GenerateCMakeContent(const std::vector<ScriptInfo>& 
     // Engine include path
     ss << "# Engine include paths\n";
     if (!enginePath.empty()) {
-        ss << "set(MOLGA_ENGINE_PATH \"" << enginePath << "\")\n";
+        std::string cleanEnginePath = enginePath;
+        std::replace(cleanEnginePath.begin(), cleanEnginePath.end(), '\\', '/');
+        ss << "set(MOLGA_ENGINE_PATH \"" << cleanEnginePath << "\")\n";
+        ss << "if(NOT EXISTS \"${MOLGA_ENGINE_PATH}/src\")\n";
+        ss << "    message(FATAL_ERROR \"MOLGA_ENGINE_PATH/src not found at: ${MOLGA_ENGINE_PATH}/src\")\n";
+        ss << "endif()\n";
         ss << "include_directories(${MOLGA_ENGINE_PATH}/src)\n";
         // glm is header-only via system/vcpkg; no external/glm directory exists
         ss << "include_directories(${MOLGA_ENGINE_PATH}/external/imgui)\n";
@@ -218,6 +223,9 @@ std::string ScriptCompiler::GenerateScriptExportsContent(const std::vector<Scrip
     ss << "extern \"C\" {\n";
     ss << "    void RegisterScripts() {\n";
     ss << "        // Scripts auto-register via REGISTER_SCRIPT macro\n";
+    ss << "    }\n";
+    ss << "    int GetScriptApiVersion() {\n";
+    ss << "        return 1;\n";
     ss << "    }\n";
     ss << "}\n";
 

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: `superpowers:subagent-driven-development` 또는 `superpowers:executing-plans`. 구현 시 `superpowers:test-driven-development`, 완료 선언 전 `superpowers:verification-before-completion`을 사용한다. 체크박스(`- [x]`)로 진행을 추적한다.
 >
-> **의존성:** 이 작업은 **UX-2**(`03_ux2_console_and_tasks.md`)가 도입하는 `EditorTaskService`와 Console sink **위에** 직접 쌓인다. UX-2가 task/console 표면을 만들고, **UX-4는 그것을 비동기 스크립트 컴파일·리로드 전 흐름까지 확장**한다. 또한 UX-1(`02_ux1…`)의 dirty/command 계약을 사용한다. UX-2 미완 상태에서 이 문서를 구현하려면, 아래 Task A가 정의하는 `EditorTaskService` 최소 API를 UX-2와 호환되게 먼저 세운다.
+> **의존성:** 이 작업은 **UX-2**(`03_ux2_console_and_task_status.md`)가 도입하는 `EditorTaskService`와 Console sink **위에** 직접 쌓인다. UX-2가 task/console 표면을 만들고, **UX-4는 그것을 비동기 스크립트 컴파일·리로드 전 흐름까지 확장**한다. 또한 UX-1(`02_ux1…`)의 dirty/command 계약을 사용한다. UX-2 미완 상태에서 이 문서를 구현하려면, 아래 Task A가 정의하는 `EditorTaskService` 최소 API를 UX-2와 호환되게 먼저 세운다.
 
 **Goal:** 사용자가 에디터를 켜둔 채 게임플레이 스크립트를 수정하고, **UI를 멈추지 않고** 컴파일하며, 성공 시 동적 라이브러리를 **안전한 지점에서** 교체하고, 씬 오브젝트의 직렬화된 스크립트 필드 값을 보존한 채 리로드를 끝낼 수 있게 한다. 실패한 컴파일은 현재 실행 가능한 스크립트 런타임(마지막 정상 라이브러리)을 파괴하지 않는다.
 
@@ -846,7 +846,7 @@ git commit -m "feat(script): explicit play-mode policy — compile allowed, relo
 
 ## 의존성 / 순서
 
-- **선행:** **UX-2**(`03_ux2_console_and_tasks.md`)가 `EditorTaskService`와 Console sink를 먼저 도입해야 한다. UX-4는 그 위에서 `ScriptCompile`/`ScriptReload` 카테고리와 비동기 스크립트 흐름을 *확장*한다. Task A는 UX-2가 정의한 API와 **호환**되도록 작성한다(같은 `EditorTaskService`/`TaskId`/`TaskCategory`/`TaskState` 이름). UX-1(`02_ux1…`)의 dirty/command 계약을 사용한다.
+- **선행:** **UX-2**(`03_ux2_console_and_task_status.md`)가 `EditorTaskService`와 Console sink를 먼저 도입해야 한다. UX-4는 그 위에서 `ScriptCompile`/`ScriptReload` 카테고리와 비동기 스크립트 흐름을 *확장*한다. Task A는 UX-2가 정의한 API와 **호환**되도록 작성한다(같은 `EditorTaskService`/`TaskId`/`TaskCategory`/`TaskState` 이름). UX-1(`02_ux1…`)의 dirty/command 계약을 사용한다.
 - **권장 순서:** A(task 확장) → B(프로세스 심 + 비동기 컴파일) → C(라이브러리 검증/last-good) → D(필드 스냅샷) → E(safe-point reload) → F(Play 정책). C·D는 E의 부품이므로 E보다 먼저 끝낸다.
 
 ### Reload 안전 지점 (정확한 정의)
