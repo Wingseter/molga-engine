@@ -26,6 +26,18 @@ bool PackageLayout::Validate(
         }
     }
 
+    // Require asset catalog
+    if (!std::filesystem::exists(root / "asset_catalog.json")) {
+        errorOut = "Missing package entry: " + (root / "asset_catalog.json").string();
+        return false;
+    }
+
+    // Require placeholder resource
+    if (!std::filesystem::exists(root / "Resources" / "missing_texture.png")) {
+        errorOut = "Missing package entry: " + (root / "Resources" / "missing_texture.png").string();
+        return false;
+    }
+
     try {
         std::ifstream file(configPath);
         if (!file.is_open()) {

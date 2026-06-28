@@ -34,6 +34,8 @@ private:
     bool CopyExecutable(const std::string& outputPath, const std::string& gameName);
     bool CopyScenes(const BuildPlan& plan, const std::string& outputPath);
     bool CopyUserScripts(const std::string& outputPath, std::string& outLibraryPath);
+    bool EmitAssetCatalog(const std::string& outputPath);
+    bool CopyPlaceholderResource(const std::string& outputPath);
 
     std::string lastError;
     float progress = 0.0f;

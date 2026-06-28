@@ -7,6 +7,8 @@
 #include "Core/Importers/AudioImporter.h"
 #include "Core/PathService.h"
 #include <algorithm>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 namespace molga {
 
@@ -24,6 +26,7 @@ AssetDatabase& AssetDatabase::Get() {
 
 std::string AssetDatabase::NormalizeRel(const std::filesystem::path& rel) {
     std::string s = rel.generic_string();  // 슬래시 정규화
+    std::replace(s.begin(), s.end(), '\\', '/');
     return s;
 }
 
@@ -56,7 +59,13 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
 
     AssetRecord rec;
     rec.guid = meta.guid;
-    rec.sourcePath = NormalizeRel(std::filesystem::relative(absPath, assetRoot_));
+    std::filesystem::path rel;
+    if (assetRoot_.filename() == "Assets") {
+        rel = std::filesystem::relative(absPath, assetRoot_.parent_path());
+    } else {
+        rel = "Assets" / std::filesystem::relative(absPath, assetRoot_);
+    }
+    rec.sourcePath = NormalizeRel(rel);
     rec.importer = meta.importer;
     rec.importerVersion = meta.importerVersion;
 
@@ -105,20 +114,83 @@ const AssetRecord* AssetDatabase::Find(const std::string& guid) const {
 }
 
 std::string AssetDatabase::GuidForSource(const std::string& relativeSourcePath) const {
-    auto it = sourceToGuid_.find(NormalizeRel(relativeSourcePath));
-    return it == sourceToGuid_.end() ? std::string() : it->second;
+    if (relativeSourcePath.empty()) return "";
+    
+    // Normalize separators
+    std::filesystem::path p(relativeSourcePath);
+    std::string normalized = NormalizeRel(p);
+    
+    // 1. Direct match (e.g., "Assets/Textures/player.png")
+    auto it = sourceToGuid_.find(normalized);
+    if (it != sourceToGuid_.end()) {
+        return it->second;
+    }
+    
+    // 2. Prepend "Assets/" if not present (e.g., "Textures/player.png" -> "Assets/Textures/player.png")
+    if (normalized.rfind("Assets/", 0) != 0) {
+        std::string withAssets = "Assets/" + normalized;
+        it = sourceToGuid_.find(withAssets);
+        if (it != sourceToGuid_.end()) {
+            return it->second;
+        }
+    }
+    
+    // 3. Fallback: match by filename or suffix for legacy scenes
+    std::string filename = p.filename().generic_string();
+    for (const auto& [relPath, guid] : sourceToGuid_) {
+        if (relPath == "Assets/" + filename || 
+            (relPath.size() > filename.size() && 
+             relPath.compare(relPath.size() - filename.size() - 1, filename.size() + 1, "/" + filename) == 0)) {
+            return guid;
+        }
+    }
+    
+    return "";
+}
+
+std::string AssetDatabase::GuidForAbsolutePath(const std::filesystem::path& absolutePath) const {
+    if (assetRoot_.empty() || absolutePath.empty()) return "";
+    
+    std::filesystem::path rootDir = assetRoot_;
+    if (assetRoot_.filename() == "Assets") {
+        rootDir = assetRoot_.parent_path();
+    }
+    
+    std::error_code ec;
+    std::filesystem::path rel = std::filesystem::relative(absolutePath, rootDir, ec);
+    if (!ec && rel.string().find("..") == std::string::npos) {
+        return GuidForSource(rel.generic_string());
+    }
+    
+    return GuidForSource(absolutePath.filename().generic_string());
+}
+
+static std::string GetCanonicalPathStatic(const std::filesystem::path& absPath, const std::filesystem::path& assetRoot) {
+    if (assetRoot.empty()) return "";
+    std::filesystem::path rel;
+    if (assetRoot.filename() == "Assets") {
+        rel = std::filesystem::relative(absPath, assetRoot.parent_path());
+    } else {
+        rel = "Assets" / std::filesystem::relative(absPath, assetRoot);
+    }
+    return AssetDatabase::NormalizeRel(rel);
 }
 
 std::filesystem::path AssetDatabase::AbsoluteSourcePath(const std::string& guid) const {
     const AssetRecord* rec = Find(guid);
     if (!rec) return {};
-    return assetRoot_ / rec->sourcePath;
+    
+    std::filesystem::path rootDir = assetRoot_;
+    if (assetRoot_.filename() == "Assets") {
+        rootDir = assetRoot_.parent_path();
+    }
+    return rootDir / rec->sourcePath;
 }
 
 void AssetDatabase::Reimport(const std::string& guid) {
     const AssetRecord* rec = Find(guid);
     if (!rec) return;
-    IndexOne(assetRoot_ / rec->sourcePath);
+    IndexOne(AbsoluteSourcePath(guid));
 }
 
 void AssetDatabase::OnSourceAdded(const std::filesystem::path& rel) {
@@ -126,7 +198,8 @@ void AssetDatabase::OnSourceAdded(const std::filesystem::path& rel) {
 }
 
 void AssetDatabase::OnSourceRemoved(const std::filesystem::path& rel) {
-    std::string key = NormalizeRel(rel);
+    std::filesystem::path absPath = assetRoot_ / rel;
+    std::string key = GetCanonicalPathStatic(absPath, assetRoot_);
     auto it = sourceToGuid_.find(key);
     if (it == sourceToGuid_.end()) return;
     byGuid_.erase(it->second);
@@ -135,18 +208,97 @@ void AssetDatabase::OnSourceRemoved(const std::filesystem::path& rel) {
 
 void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
                                     const std::filesystem::path& newRel) {
-    std::string oldKey = NormalizeRel(oldRel);
+    std::filesystem::path oldAbs = assetRoot_ / oldRel;
+    std::filesystem::path newAbs = assetRoot_ / newRel;
+    std::string oldKey = GetCanonicalPathStatic(oldAbs, assetRoot_);
+    
     auto it = sourceToGuid_.find(oldKey);
     if (it == sourceToGuid_.end()) { OnSourceAdded(newRel); return; }
     std::string guid = it->second;
     sourceToGuid_.erase(it);
-    std::string newKey = NormalizeRel(newRel);
+    
+    std::string newKey = GetCanonicalPathStatic(newAbs, assetRoot_);
     sourceToGuid_[newKey] = guid;
     auto recIt = byGuid_.find(guid);
     if (recIt != byGuid_.end()) recIt->second.sourcePath = newKey;
 }
 
+bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
+    try {
+        nlohmann::json j;
+        j["schemaVersion"] = 1;
+        j["assetRootMode"] = "packageRoot";
+        
+        nlohmann::json recordsJson = nlohmann::json::array();
+        for (const auto& [guid, rec] : byGuid_) {
+            nlohmann::json r;
+            r["guid"] = rec.guid;
+            r["sourcePath"] = rec.sourcePath;
+            r["importer"] = rec.importer;
+            r["importerVersion"] = rec.importerVersion;
+            r["artifactPath"] = rec.artifactPath;
+            r["hash"] = "dummy_hash";
+            r["width"] = rec.textureWidth;
+            r["height"] = rec.textureHeight;
+            recordsJson.push_back(r);
+        }
+        j["records"] = recordsJson;
+        
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream file(path);
+        if (!file.is_open()) return false;
+        file << j.dump(2);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::filesystem::path& packageRoot) {
+    Clear();
+    assetRoot_ = packageRoot;
+    
+    if (!std::filesystem::exists(path)) {
+        return false;
+    }
+    
+    try {
+        std::ifstream file(path);
+        if (!file.is_open()) return false;
+        nlohmann::json j;
+        file >> j;
+        
+        if (j.contains("records") && j["records"].is_array()) {
+            for (const auto& r : j["records"]) {
+                AssetRecord rec;
+                rec.guid = r.value("guid", "");
+                rec.sourcePath = r.value("sourcePath", "");
+                rec.importer = r.value("importer", "");
+                rec.importerVersion = r.value("importerVersion", 1);
+                rec.artifactPath = r.value("artifactPath", "");
+                rec.textureWidth = r.value("width", 0);
+                rec.textureHeight = r.value("height", 0);
+                
+                sourceToGuid_[rec.sourcePath] = rec.guid;
+                byGuid_[rec.guid] = std::move(rec);
+            }
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void AssetDatabase::Clear() {
+    byGuid_.clear();
+    sourceToGuid_.clear();
+}
+
 std::filesystem::path AssetDatabase::MissingTexturePath() {
+    auto runtimePath = PathService::Get().AssetRoot() / "Resources/missing_texture.png";
+    if (std::filesystem::exists(runtimePath)) {
+        return runtimePath;
+    }
     return PathService::Get().EngineResource("Editor/missing_texture.png");
 }
 

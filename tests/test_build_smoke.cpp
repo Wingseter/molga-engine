@@ -23,6 +23,12 @@ TEST_CASE("build package requires executable config scene assets and shaders") {
     CHECK(error.find("Shaders") != std::string::npos);
 
     test_support::WriteText(root / "Shaders/sprite.vert", "shader");
+
+    // asset_catalog.json and placeholder resource are now required
+    CHECK_FALSE(PackageLayout::Validate(root, "SmokeGame", error));
+    test_support::WriteText(root / "asset_catalog.json", "{\"schemaVersion\":1,\"records\":[]}");
+    fs::create_directories(root / "Resources");
+    test_support::WriteText(root / "Resources/missing_texture.png", "placeholder");
     CHECK(PackageLayout::Validate(root, "SmokeGame", error));
 }
 

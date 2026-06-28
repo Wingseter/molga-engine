@@ -54,6 +54,8 @@ foreach(required_path
     "${PACKAGE_ROOT}/game.json"
     "${PACKAGE_ROOT}/Scenes/main.json"
     "${PACKAGE_ROOT}/Assets/Textures/smoke.ppm"
+    "${PACKAGE_ROOT}/asset_catalog.json"
+    "${PACKAGE_ROOT}/Resources/missing_texture.png"
 )
     if(NOT EXISTS "${required_path}")
         message(FATAL_ERROR "Missing package output: ${required_path}")

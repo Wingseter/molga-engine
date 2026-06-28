@@ -106,6 +106,9 @@ TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
     { std::ofstream(tmpDir / exeName); }
     fs::create_directories(tmpDir / "Assets");
     fs::create_directories(tmpDir / "Shaders");
+    { std::ofstream(tmpDir / "asset_catalog.json") << "{\"schemaVersion\":1,\"records\":[]}"; }
+    fs::create_directories(tmpDir / "Resources");
+    { std::ofstream(tmpDir / "Resources/missing_texture.png") << "placeholder"; }
 
     // Case 1: Custom mainScene and scenes listed in game.json
     {

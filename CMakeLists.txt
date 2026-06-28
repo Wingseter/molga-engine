@@ -248,6 +248,21 @@ add_custom_command(TARGET molga_runtime POST_BUILD
     COMMENT "Copying shaders to build directory (runtime)"
 )
 
+# ── Copy editor resources to build directory ─────────────────────────────────
+add_custom_command(TARGET molga_engine POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:molga_engine>/Editor
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/src/Editor/missing_texture.png $<TARGET_FILE_DIR:molga_engine>/Editor/missing_texture.png
+    COMMENT "Copying editor resources to build directory"
+)
+add_custom_command(TARGET molga_runtime POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:molga_runtime>/Editor
+    COMMAND ${CMAKE_COMMAND} -E copy
+    ${CMAKE_SOURCE_DIR}/src/Editor/missing_texture.png $<TARGET_FILE_DIR:molga_runtime>/Editor/missing_texture.png
+    COMMENT "Copying editor resources to build directory (runtime)"
+)
+
+
 # ── Testing ────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)

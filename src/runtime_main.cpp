@@ -38,6 +38,7 @@
 #include "Core/EventBus.h"
 #include "Core/ProjectSettings.h"
 #include "Core/GameConfig.h"
+#include "Core/AssetDatabase.h"
 #include "Scripting/ScriptPackageLoader.h"
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -173,6 +174,17 @@ int main(int argc, char* argv[]) {
     // Initialize text renderer
     TextRenderer::Get().Init();
 
+    // Load asset catalog if present (runtime mode: read-only, no .meta creation)
+    PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
+    {
+        auto catalogPath = PathService::Get().ExecutableDir() / "asset_catalog.json";
+        if (std::filesystem::exists(catalogPath)) {
+            molga::AssetDatabase::Get().LoadCatalog(catalogPath, PathService::Get().ExecutableDir());
+            std::cout << "Asset catalog loaded: " << molga::AssetDatabase::Get().RecordCount()
+                      << " records" << std::endl;
+        }
+    }
+
     // Load main scene
     std::string scenePath = (PathService::Get().ExecutableDir() / config.mainScene).string();
     std::cout << "Loading scene: " << scenePath << std::endl;
@@ -188,7 +200,6 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
     world.ResolveAssets();
 
     world.StartPending();

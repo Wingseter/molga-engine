@@ -17,6 +17,7 @@
 #include "../ECS/ComponentFactory.h"
 #include "../Scripting/ScriptManager.h"
 #include "../Scripting/ScriptCompiler.h"
+#include "../Core/AssetDatabase.h"
 
 namespace fs = std::filesystem;
 
@@ -215,6 +216,30 @@ bool GameBuilder::Build(const BuildSettings& settings) {
             cleanupStaging();
             return false;
         }
+    }
+
+    // Step: Emit asset catalog
+    currentStep = "Emitting asset catalog...";
+    progress = 0.6f;
+    {
+        long long t0 = molga::NowNanos();
+        if (!EmitAssetCatalog(stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Emit asset catalog", ms, "");
+    }
+
+    // Step: Copy placeholder resource
+    {
+        long long t0 = molga::NowNanos();
+        if (!CopyPlaceholderResource(stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Copy placeholder resource", ms, "");
     }
 
     // Step 5: Generate game config
@@ -473,6 +498,51 @@ bool GameBuilder::CopyUserScripts(const std::string& outputPath, std::string& ou
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to copy user scripts library: " + std::string(e.what());
+        return false;
+    }
+}
+
+bool GameBuilder::EmitAssetCatalog(const std::string& outputPath) {
+    try {
+        // Refresh AssetDatabase from the project's Assets/ so the catalog is current.
+        if (Project::Get().IsOpen()) {
+            molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+        }
+
+        fs::path catalogPath = fs::path(outputPath) / "asset_catalog.json";
+        if (!molga::AssetDatabase::Get().SaveCatalog(catalogPath)) {
+            lastError = "Failed to write asset_catalog.json";
+            return false;
+        }
+        return true;
+    } catch (const std::exception& e) {
+        lastError = "Failed to emit asset catalog: " + std::string(e.what());
+        return false;
+    }
+}
+
+bool GameBuilder::CopyPlaceholderResource(const std::string& outputPath) {
+    try {
+        fs::path destDir = fs::path(outputPath) / "Resources";
+        fs::create_directories(destDir);
+
+        fs::path src = molga::AssetDatabase::MissingTexturePath();
+        if (fs::exists(src)) {
+            fs::copy_file(src, destDir / "missing_texture.png",
+                         fs::copy_options::overwrite_existing);
+        } else {
+            // Create a minimal 1x1 pink PNG as placeholder
+            std::ofstream file(destDir / "missing_texture.png", std::ios::binary);
+            if (!file.is_open()) {
+                lastError = "Failed to create placeholder resource";
+                return false;
+            }
+            // Write a 1x1 pink PPM as fallback (not ideal, but functional)
+            file << "P6\n1 1\n255\n\xff\x00\xff";
+        }
+        return true;
+    } catch (const std::exception& e) {
+        lastError = "Failed to copy placeholder resource: " + std::string(e.what());
         return false;
     }
 }

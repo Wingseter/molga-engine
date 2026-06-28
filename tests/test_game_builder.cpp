@@ -70,6 +70,9 @@ TEST_CASE("PackageLayout script manifest validation") {
     { std::ofstream(tmpDir / "Scenes/main.json"); }
     fs::create_directories(tmpDir / "Assets");
     fs::create_directories(tmpDir / "Shaders");
+    { std::ofstream(tmpDir / "asset_catalog.json") << "{\"schemaVersion\":1,\"records\":[]}"; }
+    fs::create_directories(tmpDir / "Resources");
+    { std::ofstream(tmpDir / "Resources/missing_texture.png") << "placeholder"; }
 
     std::string error;
     bool valid = PackageLayout::Validate(tmpDir, "TestGame", error);

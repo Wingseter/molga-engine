@@ -21,13 +21,16 @@ TEST_CASE("Scan assigns one record per source asset and builds both maps") {
     db.ScanProject(assets);
 
     CHECK(db.RecordCount() == 2);                  // .meta는 카운트하지 않는다
-    std::string heroGuid = db.GuidForSource("hero.png");
+    std::string heroGuid = db.GuidForSource("Assets/hero.png");
     REQUIRE(heroGuid.size() == 32);
 
     const auto* rec = db.Find(heroGuid);
     REQUIRE(rec != nullptr);
-    CHECK(rec->sourcePath == "hero.png");
+    CHECK(rec->sourcePath == "Assets/hero.png");
     CHECK(rec->importer == "TextureImporter");
+
+    // Legacy path lookup (without Assets/ prefix) should also resolve
+    CHECK(db.GuidForSource("hero.png") == heroGuid);
 
     fs::remove_all(assets.parent_path());
 }
