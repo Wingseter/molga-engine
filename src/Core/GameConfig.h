@@ -12,7 +12,7 @@ struct ScriptManifest {
 
 struct GameConfig {
     std::string gameName = "Molga Game";
-    std::string mainScene = "scenes/main.json";
+    std::string mainScene = "Scenes/main.json";
     int windowWidth = 800;
     int windowHeight = 600;
     bool fullscreen = false;

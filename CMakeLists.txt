@@ -100,6 +100,7 @@ set(ENGINE_SOURCES
     src/Core/TextureManager.cpp
     src/Core/Profiling/ProfilerService.cpp
     src/Core/BuildManifest.cpp
+    src/Core/BuildPlan.cpp
     src/Core/SmokeReport.cpp
     src/Core/PackageLayout.cpp
     src/Core/PackageFinalizer.cpp

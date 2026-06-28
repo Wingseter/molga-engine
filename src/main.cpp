@@ -64,7 +64,6 @@ std::optional<SmokeBuildOptions> ParseSmokeBuild(int argc, char** argv) {
 int RunSmokeBuild(const SmokeBuildOptions& options) {
     SmokeReport report;
     report.executable = "molga_engine";
-    report.scenePath = "Scenes/main.json";
 
     if (!Project::Get().Open(options.projectRoot.string())) {
         report.status = "error";
@@ -72,6 +71,9 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
         report.Save(options.reportPath);
         return 3;
     }
+
+    const BuildProfile& profile = Project::Get().GetBuildProfile();
+    report.scenePath = profile.startupScene;
 
     // Set script compiler path and load script library if present
     ScriptCompiler::Get().SetProjectPath(options.projectRoot.string());
@@ -81,7 +83,8 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
     }
 
     World world;
-    const auto scenePath = options.projectRoot / "Scenes/main.json";
+    std::filesystem::path p(profile.startupScene);
+    const auto scenePath = p.is_absolute() ? p : options.projectRoot / p;
     if (!world.LoadFromFile(scenePath.string())) {
         report.status = "error";
         report.message = "Could not load smoke scene";
@@ -223,16 +226,18 @@ int main(int argc, char* argv[]) {
         molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
         g_AssetWatcher.Prime(Project::Get().GetAssetsPath());
 
-        const fs::path mainScene = fs::path(Project::Get().GetScenesPath()) / "main.json";
+        const BuildProfile& profile = Project::Get().GetBuildProfile();
+        fs::path p(profile.startupScene);
+        const fs::path mainScene = p.is_absolute() ? p : fs::path(Project::Get().GetPath()) / p;
         if (sceneDoc.Open(mainScene.string())) {
             sceneDoc.EditWorld().ResolveAssets();
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             Editor::Get().SetCurrentScenePath(mainScene.string());
             // 씬 로드 후 SceneView 리소스 재주입 (오브젝트 목록 갱신)
             Editor::Get().SetSceneViewResources(renderer.get(), shader);
-            std::cout << "[Main] Loaded project main scene: " << mainScene << std::endl;
+            std::cout << "[Main] Loaded project startup scene: " << mainScene << std::endl;
         } else {
-            std::cerr << "[Main] Project main scene not found or invalid: "
+            std::cerr << "[Main] Project startup scene not found or invalid: "
                       << mainScene << std::endl;
         }
     }

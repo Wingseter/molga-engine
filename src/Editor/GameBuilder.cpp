@@ -76,10 +76,21 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     progress = 0.0f;
     lastError.clear();
 
-    // Validate the profile
-    std::string profileError;
-    if (!settings.profile.Validate(profileError)) {
-        lastError = profileError;
+    // Verify user scripts
+    std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
+    bool hasUserLib = !userLibPath.empty() && fs::exists(userLibPath);
+
+    std::string relativeScriptLibPath;
+    if (hasUserLib) {
+        fs::path srcFile(userLibPath);
+        relativeScriptLibPath = (fs::path(Paths::Project::SCRIPTS) / srcFile.filename()).generic_string();
+    }
+
+    // Build plan first
+    BuildPlan plan;
+    std::string planError;
+    if (!BuildPlanBuilder::Build(settings.profile, settings.projectRoot, settings.profile.target, relativeScriptLibPath, plan, planError)) {
+        lastError = planError;
         return false;
     }
 
@@ -99,7 +110,7 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         }
     }
 
-    // Build required-file manifest
+    // Build required-file manifest from plan
     {
         long long t0 = molga::NowNanos();
         BuildManifest manifest;
@@ -108,12 +119,11 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         }
         manifest.requiredFiles.push_back(PathService::Get().EngineResource("Shaders").string());
         manifest.requiredFiles.push_back((PathService::Get().ExecutableDir() / "molga_runtime").string());
-        for (const auto& scene : settings.profile.scenes) {
-            manifest.requiredFiles.push_back(ResolveProjectPath(settings.projectRoot, scene).string());
+        for (const auto& entry : plan.sceneEntries) {
+            manifest.requiredFiles.push_back(entry.sourceAbsolutePath);
         }
 
         // Require user script library if scenes reference user script types
-        std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
         std::string checkError;
         if (!CheckScenesForUserScripts(settings, false, checkError)) {
             manifest.requiredFiles.push_back(userLibPath);
@@ -182,7 +192,7 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     progress = 0.5f;
     {
         long long t0 = molga::NowNanos();
-        if (!CopyScenes(settings, stagingPathStr)) {
+        if (!CopyScenes(plan, stagingPathStr)) {
             cleanupStaging();
             return false;
         }
@@ -192,9 +202,6 @@ bool GameBuilder::Build(const BuildSettings& settings) {
 
     // Verify scenes do not require missing user scripts
     std::string userScriptLibPath;
-    std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
-    bool hasUserLib = !userLibPath.empty() && fs::exists(userLibPath);
-
     std::string checkError;
     if (!CheckScenesForUserScripts(settings, hasUserLib, checkError)) {
         lastError = checkError;
@@ -215,7 +222,7 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     progress = 0.7f;
     {
         long long t0 = molga::NowNanos();
-        if (!GenerateGameConfig(settings, stagingPathStr, userScriptLibPath)) {
+        if (!GenerateGameConfig(settings, plan, stagingPathStr)) {
             cleanupStaging();
             return false;
         }
@@ -327,21 +334,14 @@ bool GameBuilder::CopyShaders(const std::string& outputPath) {
     }
 }
 
-bool GameBuilder::CopyScenes(const BuildSettings& settings, const std::string& outputPath) {
+bool GameBuilder::CopyScenes(const BuildPlan& plan, const std::string& outputPath) {
     try {
-        const fs::path scenesDir = fs::path(outputPath) / Paths::Build::SCENES;
-        fs::create_directories(scenesDir);
-
-        for (const auto& sceneRel : settings.profile.scenes) {
-            const fs::path src = ResolveProjectPath(settings.projectRoot, sceneRel);
-            if (!fs::exists(src)) {
-                lastError = "Scene listed in build profile is missing: " + src.string();
-                return false;
-            }
-            const fs::path dest = scenesDir / fs::path(sceneRel).filename();
+        for (const auto& entry : plan.sceneEntries) {
+            const fs::path src(entry.sourceAbsolutePath);
+            const fs::path dest = fs::path(outputPath) / entry.packagePath;
+            fs::create_directories(dest.parent_path());
             fs::copy_file(src, dest, fs::copy_options::overwrite_existing);
         }
-
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to copy scenes: " + std::string(e.what());
@@ -349,15 +349,14 @@ bool GameBuilder::CopyScenes(const BuildSettings& settings, const std::string& o
     }
 }
 
-bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::string& outputPath, const std::string& scriptLibPath) {
+bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildPlan& plan, const std::string& outputPath) {
     try {
         nlohmann::json config;
         config["schemaVersion"] = 1;
         config["gameName"] = settings.profile.gameName;
         config["productVersion"] = settings.profile.productVersion;
         config["companyName"] = settings.profile.companyName;
-        config["mainScene"] = std::string(Paths::Build::SCENES) + "/" +
-                              fs::path(settings.profile.startupScene).filename().string();
+        config["mainScene"] = plan.startupScenePackagePath;
         config["windowWidth"] = settings.profile.window.width;
         config["windowHeight"] = settings.profile.window.height;
         config["fullscreen"] = settings.profile.window.fullscreen;
@@ -392,19 +391,18 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const std::s
         }
         config["inputActions"] = inputActionsJson;
 
-        // List all scenes
+        // List all scenes from plan
         nlohmann::json scenesList = nlohmann::json::array();
-        for (const auto& scene : settings.profile.scenes) {
-            std::string filename = fs::path(scene).filename().string();
-            scenesList.push_back(std::string(Paths::Build::SCENES) + "/" + filename);
+        for (const auto& entry : plan.sceneEntries) {
+            scenesList.push_back(entry.packagePath);
         }
         config["scenes"] = scenesList;
 
-        // Scripts manifest (Phase 4)
-        if (!scriptLibPath.empty()) {
+        // Scripts manifest
+        if (!plan.optionalScriptLibrary.empty()) {
             nlohmann::json scriptsJson;
             scriptsJson["enabled"] = true;
-            scriptsJson["library"] = scriptLibPath;
+            scriptsJson["library"] = plan.optionalScriptLibrary;
             scriptsJson["apiVersion"] = 1;
             scriptsJson["buildHash"] = "source-or-library-hash";
             config["scripts"] = scriptsJson;

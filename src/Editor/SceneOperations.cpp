@@ -30,7 +30,9 @@ bool SceneOperations::SaveSceneAs(const std::vector<std::shared_ptr<GameObject>>
 
     fs::path filepath = EditorConstants::DEFAULT_SCENE_FILE;
     if (Project::Get().IsOpen()) {
-        filepath = fs::path(Project::Get().GetScenesPath()) / "main.json";
+        const BuildProfile& profile = Project::Get().GetBuildProfile();
+        fs::path p(profile.startupScene);
+        filepath = p.is_absolute() ? p : fs::path(Project::Get().GetPath()) / p;
     }
 
     return SaveSceneAsPath(objects, filepath.string());
@@ -41,7 +43,9 @@ bool SceneOperations::OpenScene(std::vector<std::shared_ptr<GameObject>>& object
 
     fs::path filepath = EditorConstants::DEFAULT_SCENE_FILE;
     if (Project::Get().IsOpen()) {
-        filepath = fs::path(Project::Get().GetScenesPath()) / "main.json";
+        const BuildProfile& profile = Project::Get().GetBuildProfile();
+        fs::path p(profile.startupScene);
+        filepath = p.is_absolute() ? p : fs::path(Project::Get().GetPath()) / p;
     }
 
     return OpenScenePath(objects, filepath.string());
