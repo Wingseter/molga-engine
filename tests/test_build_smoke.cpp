@@ -37,6 +37,17 @@ TEST_CASE("smoke report round trips through json") {
     written.objectCount = 1;
     written.frames = 3;
     written.assetsResolved = true;
+    written.drawCalls = 5;
+    written.batches = 2;
+    written.textureBinds = 4;
+    written.shaderSwitches = 1;
+    written.submittedSprites = 10;
+    written.submittedCommands = 12;
+    written.batchFlushes = 3;
+    written.batchBreaks = 1;
+    written.maxSpritesPerBatch = 8;
+    written.verticesUploadedBytes = 128;
+    written.queueSortNanos = 5000;
     REQUIRE(written.Save(path));
 
     SmokeReport loaded;
@@ -45,4 +56,15 @@ TEST_CASE("smoke report round trips through json") {
     CHECK(loaded.objectCount == 1);
     CHECK(loaded.frames == 3);
     CHECK(loaded.assetsResolved);
+    CHECK(loaded.drawCalls == 5);
+    CHECK(loaded.batches == 2);
+    CHECK(loaded.textureBinds == 4);
+    CHECK(loaded.shaderSwitches == 1);
+    CHECK(loaded.submittedSprites == 10);
+    CHECK(loaded.submittedCommands == 12);
+    CHECK(loaded.batchFlushes == 3);
+    CHECK(loaded.batchBreaks == 1);
+    CHECK(loaded.maxSpritesPerBatch == 8);
+    CHECK(loaded.verticesUploadedBytes == 128);
+    CHECK(loaded.queueSortNanos == 5000);
 }

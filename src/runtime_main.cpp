@@ -294,6 +294,20 @@ int main(int argc, char* argv[]) {
         report.objectCount = world.Objects().size();
         report.frames = renderedFrames;
         report.assetsResolved = AllSpriteAssetsResolved(world);
+        if (renderer) {
+            auto& stats = renderer->Stats();
+            report.drawCalls = stats.drawCalls;
+            report.batches = stats.batches;
+            report.textureBinds = stats.textureBinds;
+            report.shaderSwitches = stats.shaderSwitches;
+            report.submittedSprites = stats.submittedSprites;
+            report.submittedCommands = stats.submittedCommands;
+            report.batchFlushes = stats.batchFlushes;
+            report.batchBreaks = stats.batchBreaks;
+            report.maxSpritesPerBatch = stats.maxSpritesPerBatch;
+            report.verticesUploadedBytes = stats.verticesUploadedBytes;
+            report.queueSortNanos = stats.queueSortNanos;
+        }
         if (report.assetsResolved) {
             report.message = "Runtime smoke completed. Scripts: " + scriptStatus + 
                              ", UserScriptComponents: " + std::to_string(scriptComponentCount);
