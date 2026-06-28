@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 우리 코드에만 적용할 경고/sanitizer 모음 (external 라이브러리는 제외)
 set(MOLGA_SANITIZER "" CACHE STRING "Enable a sanitizer: address | undefined | thread (empty = off)")
+set(MOLGA_PHYSICS_BACKEND "box2d" CACHE STRING "Physics backend to use: legacy | box2d")
 
 add_library(molga_warnings INTERFACE)
 target_compile_options(molga_warnings INTERFACE -Wall -Wextra -Wpedantic)
@@ -17,6 +18,17 @@ if(NOT MOLGA_SANITIZER STREQUAL "")
 endif()
 
 # ── External dependencies ──────────────────────────────────────────────────────
+include(FetchContent)
+set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
+set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    box2d
+    GIT_REPOSITORY https://github.com/erincatto/box2d.git
+    GIT_TAG        v3.0.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(box2d)
+
 add_subdirectory(external/glfw)
 
 add_library(glad external/glad/src/glad.c)
@@ -59,6 +71,8 @@ set(ENGINE_SOURCES
     src/Physics/Collision.cpp
     src/Physics/PhysicsWorld.cpp
     src/Physics/Physics2D.cpp
+    src/Physics/PhysicsConversions.cpp
+    src/Physics/Box2DBackend.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
     src/Systems/Audio.cpp
@@ -140,7 +154,14 @@ if(MOLGA_MARROW_SUPPORT)
     target_compile_definitions(molga_core PUBLIC MOLGA_MARROW_SUPPORT)
 endif()
 
-target_link_libraries(molga_core PUBLIC glad glfw)
+target_link_libraries(molga_core PUBLIC glad glfw box2d)
+
+if (MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
+    target_compile_definitions(molga_core PUBLIC MOLGA_PHYSICS_BOX2D)
+else()
+    target_compile_definitions(molga_core PUBLIC MOLGA_PHYSICS_LEGACY)
+endif()
+
 
 if(MOLGA_MARROW_SUPPORT)
     target_link_libraries(molga_core PUBLIC ${MARROW_DIR}/build/libmarrow_runtime.a)
