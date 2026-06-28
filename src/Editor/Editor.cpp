@@ -12,6 +12,7 @@
 #include "EditorState.h"
 #include "Commands/ObjectCommands.h"
 #include "Editor/Commands/TransformCommand.h"
+#include "Editor/Commands/ComponentCommands.h"
 #include "VSCodeIntegration.h"
 #include "Windows/HierarchyWindow.h"
 #include "Windows/InspectorWindow.h"
@@ -344,12 +345,8 @@ void Editor::RenderMenuBar() {
       }
       if (ImGui::BeginMenu("2D Object")) {
         if (ImGui::MenuItem("Sprite")) {
-          auto cmd = std::make_unique<molga::CreateObjectCommand>("Sprite");
+          auto cmd = std::make_unique<molga::CreateObjectWithComponentsCommand>("Sprite", std::vector<std::string>{"SpriteRenderer"});
           commandHistory.Execute(std::move(cmd));
-          if (GameObject* obj = GetSelectedObject()) {
-            obj->AddComponent<SpriteRenderer>();
-            MarkSceneModified();
-          }
         }
         ImGui::EndMenu();
       }
@@ -387,7 +384,7 @@ void Editor::RenderMenuBar() {
     // Play controls
     RenderPlayControls();
 
-    if (sceneOps.IsModified()) {
+    if (EditorState::Get().IsEditMode() && (sceneOps.IsModified() || commandHistory.IsDirty())) {
         ImGui::TextDisabled("  *unsaved");
     }
 
@@ -483,23 +480,29 @@ void Editor::NewScene() {
   if (!gameObjects) return;
 
   sceneOps.NewScene(*gameObjects);
+  commandHistory.Clear();
   SetSelectedObject(nullptr);
 }
 
 void Editor::SaveScene() {
   if (!gameObjects) return;
-  sceneOps.SaveScene(*gameObjects);
+  if (sceneOps.SaveScene(*gameObjects)) {
+    commandHistory.MarkClean();
+  }
 }
 
 void Editor::SaveSceneAs() {
   if (!gameObjects) return;
-  sceneOps.SaveSceneAs(*gameObjects);
+  if (sceneOps.SaveSceneAs(*gameObjects)) {
+    commandHistory.MarkClean();
+  }
 }
 
 void Editor::OpenScene() {
   if (!gameObjects) return;
 
   if (sceneOps.OpenScene(*gameObjects)) {
+    commandHistory.Clear();
     SetSelectedObject(nullptr);
     auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
     if (hierarchy) {
@@ -595,7 +598,9 @@ GameObject* Editor::FindObjectById(unsigned int id) const {
 }
 
 void Editor::MarkSceneModified() {
-    sceneOps.MarkModified();
+    if (EditorState::Get().IsEditMode()) {
+        sceneOps.MarkModified();
+    }
 }
 
 std::shared_ptr<GameObject> Editor::ShareObjectById(unsigned int id) const {

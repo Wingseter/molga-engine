@@ -9,6 +9,7 @@
 #include "Editor/Editor.h"
 #include "Editor/Commands/ObjectCommands.h"
 #include "Editor/Commands/PrefabCommands.h"
+#include "Editor/Commands/ComponentCommands.h"
 #include "../../ECS/Components/PrefabInstance.h"
 #include <imgui.h>
 #include <cstring>
@@ -220,22 +221,13 @@ void HierarchyWindow::CreateEmptyGameObject() {
 }
 
 void HierarchyWindow::CreateSpriteObject() {
-    auto cmd = std::make_unique<molga::CreateObjectCommand>("Sprite");
+    auto cmd = std::make_unique<molga::CreateObjectWithComponentsCommand>("Sprite", std::vector<std::string>{"SpriteRenderer"});
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    // 생성된 오브젝트에 SpriteRenderer 부착
-    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
-        obj->AddComponent<SpriteRenderer>();
-        Editor::Get().MarkSceneModified();
-    }
 }
 
 void HierarchyWindow::CreateTilemapObject() {
-    auto cmd = std::make_unique<molga::CreateObjectCommand>("Tilemap");
+    auto cmd = std::make_unique<molga::CreateObjectWithComponentsCommand>("Tilemap", std::vector<std::string>{"TilemapRenderer"});
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
-        obj->AddComponent<TilemapRenderer>();
-        Editor::Get().MarkSceneModified();
-    }
 }
 
 void HierarchyWindow::DeleteSelectedObject() {

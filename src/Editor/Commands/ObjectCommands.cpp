@@ -2,6 +2,7 @@
 #include "Editor/Editor.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
+#include "Core/SceneSerializer.h"
 #include <algorithm>
 
 namespace molga {
@@ -120,47 +121,53 @@ DuplicateObjectCommand::DuplicateObjectCommand(GameObject* src)
 
 void DuplicateObjectCommand::Execute() {
     if (!copy_) {
-        // 최초 실행: src를 찾아 복제돈 생성
         GameObject* src = Editor::Get().FindObjectById(srcId_);
         if (!src) return;
 
-        copy_ = std::make_shared<GameObject>(src->GetName() + " (Copy)");
+        nlohmann::json subtreeJson = SceneSerializer::SerializeSubtree(src);
 
-        // Transform 복사
-        copy_->AddComponent<Transform>();
-        if (auto* st = src->GetComponent<Transform>()) {
-            if (auto* dt = copy_->GetComponent<Transform>()) {
-                dt->SetPosition(st->GetPosition());
-                dt->SetRotation(st->GetRotation());
-                dt->SetScale(st->GetScale());
+        std::vector<std::shared_ptr<GameObject>> instantiatedObjects;
+        std::unordered_map<unsigned int, unsigned int> idRemap;
+        
+        GameObject* rootCopy = SceneSerializer::DeserializeSubtreeRemapped(subtreeJson, instantiatedObjects, idRemap);
+        if (rootCopy) {
+            rootCopy->SetName(src->GetName() + " (Copy)");
+            if (src->GetParent()) {
+                rootCopy->SetParent(src->GetParent());
             }
-        }
 
-        // SpriteRenderer 복사
-        if (auto* sr = src->GetComponent<SpriteRenderer>()) {
-            copy_->AddComponent<SpriteRenderer>();
-            if (auto* dr = copy_->GetComponent<SpriteRenderer>()) {
-                dr->SetTexturePath(sr->GetTexturePath());
-                dr->SetColor(sr->GetColor());
-                dr->SetSortingOrder(sr->GetSortingOrder());
-                dr->SetFlipX(sr->GetFlipX());
-                dr->SetFlipY(sr->GetFlipY());
+            duplicatedObjects_ = instantiatedObjects;
+            for (auto& shObj : instantiatedObjects) {
+                if (shObj.get() == rootCopy) {
+                    copy_ = shObj;
+                    break;
+                }
             }
+            copyId_ = rootCopy->GetID();
         }
-
-        copyId_ = copy_->GetID();
     }
-    Editor::Get().AddExistingObject(copy_);
-    Editor::Get().SetSelectedObject(copy_.get());
-    Editor::Get().MarkSceneModified();
+
+    if (copy_) {
+        for (auto& obj : duplicatedObjects_) {
+            Editor::Get().AddExistingObject(obj);
+        }
+        Editor::Get().SetSelectedObject(copy_.get());
+        Editor::Get().MarkSceneModified();
+    }
 }
 
 void DuplicateObjectCommand::Undo() {
-    if (Editor::Get().GetSelectedObject() == copy_.get()) {
-        Editor::Get().SetSelectedObject(nullptr);
+    if (copy_) {
+        if (Editor::Get().GetSelectedObject() == copy_.get()) {
+            Editor::Get().SetSelectedObject(nullptr);
+        }
+        std::vector<unsigned int> idsToRemove;
+        for (const auto& obj : duplicatedObjects_) {
+            if (obj) idsToRemove.push_back(obj->GetID());
+        }
+        Editor::Get().RemoveObjectsByIds(idsToRemove);
+        Editor::Get().MarkSceneModified();
     }
-    Editor::Get().RemoveObjectsByIds({ copyId_ });
-    Editor::Get().MarkSceneModified();
 }
 
 } // namespace molga

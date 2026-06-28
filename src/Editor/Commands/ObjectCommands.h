@@ -75,6 +75,7 @@ private:
     unsigned int srcId_;
     std::shared_ptr<GameObject> copy_;
     unsigned int copyId_ = 0;
+    std::vector<std::shared_ptr<GameObject>> duplicatedObjects_;
 };
 
 } // namespace molga

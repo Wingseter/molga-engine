@@ -164,6 +164,9 @@ set(EDITOR_SOURCES
     src/Editor/Commands/ObjectCommands.cpp
     src/Editor/Commands/PrefabCommands.cpp
     src/Editor/Commands/TransformCommand.cpp
+    src/Editor/Commands/SceneSnapshots.cpp
+    src/Editor/Commands/PropertyCommands.cpp
+    src/Editor/Commands/ComponentCommands.cpp
     src/Editor/Gizmos/TransformGizmo.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp

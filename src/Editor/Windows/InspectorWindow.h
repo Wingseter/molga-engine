@@ -2,6 +2,9 @@
 
 #include "EditorWindow.h"
 
+#include <nlohmann/json.hpp>
+#include <string>
+
 class GameObject;
 class Component;
 
@@ -19,4 +22,8 @@ private:
     void DrawComponent(Component* component);
 
     GameObject* target = nullptr;
+
+    Component* activeEditComponent_ = nullptr;
+    nlohmann::json beforeEditSnap_;
+    unsigned int activeEditTargetId_ = 0;
 };

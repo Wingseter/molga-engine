@@ -24,6 +24,9 @@
 #include "../EditorConstants.h"
 #include "../../ECS/Components/PrefabInstance.h"
 #include "../Commands/PrefabCommands.h"
+#include "../Commands/SceneSnapshots.h"
+#include "../Commands/PropertyCommands.h"
+#include "../Commands/ComponentCommands.h"
 #include <imgui.h>
 #include <cstring>
 
@@ -34,9 +37,41 @@ InspectorWindow::InspectorWindow()
 void InspectorWindow::OnGUI() {
     if (!isOpen) return;
 
+    // Check if active drag edit has finished
+    if (activeEditComponent_ && !ImGui::IsAnyItemActive()) {
+        GameObject* editObj = target;
+        if (activeEditTargetId_ != 0) {
+            editObj = molga::FindGameObjectById(activeEditTargetId_);
+        }
+        if (editObj) {
+            Component* comp = nullptr;
+            for (auto* c : editObj->GetComponents()) {
+                if (c && c->GetTypeName() == activeEditComponent_->GetTypeName()) {
+                    comp = c;
+                    break;
+                }
+            }
+            if (comp) {
+                nlohmann::json afterSnap = molga::CaptureComponentSnapshot(comp);
+                if (beforeEditSnap_ != afterSnap) {
+                    molga::RestoreComponentSnapshot(editObj, beforeEditSnap_);
+                    Editor::Get().GetCommandHistory().Execute(
+                        std::make_unique<molga::ComponentSnapshotCommand>(
+                            activeEditTargetId_, comp->GetTypeName(), beforeEditSnap_, afterSnap
+                        )
+                    );
+                }
+            }
+        }
+        activeEditComponent_ = nullptr;
+        activeEditTargetId_ = 0;
+    }
+
     ImGui::Begin(title.c_str(), &isOpen);
 
     if (!target) {
+        activeEditComponent_ = nullptr;
+        activeEditTargetId_ = 0;
         ImGui::Spacing();
         ImGui::TextDisabled("%s No object selected", Icons::Cube);
         ImGui::TextDisabled("Select an object from the Hierarchy");
@@ -63,9 +98,31 @@ void InspectorWindow::OnGUI() {
     strncpy(nameBuffer, target->GetName().c_str(), sizeof(nameBuffer) - 1);
     nameBuffer[sizeof(nameBuffer) - 1] = '\0';
 
+    static std::string beforeName;
+    static bool isEditingName = false;
+
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputText("##Name", nameBuffer, sizeof(nameBuffer))) {
+        if (!isEditingName) {
+            beforeName = target->GetName();
+            isEditingName = true;
+        }
         target->SetName(nameBuffer);
+    }
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        isEditingName = false;
+        std::string afterName = target->GetName();
+        auto beforeProp = molga::CaptureGameObjectProperties(target);
+        beforeProp["name"] = beforeName;
+        auto afterProp = molga::CaptureGameObjectProperties(target);
+        afterProp["name"] = afterName;
+
+        target->SetName(beforeName); // temporarily revert
+        Editor::Get().GetCommandHistory().Execute(
+            std::make_unique<molga::GameObjectPropertyCommand>(target->GetID(), beforeProp, afterProp)
+        );
+    } else if (ImGui::IsItemDeactivated()) {
+        isEditingName = false;
     }
 
     ImGui::Spacing();
@@ -80,7 +137,14 @@ void InspectorWindow::OnGUI() {
         for (const auto& t : settings.tags) {
             bool isSelected = (currentTag == t);
             if (ImGui::Selectable(t.c_str(), isSelected)) {
-                target->SetTag(t);
+                if (currentTag != t) {
+                    auto beforeProp = molga::CaptureGameObjectProperties(target);
+                    auto afterProp = beforeProp;
+                    afterProp["tag"] = t;
+                    Editor::Get().GetCommandHistory().Execute(
+                        std::make_unique<molga::GameObjectPropertyCommand>(target->GetID(), beforeProp, afterProp)
+                    );
+                }
             }
             if (isSelected) {
                 ImGui::SetItemDefaultFocus();
@@ -108,7 +172,14 @@ void InspectorWindow::OnGUI() {
             std::string displayName = name.empty() ? ("Layer " + std::to_string(i) + " (Empty)") : name;
             bool isSelected = (currentLayer == i);
             if (ImGui::Selectable(displayName.c_str(), isSelected)) {
-                target->SetLayer(i);
+                if (currentLayer != i) {
+                    auto beforeProp = molga::CaptureGameObjectProperties(target);
+                    auto afterProp = beforeProp;
+                    afterProp["layer"] = i;
+                    Editor::Get().GetCommandHistory().Execute(
+                        std::make_unique<molga::GameObjectPropertyCommand>(target->GetID(), beforeProp, afterProp)
+                    );
+                }
             }
             if (isSelected) {
                 ImGui::SetItemDefaultFocus();
@@ -125,7 +196,12 @@ void InspectorWindow::OnGUI() {
 
     bool active = target->IsActive();
     if (ImGui::Checkbox((std::string(Icons::Eye) + " Active").c_str(), &active)) {
-        target->SetActive(active);
+        auto beforeProp = molga::CaptureGameObjectProperties(target);
+        auto afterProp = beforeProp;
+        afterProp["active"] = active;
+        Editor::Get().GetCommandHistory().Execute(
+            std::make_unique<molga::GameObjectPropertyCommand>(target->GetID(), beforeProp, afterProp)
+        );
     }
 
     ImGui::Spacing();
@@ -207,53 +283,73 @@ void InspectorWindow::OnGUI() {
 
         if (ImGui::MenuItem((std::string(Icons::ArrowsAlt) + " Transform").c_str())) {
             if (!target->HasComponent<Transform>()) {
-                target->AddComponent<Transform>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "Transform")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::Image) + " Sprite Renderer").c_str())) {
             if (!target->HasComponent<SpriteRenderer>()) {
-                target->AddComponent<SpriteRenderer>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "SpriteRenderer")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap Renderer").c_str())) {
             if (!target->HasComponent<TilemapRenderer>()) {
-                target->AddComponent<TilemapRenderer>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "TilemapRenderer")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::Lightbulb) + " Particle System").c_str())) {
             if (!target->HasComponent<ParticleSystem>()) {
-                target->AddComponent<ParticleSystem>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "ParticleSystem")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::Square) + " Box Collider 2D").c_str())) {
             if (!target->HasComponent<BoxCollider2D>()) {
-                target->AddComponent<BoxCollider2D>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "BoxCollider2D")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::Music) + " Audio Source").c_str())) {
             if (!target->HasComponent<AudioSource>()) {
-                target->AddComponent<AudioSource>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "AudioSource")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::VolumeUp) + " Audio Listener").c_str())) {
             if (!target->HasComponent<AudioListener>()) {
-                target->AddComponent<AudioListener>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "AudioListener")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::Camera) + " Camera").c_str())) {
             if (!target->HasComponent<Camera>()) {
-                target->AddComponent<Camera>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "Camera")
+                );
             }
         }
         if (ImGui::MenuItem((std::string(Icons::ListUl) + " Text Renderer 2D").c_str())) {
             if (!target->HasComponent<TextRenderer2D>()) {
-                target->AddComponent<TextRenderer2D>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "TextRenderer2D")
+                );
             }
         }
 #ifdef MOLGA_MARROW_SUPPORT
         if (ImGui::MenuItem((std::string(Icons::Image) + " Marrow Renderer").c_str())) {
             if (!target->HasComponent<MarrowRenderer>()) {
-                target->AddComponent<MarrowRenderer>();
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "MarrowRenderer")
+                );
             }
         }
 #endif
@@ -261,10 +357,18 @@ void InspectorWindow::OnGUI() {
         if (ImGui::BeginMenu((std::string(Icons::Code) + " Scripts").c_str())) {
             auto scripts = ScriptManager::Get().GetRegisteredScripts();
             for (const auto& scriptName : scripts) {
-                if (ImGui::MenuItem((std::string(Icons::FileCode) + " " + scriptName).c_str())) {
-                    auto script = ScriptManager::Get().CreateScript(scriptName);
-                    if (script) {
-                        target->AddComponentRaw(script.release());
+                bool hasScript = false;
+                for (auto* c : target->GetComponents()) {
+                    if (c && c->GetTypeName() == scriptName) {
+                        hasScript = true;
+                        break;
+                    }
+                }
+                if (!hasScript) {
+                    if (ImGui::MenuItem((std::string(Icons::FileCode) + " " + scriptName).c_str())) {
+                        Editor::Get().GetCommandHistory().Execute(
+                            std::make_unique<molga::ComponentAddCommand>(target->GetID(), scriptName)
+                        );
                     }
                 }
             }
@@ -389,6 +493,14 @@ void InspectorWindow::DrawComponent(Component* component) {
         }
     }
 
+    // Capture snapshot before rendering
+    nlohmann::json snapBefore = molga::CaptureComponentSnapshot(component);
+    if (activeEditComponent_ == component) {
+        // keep beforeEditSnap_
+    } else if (activeEditComponent_ == nullptr) {
+        beforeEditSnap_ = snapBefore;
+    }
+
     // Determine icon based on component type
     const char* icon = UIRegistry::GetComponentInfo(typeName).icon;
 
@@ -406,11 +518,32 @@ void InspectorWindow::DrawComponent(Component* component) {
         ImGui::PopStyleColor();
     }
 
+    // Context menu for component header (except Transform)
+    if (ImGui::BeginPopupContextItem()) {
+        if (typeName != "Transform") {
+            if (ImGui::MenuItem((std::string(Icons::Trash) + " Remove Component").c_str())) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentRemoveCommand>(target->GetID(), typeName)
+                );
+            }
+        }
+        ImGui::EndPopup();
+    }
+
     // Enable/disable checkbox on the same line
     ImGui::SameLine(ImGui::GetWindowWidth() - 30);
     bool enabled = component->IsEnabled();
     if (ImGui::Checkbox(("##" + typeName + "Enabled").c_str(), &enabled)) {
-        component->SetEnabled(enabled);
+        nlohmann::json beforeSnap = molga::CaptureComponentSnapshot(component);
+        nlohmann::json afterSnap = beforeSnap;
+        afterSnap["enabled"] = enabled;
+        // Revert temporarily so Execute() works
+        component->SetEnabled(!enabled);
+        Editor::Get().GetCommandHistory().Execute(
+            std::make_unique<molga::ComponentSnapshotCommand>(
+                target->GetID(), typeName, beforeSnap, afterSnap
+            )
+        );
     }
 
     if (open) {
@@ -422,5 +555,23 @@ void InspectorWindow::DrawComponent(Component* component) {
         // 컴포넌트/스크립트의 커스텀 OnInspectorGUI (오버라이드 시).
         component->OnInspectorGUI();
         ImGui::TreePop();
+    }
+
+    // Capture snapshot after rendering and compare
+    nlohmann::json snapAfter = molga::CaptureComponentSnapshot(component);
+    if (snapBefore != snapAfter) {
+        if (ImGui::IsAnyItemActive()) {
+            activeEditComponent_ = component;
+            activeEditTargetId_ = target->GetID();
+        } else {
+            // Immediate change
+            molga::RestoreComponentSnapshot(target, beforeEditSnap_);
+            Editor::Get().GetCommandHistory().Execute(
+                std::make_unique<molga::ComponentSnapshotCommand>(
+                    target->GetID(), typeName, beforeEditSnap_, snapAfter
+                )
+            );
+            activeEditComponent_ = nullptr;
+        }
     }
 }

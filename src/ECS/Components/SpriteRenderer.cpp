@@ -100,10 +100,18 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
         SetSortingOrder(j["sortingOrder"]);
     }
     if (j.contains("textureGuid") && j["textureGuid"].is_string()) {
-        textureGuid = j["textureGuid"].get<std::string>();
+        std::string g = j["textureGuid"].get<std::string>();
+        if (g != textureGuid) {
+            textureGuid = g;
+            texture = nullptr;
+        }
     }
     if (j.contains("texturePath")) {
-        SetTexturePath(j["texturePath"].get<std::string>());
+        std::string p = j["texturePath"].get<std::string>();
+        if (p != texturePath) {
+            SetTexturePath(p);
+            texture = nullptr;
+        }
     }
     // 구버전 마이그레이션: guid가 없고 path만 있으면 path를 guid로 승격(메모리에서만).
     if (textureGuid.empty() && !texturePath.empty()) {

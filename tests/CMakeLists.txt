@@ -157,6 +157,16 @@ molga_add_test(test_runtime_script_package_loader
 )
 target_include_directories(test_runtime_script_package_loader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
+molga_add_test(test_editor_undo_dirty test_editor_undo_dirty.cpp)
+target_sources(test_editor_undo_dirty PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/SceneSnapshots.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/PropertyCommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/ComponentCommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/ObjectCommands.cpp
+)
+target_include_directories(test_editor_undo_dirty PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_editor_undo_dirty PRIVATE imgui)
+
 add_library(dummy_valid_lib SHARED dummy_valid_lib.cpp)
 target_include_directories(dummy_valid_lib PRIVATE
     ${CMAKE_SOURCE_DIR}/src

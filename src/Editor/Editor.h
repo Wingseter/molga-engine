@@ -76,6 +76,7 @@ public:
     void SetCurrentScenePath(const std::string& path) {
         sceneOps.SetCurrentPath(path);
         sceneOps.ClearModified();
+        commandHistory.Clear();
     }
 
     // SceneView에 렌더 리소스 주입
