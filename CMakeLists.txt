@@ -7,7 +7,11 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 우리 코드에만 적용할 경고/sanitizer 모음 (external 라이브러리는 제외)
 set(MOLGA_SANITIZER "" CACHE STRING "Enable a sanitizer: address | undefined | thread (empty = off)")
-set(MOLGA_PHYSICS_BACKEND "box2d" CACHE STRING "Physics backend to use: legacy | box2d")
+set(MOLGA_PHYSICS_BACKEND "legacy" CACHE STRING "Physics backend to use: legacy | box2d")
+set_property(CACHE MOLGA_PHYSICS_BACKEND PROPERTY STRINGS legacy box2d)
+if(NOT MOLGA_PHYSICS_BACKEND STREQUAL "legacy" AND NOT MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
+    message(FATAL_ERROR "MOLGA_PHYSICS_BACKEND must be 'legacy' or 'box2d'")
+endif()
 
 add_library(molga_warnings INTERFACE)
 target_compile_options(molga_warnings INTERFACE -Wall -Wextra -Wpedantic)
@@ -18,16 +22,18 @@ if(NOT MOLGA_SANITIZER STREQUAL "")
 endif()
 
 # ── External dependencies ──────────────────────────────────────────────────────
-include(FetchContent)
-set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
-set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    box2d
-    GIT_REPOSITORY https://github.com/erincatto/box2d.git
-    GIT_TAG        v3.0.0
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(box2d)
+if(MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
+    include(FetchContent)
+    set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
+    set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        box2d
+        GIT_REPOSITORY https://github.com/erincatto/box2d.git
+        GIT_TAG        v3.0.0
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(box2d)
+endif()
 
 add_subdirectory(external/glfw)
 
@@ -71,14 +77,13 @@ set(ENGINE_SOURCES
     src/Physics/Collision.cpp
     src/Physics/PhysicsWorld.cpp
     src/Physics/Physics2D.cpp
-    src/Physics/PhysicsConversions.cpp
-    src/Physics/Box2DBackend.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
     src/Systems/Audio.cpp
     src/Core/Scene.cpp
     src/Systems/Particle.cpp
     src/ECS/Component.cpp
+    src/ECS/BuiltinComponents.cpp
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
@@ -129,6 +134,13 @@ set(ENGINE_SOURCES
     src/Core/Importers/PrefabImporter.cpp
 )
 
+if(MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
+    list(APPEND ENGINE_SOURCES
+        src/Physics/PhysicsConversions.cpp
+        src/Physics/Box2DBackend.cpp
+    )
+endif()
+
 # ── Marrow skeletal animation dependency check ───────────────────────────────
 set(MARROW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Maroow")
 if(EXISTS "${MARROW_DIR}/include/marrow/runtime/skeleton.hpp" AND EXISTS "${MARROW_DIR}/build/libmarrow_runtime.a")
@@ -154,9 +166,10 @@ if(MOLGA_MARROW_SUPPORT)
     target_compile_definitions(molga_core PUBLIC MOLGA_MARROW_SUPPORT)
 endif()
 
-target_link_libraries(molga_core PUBLIC glad glfw box2d)
+target_link_libraries(molga_core PUBLIC glad glfw)
 
 if (MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
+    target_link_libraries(molga_core PUBLIC box2d)
     target_compile_definitions(molga_core PUBLIC MOLGA_PHYSICS_BOX2D)
 else()
     target_compile_definitions(molga_core PUBLIC MOLGA_PHYSICS_LEGACY)

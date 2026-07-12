@@ -11,9 +11,14 @@
 #include "../Core/EventBus.h"
 #include "../Core/Events/PhysicsEvents.h"
 #include "../Core/ProjectSettings.h"
+#ifdef MOLGA_PHYSICS_BOX2D
+#include "Box2DBackend.h"
+#include "PhysicsConversions.h"
+#endif
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 static PhysicsWorld::ContactKey MakeContactKey(unsigned int idA, unsigned int idB, bool isTrigger) {
     if (idA > idB) {
@@ -56,6 +61,182 @@ static CollisionResult DetectCollision(Collider2D* colA, Collider2D* colB) {
     return CollisionResult();
 }
 
+#ifdef MOLGA_PHYSICS_BOX2D
+static b2BodyType ToBox2DBodyType(Rigidbody2D::BodyType type) {
+    switch (type) {
+        case Rigidbody2D::BodyType::Static:
+            return b2_staticBody;
+        case Rigidbody2D::BodyType::Kinematic:
+            return b2_kinematicBody;
+        case Rigidbody2D::BodyType::Dynamic:
+            return b2_dynamicBody;
+    }
+    return b2_staticBody;
+}
+
+static std::uint32_t LayerCategoryBits(int layer) {
+    if (layer < 0 || layer >= 32) {
+        return 0u;
+    }
+    return 1u << static_cast<std::uint32_t>(layer);
+}
+
+static std::uint32_t LayerMaskBits(int layer) {
+    std::uint32_t mask = 0u;
+    for (int otherLayer = 0; otherLayer < 32; ++otherLayer) {
+        if (ProjectSettings::Get().IsCollisionEnabled(layer, otherLayer)) {
+            mask |= LayerCategoryBits(otherLayer);
+        }
+    }
+    return mask;
+}
+
+static b2Filter MakeLayerFilter(int layer) {
+    b2Filter filter = b2DefaultFilter();
+    filter.categoryBits = LayerCategoryBits(layer);
+    filter.maskBits = LayerMaskBits(layer);
+    return filter;
+}
+
+static void AddFallbackMassShape(b2BodyId bodyId, int layer) {
+    b2ShapeDef shapeDef = b2DefaultShapeDef();
+    shapeDef.density = 1.0f;
+    shapeDef.filter = MakeLayerFilter(layer);
+    b2Circle circle{};
+    circle.center = {0.0f, 0.0f};
+    circle.radius = 0.005f;
+    b2CreateCircleShape(bodyId, &shapeDef, &circle);
+}
+
+static void ApplyRigidbodyMass(b2BodyId bodyId, const Rigidbody2D& rigidbody) {
+    if (rigidbody.GetBodyType() != Rigidbody2D::BodyType::Dynamic) {
+        return;
+    }
+
+    constexpr float kMinMass = 0.001f;
+    const float targetMass = std::max(rigidbody.GetMass(), kMinMass);
+    b2MassData massData = b2Body_GetMassData(bodyId);
+    const float currentMass = std::max(massData.mass, kMinMass);
+    const float inertiaScale = targetMass / currentMass;
+    massData.mass = targetMass;
+    massData.rotationalInertia = std::max(massData.rotationalInertia * inertiaScale, 0.0f);
+    b2Body_SetMassData(bodyId, massData);
+}
+
+static bool AddColliderShape(b2BodyId bodyId, Collider2D* collider, Transform* transform, int layer) {
+    if (!collider || !transform) {
+        return false;
+    }
+
+    b2ShapeDef shapeDef = b2DefaultShapeDef();
+    shapeDef.density = 1.0f;
+    shapeDef.isSensor = collider->IsTrigger();
+    shapeDef.filter = MakeLayerFilter(layer);
+
+    const Vector2 bodyPos = transform->GetWorldPosition();
+    if (auto* box = dynamic_cast<BoxCollider2D*>(collider)) {
+        const AABB bounds = box->GetWorldBounds();
+        const Vector2 center = bounds.Center() - bodyPos;
+        const float halfWidth = std::max(std::abs(bounds.width) * 0.5f, 0.5f);
+        const float halfHeight = std::max(std::abs(bounds.height) * 0.5f, 0.5f);
+        b2Polygon polygon = b2MakeOffsetBox(
+            halfWidth / PhysicsConversions::DEFAULT_PPM,
+            halfHeight / PhysicsConversions::DEFAULT_PPM,
+            PhysicsConversions::ToMeters(center),
+            0.0f);
+        b2CreatePolygonShape(bodyId, &shapeDef, &polygon);
+        return true;
+    }
+
+    if (auto* circleCollider = dynamic_cast<CircleCollider2D*>(collider)) {
+        const Circle circleWorld = circleCollider->GetWorldCircle();
+        const Vector2 center(circleWorld.x - bodyPos.x, circleWorld.y - bodyPos.y);
+        b2Circle circle{};
+        circle.center = PhysicsConversions::ToMeters(center);
+        circle.radius = std::max(circleWorld.radius / PhysicsConversions::DEFAULT_PPM, 0.005f);
+        b2CreateCircleShape(bodyId, &shapeDef, &circle);
+        return true;
+    }
+
+    return false;
+}
+
+static void StepBox2DIntegration(World& world, float fixedDt) {
+    b2WorldId boxWorld = Box2DBackend::CreateWorld(0.0f, 9.81f);
+
+    struct BodyMapping {
+        GameObject* object = nullptr;
+        Rigidbody2D* rigidbody = nullptr;
+        Transform* transform = nullptr;
+        b2BodyId bodyId{};
+    };
+    std::vector<BodyMapping> bodies;
+
+    for (auto& obj : world.Objects()) {
+        if (!obj || !obj->IsActive()) {
+            continue;
+        }
+
+        auto* rb = obj->GetComponent<Rigidbody2D>();
+        auto* transform = obj->GetComponent<Transform>();
+        if (!rb || !transform) {
+            continue;
+        }
+
+        b2BodyDef bodyDef = b2DefaultBodyDef();
+        bodyDef.type = ToBox2DBodyType(rb->GetBodyType());
+        bodyDef.position = PhysicsConversions::ToMeters(transform->GetPosition());
+        bodyDef.rotation = b2MakeRot(PhysicsConversions::ToRadians(transform->GetRotation()));
+        bodyDef.linearVelocity = PhysicsConversions::ToMeters(rb->GetVelocity());
+        bodyDef.linearDamping = rb->GetLinearDamping();
+        bodyDef.gravityScale = rb->GetGravityScale();
+        bodyDef.fixedRotation = rb->IsRotationFrozen();
+
+        b2BodyId bodyId = b2CreateBody(boxWorld, &bodyDef);
+        bool hasShape = false;
+        for (auto* comp : obj->GetComponents()) {
+            if (comp && comp->IsEnabled()) {
+                if (auto* collider = dynamic_cast<Collider2D*>(comp)) {
+                    hasShape = AddColliderShape(bodyId, collider, transform, obj->GetLayer()) || hasShape;
+                }
+            }
+        }
+        if (!hasShape && rb->GetBodyType() == Rigidbody2D::BodyType::Dynamic) {
+            AddFallbackMassShape(bodyId, obj->GetLayer());
+        }
+        ApplyRigidbodyMass(bodyId, *rb);
+
+        if (rb->GetBodyType() == Rigidbody2D::BodyType::Dynamic) {
+            b2Body_ApplyForceToCenter(
+                bodyId,
+                PhysicsConversions::ToMeters(rb->GetForceAccumulator()),
+                true);
+            b2Body_ApplyLinearImpulseToCenter(
+                bodyId,
+                PhysicsConversions::ToMeters(rb->GetImpulseAccumulator()),
+                true);
+        }
+
+        bodies.push_back({obj.get(), rb, transform, bodyId});
+    }
+
+    b2World_Step(boxWorld, fixedDt, 1);
+
+    for (const auto& mapping : bodies) {
+        if (mapping.rigidbody->GetBodyType() == Rigidbody2D::BodyType::Dynamic ||
+            mapping.rigidbody->GetBodyType() == Rigidbody2D::BodyType::Kinematic) {
+            mapping.transform->SetPosition(
+                PhysicsConversions::ToPixels(b2Body_GetPosition(mapping.bodyId)));
+            mapping.rigidbody->SetVelocity(
+                PhysicsConversions::ToPixels(b2Body_GetLinearVelocity(mapping.bodyId)));
+        }
+        mapping.rigidbody->ClearForces();
+    }
+
+    Box2DBackend::DestroyWorld(boxWorld);
+}
+#endif
+
 PhysicsWorld::PhysicsWorld() {
 }
 
@@ -63,6 +244,9 @@ PhysicsWorld::~PhysicsWorld() {
 }
 
 void PhysicsWorld::Step(World& world, float fixedDt) {
+#ifdef MOLGA_PHYSICS_BOX2D
+    StepBox2DIntegration(world, fixedDt);
+#else
     // ── Step 1: Gravity & Integration ──
     for (auto& obj : world.Objects()) {
         if (obj && obj->IsActive()) {
@@ -93,6 +277,7 @@ void PhysicsWorld::Step(World& world, float fixedDt) {
             }
         }
     }
+#endif
 
     // ── Step 2: Collision Detection ──
     struct ColliderInfo {

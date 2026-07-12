@@ -120,6 +120,9 @@ set(EXPECTED_REPORTS
     [["objectCount": 1]]
     [["frames": 3]]
     [["assetsResolved": true]]
+    [["assetCatalogLoaded": true]]
+    [["spriteAssetsResolved": 1]]
+    [["spriteAssetsMissing": 0]]
 )
 if(DEFINED DUMMY_LIB AND EXISTS "${DUMMY_LIB}")
     list(APPEND EXPECTED_REPORTS "Scripts: loaded")

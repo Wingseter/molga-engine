@@ -12,6 +12,10 @@ struct SmokeReport {
     std::size_t objectCount = 0;
     int frames = 0;
     bool assetsResolved = false;
+    bool assetCatalogLoaded = false;
+    int assetCatalogRecords = 0;
+    int spriteAssetsResolved = 0;
+    int spriteAssetsMissing = 0;
 
     // Render Stats
     int drawCalls = 0;

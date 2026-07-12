@@ -25,6 +25,10 @@ bool SmokeReport::Save(const std::filesystem::path& path) const {
         {"objectCount", objectCount},
         {"frames", frames},
         {"assetsResolved", assetsResolved},
+        {"assetCatalogLoaded", assetCatalogLoaded},
+        {"assetCatalogRecords", assetCatalogRecords},
+        {"spriteAssetsResolved", spriteAssetsResolved},
+        {"spriteAssetsMissing", spriteAssetsMissing},
         {"drawCalls", drawCalls},
         {"batches", batches},
         {"textureBinds", textureBinds},
@@ -55,6 +59,10 @@ bool SmokeReport::Load(const std::filesystem::path& path, SmokeReport& out) {
         out.objectCount = json.value("objectCount", 0U);
         out.frames = json.value("frames", 0);
         out.assetsResolved = json.value("assetsResolved", false);
+        out.assetCatalogLoaded = json.value("assetCatalogLoaded", false);
+        out.assetCatalogRecords = json.value("assetCatalogRecords", 0);
+        out.spriteAssetsResolved = json.value("spriteAssetsResolved", 0);
+        out.spriteAssetsMissing = json.value("spriteAssetsMissing", 0);
         out.drawCalls = json.value("drawCalls", 0);
         out.batches = json.value("batches", 0);
         out.textureBinds = json.value("textureBinds", 0);

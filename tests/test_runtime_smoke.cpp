@@ -2,6 +2,8 @@
 
 #include "Core/PathService.h"
 #include "Core/World.h"
+#include "ECS/BuiltinComponents.h"
+#include "ECS/ComponentFactory.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
@@ -13,13 +15,9 @@
 #include <iterator>
 
 TEST_CASE("runtime world loads a packaged scene with project relative assets") {
-    // Force linker to include component translation units
-    {
-        Transform t;
-        t.SetPosition(0.0f, 0.0f);
-        SpriteRenderer s;
-        s.RenderSprite(nullptr);
-    }
+    RegisterBuiltinComponents();
+    REQUIRE(ComponentFactory::Get().HasType("Transform"));
+    REQUIRE(ComponentFactory::Get().HasType("SpriteRenderer"));
 
     test_support::TempDirectory temp{"runtime-smoke"};
     const auto root = temp.Path();

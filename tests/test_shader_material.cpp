@@ -152,6 +152,67 @@ TEST_CASE("Shader and Material subsystem test") {
         CHECK(material2.properties["uMyTexture"].texturePath == "dummy_texture.png");
     }
 
+    SUBCASE("Default material batch key uses the sprite batch shader") {
+        std::string batchVertPath = "test_temp_batch.vert";
+        std::string batchFragPath = "test_temp_batch.frag";
+
+        std::string batchVertSrc = R"(
+            #version 330 core
+            layout (location = 0) in vec2 aPos;
+            layout (location = 1) in vec2 aTexCoord;
+            layout (location = 2) in vec4 aColor;
+            out vec2 TexCoord;
+            out vec4 Color;
+            uniform mat4 projection;
+            void main() {
+                TexCoord = aTexCoord;
+                Color = aColor;
+                gl_Position = projection * vec4(aPos, 0.0, 1.0);
+            }
+        )";
+
+        std::string batchFragSrc = R"(
+            #version 330 core
+            in vec2 TexCoord;
+            in vec4 Color;
+            out vec4 FragColor;
+            void main() {
+                FragColor = Color;
+            }
+        )";
+
+        WriteFile(batchVertPath, batchVertSrc);
+        WriteFile(batchFragPath, batchFragSrc);
+
+        Shader* defaultShader = ShaderManager::Get().Load("default", vertPath, fragPath);
+        Shader* batchShader = ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
+        REQUIRE(defaultShader != nullptr);
+        REQUIRE(batchShader != nullptr);
+
+        Material defaultMaterial;
+        auto defaultKey = defaultMaterial.GetBatchKey();
+        CHECK(defaultKey.isBatchable);
+        CHECK(defaultKey.shader == batchShader);
+        CHECK(defaultKey.shader != defaultShader);
+
+        Material customMaterial;
+        customMaterial.shaderName = "test_shader";
+        Shader* customShader = ShaderManager::Get().Load("test_shader", vertPath, fragPath);
+        REQUIRE(customShader != nullptr);
+        auto customKey = customMaterial.GetBatchKey();
+        CHECK_FALSE(customKey.isBatchable);
+        CHECK(customKey.shader == customShader);
+
+        Material propertyMaterial;
+        propertyMaterial.properties["uValue"] = MaterialProperty{};
+        auto propertyKey = propertyMaterial.GetBatchKey();
+        CHECK_FALSE(propertyKey.isBatchable);
+        CHECK(propertyKey.shader == defaultShader);
+
+        fs::remove(batchVertPath);
+        fs::remove(batchFragPath);
+    }
+
     SUBCASE("SpriteRenderer Integration") {
         SpriteRenderer renderer;
         renderer.material.shaderName = "test_shader";

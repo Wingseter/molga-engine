@@ -23,6 +23,7 @@
 #include "Core/Profiling/ProfilerService.h"
 #include "Editor/Windows/ProjectWindow.h"
 #include "Editor/Project.h"
+#include "ECS/BuiltinComponents.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/BoxCollider2D.h"
@@ -116,6 +117,7 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
 
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+    RegisterBuiltinComponents();
 
     if (argc > 1 && std::string_view(argv[1]) == "--smoke-build") {
         const auto options = ParseSmokeBuild(argc, argv);

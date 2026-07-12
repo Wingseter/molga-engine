@@ -35,6 +35,13 @@ endif()
 # Three characters after header are RGB bytes 64, 32, 96.
 file(WRITE "${FIXTURE_ROOT}/Assets/Textures/smoke.ppm"
     "P6\n1 1\n255\n@ `")
+file(WRITE "${FIXTURE_ROOT}/Assets/Textures/smoke.ppm.meta" [=[
+{
+  "guid": "11111111111111111111111111111111",
+  "importer": "TextureImporter",
+  "importerVersion": 1
+}
+]=])
 
 file(WRITE "${FIXTURE_ROOT}/Scenes/main.json" [=[
 {
@@ -54,7 +61,7 @@ file(WRITE "${FIXTURE_ROOT}/Scenes/main.json" [=[
     }, {
       "type": "SpriteRenderer",
       "enabled": true,
-      "texturePath": "Assets/Textures/smoke.ppm",
+      "textureGuid": "11111111111111111111111111111111",
       "color": [1.0, 1.0, 1.0, 1.0],
       "size": [1.0, 1.0],
       "flipX": false,

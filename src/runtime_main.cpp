@@ -16,6 +16,7 @@
 #include "Core/Profiling/ProfileScope.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
+#include "ECS/BuiltinComponents.h"
 #include "Core/World.h"
 #include "Rendering/Camera2D.h"
 #include "Systems/Audio.h"
@@ -78,22 +79,51 @@ std::optional<RuntimeSmokeOptions> ParseRuntimeSmoke(int argc, char** argv) {
     return options;
 }
 
-bool AllSpriteAssetsResolved(const World& world) {
+struct AssetResolutionSummary {
+    int resolved = 0;
+    int missing = 0;
+
+    bool ok() const { return missing == 0; }
+};
+
+AssetResolutionSummary SummarizeSpriteAssetResolution(const World& world) {
+    AssetResolutionSummary summary;
     for (const auto& object : world.Objects()) {
-        const auto* sprite = object->GetComponent<SpriteRenderer>();
-        if (sprite != nullptr &&
-            !sprite->GetTexturePath().empty() &&
-            sprite->GetTexture() == nullptr) {
-            return false;
+        const auto* sprite = object ? object->GetComponent<SpriteRenderer>() : nullptr;
+        if (sprite == nullptr) {
+            continue;
+        }
+
+        const bool hasGuid = !sprite->GetTextureGuid().empty();
+        const bool hasPath = !sprite->GetTexturePath().empty();
+        if (!hasGuid && !hasPath) {
+            continue;
+        }
+
+        bool resolved = false;
+        if (hasGuid) {
+            const auto path = molga::AssetDatabase::Get().AbsoluteSourcePath(sprite->GetTextureGuid());
+            resolved = !path.empty() && std::filesystem::exists(path);
+        }
+        if (!resolved && hasPath) {
+            const auto path = PathService::Get().ResolveAsset(sprite->GetTexturePath());
+            resolved = !path.empty() && std::filesystem::exists(path);
+        }
+
+        if (resolved) {
+            ++summary.resolved;
+        } else {
+            ++summary.missing;
         }
     }
-    return true;
+    return summary;
 }
 
 }  // namespace
 
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+    RegisterBuiltinComponents();
 
     const auto smoke = ParseRuntimeSmoke(argc, argv);
     if (!smoke) {
@@ -176,12 +206,20 @@ int main(int argc, char* argv[]) {
 
     // Load asset catalog if present (runtime mode: read-only, no .meta creation)
     PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
+    bool assetCatalogLoaded = false;
+    int assetCatalogRecords = 0;
     {
         auto catalogPath = PathService::Get().ExecutableDir() / "asset_catalog.json";
         if (std::filesystem::exists(catalogPath)) {
-            molga::AssetDatabase::Get().LoadCatalog(catalogPath, PathService::Get().ExecutableDir());
-            std::cout << "Asset catalog loaded: " << molga::AssetDatabase::Get().RecordCount()
-                      << " records" << std::endl;
+            assetCatalogLoaded = molga::AssetDatabase::Get().LoadCatalog(
+                catalogPath, PathService::Get().ExecutableDir());
+            assetCatalogRecords = static_cast<int>(molga::AssetDatabase::Get().RecordCount());
+            if (assetCatalogLoaded) {
+                std::cout << "Asset catalog loaded: " << assetCatalogRecords
+                          << " records" << std::endl;
+            } else {
+                std::cerr << "Failed to load asset catalog: " << catalogPath << std::endl;
+            }
         }
     }
 
@@ -297,14 +335,19 @@ int main(int argc, char* argv[]) {
         }
 
         std::string scriptStatus = config.scripts.enabled ? "loaded" : "none";
+        const AssetResolutionSummary assetSummary = SummarizeSpriteAssetResolution(world);
 
         SmokeReport report;
         report.executable = "molga_runtime";
-        report.status = AllSpriteAssetsResolved(world) ? "ok" : "error";
+        report.status = assetSummary.ok() ? "ok" : "error";
         report.scenePath = config.mainScene;
         report.objectCount = world.Objects().size();
         report.frames = renderedFrames;
-        report.assetsResolved = AllSpriteAssetsResolved(world);
+        report.assetsResolved = assetSummary.ok();
+        report.assetCatalogLoaded = assetCatalogLoaded;
+        report.assetCatalogRecords = assetCatalogRecords;
+        report.spriteAssetsResolved = assetSummary.resolved;
+        report.spriteAssetsMissing = assetSummary.missing;
         if (renderer) {
             auto& stats = renderer->Stats();
             report.drawCalls = stats.drawCalls;

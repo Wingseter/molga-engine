@@ -15,6 +15,7 @@ struct AssetRecord {
     std::string importer;          // 예: "TextureImporter"
     int importerVersion = 1;
     std::string artifactPath;      // 가져온 산출물 경로(없으면 빈 문자열)
+    std::string hash;              // source file content hash at catalog build time
     std::vector<std::string> dependencies;  // 이 애셋이 참조하는 다른 애셋 guid
     bool importFailed = false;     // badge용
     bool generated = false;        // 산출물/임시 애셋 표시 badge용

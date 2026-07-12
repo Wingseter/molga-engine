@@ -37,6 +37,11 @@ TEST_CASE("SaveCatalog writes JSON with all records") {
     CHECK(j["assetRootMode"] == "packageRoot");
     CHECK(j["records"].is_array());
     CHECK(j["records"].size() == 2);
+    for (const auto& record : j["records"]) {
+        const auto hash = record.value("hash", std::string());
+        CHECK_FALSE(hash.empty());
+        CHECK(hash != "dummy_hash");
+    }
 
     fs::remove_all(root);
 }
@@ -62,6 +67,8 @@ TEST_CASE("LoadCatalog restores records and allows GUID lookup") {
     REQUIRE(rec != nullptr);
     CHECK(rec->sourcePath == "Assets/Textures/player.png");
     CHECK(rec->importer == "TextureImporter");
+    CHECK_FALSE(rec->hash.empty());
+    CHECK(rec->hash != "dummy_hash");
 
     // GuidForSource should work
     CHECK(loadDb.GuidForSource("Assets/Textures/player.png") == playerGuid);

@@ -7,8 +7,11 @@
 #include "Core/Importers/AudioImporter.h"
 #include "Core/PathService.h"
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
+#include <iomanip>
 #include <nlohmann/json.hpp>
+#include <sstream>
 
 namespace molga {
 
@@ -17,6 +20,28 @@ static ImportResult RunImporterImpl(const std::string& importer, const std::stri
     if (importer == "AudioImporter")   return AudioImporter().Import(abs);
     if (importer == "PrefabImporter")  return PrefabImporter().Import(abs);
     ImportResult ok; ok.success = true; return ok;  // GenericImporter
+}
+
+static std::string ComputeFileHash(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return {};
+    }
+
+    std::uint64_t hash = 1469598103934665603ULL;
+    char buffer[4096];
+    while (file) {
+        file.read(buffer, sizeof(buffer));
+        const std::streamsize count = file.gcount();
+        for (std::streamsize i = 0; i < count; ++i) {
+            hash ^= static_cast<unsigned char>(buffer[i]);
+            hash *= 1099511628211ULL;
+        }
+    }
+
+    std::ostringstream out;
+    out << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return out.str();
 }
 
 AssetDatabase& AssetDatabase::Get() {
@@ -229,6 +254,11 @@ bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
         j["schemaVersion"] = 1;
         j["assetRootMode"] = "packageRoot";
         
+        std::filesystem::path rootDir = assetRoot_;
+        if (assetRoot_.filename() == "Assets") {
+            rootDir = assetRoot_.parent_path();
+        }
+
         nlohmann::json recordsJson = nlohmann::json::array();
         for (const auto& [guid, rec] : byGuid_) {
             nlohmann::json r;
@@ -237,7 +267,7 @@ bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
             r["importer"] = rec.importer;
             r["importerVersion"] = rec.importerVersion;
             r["artifactPath"] = rec.artifactPath;
-            r["hash"] = "dummy_hash";
+            r["hash"] = ComputeFileHash(rootDir / rec.sourcePath);
             r["width"] = rec.textureWidth;
             r["height"] = rec.textureHeight;
             recordsJson.push_back(r);
@@ -276,6 +306,7 @@ bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::fi
                 rec.importer = r.value("importer", "");
                 rec.importerVersion = r.value("importerVersion", 1);
                 rec.artifactPath = r.value("artifactPath", "");
+                rec.hash = r.value("hash", "");
                 rec.textureWidth = r.value("width", 0);
                 rec.textureHeight = r.value("height", 0);
                 

@@ -531,14 +531,28 @@ bool GameBuilder::CopyPlaceholderResource(const std::string& outputPath) {
             fs::copy_file(src, destDir / "missing_texture.png",
                          fs::copy_options::overwrite_existing);
         } else {
-            // Create a minimal 1x1 pink PNG as placeholder
+            // Create a valid minimal 1x1 magenta PNG as placeholder.
+            static constexpr unsigned char kMissingTexturePng[] = {
+                0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+                0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+                0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+                0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+                0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41,
+                0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xf0, 0xff,
+                0x3f, 0x00, 0x06, 0xfe, 0x02, 0xfe, 0x0c, 0x75,
+                0x89, 0xde, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+                0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+            };
             std::ofstream file(destDir / "missing_texture.png", std::ios::binary);
             if (!file.is_open()) {
                 lastError = "Failed to create placeholder resource";
                 return false;
             }
-            // Write a 1x1 pink PPM as fallback (not ideal, but functional)
-            file << "P6\n1 1\n255\n\xff\x00\xff";
+            file.write(reinterpret_cast<const char*>(kMissingTexturePng), sizeof(kMissingTexturePng));
+            if (!file.good()) {
+                lastError = "Failed to write placeholder resource";
+                return false;
+            }
         }
         return true;
     } catch (const std::exception& e) {

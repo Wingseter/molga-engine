@@ -43,6 +43,10 @@ TEST_CASE("smoke report round trips through json") {
     written.objectCount = 1;
     written.frames = 3;
     written.assetsResolved = true;
+    written.assetCatalogLoaded = true;
+    written.assetCatalogRecords = 2;
+    written.spriteAssetsResolved = 1;
+    written.spriteAssetsMissing = 0;
     written.drawCalls = 5;
     written.batches = 2;
     written.textureBinds = 4;
@@ -62,6 +66,10 @@ TEST_CASE("smoke report round trips through json") {
     CHECK(loaded.objectCount == 1);
     CHECK(loaded.frames == 3);
     CHECK(loaded.assetsResolved);
+    CHECK(loaded.assetCatalogLoaded);
+    CHECK(loaded.assetCatalogRecords == 2);
+    CHECK(loaded.spriteAssetsResolved == 1);
+    CHECK(loaded.spriteAssetsMissing == 0);
     CHECK(loaded.drawCalls == 5);
     CHECK(loaded.batches == 2);
     CHECK(loaded.textureBinds == 4);

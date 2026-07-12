@@ -169,10 +169,19 @@ Shader* Material::ResolveShader() const {
 
 molga::BatchKey Material::GetBatchKey() const {
     molga::BatchKey key;
-    key.shader = ResolveShader();
     key.texture = mainTexture;
     key.blendMode = blendMode;
-    key.isBatchable = (shaderName == "default" || shaderName == "batch") && properties.empty();
+
+    const bool canUseSpriteBatchShader =
+        (shaderName == "default" || shaderName == "batch") && properties.empty();
+    if (canUseSpriteBatchShader) {
+        key.shader = ShaderManager::Get().Get("batch");
+        key.isBatchable = key.shader != nullptr;
+        return key;
+    }
+
+    key.shader = ResolveShader();
+    key.isBatchable = false;
     return key;
 }
 
