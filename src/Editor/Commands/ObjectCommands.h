@@ -78,4 +78,26 @@ private:
     std::vector<std::shared_ptr<GameObject>> duplicatedObjects_;
 };
 
+enum class UIPresetType { Canvas, Image, Label, Button };
+
+// Creates an undoable screen-overlay UI preset. Image/Label/Button
+// automatically create a Canvas when the active scene has none.
+class CreateUIPresetCommand : public ICommand {
+public:
+    explicit CreateUIPresetCommand(UIPresetType type);
+    void Execute() override;
+    void Undo() override;
+    std::string Name() const override { return "Create UI Preset"; }
+    GameObject* created() const { return primary_.get(); }
+
+private:
+    void Build();
+
+    UIPresetType type_;
+    std::vector<std::shared_ptr<GameObject>> objects_;
+    std::vector<unsigned int> parentIds_;
+    std::shared_ptr<GameObject> primary_;
+    bool built_ = false;
+};
+
 } // namespace molga

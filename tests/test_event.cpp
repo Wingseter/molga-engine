@@ -177,3 +177,19 @@ TEST_CASE("Event: unsubscribe during publish") {
 
     EventBus::Clear();
 }
+
+TEST_CASE("Event: a queued subscription destroyed during publish is never installed") {
+    int transientCalls = 0;
+    EventBus::Subscribe<TestEvent>([&](TestEvent&) {
+        ScopedSubscription transient(EventBus::Subscribe<TestEvent>(
+            [&](TestEvent&) { ++transientCalls; }));
+    });
+
+    TestEvent first;
+    EventBus::Publish(first);
+    TestEvent second;
+    EventBus::Publish(second);
+    CHECK(transientCalls == 0);
+
+    EventBus::Clear();
+}

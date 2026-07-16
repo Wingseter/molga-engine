@@ -5,7 +5,9 @@
 #include "Core/Importers/PrefabImporter.h"
 #include "Core/Importers/TextureImporter.h"
 #include "Core/Importers/AudioImporter.h"
+#include "Core/Importers/FontImporter.h"
 #include "Core/PathService.h"
+#include "Rendering/TextRenderer.h"
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
@@ -19,6 +21,7 @@ static ImportResult RunImporterImpl(const std::string& importer, const std::stri
     if (importer == "TextureImporter") return TextureImporter().Import(abs);
     if (importer == "AudioImporter")   return AudioImporter().Import(abs);
     if (importer == "PrefabImporter")  return PrefabImporter().Import(abs);
+    if (importer == "FontImporter")    return FontImporter().Import(abs);
     ImportResult ok; ok.success = true; return ok;  // GenericImporter
 }
 
@@ -59,6 +62,7 @@ std::string AssetDatabase::ImporterForExtension(const std::string& ext, int& ver
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") { versionOut = 1; return "TextureImporter"; }
     if (ext == ".wav" || ext == ".mp3" || ext == ".ogg")  { versionOut = 1; return "AudioImporter"; }
     if (ext == ".prefab")                                  { versionOut = 1; return "PrefabImporter"; }
+    if (ext == ".ttf" || ext == ".otf")                    { versionOut = 1; return "FontImporter"; }
     versionOut = 1;
     return "GenericImporter";
 }
@@ -72,6 +76,15 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
     int version = 1;
     std::string importer = ImporterForExtension(ext, version);
     AssetMeta meta = AssetMeta::CreateOrLoad(absPath, importer, version);
+
+    // Migrate sidecars created before a built-in importer existed (notably
+    // .ttf/.otf files that used to be GenericImporter).
+    if (importer != "GenericImporter" &&
+        (meta.importer != importer || meta.importerVersion != version)) {
+        meta.importer = importer;
+        meta.importerVersion = version;
+        AssetMeta::Write(absPath, meta);
+    }
 
     if (ext == ".prefab") {
         std::string embedded = PrefabImporter::ReadEmbeddedGuid(absPath.string());
@@ -105,6 +118,9 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
 }
 
 void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
+    if (this == &AssetDatabase::Get()) {
+        TextRenderer::Get().InvalidateAllFonts();
+    }
     assetRoot_ = assetRoot;
     byGuid_.clear();
     sourceToGuid_.clear();
@@ -215,7 +231,12 @@ std::filesystem::path AssetDatabase::AbsoluteSourcePath(const std::string& guid)
 void AssetDatabase::Reimport(const std::string& guid) {
     const AssetRecord* rec = Find(guid);
     if (!rec) return;
-    IndexOne(AbsoluteSourcePath(guid));
+    const std::filesystem::path source = AbsoluteSourcePath(guid);
+    const bool isFont = rec->importer == "FontImporter";
+    IndexOne(source);
+    if (isFont && this == &AssetDatabase::Get()) {
+        TextRenderer::Get().InvalidateFont(guid);
+    }
 }
 
 void AssetDatabase::OnSourceAdded(const std::filesystem::path& rel) {
@@ -227,8 +248,14 @@ void AssetDatabase::OnSourceRemoved(const std::filesystem::path& rel) {
     std::string key = GetCanonicalPathStatic(absPath, assetRoot_);
     auto it = sourceToGuid_.find(key);
     if (it == sourceToGuid_.end()) return;
+    const std::string guid = it->second;
+    const auto record = byGuid_.find(guid);
+    const bool isFont = record != byGuid_.end() && record->second.importer == "FontImporter";
     byGuid_.erase(it->second);
     sourceToGuid_.erase(it);
+    if (isFont && this == &AssetDatabase::Get()) {
+        TextRenderer::Get().InvalidateFont(guid);
+    }
 }
 
 void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
@@ -245,7 +272,13 @@ void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
     std::string newKey = GetCanonicalPathStatic(newAbs, assetRoot_);
     sourceToGuid_[newKey] = guid;
     auto recIt = byGuid_.find(guid);
-    if (recIt != byGuid_.end()) recIt->second.sourcePath = newKey;
+    if (recIt != byGuid_.end()) {
+        const bool isFont = recIt->second.importer == "FontImporter";
+        recIt->second.sourcePath = newKey;
+        if (isFont && this == &AssetDatabase::Get()) {
+            TextRenderer::Get().InvalidateFont(guid);
+        }
+    }
 }
 
 bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
@@ -321,6 +354,9 @@ bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::fi
 }
 
 void AssetDatabase::Clear() {
+    if (this == &AssetDatabase::Get()) {
+        TextRenderer::Get().InvalidateAllFonts();
+    }
     byGuid_.clear();
     sourceToGuid_.clear();
 }

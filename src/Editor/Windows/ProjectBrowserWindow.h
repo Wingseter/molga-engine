@@ -87,5 +87,5 @@ private:
     bool createFocusNextFrame = false;
 
     char searchBuffer_[128] = "";
-    int typeFilter_ = 0;   // 0=All,1=Texture,2=Audio,3=Prefab,4=Script,5=Scene
+    int typeFilter_ = 0;   // 0=All,1=Texture,2=Audio,3=Prefab,4=Script,5=Scene,6=Font
 };

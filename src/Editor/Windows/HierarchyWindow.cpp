@@ -66,6 +66,13 @@ void HierarchyWindow::OnGUI() {
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Create UI")) {
+            if (ImGui::MenuItem("Canvas")) CreateUIObject(0);
+            if (ImGui::MenuItem("Image")) CreateUIObject(1);
+            if (ImGui::MenuItem("Label")) CreateUIObject(2);
+            if (ImGui::MenuItem("Button")) CreateUIObject(3);
+            ImGui::EndMenu();
+        }
         ImGui::EndPopup();
     }
 
@@ -228,6 +235,13 @@ void HierarchyWindow::CreateSpriteObject() {
 void HierarchyWindow::CreateTilemapObject() {
     auto cmd = std::make_unique<molga::CreateObjectWithComponentsCommand>("Tilemap", std::vector<std::string>{"TilemapRenderer"});
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
+}
+
+void HierarchyWindow::CreateUIObject(int presetType) {
+    presetType = std::max(0, std::min(presetType, 3));
+    Editor::Get().GetCommandHistory().Execute(
+        std::make_unique<molga::CreateUIPresetCommand>(
+            static_cast<molga::UIPresetType>(presetType)));
 }
 
 void HierarchyWindow::DeleteSelectedObject() {

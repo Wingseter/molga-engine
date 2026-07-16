@@ -35,6 +35,10 @@
 #include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
 #include "Core/PathService.h"
+#include "Core/BuildPlan.h"
+#include "Core/PrefabRegistry.h"
+#include "Core/PersistentStorage.h"
+#include "Core/PlayerPrefs.h"
 #include "Core/SmokeReport.h"
 #include "Core/EventBus.h"
 #include "Editor/GameBuilder.h"
@@ -49,6 +53,47 @@ GLFWwindow* g_window = nullptr;
 static molga::AssetWatcher g_AssetWatcher;
 
 namespace {
+
+struct EditorSceneCatalogData {
+    SceneRuntime::SceneCatalog catalog;
+    std::string currentSceneId;
+    bool valid = false;
+};
+
+EditorSceneCatalogData BuildEditorSceneCatalog(const BuildProfile& profile,
+                                                const std::filesystem::path& projectRoot,
+                                                const std::string& currentScenePath) {
+    EditorSceneCatalogData result;
+    BuildPlan plan;
+    std::string error;
+    if (!BuildPlanBuilder::Build(profile, projectRoot.string(), profile.target,
+                                 "", plan, error)) {
+        Log::Error("SceneRuntime", "Could not build editor scene catalog: " + error);
+        return result;
+    }
+
+    std::error_code pathError;
+    const std::filesystem::path current = currentScenePath.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::weakly_canonical(currentScenePath, pathError);
+    for (const auto& entry : plan.sceneEntries) {
+        result.catalog.emplace(entry.sceneId, entry.sourceAbsolutePath);
+        if (!current.empty()) {
+            std::error_code entryError;
+            const auto candidate = std::filesystem::weakly_canonical(
+                entry.sourceAbsolutePath, entryError);
+            if (!entryError && candidate == current) result.currentSceneId = entry.sceneId;
+        }
+    }
+
+    result.valid = !result.catalog.empty() && !result.currentSceneId.empty();
+    if (!result.valid && !currentScenePath.empty()) {
+        Log::Error("SceneRuntime",
+                   "The active editor scene is not registered in the Build Profile: " +
+                       currentScenePath);
+    }
+    return result;
+}
 
 struct SmokeBuildOptions {
     std::filesystem::path projectRoot;
@@ -76,6 +121,14 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
 
     const BuildProfile& profile = Project::Get().GetBuildProfile();
     report.scenePath = profile.startupScene;
+
+    // Headless builds must initialize the same project asset context as the
+    // interactive editor before deserializing the startup scene. Otherwise
+    // PrefabRegistry searches beside the editor executable and silently omits
+    // otherwise valid project prefab instances from the smoke World.
+    PathService::Get().SetAssetRoot(Project::Get().GetPath());
+    molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+    PrefabRegistry::Get().ScanAssets();
 
     // Set script compiler path and load script library if present
     ScriptCompiler::Get().SetProjectPath(options.projectRoot.string());
@@ -118,6 +171,7 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
     RegisterBuiltinComponents();
+    RegisterBuiltinScripts();
 
     if (argc > 1 && std::string_view(argv[1]) == "--smoke-build") {
         const auto options = ParseSmokeBuild(argc, argv);
@@ -159,9 +213,6 @@ int main(int argc, char* argv[]) {
     ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
     SceneDocument sceneDoc;
 
-    // Initialize Scripting
-    RegisterBuiltinScripts();
-
     // Initialize Text Renderer
     TextRenderer::Get().Init();
 
@@ -173,18 +224,31 @@ int main(int argc, char* argv[]) {
 
     EditorState& editorState = EditorState::Get();
     editorState.SetPlayCallbacks(
-        [&sceneDoc]() {  // Edit → Play
+        [&sceneDoc]() -> bool {  // Edit → Play
+            const auto catalog = BuildEditorSceneCatalog(
+                Project::Get().GetBuildProfile(), Project::Get().GetPath(),
+                Editor::Get().GetCurrentScenePath());
+            if (!catalog.valid) {
+                Log::Error("SceneRuntime",
+                           "Could not enter Play mode without a registered active scene.");
+                return false;
+            }
+            if (!sceneDoc.EnterPlay(catalog.catalog, catalog.currentSceneId)) {
+                Log::Error("SceneRuntime", "Could not enter Play mode with a cloned scene World.");
+                return false;
+            }
             Editor::Get().GetCommandHistory().Clear();
-            sceneDoc.EnterPlay();
-            sceneDoc.ActiveWorld().ResolveAssets();
+            Editor::Get().ResetPlayUIInput();
             Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
             
             World& pw = sceneDoc.ActiveWorld();
             Editor::Get().GetSelection().Rebind(
                 [&pw](unsigned int id) { return pw.FindById(id) != nullptr; });
+            return true;
         },
         [&sceneDoc]() {  // Play/Pause → Stop
             Editor::Get().GetCommandHistory().Clear();
+            Editor::Get().ResetPlayUIInput();
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             sceneDoc.ExitPlay();
             
@@ -235,6 +299,11 @@ int main(int argc, char* argv[]) {
         g_AssetWatcher.Prime(Project::Get().GetAssetsPath());
 
         const BuildProfile& profile = Project::Get().GetBuildProfile();
+        if (!PersistentStorage::ConfigureEditor(Project::Get().GetPath(),
+                                                profile.companyName,
+                                                profile.gameName)) {
+            Log::Error("PersistentStorage", "Could not configure editor Play storage.");
+        }
         fs::path p(profile.startupScene);
         const fs::path mainScene = p.is_absolute() ? p : fs::path(Project::Get().GetPath()) / p;
         if (sceneDoc.Open(mainScene.string())) {
@@ -296,6 +365,8 @@ int main(int argc, char* argv[]) {
             if (editorState.IsPlayMode() && sceneDoc.IsPlaying()) {
                 float scaledDt = dt * editorState.GetTimeScale();
 
+                Editor::Get().ProcessPlayUIInput();
+
                 Time::AccumulateFixedTime(scaledDt);
                 while (Time::HasPendingFixedStep()) {
                     sceneDoc.ActiveWorld().FixedStep(Time::GetFixedDeltaTime());
@@ -338,6 +409,24 @@ int main(int argc, char* argv[]) {
 
             EventBus::ProcessQueue();
 
+            // Scene requests made by scripts or queued-event handlers commit only
+            // after the old World has completed all work for this frame.
+            if (sceneDoc.IsPlaying()) {
+                SceneRuntime* sceneRuntime = sceneDoc.PlayRuntime();
+                if (sceneRuntime && sceneRuntime->IsSceneLoadPending() &&
+                    sceneRuntime->CommitPendingLoad()) {
+                    Time::ResetFixedAccumulator();
+                    // Serialized scene IDs are local to a scene. Never let a
+                    // play-mode undo command captured in the outgoing scene
+                    // bind to an unrelated same-ID object after a transition.
+                    Editor::Get().GetCommandHistory().Clear();
+                    Editor::Get().ResetPlayUIInput();
+                    Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+                    Editor::Get().GetSelection().UnlockInspector();
+                    Editor::Get().GetSelection().Clear(molga::SelectionSource::Code);
+                }
+            }
+
             Editor::Get().PumpScriptReload(editorState.IsEditMode());
 
             glfwSwapBuffers(window);
@@ -353,6 +442,8 @@ int main(int argc, char* argv[]) {
     }
 
     // Cleanup (deterministic order; unique_ptrs auto-release)
+    sceneDoc.ExitPlay();
+    PlayerPrefs::Shutdown();
     Project::Get().Close();
     Editor::Get().Shutdown();
     ImGuiLayer::Shutdown();

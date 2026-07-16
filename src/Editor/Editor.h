@@ -18,6 +18,7 @@ class GameObject;
 class Renderer;
 class Shader;
 class Camera2D;
+struct GLFWwindow;
 class HierarchyWindow;
 class InspectorWindow;
 
@@ -81,6 +82,8 @@ public:
 
     // SceneView에 렌더 리소스 주입
     void SetSceneViewResources(Renderer* renderer, Shader* shader);
+    void ProcessPlayUIInput();
+    void ResetPlayUIInput();
 
 private:
     Editor() = default;

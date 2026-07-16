@@ -6,6 +6,7 @@
 #include <imgui.h>
 #include <filesystem>
 #include <vector>
+#include <algorithm>
 
 ProjectSettingsWindow::ProjectSettingsWindow()
     : EditorWindow("Project Settings") {
@@ -175,6 +176,25 @@ void ProjectSettingsWindow::OnGUI() {
                 }
             }
 
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Physics 2D")) {
+            float gravity[2] = {settings.gravity.x, settings.gravity.y};
+            if (ImGui::DragFloat2("Gravity (px/s^2)", gravity, 1.0f)) {
+                settings.gravity = Vector2(gravity[0], gravity[1]);
+                modified = true;
+            }
+            float ppm = settings.pixelsPerMeter;
+            if (ImGui::DragFloat("Pixels Per Meter", &ppm, 1.0f, 1.0f, 10000.0f)) {
+                settings.pixelsPerMeter = std::max(ppm, 1.0f);
+                modified = true;
+            }
+            int substeps = settings.substeps;
+            if (ImGui::DragInt("Substeps", &substeps, 1.0f, 1, 32)) {
+                settings.substeps = std::max(substeps, 1);
+                modified = true;
+            }
             ImGui::EndTabItem();
         }
 

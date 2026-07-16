@@ -7,6 +7,11 @@
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
+#include "ECS/Components/RectTransform.h"
+#include "ECS/Components/UIButton.h"
+#include "ECS/Components/UICanvas.h"
+#include "ECS/Components/UILabel.h"
+#include "ECS/Component.h"
 #include "doctest.h"
 #include <memory>
 #include <vector>
@@ -17,6 +22,72 @@
 static std::vector<std::shared_ptr<GameObject>>* s_gameObjects = nullptr;
 static GameObject* s_selectedObject = nullptr;
 static bool s_sceneModified = false;
+
+namespace {
+
+class SnapshotSelfRemovingComponent : public Component {
+public:
+    COMPONENT_TYPE(SnapshotSelfRemovingComponent)
+
+    void OnDisable() override {
+        if (GameObject* owner = GetGameObject()) {
+            owner->RemoveComponent<SnapshotSelfRemovingComponent>();
+        }
+    }
+
+    void ResolveAssets() override { ++resolveCount; }
+
+    static inline int resolveCount = 0;
+};
+
+class SnapshotCaptureVictim : public Component {
+public:
+    COMPONENT_TYPE(SnapshotCaptureVictim)
+};
+
+class SnapshotCaptureMutator : public Component {
+public:
+    COMPONENT_TYPE(SnapshotCaptureMutator)
+
+    void Serialize(nlohmann::json&) const override {
+        if (GameObject* owner = GetGameObject()) {
+            owner->RemoveComponent<SnapshotCaptureVictim>();
+        }
+    }
+};
+
+class SnapshotRemovalVictim : public Component {
+public:
+    COMPONENT_TYPE(SnapshotRemovalVictim)
+};
+
+class SnapshotRemovalMutator : public Component {
+public:
+    COMPONENT_TYPE(SnapshotRemovalMutator)
+
+    void OnDisable() override {
+        if (GameObject* owner = GetGameObject()) {
+            owner->RemoveComponent<SnapshotRemovalVictim>();
+        }
+    }
+};
+
+class SnapshotOwnerRemovingComponent : public Component {
+public:
+    COMPONENT_TYPE(SnapshotOwnerRemovingComponent)
+
+    void OnDisable() override {
+        if (GameObject* owner = GetGameObject()) {
+            Editor::Get().RemoveObjectsByIds({owner->GetID()});
+        }
+    }
+
+    void ResolveAssets() override { ++resolveCount; }
+
+    static inline int resolveCount = 0;
+};
+
+} // namespace
 
 // Mock implementations of EditorState transition callbacks
 #include "Editor/EditorState.h"
@@ -248,6 +319,63 @@ TEST_CASE("ComponentSnapshotCommand size/color/enabled (Phase 3)") {
     s_gameObjects = nullptr;
 }
 
+TEST_CASE("Component snapshot restore survives self-removal from OnDisable") {
+    auto object = std::make_shared<GameObject>("Self-removing component");
+    auto* component = object->AddComponent<SnapshotSelfRemovingComponent>();
+    SnapshotSelfRemovingComponent::resolveCount = 0;
+
+    nlohmann::json snapshot = molga::CaptureComponentSnapshot(component);
+    snapshot["enabled"] = false;
+
+    CHECK_NOTHROW(molga::RestoreComponentSnapshot(object.get(), snapshot));
+    CHECK(object->GetComponent<SnapshotSelfRemovingComponent>() == nullptr);
+    CHECK(SnapshotSelfRemovingComponent::resolveCount == 0);
+}
+
+TEST_CASE("Component snapshot plans re-resolve siblings after user callbacks") {
+    SUBCASE("capture Serialize removes a later component") {
+        auto object = std::make_shared<GameObject>("Capture mutation");
+        object->AddComponent<SnapshotCaptureMutator>();
+        object->AddComponent<SnapshotCaptureVictim>();
+
+        nlohmann::json snapshot;
+        CHECK_NOTHROW(snapshot = molga::CaptureGameObjectComponents(object.get()));
+        CHECK_FALSE(object->HasComponent<SnapshotCaptureVictim>());
+        REQUIRE(snapshot.is_array());
+        REQUIRE(snapshot.size() == 1);
+        CHECK(snapshot[0].value("type", "") == "SnapshotCaptureMutator");
+    }
+
+    SUBCASE("restore removal callback removes a later component") {
+        auto object = std::make_shared<GameObject>("Restore mutation");
+        object->AddComponent<SnapshotRemovalMutator>();
+        object->AddComponent<SnapshotRemovalVictim>();
+
+        CHECK_NOTHROW(molga::RestoreGameObjectComponents(
+            object.get(), nlohmann::json::array()));
+        CHECK_FALSE(object->HasComponent<SnapshotRemovalMutator>());
+        CHECK_FALSE(object->HasComponent<SnapshotRemovalVictim>());
+    }
+}
+
+TEST_CASE("Component snapshot restore stops when callback removes editor owner") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    SnapshotOwnerRemovingComponent::resolveCount = 0;
+
+    gameObjects.push_back(std::make_shared<GameObject>("Owner mutation"));
+    GameObject* object = gameObjects.front().get();
+    auto* component = object->AddComponent<SnapshotOwnerRemovingComponent>();
+    nlohmann::json snapshot = molga::CaptureComponentSnapshot(component);
+    snapshot["enabled"] = false;
+
+    CHECK_NOTHROW(molga::RestoreComponentSnapshot(object, snapshot));
+    CHECK(gameObjects.empty());
+    CHECK(SnapshotOwnerRemovingComponent::resolveCount == 0);
+
+    s_gameObjects = nullptr;
+}
+
 TEST_CASE("ComponentAddCommand and ComponentRemoveCommand (Phase 3)") {
     std::vector<std::shared_ptr<GameObject>> gameObjects;
     s_gameObjects = &gameObjects;
@@ -312,6 +440,44 @@ TEST_CASE("CreateObjectWithComponentsCommand (Phase 3)") {
     REQUIRE(gameObjects.size() == 1);
     CHECK(gameObjects[0]->GetName() == "MySprite");
     CHECK(gameObjects[0]->HasComponent<SpriteRenderer>());
+
+    s_gameObjects = nullptr;
+}
+
+TEST_CASE("Create UI button preset is authored through undo and dirty commands") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    s_sceneModified = false;
+
+    auto& history = Editor::Get().GetCommandHistory();
+    history.Clear();
+    history.Execute(std::make_unique<molga::CreateUIPresetCommand>(
+        molga::UIPresetType::Button));
+
+    REQUIRE(gameObjects.size() == 3);
+    GameObject* canvas = nullptr;
+    GameObject* button = nullptr;
+    GameObject* label = nullptr;
+    for (const auto& object : gameObjects) {
+        if (object->GetComponent<UICanvas>()) canvas = object.get();
+        if (object->GetComponent<UIButton>()) button = object.get();
+        if (object->GetComponent<UILabel>()) label = object.get();
+    }
+    REQUIRE(canvas != nullptr);
+    REQUIRE(button != nullptr);
+    REQUIRE(label != nullptr);
+    CHECK(button->GetParent() == canvas);
+    CHECK(label->GetParent() == button);
+    CHECK(button->GetComponent<RectTransform>() != nullptr);
+    CHECK(label->GetComponent<UILabel>()->GetText() == "Button");
+    CHECK(s_sceneModified);
+    CHECK(history.IsDirty());
+
+    history.Undo();
+    CHECK(gameObjects.empty());
+    history.Redo();
+    REQUIRE(gameObjects.size() == 3);
+    CHECK(Editor::Get().GetSelectedObject() != nullptr);
 
     s_gameObjects = nullptr;
 }

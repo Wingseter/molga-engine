@@ -15,6 +15,8 @@
 #include "../../ECS/Components/Transform.h"
 #include "../../ECS/Components/Camera.h"
 #include "../../ECS/Components/TextRenderer2D.h"
+#include "../../ECS/Components/RectTransform.h"
+#include "../../UI/UISystem.h"
 #include "../EditorState.h"
 #include "../../Common/Log.h"
 #include "../../Common/linmath.h"
@@ -30,6 +32,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glad/glad.h>
+#include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
 
@@ -140,11 +143,18 @@ void SceneViewWindow::OnGUI() {
 
     // ── FBO 텍스처를 ImGui 패널에 출력 (UV Y축 반전) ─────────────────────────
     ImVec2 panelPos = ImGui::GetCursorScreenPos();
+    bool sceneImageHovered = false;
 
     if (fbo_.IsValid()) {
         ImTextureID texId = (ImTextureID)(uintptr_t)fbo_.ColorTexture();
         // GL 텍스처는 좌하단 원점이므로 UV Y를 뒤집어야 한다
         ImGui::Image(texId, ImVec2(vpW, vpH), ImVec2(0, 1), ImVec2(1, 0));
+        sceneImageHovered = ImGui::IsItemHovered();
+        uiPanelPos_ = panelPos;
+        uiPanelSize_ = ImVec2(vpW, vpH);
+        ImGuiViewport* platformViewport = ImGui::GetWindowViewport();
+        uiPlatformViewportId_ = platformViewport ? platformViewport->ID : 0;
+        uiViewportValid_ = platformViewport && platformViewport->PlatformHandle;
         
         if (ImGui::BeginDragDropTarget()) {
             const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ASSET_GUID");
@@ -257,7 +267,7 @@ void SceneViewWindow::OnGUI() {
     DrawSelectionOutline(panelPos, ImVec2(vpW, vpH));
     bool gizmoUsed = gizmo_.Draw(primaryTarget, ViewportCam(), panelPos, ImVec2(vpW, vpH));
 
-    if (!gizmoUsed && ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+    if (EditorState::Get().IsEditMode() && !gizmoUsed && sceneImageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
         && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         HandlePick(panelPos, ImVec2(vpW, vpH));
     }
@@ -272,6 +282,44 @@ void SceneViewWindow::OnGUI() {
     DrawContextMenu();
 
     ImGui::End();
+}
+
+void SceneViewWindow::ProcessPlayUIInput() {
+    if (!isOpen || !gameObjects_ || !uiViewportValid_ ||
+        uiPlatformViewportId_ == 0 || !ImGui::GetCurrentContext() ||
+        uiPanelSize_.x <= 0.0f || uiPanelSize_.y <= 0.0f) {
+        ResetPlayUIInput();
+        return;
+    }
+
+    ImGuiViewport* viewport = ImGui::FindViewportByID(uiPlatformViewportId_);
+    auto* platformWindow = viewport
+        ? static_cast<GLFWwindow*>(viewport->PlatformHandle) : nullptr;
+    if (!viewport || !platformWindow) {
+        ResetPlayUIInput();
+        return;
+    }
+
+    double localX = 0.0;
+    double localY = 0.0;
+    glfwGetCursorPos(platformWindow, &localX, &localY);
+    const float screenX = static_cast<float>(localX) + viewport->Pos.x;
+    const float screenY = static_cast<float>(localY) + viewport->Pos.y;
+    const Vector2 point(screenX - uiPanelPos_.x, screenY - uiPanelPos_.y);
+    const bool inside = point.x >= 0.0f && point.y >= 0.0f &&
+                        point.x <= uiPanelSize_.x && point.y <= uiPanelSize_.y;
+    const bool down = glfwGetMouseButton(platformWindow, GLFW_MOUSE_BUTTON_LEFT) ==
+                      GLFW_PRESS;
+
+    UISystem::Get().ProcessInput(
+        *gameObjects_, {uiPanelSize_.x, uiPanelSize_.y},
+        {point, down, down && !uiMouseWasDown_, !down && uiMouseWasDown_, inside});
+    uiMouseWasDown_ = down;
+}
+
+void SceneViewWindow::ResetPlayUIInput() {
+    UISystem::Get().ResetPointerCapture();
+    uiMouseWasDown_ = false;
 }
 
 // ── 씬 렌더 ──────────────────────────────────────────────────────────────────
@@ -312,6 +360,9 @@ void SceneViewWindow::RenderSceneToFBO(float vpW, float vpH) {
 
     // 그 위에 스프라이트
     DrawSprites();
+
+    // 월드 카메라와 무관한 화면 오버레이 UI 패스
+    DrawUI(vpW, vpH);
 
     fbo_.Unbind();
 }
@@ -416,6 +467,17 @@ void SceneViewWindow::DrawSprites() {
     // Collect renderer stats after drawing
     Editor::Get().RenderStats() = renderer_->Stats();
     Editor::Get().FrameCounters().drawCalls = renderer_->Stats().drawCalls;
+}
+
+void SceneViewWindow::DrawUI(float vpW, float vpH) {
+    if (!renderer_ || !spriteShader_ || !gameObjects_) return;
+    molga::RenderQueue queue;
+    UISystem::Get().CollectRender(*gameObjects_, {vpW, vpH}, queue);
+    if (queue.GetCommands().empty()) return;
+
+    Camera2D uiCamera(vpW, vpH);
+    molga::RenderPass pass(*renderer_, spriteShader_, &uiCamera);
+    molga::RenderSystem2D::Get().Render(queue, renderer_, &uiCamera);
 }
 
 // ── 입력 처리 ─────────────────────────────────────────────────────────────────
@@ -593,6 +655,15 @@ molga::ViewportCamera SceneViewWindow::ViewportCam() const {
 void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
     if (!gameObjects_) return;
     ImVec2 m = ImGui::GetMousePos();
+
+    if (GameObject* ui = UISystem::Get().HitTest(
+            *gameObjects_, {panelSize.x, panelSize.y},
+            {m.x - panelPos.x, m.y - panelPos.y})) {
+        Editor::Get().GetSelection().Select(
+            ui->GetID(), molga::SelectionSource::SceneView);
+        return;
+    }
+
     float wx, wy;
     molga::ScreenToWorld(ViewportCam(), panelSize.x, panelSize.y,
                          m.x - panelPos.x, m.y - panelPos.y, wx, wy);
@@ -626,6 +697,17 @@ void SceneViewWindow::DrawSelectionOutline(ImVec2 panelPos, ImVec2 panelSize) {
     for (unsigned int id : sel.SelectedIds()) {
         GameObject* go = Editor::Get().FindObjectById(id);
         if (!go) continue;
+        if (auto* rect = go->GetComponent<RectTransform>(); rect && rect->FindCanvas()) {
+            const AABB ui = rect->GetScreenRect({panelSize.x, panelSize.y});
+            bool primary = (id == sel.PrimaryId());
+            dl->AddRect(ImVec2(panelPos.x + ui.x, panelPos.y + ui.y),
+                        ImVec2(panelPos.x + ui.x + ui.width,
+                               panelPos.y + ui.y + ui.height),
+                        primary ? IM_COL32(255, 170, 0, 255)
+                                : IM_COL32(255, 170, 0, 140),
+                        0.f, 0, primary ? 2.f : 1.f);
+            continue;
+        }
         auto* tr = go->GetComponent<Transform>();
         auto* sr = go->GetComponent<SpriteRenderer>();
         if (!tr || !sr) continue;

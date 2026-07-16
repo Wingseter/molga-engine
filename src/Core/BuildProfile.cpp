@@ -4,9 +4,14 @@
 #include <filesystem>
 
 namespace {
-bool ContainsPathSeparator(const std::string& value) {
-    return value.find('/') != std::string::npos ||
-           value.find('\\') != std::string::npos;
+bool IsSafeStorageSegment(const std::string& value) {
+    if (value.empty() || value == "." || value == "..") return false;
+    for (unsigned char c : value) {
+        if (c < 0x20 || c == 0x7f || c == '/' || c == '\\' || c == ':') {
+            return false;
+        }
+    }
+    return true;
 }
 }
 
@@ -28,8 +33,12 @@ bool BuildProfile::Validate(std::string& errorOut) const {
         errorOut = "Build profile gameName must not be empty.";
         return false;
     }
-    if (ContainsPathSeparator(gameName)) {
-        errorOut = "Build profile gameName must not contain path separators.";
+    if (!IsSafeStorageSegment(gameName)) {
+        errorOut = "Build profile gameName contains characters that are unsafe for storage paths.";
+        return false;
+    }
+    if (!IsSafeStorageSegment(companyName)) {
+        errorOut = "Build profile companyName contains characters that are unsafe for storage paths.";
         return false;
     }
     if (startupScene.empty()) {

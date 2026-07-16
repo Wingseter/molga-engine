@@ -2,14 +2,13 @@
 
 #include "../Component.h"
 #include "../../Common/Types.h"
-
-class PhysicsMaterial2D;  // forward declaration (Phase 9)
+#include <cmath>
 
 // Abstract base class for all 2D colliders.
 //
 // GetWorldBounds() contract:
 //   - Returns a world-space AABB that fully encloses the collider
-//   - Rotation: NOT currently supported (ignored in AABB computation)
+//   - Rotation: the returned AABB encloses the rotated world-space shape
 //   - Negative scale: normalized (width/height always positive)
 //   - May be larger than the actual shape (false positives OK for broad phase)
 class Collider2D : public Component {
@@ -29,6 +28,12 @@ public:
     void SetTrigger(bool trigger) { isTrigger = trigger; }
     bool IsTrigger() const { return isTrigger; }
 
+    void SetFriction(float value) { friction = std::isfinite(value) && value >= 0.0f ? value : 0.0f; }
+    float GetFriction() const { return friction; }
+
+    void SetRestitution(float value) { restitution = std::isfinite(value) && value >= 0.0f ? value : 0.0f; }
+    float GetRestitution() const { return restitution; }
+
     // ── Bounds query ──
 
     // Returns world-space AABB enclosing this collider.
@@ -42,6 +47,8 @@ public:
 protected:
     Vector2 offset = Vector2::Zero();
     bool isTrigger = false;
+    float friction = 0.4f;
+    float restitution = 0.0f;
 
     // Helper: normalize an AABB so width/height are always positive
     static AABB NormalizeBounds(AABB aabb);

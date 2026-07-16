@@ -100,6 +100,28 @@ public:
     int fired = 0;
     void Start() override { Invoke([this] { fired++; }, 1.0f); }
 };
+
+class ScheduleOnDestroyComponent final : public Component {
+public:
+    COMPONENT_TYPE(ScheduleOnDestroyComponent)
+
+    int* timerCalls = nullptr;
+    int* coroutineCalls = nullptr;
+
+    void OnDestroy() override {
+        GameObject* object = GetGameObject();
+        World* world = object ? object->GetWorld() : nullptr;
+        if (!world || !world->GetScheduler()) return;
+        const unsigned int id = object->GetID();
+        world->GetScheduler()->Invoke(
+            this, id, [calls = timerCalls] { if (calls) ++*calls; }, 0.0f);
+        world->GetScheduler()->StartCoroutine(
+            this, id, [calls = coroutineCalls](float) {
+                if (calls) ++*calls;
+                return true;
+            });
+    }
+};
 } // namespace
 
 TEST_CASE("World::Update drives Script::Invoke") {
@@ -130,4 +152,38 @@ TEST_CASE("Destroying an object cancels its pending invokes") {
     // 취소되었으므로 0으로 유지된다.
     w.Update(2.0f);
     CHECK(s->fired == 0);
+}
+
+TEST_CASE("World::Clear removes callbacks queued before and during OnDestroy") {
+    World w;
+    int preexistingTimerCalls = 0;
+    int preexistingCoroutineCalls = 0;
+    int destroyTimerCalls = 0;
+    int destroyCoroutineCalls = 0;
+
+    w.GetScheduler()->Invoke(
+        &preexistingTimerCalls, 1, [&] { ++preexistingTimerCalls; }, 0.0f);
+    w.GetScheduler()->StartCoroutine(
+        &preexistingCoroutineCalls, 1, [&](float) {
+            ++preexistingCoroutineCalls;
+            return true;
+        });
+
+    auto object = std::make_shared<GameObject>("Schedules during OnDestroy");
+    auto* component = object->AddComponent<ScheduleOnDestroyComponent>();
+    component->timerCalls = &destroyTimerCalls;
+    component->coroutineCalls = &destroyCoroutineCalls;
+    w.Add(object);
+
+    w.Clear();
+
+    CHECK(w.GetScheduler()->ActiveTimerCount() == 0);
+    CHECK(w.GetScheduler()->ActiveCoroutineCount() == 0);
+    CHECK(object->GetWorld() == nullptr);
+
+    w.Update(1.0f);
+    CHECK(preexistingTimerCalls == 0);
+    CHECK(preexistingCoroutineCalls == 0);
+    CHECK(destroyTimerCalls == 0);
+    CHECK(destroyCoroutineCalls == 0);
 }

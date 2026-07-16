@@ -38,6 +38,10 @@ molga_add_test(test_create_sprite_from_asset test_create_sprite_from_asset.cpp)
 target_sources(test_create_sprite_from_asset PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Commands/CreateSpriteFromAssetCommand.cpp)
 molga_add_test(test_text              test_text.cpp)
+molga_add_test(test_font              test_font.cpp)
+target_compile_definitions(test_font PRIVATE
+    MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)
 target_include_directories(test_log_sinks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -70,6 +74,8 @@ molga_add_test(test_render_queue      test_render_queue.cpp)
 molga_add_test(test_hierarchy         test_hierarchy.cpp)
 molga_add_test(test_command_history   test_command_history.cpp)
 molga_add_test(test_world             test_world.cpp)
+molga_add_test(test_scene_runtime     test_scene_runtime.cpp)
+target_include_directories(test_scene_runtime PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 molga_add_test(test_world_lifecycle   test_world_lifecycle.cpp)
 molga_add_test(test_prefab            test_prefab.cpp)
 molga_add_test(test_camera            test_camera.cpp)
@@ -158,6 +164,12 @@ molga_add_test(test_runtime_script_package_loader
     test_runtime_script_package_loader.cpp
 )
 target_include_directories(test_runtime_script_package_loader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_storage test_storage.cpp)
+target_include_directories(test_storage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_ui test_ui.cpp)
+target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 molga_add_test(test_editor_undo_dirty test_editor_undo_dirty.cpp)
 target_sources(test_editor_undo_dirty PRIVATE

@@ -10,8 +10,10 @@
 #include "Editor/Profiling/ProfilerReportSink.h"
 #include "Core/Profiling/ScopedTimer.h"
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <filesystem>
+#include <unordered_set>
 #include <nlohmann/json.hpp>
 #include "../ECS/GameObject.h"
 #include "../ECS/ComponentFactory.h"
@@ -66,6 +68,162 @@ static bool CheckScenesForUserScripts(const BuildSettings& settings, bool hasUse
     return true;
 }
 
+static bool ValidateSceneFontReferences(const BuildPlan& plan,
+                                        const fs::path& packagedRoot,
+                                        std::string& outMsg) {
+    std::unordered_set<std::string> fontGuids;
+    std::unordered_set<std::string> visitedPrefabs;
+    std::unordered_set<std::string> activePrefabs;
+
+    std::function<bool(const nlohmann::json&, const std::string&)> scanDocument;
+    std::function<bool(const std::string&, const std::string&)> scanPrefab;
+
+    scanPrefab = [&](const std::string& guid, const std::string& referencedBy) {
+        if (guid.empty()) {
+            outMsg = "Prefab instance has no GUID while validating fonts: " +
+                     referencedBy;
+            return false;
+        }
+        if (visitedPrefabs.count(guid) != 0) return true;
+        if (!activePrefabs.insert(guid).second) {
+            outMsg = "Cyclic prefab reference while validating fonts ('" +
+                     referencedBy + "'): " + guid;
+            return false;
+        }
+        struct ActivePrefabGuard {
+            std::unordered_set<std::string>& active;
+            const std::string& guid;
+            ~ActivePrefabGuard() { active.erase(guid); }
+        } activeGuard{activePrefabs, guid};
+
+        const molga::AssetRecord* record = molga::AssetDatabase::Get().Find(guid);
+        if (!record || record->importer != "PrefabImporter" || record->importFailed) {
+            outMsg = "Could not resolve prefab GUID while validating fonts ('" +
+                     referencedBy + "'): " + guid;
+            return false;
+        }
+        const fs::path source = molga::AssetDatabase::Get().AbsoluteSourcePath(guid);
+        if (source.empty() || !fs::is_regular_file(source)) {
+            outMsg = "Prefab source is missing while validating fonts: " + guid;
+            return false;
+        }
+        try {
+            std::ifstream file(source);
+            if (!file) {
+                outMsg = "Could not open prefab while validating fonts: " +
+                         source.string();
+                return false;
+            }
+            const nlohmann::json prefab = nlohmann::json::parse(file);
+            if (!scanDocument(prefab, record->sourcePath)) return false;
+            visitedPrefabs.insert(guid);
+            return true;
+        } catch (const nlohmann::json::exception& error) {
+            outMsg = "Could not parse prefab while validating fonts ('" +
+                     record->sourcePath + "'): " + error.what();
+            return false;
+        }
+    };
+
+    scanDocument = [&](const nlohmann::json& document, const std::string& label) {
+        if (!document.contains("gameObjects") ||
+            !document["gameObjects"].is_array()) {
+            outMsg = "Scene or prefab has no valid gameObjects array: " + label;
+            return false;
+        }
+
+        for (const auto& object : document["gameObjects"]) {
+            if (object.contains("components") && object["components"].is_array()) {
+                for (const auto& component : object["components"]) {
+                    const std::string type = component.value("type", "");
+                    if (type == "TextRenderer2D" || type == "UILabel") {
+                        const std::string guid = component.value("fontGuid", "");
+                        if (!guid.empty()) fontGuids.insert(guid);
+                    } else if (type == "PrefabInstance") {
+                        const std::string prefabGuid =
+                            component.value("prefabGuid", "");
+                        if (!prefabGuid.empty() && !scanPrefab(prefabGuid, label)) {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            if (!object.contains("prefabInstance") ||
+                !object["prefabInstance"].is_object()) continue;
+            const auto& instance = object["prefabInstance"];
+
+            // Overrides live outside the prefab document. A font selected on
+            // an instance must therefore be included as well as the template's
+            // original reference.
+            if (instance.contains("modifications") &&
+                instance["modifications"].is_array()) {
+                for (const auto& modification : instance["modifications"]) {
+                    const std::string component =
+                        modification.value("component", "");
+                    if ((component == "TextRenderer2D" || component == "UILabel") &&
+                        modification.value("key", "") == "fontGuid" &&
+                        modification.contains("value") &&
+                        modification["value"].is_string()) {
+                        const std::string guid =
+                            modification["value"].get<std::string>();
+                        if (!guid.empty()) fontGuids.insert(guid);
+                    }
+                }
+            }
+
+            if (!scanPrefab(instance.value("guid", ""), label)) return false;
+        }
+        return true;
+    };
+
+    for (const auto& scene : plan.sceneEntries) {
+        std::ifstream file(scene.sourceAbsolutePath);
+        if (!file) {
+            outMsg = "Could not open scene while validating fonts: " +
+                     scene.sourceProfilePath;
+            return false;
+        }
+
+        try {
+            const nlohmann::json document = nlohmann::json::parse(file);
+            if (!scanDocument(document, scene.sourceProfilePath)) return false;
+        } catch (const nlohmann::json::exception& error) {
+            outMsg = "Could not parse scene while validating fonts ('" +
+                     scene.sourceProfilePath + "'): " + error.what();
+            return false;
+        }
+    }
+
+    for (const auto& guid : fontGuids) {
+        const molga::AssetRecord* record = molga::AssetDatabase::Get().Find(guid);
+        if (!record) {
+            outMsg = "Scene references an unknown font GUID: " + guid;
+            return false;
+        }
+        if (record->importer != "FontImporter" || record->importFailed) {
+            outMsg = "Scene font GUID is not a valid imported TTF/OTF asset: " + guid;
+            return false;
+        }
+        const fs::path source = molga::AssetDatabase::Get().AbsoluteSourcePath(guid);
+        if (source.empty() || !fs::is_regular_file(source)) {
+            outMsg = "Scene font source is missing for GUID: " + guid;
+            return false;
+        }
+        if (!packagedRoot.empty()) {
+            // sourcePath is already package-relative (for example,
+            // "Assets/Fonts/NotoSansKR-Regular.ttf").
+            const fs::path packaged = packagedRoot / fs::path(record->sourcePath);
+            if (!fs::is_regular_file(packaged)) {
+                outMsg = "Packaged font file is missing for GUID: " + guid;
+                return false;
+            }
+        }
+    }
+    outMsg.clear();
+    return true;
+}
+
 GameBuilder& GameBuilder::Get() {
     static GameBuilder instance;
     return instance;
@@ -92,6 +250,13 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     std::string planError;
     if (!BuildPlanBuilder::Build(settings.profile, settings.projectRoot, settings.profile.target, relativeScriptLibPath, plan, planError)) {
         lastError = planError;
+        return false;
+    }
+
+    if (Project::Get().IsOpen()) {
+        molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+    }
+    if (!ValidateSceneFontReferences(plan, {}, lastError)) {
         return false;
     }
 
@@ -168,6 +333,10 @@ bool GameBuilder::Build(const BuildSettings& settings) {
     {
         long long t0 = molga::NowNanos();
         if (!CopyAssets(stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        if (!ValidateSceneFontReferences(plan, stagingOutput, lastError)) {
             cleanupStaging();
             return false;
         }
@@ -382,6 +551,7 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildP
         config["productVersion"] = settings.profile.productVersion;
         config["companyName"] = settings.profile.companyName;
         config["mainScene"] = plan.startupScenePackagePath;
+        config["startupSceneId"] = plan.startupSceneId;
         config["windowWidth"] = settings.profile.window.width;
         config["windowHeight"] = settings.profile.window.height;
         config["fullscreen"] = settings.profile.window.fullscreen;
@@ -422,6 +592,15 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildP
             scenesList.push_back(entry.packagePath);
         }
         config["scenes"] = scenesList;
+
+        nlohmann::json sceneCatalog = nlohmann::json::array();
+        for (const auto& entry : plan.sceneEntries) {
+            sceneCatalog.push_back({
+                {"id", entry.sceneId},
+                {"packagePath", entry.packagePath}
+            });
+        }
+        config["sceneCatalog"] = std::move(sceneCatalog);
 
         // Scripts manifest
         if (!plan.optionalScriptLibrary.empty()) {

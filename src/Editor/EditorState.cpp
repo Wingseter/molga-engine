@@ -30,8 +30,11 @@ void EditorState::SetMode(EditorMode mode) {
 
 void EditorState::Play() {
     if (currentMode == EditorMode::Edit) {
+        if (onEnterPlay_ && !onEnterPlay_()) {
+            return;
+        }
+
         Time::ResetFixedAccumulator();
-        if (onEnterPlay_) onEnterPlay_();
 
         if (auto* console = Editor::Get().GetWindowManager().GetAs<ConsoleWindow>(EditorConstants::WIN_CONSOLE)) {
             if (console->IsClearOnPlay()) {

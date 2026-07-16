@@ -2,6 +2,8 @@
 #include <fstream>
 #include <iostream>
 #include <filesystem>
+#include <cmath>
+#include <algorithm>
 
 ProjectSettings& ProjectSettings::Get() {
     static ProjectSettings instance;
@@ -38,6 +40,9 @@ void ProjectSettings::SetDefaults() {
     }
 
     sortingLayers = { "Default", "Background", "Foreground" };
+    gravity = Vector2(0.0f, 981.0f);
+    pixelsPerMeter = 100.0f;
+    substeps = 4;
 }
 
 bool ProjectSettings::LoadFromFile(const std::string& filepath) {
@@ -130,6 +135,22 @@ void ProjectSettings::Deserialize(const nlohmann::json& j) {
             }
         }
     }
+
+    if (j.contains("gravity") && j["gravity"].is_array() && j["gravity"].size() >= 2) {
+        const float x = j["gravity"][0].get<float>();
+        const float y = j["gravity"][1].get<float>();
+        if (std::isfinite(x) && std::isfinite(y)) gravity = Vector2(x, y);
+    }
+    if (j.contains("pixelsPerMeter")) {
+        const float value = j["pixelsPerMeter"].get<float>();
+        if (std::isfinite(value) && value > 0.0f) pixelsPerMeter = value;
+    }
+    if (j.contains("substeps")) {
+        substeps = std::max(1, j["substeps"].get<int>());
+    } else if (j.contains("physicsSubsteps")) {
+        // Read the early implementation key for migration compatibility.
+        substeps = std::max(1, j["physicsSubsteps"].get<int>());
+    }
 }
 
 nlohmann::json ProjectSettings::Serialize() const {
@@ -153,6 +174,9 @@ nlohmann::json ProjectSettings::Serialize() const {
     j["collisionMatrix"] = matrixArr;
 
     j["sortingLayers"] = sortingLayers;
+    j["gravity"] = { gravity.x, gravity.y };
+    j["pixelsPerMeter"] = pixelsPerMeter;
+    j["substeps"] = substeps;
     return j;
 }
 

@@ -39,6 +39,30 @@ Vector2 Transform::GetWorldPosition() const {
     return worldPos;
 }
 
+void Transform::SetWorldPosition(const Vector2& worldPosition) {
+    if (!gameObject || !gameObject->GetParent()) {
+        position = worldPosition;
+        return;
+    }
+
+    Transform* parentTransform = gameObject->GetParent()->GetComponent<Transform>();
+    if (!parentTransform) {
+        position = worldPosition;
+        return;
+    }
+
+    Vector2 local = worldPosition - parentTransform->GetWorldPosition();
+    const float radians = -parentTransform->GetWorldRotation() * 3.14159265f / 180.0f;
+    const float cosA = std::cos(radians);
+    const float sinA = std::sin(radians);
+    const Vector2 unrotated(local.x * cosA - local.y * sinA,
+                            local.x * sinA + local.y * cosA);
+    const Vector2 parentScale = parentTransform->GetWorldScale();
+    constexpr float epsilon = 1.0e-8f;
+    position.x = std::abs(parentScale.x) > epsilon ? unrotated.x / parentScale.x : 0.0f;
+    position.y = std::abs(parentScale.y) > epsilon ? unrotated.y / parentScale.y : 0.0f;
+}
+
 float Transform::GetWorldRotation() const {
     float worldRot = rotation;
 
@@ -50,6 +74,16 @@ float Transform::GetWorldRotation() const {
     }
 
     return worldRot;
+}
+
+void Transform::SetWorldRotation(float worldDegrees) {
+    if (gameObject && gameObject->GetParent()) {
+        if (Transform* parentTransform = gameObject->GetParent()->GetComponent<Transform>()) {
+            rotation = worldDegrees - parentTransform->GetWorldRotation();
+            return;
+        }
+    }
+    rotation = worldDegrees;
 }
 
 Vector2 Transform::GetWorldScale() const {

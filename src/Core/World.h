@@ -9,6 +9,7 @@
 
 class PhysicsWorld;
 class Scheduler;
+class SceneRuntime;
 
 // 편집/플레이/런타임이 공유하는 단일 씬 데이터 모델.
 class World {
@@ -51,6 +52,7 @@ public:
     }
 
     void Clear();
+    void Shutdown() noexcept;
 
     std::vector<std::shared_ptr<GameObject>>& Objects() { return objects_; }
     const std::vector<std::shared_ptr<GameObject>>& Objects() const { return objects_; }
@@ -61,6 +63,9 @@ public:
     // 월드가 Play(시뮬레이션) 중인지. StartPending 이후 true.
     // 이 값이 true일 때만 GameObject::SetActive가 라이프사이클 콜백을 발화한다.
     bool IsRunning() const { return running_; }
+    // Script/component/scheduler/physics callbacks are currently executing on
+    // this World. Scene replacement must wait until this returns false.
+    bool IsDispatchingCallbacks() const { return callbackDispatchDepth_ != 0; }
 
     // 명시적 업데이트 순서
     // 모든 컴포넌트 Awake() → 모든 컴포넌트 Start() (배치 순서 보장) 후 running_=true.
@@ -87,6 +92,8 @@ public:
 
     PhysicsWorld* GetPhysicsWorld() const { return physicsWorld.get(); }
     Scheduler* GetScheduler() const { return scheduler.get(); }
+    SceneRuntime* GetSceneRuntime() const { return sceneRuntime_; }
+    void SetSceneRuntime(SceneRuntime* runtime) { sceneRuntime_ = runtime; }
 
 private:
     std::vector<std::shared_ptr<GameObject>> objects_;
@@ -94,6 +101,14 @@ private:
     std::unique_ptr<PhysicsWorld> physicsWorld;
     std::unique_ptr<Scheduler> scheduler;
     bool running_ = false;
+    SceneRuntime* sceneRuntime_ = nullptr;
+    bool flushingDeferred_ = false;
+    bool flushDeferredRequested_ = false;
+    bool shuttingDown_ = false;
+    unsigned int callbackDispatchDepth_ = 0;
+
+    bool OwnsObject(const std::shared_ptr<GameObject>& object) const;
+    bool IsLifecycleMutationActive() const;
 
     // 지연 추가/삭제 큐
     std::vector<std::shared_ptr<GameObject>> pendingAdds_;
@@ -103,4 +118,3 @@ private:
     };
     std::vector<PendingDestroy> pendingDestroys_;
 };
-

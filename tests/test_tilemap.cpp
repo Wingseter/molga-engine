@@ -6,6 +6,8 @@
 #include "ECS/Components/BoxCollider2D.h"
 #include "ECS/Components/CircleCollider2D.h"
 #include "Physics/Collision.h"
+#include "Physics/Physics2D.h"
+#include "Physics/PhysicsWorld.h"
 #include "doctest.h"
 #include <nlohmann/json.hpp>
 #include <memory>
@@ -156,4 +158,36 @@ TEST_CASE("Tilemap: Physics collision resolution with dynamic colliders") {
     // Let's verify this!
     CHECK(transBox->GetPosition().y <= 80.0f + 1.0f);
     CHECK(transBox->GetPosition().y >= 79.0f);
+}
+
+TEST_CASE("Tilemap: Box2D merges horizontal solid runs and updates them incrementally") {
+    World world;
+    auto object = std::make_shared<GameObject>("MergedTilemap");
+    object->AddComponent<Transform>()->SetPosition(100.0f, 200.0f);
+    auto* tilemap = object->AddComponent<TilemapRenderer>();
+    tilemap->width = 5;
+    tilemap->height = 2;
+    tilemap->tileSize = 16;
+    tilemap->tiles.assign(10, -1);
+    tilemap->SetSolid(1, true);
+    tilemap->SetTile(0, 0, 1);
+    tilemap->SetTile(1, 0, 1);
+    tilemap->SetTile(2, 0, 1); // first run
+    tilemap->SetTile(4, 0, 1); // second run
+    tilemap->SetTile(0, 1, 1);
+    tilemap->SetTile(1, 1, 1); // third run
+    world.Add(object);
+
+    world.FixedStep(0.0f);
+    REQUIRE(world.GetPhysicsWorld() != nullptr);
+    CHECK(world.GetPhysicsWorld()->BodyCount() == 1);
+    CHECK(world.GetPhysicsWorld()->ShapeCount() == 3);
+    CHECK(Physics2D::OverlapPoint(world, {108.0f, 208.0f}) == object.get());
+    CHECK(Physics2D::OverlapPoint(world, {156.0f, 208.0f}) == nullptr);
+    CHECK(Physics2D::OverlapPoint(world, {172.0f, 208.0f}) == object.get());
+
+    tilemap->SetTile(3, 0, 1); // joins both row-zero runs
+    world.FixedStep(0.0f);
+    CHECK(world.GetPhysicsWorld()->ShapeCount() == 2);
+    CHECK(Physics2D::OverlapPoint(world, {156.0f, 208.0f}) == object.get());
 }

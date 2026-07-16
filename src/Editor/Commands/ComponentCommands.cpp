@@ -11,6 +11,22 @@
 
 namespace molga {
 
+namespace {
+
+Component* ResolveComponentIdentity(GameObject* object, size_t typeId,
+                                    std::uint64_t instanceId) {
+    if (!object) return nullptr;
+    for (Component* component : object->GetComponents()) {
+        if (component && component->GetRuntimeTypeID() == typeId &&
+            component->GetInstanceID() == instanceId) {
+            return component;
+        }
+    }
+    return nullptr;
+}
+
+} // namespace
+
 // --- ComponentSnapshotCommand ---
 
 ComponentSnapshotCommand::ComponentSnapshotCommand(unsigned int targetId,
@@ -41,8 +57,12 @@ ComponentAddCommand::ComponentAddCommand(unsigned int targetId, const std::strin
     : targetId_(targetId), componentType_(componentType) {}
 
 void ComponentAddCommand::Execute() {
-    GameObject* obj = FindGameObjectById(targetId_);
+    std::shared_ptr<GameObject> object = Editor::Get().ShareObjectById(targetId_);
+    GameObject* obj = object ? object.get() : FindGameObjectById(targetId_);
     if (!obj) return;
+    auto ownerStillCurrent = [&]() {
+        return !object || FindGameObjectById(targetId_) == obj;
+    };
 
     Component* comp = nullptr;
     for (auto* c : obj->GetComponents()) {
@@ -63,13 +83,19 @@ void ComponentAddCommand::Execute() {
         }
     }
 
-    if (comp) {
+    if (comp && ownerStillCurrent()) {
         if (!addedSnap_.is_null() && !addedSnap_.empty()) {
+            const size_t typeId = comp->GetRuntimeTypeID();
+            const std::uint64_t instanceId = comp->GetInstanceID();
             comp->Deserialize(addedSnap_);
-            if (addedSnap_.contains("enabled")) {
+            comp = ownerStillCurrent()
+                ? ResolveComponentIdentity(obj, typeId, instanceId) : nullptr;
+            if (comp && addedSnap_.contains("enabled")) {
                 comp->SetEnabled(addedSnap_["enabled"].get<bool>());
+                comp = ownerStillCurrent()
+                    ? ResolveComponentIdentity(obj, typeId, instanceId) : nullptr;
             }
-            comp->ResolveAssets();
+            if (comp) comp->ResolveAssets();
         } else {
             addedSnap_ = CaptureComponentSnapshot(comp);
         }
@@ -78,7 +104,8 @@ void ComponentAddCommand::Execute() {
 }
 
 void ComponentAddCommand::Undo() {
-    GameObject* obj = FindGameObjectById(targetId_);
+    std::shared_ptr<GameObject> object = Editor::Get().ShareObjectById(targetId_);
+    GameObject* obj = object ? object.get() : FindGameObjectById(targetId_);
     if (!obj) return;
 
     Component* comp = nullptr;
@@ -101,7 +128,8 @@ ComponentRemoveCommand::ComponentRemoveCommand(unsigned int targetId, const std:
     : targetId_(targetId), componentType_(componentType) {}
 
 void ComponentRemoveCommand::Execute() {
-    GameObject* obj = FindGameObjectById(targetId_);
+    std::shared_ptr<GameObject> object = Editor::Get().ShareObjectById(targetId_);
+    GameObject* obj = object ? object.get() : FindGameObjectById(targetId_);
     if (!obj) return;
 
     Component* comp = nullptr;
@@ -113,8 +141,13 @@ void ComponentRemoveCommand::Execute() {
     }
 
     if (comp) {
+        const size_t typeId = comp->GetRuntimeTypeID();
+        const std::uint64_t instanceId = comp->GetInstanceID();
         removedSnap_ = CaptureComponentSnapshot(comp);
-        obj->RemoveComponentById(comp->GetRuntimeTypeID());
+        if ((!object || FindGameObjectById(targetId_) == obj) &&
+            ResolveComponentIdentity(obj, typeId, instanceId)) {
+            obj->RemoveComponentById(typeId);
+        }
         Editor::Get().MarkSceneModified();
     }
 }

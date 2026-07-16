@@ -18,10 +18,8 @@ struct RaycastHit2D {
     explicit operator bool() const { return hit; }
 };
 
-// 씬 공간에 대한 2D 물리 질의(Raycast/Overlap).
-// PhysicsWorld와 달리 상태를 시뮬레이션하지 않고, 현재 콜라이더 배치를
-// 즉시 질의한다. 박스는 축정렬 AABB(회전 미지원, 엔진 전반 규약과 동일),
-// 원은 월드 원으로 처리한다.
+// Persistent Box2D world queries. The backend is synchronized from ECS state
+// before each query, so these are valid before the first fixed step as well.
 //
 // layerMask: 비트 i가 1이면 layer i를 포함. 기본값은 모든 레이어.
 class Physics2D {

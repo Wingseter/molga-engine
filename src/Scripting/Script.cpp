@@ -3,6 +3,7 @@
 #include "../ECS/Components/Transform.h"
 #include "Core/World.h"
 #include "Core/Scheduler.h"
+#include "Core/SceneRuntime.h"
 #include "../Physics/Physics2D.h"
 #include <nlohmann/json.hpp>
 
@@ -254,6 +255,24 @@ void Script::Destroy(float delay) {
     if (gameObject && gameObject->GetWorld()) {
         gameObject->GetWorld()->Destroy(gameObject, delay);
     }
+}
+
+bool Script::LoadScene(const std::string& registeredPath) {
+    World* world = GetWorld();
+    SceneRuntime* runtime = world ? world->GetSceneRuntime() : nullptr;
+    return runtime ? runtime->RequestLoad(registeredPath) : false;
+}
+
+std::string Script::GetActiveScenePath() const {
+    World* world = GetWorld();
+    SceneRuntime* runtime = world ? world->GetSceneRuntime() : nullptr;
+    return runtime ? runtime->CurrentScenePath() : std::string{};
+}
+
+bool Script::IsSceneLoadPending() const {
+    World* world = GetWorld();
+    SceneRuntime* runtime = world ? world->GetSceneRuntime() : nullptr;
+    return runtime && runtime->IsSceneLoadPending();
 }
 
 // 인스펙터 렌더링은 에디터(molga_engine, MOLGA_EDITOR + imgui)에서 수행한다.

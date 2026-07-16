@@ -14,6 +14,11 @@
 #include "Components/TextRenderer2D.h"
 #include "Components/TilemapRenderer.h"
 #include "Components/Transform.h"
+#include "Components/UICanvas.h"
+#include "Components/RectTransform.h"
+#include "Components/UIImage.h"
+#include "Components/UILabel.h"
+#include "Components/UIButton.h"
 
 #ifdef MOLGA_MARROW_SUPPORT
 #include "Components/MarrowRenderer.h"
@@ -33,6 +38,11 @@ void RegisterBuiltinComponents() {
     factory.Register<AudioListener>(AudioListener::StaticTypeName());
     factory.Register<Camera>(Camera::StaticTypeName());
     factory.Register<PrefabInstance>(PrefabInstance::StaticTypeName());
+    factory.Register<UICanvas>(UICanvas::StaticTypeName());
+    factory.Register<RectTransform>(RectTransform::StaticTypeName());
+    factory.Register<UIImage>(UIImage::StaticTypeName());
+    factory.Register<UILabel>(UILabel::StaticTypeName());
+    factory.Register<UIButton>(UIButton::StaticTypeName());
 #ifdef MOLGA_MARROW_SUPPORT
     factory.Register<MarrowRenderer>(MarrowRenderer::StaticTypeName());
 #endif

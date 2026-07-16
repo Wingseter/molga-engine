@@ -29,6 +29,27 @@ bool SmokeReport::Save(const std::filesystem::path& path) const {
         {"assetCatalogRecords", assetCatalogRecords},
         {"spriteAssetsResolved", spriteAssetsResolved},
         {"spriteAssetsMissing", spriteAssetsMissing},
+        {"sceneTransitions", sceneTransitions},
+        {"uiDrivenSceneTransitions", uiDrivenSceneTransitions},
+        {"fontAssetsResolved", fontAssetsResolved},
+        {"fontAssetsResolvedCount", fontAssetsResolvedCount},
+        {"fontAssetsMissing", fontAssetsMissing},
+        {"koreanTitlePreserved", koreanTitlePreserved},
+        {"koreanFontGlyphsPresent", koreanFontGlyphsPresent},
+        {"koreanGlyphAtlasReady", koreanGlyphAtlasReady},
+        {"koreanGlyphQuads", koreanGlyphQuads},
+        {"uiComponentsLoaded", uiComponentsLoaded},
+        {"platformerPlayersLoaded", platformerPlayersLoaded},
+        {"physicsBodiesLoaded", physicsBodiesLoaded},
+        {"physicsShapesLoaded", physicsShapesLoaded},
+        {"rotatedTerrainVerified", rotatedTerrainVerified},
+        {"physicsContactObserved", physicsContactObserved},
+        {"restitutionResponseObserved", restitutionResponseObserved},
+        {"frictionResponseObserved", frictionResponseObserved},
+        {"saveRoundtrip", saveRoundtrip},
+        {"scriptDrivenPrefsSaved", scriptDrivenPrefsSaved},
+        {"scriptDrivenSlotSaved", scriptDrivenSlotSaved},
+        {"scriptDrivenPersistence", scriptDrivenPersistence},
         {"drawCalls", drawCalls},
         {"batches", batches},
         {"textureBinds", textureBinds},
@@ -63,6 +84,27 @@ bool SmokeReport::Load(const std::filesystem::path& path, SmokeReport& out) {
         out.assetCatalogRecords = json.value("assetCatalogRecords", 0);
         out.spriteAssetsResolved = json.value("spriteAssetsResolved", 0);
         out.spriteAssetsMissing = json.value("spriteAssetsMissing", 0);
+        out.sceneTransitions = json.value("sceneTransitions", 0);
+        out.uiDrivenSceneTransitions = json.value("uiDrivenSceneTransitions", 0);
+        out.fontAssetsResolved = json.value("fontAssetsResolved", false);
+        out.fontAssetsResolvedCount = json.value("fontAssetsResolvedCount", 0);
+        out.fontAssetsMissing = json.value("fontAssetsMissing", 0);
+        out.koreanTitlePreserved = json.value("koreanTitlePreserved", false);
+        out.koreanFontGlyphsPresent = json.value("koreanFontGlyphsPresent", false);
+        out.koreanGlyphAtlasReady = json.value("koreanGlyphAtlasReady", false);
+        out.koreanGlyphQuads = json.value("koreanGlyphQuads", 0);
+        out.uiComponentsLoaded = json.value("uiComponentsLoaded", 0);
+        out.platformerPlayersLoaded = json.value("platformerPlayersLoaded", 0);
+        out.physicsBodiesLoaded = json.value("physicsBodiesLoaded", 0);
+        out.physicsShapesLoaded = json.value("physicsShapesLoaded", 0);
+        out.rotatedTerrainVerified = json.value("rotatedTerrainVerified", false);
+        out.physicsContactObserved = json.value("physicsContactObserved", false);
+        out.restitutionResponseObserved = json.value("restitutionResponseObserved", false);
+        out.frictionResponseObserved = json.value("frictionResponseObserved", false);
+        out.saveRoundtrip = json.value("saveRoundtrip", false);
+        out.scriptDrivenPrefsSaved = json.value("scriptDrivenPrefsSaved", false);
+        out.scriptDrivenSlotSaved = json.value("scriptDrivenSlotSaved", false);
+        out.scriptDrivenPersistence = json.value("scriptDrivenPersistence", false);
         out.drawCalls = json.value("drawCalls", 0);
         out.batches = json.value("batches", 0);
         out.textureBinds = json.value("textureBinds", 0);

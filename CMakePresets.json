@@ -6,43 +6,35 @@
       "name": "debug",
       "displayName": "Debug",
       "binaryDir": "${sourceDir}/build/debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "MOLGA_PHYSICS_BACKEND": "legacy" }
-    },
-    {
-      "name": "box2d-debug",
-      "displayName": "Debug + Box2D Physics",
-      "binaryDir": "${sourceDir}/build/box2d-debug",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "MOLGA_PHYSICS_BACKEND": "box2d" }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
     },
     {
       "name": "release",
       "displayName": "Release",
       "binaryDir": "${sourceDir}/build/release",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "MOLGA_PHYSICS_BACKEND": "legacy" }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
     },
     {
       "name": "asan",
       "displayName": "Debug + AddressSanitizer",
       "binaryDir": "${sourceDir}/build/asan",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "MOLGA_SANITIZER": "address", "MOLGA_PHYSICS_BACKEND": "legacy" }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "MOLGA_SANITIZER": "address" }
     },
     {
       "name": "ubsan",
       "displayName": "Debug + UndefinedBehaviorSanitizer",
       "binaryDir": "${sourceDir}/build/ubsan",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "MOLGA_SANITIZER": "undefined", "MOLGA_PHYSICS_BACKEND": "legacy" }
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "MOLGA_SANITIZER": "undefined" }
     }
   ],
   "buildPresets": [
     { "name": "debug",   "configurePreset": "debug" },
-    { "name": "box2d-debug", "configurePreset": "box2d-debug" },
     { "name": "release", "configurePreset": "release" },
     { "name": "asan",    "configurePreset": "asan" },
     { "name": "ubsan",   "configurePreset": "ubsan" }
   ],
   "testPresets": [
     { "name": "debug",   "configurePreset": "debug",   "output": { "outputOnFailure": true }, "execution": { "timeout": 60 } },
-    { "name": "box2d-debug", "configurePreset": "box2d-debug", "output": { "outputOnFailure": true }, "execution": { "timeout": 60 } },
     { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true }, "execution": { "timeout": 60 } },
     { "name": "asan",    "configurePreset": "asan",    "output": { "outputOnFailure": true }, "execution": { "timeout": 120 } },
     { "name": "ubsan",   "configurePreset": "ubsan",   "output": { "outputOnFailure": true }, "execution": { "timeout": 120 } }

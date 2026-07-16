@@ -22,6 +22,33 @@ TEST_CASE("GameConfig parses without script manifest") {
     CHECK(config.windowHeight == 768);
     CHECK(config.fullscreen == true);
     CHECK_FALSE(config.scripts.enabled);
+    REQUIRE(config.sceneCatalog.size() == 1);
+    CHECK(config.sceneCatalog[0].id == "scenes/level1.json");
+    CHECK(config.sceneCatalog[0].packagePath == "scenes/level1.json");
+    CHECK(config.startupSceneId == "scenes/level1.json");
+}
+
+TEST_CASE("GameConfig parses scene catalog and storage identity") {
+    const std::string jsonStr = R"({
+        "gameName": "CatalogGame",
+        "companyName": "CatalogStudio",
+        "mainScene": "Scenes/start.pkg.json",
+        "scenes": ["Scenes/start.pkg.json", "Scenes/second.pkg.json"],
+        "startupSceneId": "Scenes/start.json",
+        "sceneCatalog": [
+            {"id":"Scenes/start.json","packagePath":"Scenes/start.pkg.json"},
+            {"id":"Levels/second.json","packagePath":"Scenes/second.pkg.json"}
+        ]
+    })";
+
+    GameConfig config;
+    REQUIRE(LoadGameConfigFromString(jsonStr, config));
+    CHECK(config.companyName == "CatalogStudio");
+    CHECK(config.startupSceneId == "Scenes/start.json");
+    REQUIRE(config.scenes.size() == 2);
+    REQUIRE(config.sceneCatalog.size() == 2);
+    CHECK(config.sceneCatalog[1].id == "Levels/second.json");
+    CHECK(config.sceneCatalog[1].packagePath == "Scenes/second.pkg.json");
 }
 
 TEST_CASE("GameConfig parses with script manifest") {

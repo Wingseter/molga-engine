@@ -2,6 +2,11 @@
 #include "Editor/Editor.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/SpriteRenderer.h"
+#include "ECS/Components/UICanvas.h"
+#include "ECS/Components/RectTransform.h"
+#include "ECS/Components/UIImage.h"
+#include "ECS/Components/UILabel.h"
+#include "ECS/Components/UIButton.h"
 #include "Core/SceneSerializer.h"
 #include <algorithm>
 
@@ -168,6 +173,102 @@ void DuplicateObjectCommand::Undo() {
         Editor::Get().RemoveObjectsByIds(idsToRemove);
         Editor::Get().MarkSceneModified();
     }
+}
+
+// ── CreateUIPresetCommand ───────────────────────────────────────────────────
+CreateUIPresetCommand::CreateUIPresetCommand(UIPresetType type) : type_(type) {}
+
+void CreateUIPresetCommand::Build() {
+    if (built_) return;
+    built_ = true;
+
+    std::shared_ptr<GameObject> canvas;
+    if (auto* active = Editor::Get().GetGameObjects()) {
+        for (const auto& object : *active) {
+            if (object && object->GetComponent<UICanvas>()) {
+                canvas = object;
+                break;
+            }
+        }
+    }
+
+    const bool needsNewCanvas = !canvas || type_ == UIPresetType::Canvas;
+    if (needsNewCanvas) {
+        canvas = std::make_shared<GameObject>("Canvas");
+        canvas->AddComponent<UICanvas>();
+        auto* rect = canvas->AddComponent<RectTransform>();
+        rect->SetAnchors({0.0f, 0.0f}, {1.0f, 1.0f});
+        rect->SetPivot({0.5f, 0.5f});
+        rect->SetSizeDelta({0.0f, 0.0f});
+        objects_.push_back(canvas);
+        parentIds_.push_back(0u);
+    }
+
+    if (type_ == UIPresetType::Canvas) {
+        primary_ = canvas;
+        return;
+    }
+
+    auto element = std::make_shared<GameObject>(
+        type_ == UIPresetType::Image ? "Image" :
+        type_ == UIPresetType::Label ? "Label" : "Button");
+    auto* rect = element->AddComponent<RectTransform>();
+    rect->SetAnchors({0.5f, 0.5f}, {0.5f, 0.5f});
+    rect->SetPivot({0.5f, 0.5f});
+    if (type_ == UIPresetType::Image) {
+        rect->SetSizeDelta({160.0f, 160.0f});
+        element->AddComponent<UIImage>();
+    } else if (type_ == UIPresetType::Label) {
+        rect->SetSizeDelta({300.0f, 60.0f});
+        element->AddComponent<UILabel>();
+    } else {
+        rect->SetSizeDelta({220.0f, 64.0f});
+        element->AddComponent<UIButton>();
+    }
+    element->SetParent(canvas.get());
+    objects_.push_back(element);
+    parentIds_.push_back(canvas->GetID());
+    primary_ = element;
+
+    if (type_ == UIPresetType::Button) {
+        auto label = std::make_shared<GameObject>("Label");
+        auto* labelRect = label->AddComponent<RectTransform>();
+        labelRect->SetAnchors({0.0f, 0.0f}, {1.0f, 1.0f});
+        labelRect->SetPivot({0.5f, 0.5f});
+        labelRect->SetSizeDelta({-16.0f, -8.0f});
+        label->AddComponent<UILabel>()->SetText("Button");
+        label->SetParent(element.get());
+        objects_.push_back(label);
+        parentIds_.push_back(element->GetID());
+    }
+}
+
+void CreateUIPresetCommand::Execute() {
+    Build();
+    for (const auto& object : objects_) Editor::Get().AddExistingObject(object);
+    for (std::size_t i = 0; i < objects_.size(); ++i) {
+        if (!objects_[i] || parentIds_[i] == 0u) continue;
+        if (GameObject* parent = Editor::Get().FindObjectById(parentIds_[i])) {
+            objects_[i]->SetParent(parent);
+        }
+    }
+    Editor::Get().SetSelectedObject(primary_.get());
+    Editor::Get().MarkSceneModified();
+}
+
+void CreateUIPresetCommand::Undo() {
+    std::vector<unsigned int> ids;
+    ids.reserve(objects_.size());
+    for (auto it = objects_.rbegin(); it != objects_.rend(); ++it) {
+        if (*it) {
+            ids.push_back((*it)->GetID());
+            (*it)->SetParent(nullptr);
+        }
+    }
+    if (Editor::Get().GetSelectedObject() == primary_.get()) {
+        Editor::Get().SetSelectedObject(nullptr);
+    }
+    Editor::Get().RemoveObjectsByIds(ids);
 }
 
 } // namespace molga

@@ -298,6 +298,20 @@ void Editor::RenderGUI() {
   buildMgr.RenderBuildWindow(sceneOps.GetCurrentPath());
 }
 
+void Editor::ProcessPlayUIInput() {
+    if (auto* sceneView = windowManager.GetAs<SceneViewWindow>(
+            EditorConstants::WIN_SCENE)) {
+        sceneView->ProcessPlayUIInput();
+    }
+}
+
+void Editor::ResetPlayUIInput() {
+    if (auto* sceneView = windowManager.GetAs<SceneViewWindow>(
+            EditorConstants::WIN_SCENE)) {
+        sceneView->ResetPlayUIInput();
+    }
+}
+
 void Editor::RenderMenuBar() {
   if (ImGui::BeginMenuBar()) {
     if (ImGui::BeginMenu("File")) {

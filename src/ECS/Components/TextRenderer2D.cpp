@@ -7,6 +7,7 @@
 #include "../../Rendering/TextRenderer.h"
 #include "Rendering/RenderQueue.h"
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <vector>
 #include <cstring>
 
@@ -42,13 +43,13 @@ void TextRenderer2D::RenderSprite(Renderer* renderer) {
     }
 
     TextRenderer& tr = TextRenderer::Get();
-    float lineSpacing = 1.2f;
-    float lineHeight = tr.GetTextHeight(scale);
+    const float legacyBitmapScale = (fontSizePx / 8.0f) * scale;
+    float lineHeight = tr.GetTextHeight(legacyBitmapScale);
     Shader* activeShader = renderer->GetCurrentShader();
 
     for (size_t i = 0; i < lines.size(); ++i) {
         const auto& line = lines[i];
-        float width = tr.GetTextWidth(line, scale);
+        float width = tr.GetTextWidth(line, legacyBitmapScale);
         float offsetX = 0.0f;
         if (alignment == Alignment::Center) {
             offsetX = -width * 0.5f;
@@ -57,7 +58,8 @@ void TextRenderer2D::RenderSprite(Renderer* renderer) {
         }
 
         float lineY = pos.y + i * lineHeight * lineSpacing;
-        tr.RenderText(renderer, activeShader, line, pos.x + offsetX, lineY, scale, color);
+        tr.RenderText(renderer, activeShader, line, pos.x + offsetX, lineY,
+                      legacyBitmapScale, color);
     }
 }
 
@@ -66,6 +68,9 @@ void TextRenderer2D::Serialize(nlohmann::json& j) const {
     j["color"] = { color.r, color.g, color.b, color.a };
     j["scale"] = scale;
     j["alignment"] = static_cast<int>(alignment);
+    j["fontGuid"] = fontGuid;
+    j["fontSizePx"] = fontSizePx;
+    j["lineSpacing"] = lineSpacing;
     j["fontName"] = fontName;
     j["sortingOrder"] = sortingOrder;
 }
@@ -81,7 +86,21 @@ void TextRenderer2D::Deserialize(const nlohmann::json& j) {
         scale = j["scale"].get<float>();
     }
     if (j.contains("alignment")) {
-        alignment = static_cast<Alignment>(j["alignment"].get<int>());
+        const int value = std::clamp(j["alignment"].get<int>(), 0, 2);
+        alignment = static_cast<Alignment>(value);
+    }
+    if (j.contains("fontGuid") && j["fontGuid"].is_string()) {
+        fontGuid = j["fontGuid"].get<std::string>();
+    }
+    if (j.contains("fontSizePx") && j["fontSizePx"].is_number()) {
+        SetFontSizePx(j["fontSizePx"].get<float>());
+    } else {
+        // Legacy bitmap text used an 8-pixel em. Preserve its previous size
+        // while freshly-created components use the new 16-pixel default.
+        fontSizePx = 8.0f;
+    }
+    if (j.contains("lineSpacing") && j["lineSpacing"].is_number()) {
+        SetLineSpacing(j["lineSpacing"].get<float>());
     }
     if (j.contains("fontName")) {
         fontName = j["fontName"].get<std::string>();
@@ -128,6 +147,15 @@ void TextRenderer2D::OnInspectorGUI() {
         fontName = fontNameBuffer;
     }
 
+    char fontGuidBuffer[128];
+    strncpy(fontGuidBuffer, fontGuid.c_str(), sizeof(fontGuidBuffer) - 1);
+    fontGuidBuffer[sizeof(fontGuidBuffer) - 1] = '\0';
+    if (ImGui::InputText("Font GUID", fontGuidBuffer, sizeof(fontGuidBuffer))) {
+        fontGuid = fontGuidBuffer;
+    }
+    ImGui::DragFloat("Font Size (px)", &fontSizePx, 1.0f, 1.0f, 512.0f);
+    ImGui::DragFloat("Line Spacing", &lineSpacing, 0.01f, 0.1f, 10.0f);
+
     // Sorting order
     int order = sortingOrder;
     if (ImGui::InputInt("Sorting Order", &order)) {
@@ -139,15 +167,31 @@ void TextRenderer2D::OnInspectorGUI() {
 void TextRenderer2D::CollectRender(molga::RenderQueue& queue) {
     if (!gameObject || !enabled || text.empty()) return;
 
-    molga::RenderCommand cmd;
-    cmd.sortKey.cameraPass = 0;
-    cmd.sortKey.sortingLayer = 0;
-    cmd.sortKey.sortingOrder = sortingOrder;
-    cmd.sortKey.depthOrYSort = 0.0f;
-    cmd.batchKey.isBatchable = false;
-    cmd.fallbackRender = [this](Renderer* r) {
-        this->RenderSprite(r);
-    };
-    queue.Submit(cmd);
-}
+    Transform* transform = gameObject->GetComponent<Transform>();
+    if (!transform) return;
 
+    const Vector2 position = transform->GetWorldPosition();
+    TextDrawParams params;
+    params.text = text;
+    params.fontGuid = fontGuid;
+    params.x = position.x;
+    params.y = position.y;
+    params.fontSizePx = fontSizePx;
+    params.scale = scale;
+    params.lineSpacing = lineSpacing;
+    params.color = color;
+    params.sortingOrder = sortingOrder;
+    switch (alignment) {
+        case Alignment::Center:
+            params.alignment = TextHorizontalAlignment::Center;
+            break;
+        case Alignment::Right:
+            params.alignment = TextHorizontalAlignment::Right;
+            break;
+        case Alignment::Left:
+        default:
+            params.alignment = TextHorizontalAlignment::Left;
+            break;
+    }
+    TextRenderer::Get().CollectText(queue, params);
+}

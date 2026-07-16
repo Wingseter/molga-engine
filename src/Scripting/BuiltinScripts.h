@@ -3,6 +3,9 @@
 #include "Script.h"
 #include "../Systems/Input.h"
 #include "../ECS/Components/Transform.h"
+#include "../ECS/Components/BoxCollider2D.h"
+#include "../ECS/Components/Rigidbody2D.h"
+#include "../ECS/Components/UIButton.h"
 #include "../ECS/GameObject.h"
 #include "../Core/World.h"
 #include <GLFW/glfw3.h>
@@ -143,6 +146,93 @@ public:
     void RegisterFields(ScriptFieldRegistry& r) override {
         r.Float("Lifetime", &lifetime, 0.1f, 0.0f, 60.0f);
     }
+};
+
+// Minimal serializable 2D platformer controller used by authored stages.
+// World units are pixels and +Y points down, matching the engine's default
+// gravity. Grounding uses the public Physics2D raycast contract.
+class PlatformerController : public Script {
+public:
+    SCRIPT_CLASS(PlatformerController)
+
+    float moveSpeed = 220.0f;
+    float jumpSpeed = 420.0f;
+    float groundCheckDistance = 8.0f;
+    int groundLayerMask = Physics2D::kAllLayers;
+
+    void FixedUpdate(float fixedDeltaTime) override;
+    void RegisterFields(ScriptFieldRegistry& r) override;
+
+    bool IsGrounded() const { return grounded_; }
+
+private:
+    bool grounded_ = false;
+};
+
+// Serializable adapter that lets an authored overlay UIButton request a
+// registered scene without hard-coding file-system paths in UI components.
+class SceneLoadButton : public Script {
+public:
+    SCRIPT_CLASS(SceneLoadButton)
+
+    std::string scenePath;
+
+    void OnEnable() override {
+        if (!gameObject) return;
+        if (auto* button = gameObject->GetComponent<UIButton>()) {
+            button->SetOnClick([this]() {
+                if (!scenePath.empty()) LoadScene(scenePath);
+            });
+        }
+    }
+
+    void OnDisable() override {
+        if (!gameObject) return;
+        if (auto* button = gameObject->GetComponent<UIButton>()) {
+            button->SetOnClick({});
+        }
+    }
+
+    void RegisterFields(ScriptFieldRegistry& r) override {
+        r.String("Scene Path", &scenePath);
+    }
+};
+
+// Serializable UI adapter for a boolean option. The authored key/value are
+// persisted only when the owning UIButton is actually clicked.
+class PlayerPrefsButton : public Script {
+public:
+    SCRIPT_CLASS(PlayerPrefsButton)
+
+    std::string key;
+    bool value = false;
+    bool saveImmediately = true;
+
+    void OnEnable() override;
+    void OnDisable() override;
+    void RegisterFields(ScriptFieldRegistry& r) override;
+
+    bool ApplyPreference() const;
+};
+
+// Serializable vertical-slice completion action. Keeping the small JSON
+// contract in a built-in script means the same authored scene works in editor
+// Play mode and in a packaged runtime without a hand-written fixture hook.
+class SaveSlotButton : public Script {
+public:
+    SCRIPT_CLASS(SaveSlotButton)
+
+    std::string slotName = "slot-01";
+    int completedStage = 1;
+    bool completed = true;
+    std::string title;
+
+    void OnEnable() override;
+    void OnDisable() override;
+    void RegisterFields(ScriptFieldRegistry& r) override;
+
+    nlohmann::json BuildPayload() const;
+    bool SaveCompletion() const;
 };
 
 // Register all builtin scripts

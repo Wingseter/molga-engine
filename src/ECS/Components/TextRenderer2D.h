@@ -2,6 +2,7 @@
 
 #include "../Component.h"
 #include "../../Common/Types.h"
+#include <algorithm>
 #include <string>
 
 class Renderer;
@@ -34,6 +35,15 @@ public:
     void SetFontName(const std::string& val) { fontName = val; }
     const std::string& GetFontName() const { return fontName; }
 
+    void SetFontGuid(const std::string& val) { fontGuid = val; }
+    const std::string& GetFontGuid() const { return fontGuid; }
+
+    void SetFontSizePx(float val) { fontSizePx = std::clamp(val, 1.0f, 512.0f); }
+    float GetFontSizePx() const { return fontSizePx; }
+
+    void SetLineSpacing(float val) { lineSpacing = std::clamp(val, 0.1f, 10.0f); }
+    float GetLineSpacing() const { return lineSpacing; }
+
     void SetSortingOrder(int val) { sortingOrder = val; }
     int GetSortingOrder() const { return sortingOrder; }
 
@@ -53,6 +63,10 @@ private:
     Color color = Color::White();
     float scale = 1.0f;
     Alignment alignment = Alignment::Left;
+    std::string fontGuid;
+    float fontSizePx = 16.0f;
+    float lineSpacing = 1.2f;
+    // Kept for source and scene compatibility. New assets identify fonts by GUID.
     std::string fontName = "default";
     int sortingOrder = 0;
 };

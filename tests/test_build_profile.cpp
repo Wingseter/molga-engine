@@ -18,6 +18,20 @@ TEST_CASE("BuildProfile validation rejects empty game name") {
     CHECK(error.find("gameName") != std::string::npos);
 }
 
+TEST_CASE("BuildProfile validation rejects unsafe persistent storage names") {
+    BuildProfile profile = BuildProfile::Defaults("MyGame");
+    std::string error;
+
+    profile.companyName = "../Studio";
+    CHECK_FALSE(profile.Validate(error));
+    CHECK(error.find("companyName") != std::string::npos);
+
+    profile.companyName = "Studio";
+    profile.gameName = std::string("Bad") + static_cast<char>(0x1f) + "Name";
+    CHECK_FALSE(profile.Validate(error));
+    CHECK(error.find("gameName") != std::string::npos);
+}
+
 TEST_CASE("BuildProfile validation requires startup scene in scene list") {
     BuildProfile profile = BuildProfile::Defaults("MyGame");
     profile.startupScene = "Scenes/level1.json";
@@ -67,9 +81,12 @@ TEST_CASE("BuildPlanBuilder validates and creates correct plan") {
     CHECK(plan.executableName == PackageLayout::ExecutableNameFor("MyGame"));
     REQUIRE(plan.sceneEntries.size() == 2);
     CHECK(plan.sceneEntries[0].sourceProfilePath == "Scenes/main.json");
+    CHECK(plan.sceneEntries[0].sceneId == "Scenes/main.json");
     CHECK(plan.sceneEntries[0].packagePath == "Scenes/main.json");
     CHECK(plan.sceneEntries[1].sourceProfilePath == "Scenes/levels/start.json");
+    CHECK(plan.sceneEntries[1].sceneId == "Scenes/levels/start.json");
     CHECK(plan.sceneEntries[1].packagePath == "Scenes/levels/start.json");
+    CHECK(plan.startupSceneId == "Scenes/levels/start.json");
     CHECK(plan.startupScenePackagePath == "Scenes/levels/start.json");
 }
 
@@ -138,6 +155,43 @@ TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
     CHECK(valid);
     CHECK(error.empty());
 
+    // New catalog contract is validated alongside the retained legacy fields.
+    {
+        std::ofstream f(tmpDir / "game.json");
+        f << R"({
+            "mainScene": "Scenes/levels/start.json",
+            "scenes": ["Scenes/levels/start.json", "Scenes/other.json"],
+            "startupSceneId": "Scenes/levels/start.json",
+            "sceneCatalog": [
+                {"id":"Scenes/levels/start.json","packagePath":"Scenes/levels/start.json"},
+                {"id":"Levels/other.json","packagePath":"Scenes/other.json"}
+            ]
+        })";
+    }
+    valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    CHECK(valid);
+
+    {
+        std::ofstream f(tmpDir / "game.json");
+        f << R"({
+            "mainScene": "Scenes/levels/start.json",
+            "startupSceneId": "Scenes/not-registered.json",
+            "sceneCatalog": [
+                {"id":"Scenes/levels/start.json","packagePath":"Scenes/levels/start.json"}
+            ]
+        })";
+    }
+    valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    CHECK_FALSE(valid);
+    CHECK(error.find("startupSceneId") != std::string::npos);
+
+    {
+        std::ofstream f(tmpDir / "game.json");
+        f << R"({"mainScene":"../outside.json"})";
+    }
+    valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    CHECK_FALSE(valid);
+    CHECK(error.find("package root") != std::string::npos);
+
     fs::remove_all(tmpDir);
 }
-

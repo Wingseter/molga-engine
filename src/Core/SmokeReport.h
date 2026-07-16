@@ -16,6 +16,27 @@ struct SmokeReport {
     int assetCatalogRecords = 0;
     int spriteAssetsResolved = 0;
     int spriteAssetsMissing = 0;
+    int sceneTransitions = 0;
+    int uiDrivenSceneTransitions = 0;
+    bool fontAssetsResolved = false;
+    int fontAssetsResolvedCount = 0;
+    int fontAssetsMissing = 0;
+    bool koreanTitlePreserved = false;
+    bool koreanFontGlyphsPresent = false;
+    bool koreanGlyphAtlasReady = false;
+    int koreanGlyphQuads = 0;
+    int uiComponentsLoaded = 0;
+    int platformerPlayersLoaded = 0;
+    int physicsBodiesLoaded = 0;
+    int physicsShapesLoaded = 0;
+    bool rotatedTerrainVerified = false;
+    bool physicsContactObserved = false;
+    bool restitutionResponseObserved = false;
+    bool frictionResponseObserved = false;
+    bool saveRoundtrip = false;
+    bool scriptDrivenPrefsSaved = false;
+    bool scriptDrivenSlotSaved = false;
+    bool scriptDrivenPersistence = false;
 
     // Render Stats
     int drawCalls = 0;

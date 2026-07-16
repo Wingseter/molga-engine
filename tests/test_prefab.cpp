@@ -396,7 +396,7 @@ TEST_CASE("Nested Prefab: applying a parent prefab instance preserves the nested
     CHECK(carInstance2->GetComponent<Transform>()->GetX() == doctest::Approx(12.0f)); // applied change
 }
 
-TEST_CASE("Nested Prefab: a self-referential prefab terminates instead of recursing forever") {
+TEST_CASE("Nested Prefab: a self-referential prefab fails atomically") {
     TempAssetRootFixture fixture;
 
     // Hand-craft a prefab whose subtree contains a nested instance of itself.
@@ -421,7 +421,7 @@ TEST_CASE("Nested Prefab: a self-referential prefab terminates instead of recurs
     std::unordered_map<unsigned int, unsigned int> remap;
     GameObject* inst = PrefabRegistry::Get().Instantiate(guid, world.Objects(), remap);
 
-    // Must terminate (depth-guarded) and still produce the root object.
-    REQUIRE(inst != nullptr);
-    CHECK(inst->GetName() == "Cyclic");
+    // Must terminate (depth-guarded) without leaving a truncated instance.
+    CHECK(inst == nullptr);
+    CHECK(world.Objects().empty());
 }

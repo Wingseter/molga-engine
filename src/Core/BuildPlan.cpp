@@ -29,18 +29,44 @@ bool BuildPlanBuilder::Build(
 
     // 3. Resolve paths, normalize, detect containment and collisions
     std::error_code ec;
-    fs::path canonicalRoot = fs::weakly_canonical(fs::absolute(projectRoot), ec);
+    fs::path absoluteRoot = fs::absolute(projectRoot, ec);
+    if (ec) {
+        errorOut = "Could not resolve project root: " + ec.message();
+        return false;
+    }
+    fs::path canonicalRoot = fs::weakly_canonical(absoluteRoot, ec);
+    if (ec) {
+        errorOut = "Could not canonicalize project root: " + ec.message();
+        return false;
+    }
     
     std::unordered_set<std::string> seenPackagePaths;
     planOut.sceneEntries.clear();
 
     for (const auto& scene : profile.scenes) {
         fs::path p(scene);
-        fs::path absPath = fs::absolute(p.is_absolute() ? p : fs::path(projectRoot) / p);
+        fs::path absPath = fs::absolute(
+            p.is_absolute() ? p : fs::path(projectRoot) / p, ec);
+        if (ec) {
+            errorOut = "Could not resolve scene path '" + scene + "': " + ec.message();
+            return false;
+        }
         fs::path canonicalPath = fs::weakly_canonical(absPath, ec);
+        if (ec) {
+            errorOut = "Could not canonicalize scene path '" + scene + "': " + ec.message();
+            return false;
+        }
 
-        fs::path relPath = fs::relative(canonicalPath, canonicalRoot);
-        if (relPath.is_absolute() || relPath.empty() || relPath.string().find("..") == 0) {
+        fs::path relPath = fs::relative(canonicalPath, canonicalRoot, ec);
+        if (ec || relPath.is_absolute() || relPath.empty()) {
+            errorOut = "Scene path escapes project root: " + scene;
+            return false;
+        }
+        bool escapesRoot = false;
+        for (const auto& part : relPath) {
+            if (part == "..") { escapesRoot = true; break; }
+        }
+        if (escapesRoot) {
             errorOut = "Scene path escapes project root: " + scene;
             return false;
         }
@@ -64,16 +90,19 @@ bool BuildPlanBuilder::Build(
         SceneEntry entry;
         entry.sourceProfilePath = scene;
         entry.sourceAbsolutePath = canonicalPath.generic_string();
+        entry.sceneId = relStr;
         entry.packagePath = packagePath;
         planOut.sceneEntries.push_back(entry);
     }
 
     // Find and map startup scene
     std::string startupScenePkg;
+    std::string startupSceneId;
     bool foundStartup = false;
     for (const auto& entry : planOut.sceneEntries) {
         if (entry.sourceProfilePath == profile.startupScene) {
             startupScenePkg = entry.packagePath;
+            startupSceneId = entry.sceneId;
             foundStartup = true;
             break;
         }
@@ -83,6 +112,7 @@ bool BuildPlanBuilder::Build(
         return false;
     }
     planOut.startupScenePackagePath = startupScenePkg;
+    planOut.startupSceneId = startupSceneId;
 
     // 4. Set required directories
     planOut.requiredDirectories = {"Assets", "Scenes", "Shaders"};

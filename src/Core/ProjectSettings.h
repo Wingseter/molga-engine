@@ -4,6 +4,7 @@
 #include <vector>
 #include <array>
 #include <nlohmann/json.hpp>
+#include "Common/Types.h"
 
 class ProjectSettings {
 public:
@@ -16,6 +17,13 @@ public:
     std::array<std::string, 32> layerNames;
     std::array<std::array<bool, 32>, 32> collisionMatrix;
     std::vector<std::string> sortingLayers;
+
+    // 2D physics uses pixels at the engine boundary and metres internally in
+    // Box2D. These defaults preserve the engine's historical 981 px/s^2
+    // gravity while using Box2D's conventional 9.81 m/s^2.
+    Vector2 gravity = Vector2(0.0f, 981.0f);
+    float pixelsPerMeter = 100.0f;
+    int substeps = 4;
 
     // Reset settings to default values
     void SetDefaults();

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <stdexcept>
 
 // ── GameObject basics ────────────────────────────────────────────────────────
 
@@ -285,6 +286,144 @@ TEST_CASE("ECS: remove component calls on disable") {
     obj->RemoveComponent<RemComp>();
     CHECK(ctx.disableCount == 1);
     CHECK(ctx.detachCount == 1);
+}
+
+namespace {
+
+struct ReentrantRemovalCtx {
+    int disableCount = 0;
+    int detachCount = 0;
+    int destructorCount = 0;
+};
+
+class ReentrantRemovalComp : public Component {
+public:
+    COMPONENT_TYPE(ReentrantRemovalComp)
+    ReentrantRemovalCtx* ctx = nullptr;
+
+    ~ReentrantRemovalComp() override {
+        if (ctx) ++ctx->destructorCount;
+    }
+
+    void OnDisable() override {
+        ++ctx->disableCount;
+        // The outer removal must already have detached this identity from the
+        // component map, so this nested removal is a harmless no-op.
+        gameObject->RemoveComponentById(GetRuntimeTypeID());
+    }
+
+    void OnDetach() override {
+        ++ctx->detachCount;
+        gameObject->RemoveComponent<ReentrantRemovalComp>();
+    }
+};
+
+struct ThrowingRemovalCtx {
+    int disableCount = 0;
+    int detachCount = 0;
+};
+
+class ThrowingRemovalComp : public Component {
+public:
+    COMPONENT_TYPE(ThrowingRemovalComp)
+    ThrowingRemovalCtx* ctx = nullptr;
+
+    void OnDisable() override {
+        ++ctx->disableCount;
+        throw std::runtime_error("disable failure");
+    }
+
+    void OnDetach() override {
+        ++ctx->detachCount;
+        throw std::runtime_error("detach failure");
+    }
+};
+
+struct RemovalDuringDestroyCtx {
+    int disableCount = 0;
+    int destroyCount = 0;
+    int detachCount = 0;
+};
+
+class RemovalDuringDestroyComp : public Component {
+public:
+    COMPONENT_TYPE(RemovalDuringDestroyComp)
+    RemovalDuringDestroyCtx* ctx = nullptr;
+    bool removeFromDisable = false;
+    bool removeFromDestroy = false;
+
+    void OnDisable() override {
+        ++ctx->disableCount;
+        if (removeFromDisable) {
+            gameObject->RemoveComponent<RemovalDuringDestroyComp>();
+        }
+    }
+
+    void OnDestroy() override {
+        ++ctx->destroyCount;
+        if (removeFromDestroy) {
+            gameObject->RemoveComponentById(GetRuntimeTypeID());
+        }
+    }
+
+    void OnDetach() override { ++ctx->detachCount; }
+};
+
+} // namespace
+
+TEST_CASE("ECS: component removal is safe when lifecycle callbacks remove themselves") {
+    ReentrantRemovalCtx ctx;
+    auto obj = std::make_shared<GameObject>("reentrant_remove");
+    auto* component = obj->AddComponent<ReentrantRemovalComp>();
+    component->ctx = &ctx;
+
+    CHECK_NOTHROW(obj->RemoveComponent<ReentrantRemovalComp>());
+    CHECK_FALSE(obj->HasComponent<ReentrantRemovalComp>());
+    CHECK(ctx.disableCount == 1);
+    CHECK(ctx.detachCount == 1);
+    CHECK(ctx.destructorCount == 1);
+}
+
+TEST_CASE("ECS: component removal attempts detach after a throwing disable callback") {
+    ThrowingRemovalCtx ctx;
+    auto obj = std::make_shared<GameObject>("throwing_remove");
+    auto* component = obj->AddComponent<ThrowingRemovalComp>();
+    component->ctx = &ctx;
+
+    CHECK_NOTHROW(obj->RemoveComponentById(component->GetRuntimeTypeID()));
+    CHECK_FALSE(obj->HasComponent<ThrowingRemovalComp>());
+    CHECK(ctx.disableCount == 1);
+    CHECK(ctx.detachCount == 1);
+}
+
+TEST_CASE("ECS: removing a component during destruction preserves exactly-once callbacks") {
+    SUBCASE("remove from OnDisable") {
+        RemovalDuringDestroyCtx ctx;
+        auto obj = std::make_shared<GameObject>("remove_during_destroy_disable");
+        auto* component = obj->AddComponent<RemovalDuringDestroyComp>();
+        component->ctx = &ctx;
+        component->removeFromDisable = true;
+
+        CHECK_NOTHROW(obj->NotifyDestroy());
+        CHECK_FALSE(obj->HasComponent<RemovalDuringDestroyComp>());
+        CHECK(ctx.disableCount == 1);
+        CHECK(ctx.destroyCount == 1);
+        CHECK(ctx.detachCount == 1);
+    }
+
+    SUBCASE("remove from OnDestroy") {
+        RemovalDuringDestroyCtx ctx;
+        auto obj = std::make_shared<GameObject>("remove_during_destroy_callback");
+        auto* component = obj->AddComponent<RemovalDuringDestroyComp>();
+        component->ctx = &ctx;
+        component->removeFromDestroy = true;
+
+        CHECK_NOTHROW(obj->NotifyDestroy());
+        CHECK_FALSE(obj->HasComponent<RemovalDuringDestroyComp>());
+        CHECK(ctx.disableCount == 1);
+        CHECK(ctx.destroyCount == 1);
+        CHECK(ctx.detachCount == 1);
+    }
 }
 
 // ── BoxCollider2D ────────────────────────────────────────────────────────────

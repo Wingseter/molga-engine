@@ -2,6 +2,7 @@
 
 #include <string>
 #include <cstddef>
+#include <cstdint>
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 
@@ -23,7 +24,18 @@ public:
 // Base class for all components
 class Component {
 public:
+    Component();
+    Component(const Component& other);
+    Component(Component&& other) noexcept;
+    Component& operator=(const Component& other);
+    Component& operator=(Component&& other) noexcept;
     virtual ~Component() = default;
+
+    // Runtime-only identity. Unlike an address, this cannot be reused when a
+    // callback removes a component and immediately adds another of the same
+    // type. Systems that dispatch user callbacks can snapshot this value and
+    // re-resolve the component before every invocation.
+    std::uint64_t GetInstanceID() const { return instanceId_; }
 
     // Runtime type ID for O(1) map-based lookup
     virtual size_t GetRuntimeTypeID() const = 0;
@@ -98,6 +110,9 @@ protected:
     bool enabled = true;
     bool awoken = false;
     bool started = false;
+
+private:
+    std::uint64_t instanceId_ = 0;
 };
 
 // Macro to help define component type name and runtime type ID

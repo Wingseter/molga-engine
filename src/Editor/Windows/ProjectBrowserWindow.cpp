@@ -201,6 +201,7 @@ static int AssetTypeIndex(const std::string& ext) {
     if (ext == ".prefab")                                  return 3; // Prefab
     if (ext == ".cpp" || ext == ".h" || ext == ".lua")     return 4; // Script
     if (ext == ".json" || ext == ".scene")                 return 5; // Scene
+    if (ext == ".ttf" || ext == ".otf")                    return 6; // Font
     return 0; // All or Other
 }
 
@@ -216,7 +217,7 @@ void ProjectBrowserWindow::DrawFileGrid() {
     // 검색 바 + 타입 필터(그리드 위)
     ImGui::InputTextWithHint("##search", "Search assets...", searchBuffer_, sizeof(searchBuffer_));
     ImGui::SameLine();
-    const char* kFilters[] = {"All","Texture","Audio","Prefab","Script","Scene"};
+    const char* kFilters[] = {"All","Texture","Audio","Prefab","Script","Scene","Font"};
     ImGui::SetNextItemWidth(120);
     ImGui::Combo("##typeFilter", &typeFilter_, kFilters, IM_ARRAYSIZE(kFilters));
 
@@ -298,7 +299,6 @@ void ProjectBrowserWindow::DrawFileGrid() {
                 std::string guid = molga::AssetDatabase::Get().GuidForSource(
                     Project::Get().GetRelativePath(entry.path));
                 ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
-                ImGui::SetDragDropPayload("TEXTURE_PATH", entry.path.c_str(), entry.path.size() + 1);
                 ImGui::Text("Texture: %s", entry.name.c_str());
                 ImGui::EndDragDropSource();
             }
@@ -309,6 +309,16 @@ void ProjectBrowserWindow::DrawFileGrid() {
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 ImGui::SetDragDropPayload("AUDIO_PATH", entry.path.c_str(), entry.path.size() + 1);
                 ImGui::Text("Audio: %s", entry.name.c_str());
+                ImGui::EndDragDropSource();
+            }
+        }
+
+        if (!entry.isDirectory && (entry.extension == ".ttf" || entry.extension == ".otf")) {
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                std::string fontGuid = molga::AssetDatabase::Get().GuidForSource(
+                    Project::Get().GetRelativePath(entry.path));
+                ImGui::SetDragDropPayload("ASSET_GUID", fontGuid.c_str(), fontGuid.size() + 1);
+                ImGui::Text("Font: %s", entry.name.c_str());
                 ImGui::EndDragDropSource();
             }
         }

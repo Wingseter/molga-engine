@@ -66,6 +66,12 @@ public:
     void Destroy(GameObject* obj, float delay = 0.0f);
     void Destroy(float delay = 0.0f);
 
+    // Deferred scene transition helpers. Paths are public scene IDs registered
+    // by the BuildProfile, not arbitrary filesystem paths.
+    bool LoadScene(const std::string& registeredPath);
+    std::string GetActiveScenePath() const;
+    bool IsSceneLoadPending() const;
+
     // 참조 필드 헬퍼
     // ObjectRef를 살아있는 GameObject로 해석 (없으면 nullptr).
     GameObject* Resolve(const ObjectRef& ref) const;

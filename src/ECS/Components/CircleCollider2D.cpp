@@ -13,38 +13,26 @@ REGISTER_COMPONENT(CircleCollider2D)
 using json = nlohmann::json;
 
 AABB CircleCollider2D::GetWorldBounds() const {
-    AABB aabb;
-    float r = radius;
-    if (gameObject) {
-        Transform* transform = gameObject->GetComponent<Transform>();
-        if (transform) {
-            Vector2 worldPos = transform->GetWorldPosition();
-            Vector2 worldScale = transform->GetWorldScale();
-            float scale = std::max(std::abs(worldScale.x), std::abs(worldScale.y));
-            r *= scale;
-            aabb.x = worldPos.x + offset.x * worldScale.x - r;
-            aabb.y = worldPos.y + offset.y * worldScale.y - r;
-        }
-    } else {
-        aabb.x = offset.x - r;
-        aabb.y = offset.y - r;
-    }
-    aabb.width = r * 2.0f;
-    aabb.height = r * 2.0f;
-    return NormalizeBounds(aabb);
+    const Circle circle = GetWorldCircle();
+    return AABB(circle.x - circle.radius, circle.y - circle.radius,
+                circle.radius * 2.0f, circle.radius * 2.0f);
 }
 
 Circle CircleCollider2D::GetWorldCircle() const {
     Circle c;
-    c.radius = radius;
+    c.radius = std::abs(radius);
     if (gameObject) {
         Transform* transform = gameObject->GetComponent<Transform>();
         if (transform) {
             Vector2 worldPos = transform->GetWorldPosition();
             Vector2 worldScale = transform->GetWorldScale();
-            c.x = worldPos.x + offset.x * worldScale.x;
-            c.y = worldPos.y + offset.y * worldScale.y;
-            c.radius *= std::max(std::abs(worldScale.x), std::abs(worldScale.y));
+            const Vector2 scaledOffset(offset.x * worldScale.x, offset.y * worldScale.y);
+            const float radians = transform->GetWorldRotation() * 3.14159265f / 180.0f;
+            const float cosA = std::cos(radians);
+            const float sinA = std::sin(radians);
+            c.x = worldPos.x + scaledOffset.x * cosA - scaledOffset.y * sinA;
+            c.y = worldPos.y + scaledOffset.x * sinA + scaledOffset.y * cosA;
+            c.radius = std::abs(c.radius) * std::max(std::abs(worldScale.x), std::abs(worldScale.y));
         }
     } else {
         c.x = offset.x;
@@ -95,6 +83,15 @@ void CircleCollider2D::OnInspectorGUI() {
     bool trigger = isTrigger;
     if (ImGui::Checkbox("Is Trigger", &trigger)) {
         SetTrigger(trigger);
+    }
+
+    float frictionValue = friction;
+    if (ImGui::DragFloat("Friction", &frictionValue, 0.01f, 0.0f, 10.0f)) {
+        SetFriction(frictionValue);
+    }
+    float restitutionValue = restitution;
+    if (ImGui::DragFloat("Restitution", &restitutionValue, 0.01f, 0.0f, 10.0f)) {
+        SetRestitution(restitutionValue);
     }
 #endif
 }

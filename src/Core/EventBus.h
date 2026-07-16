@@ -6,6 +6,7 @@
 #include <vector>
 #include <unordered_map>
 #include <algorithm>
+#include <exception>
 
 class EventBus {
     // --- Internal types ---
@@ -133,33 +134,46 @@ void EventBus::Publish(EventT& event) {
     HandlerList& list = it->second;
     list.publishing = true;
 
-    for (size_t i = 0; i < list.handlers.size(); ++i) {
-        if (event.handled) break;
+    std::exception_ptr callbackError;
+    try {
+        for (size_t i = 0; i < list.handlers.size(); ++i) {
+            if (event.handled) break;
 
-        // Skip handlers marked for removal during this Publish
-        bool removed = false;
-        for (auto remID : list.pendingRemoves) {
-            if (list.handlers[i].id == remID) { removed = true; break; }
+            // Skip handlers marked for removal during this Publish
+            bool removed = false;
+            for (auto remID : list.pendingRemoves) {
+                if (list.handlers[i].id == remID) { removed = true; break; }
+            }
+            if (removed) continue;
+
+            list.handlers[i].erasedCallback(static_cast<void*>(&event));
         }
-        if (removed) continue;
-
-        list.handlers[i].erasedCallback(static_cast<void*>(&event));
+    } catch (...) {
+        callbackError = std::current_exception();
     }
 
+    // Always restore the bus to a usable state, even when user code throws.
     list.publishing = false;
 
-    // Apply pending removals
-    for (auto removeID : list.pendingRemoves) {
+    // Retain removed IDs until queued additions are processed. A subscription
+    // may be created and destroyed inside the same Publish; installing that
+    // pending addition would leave an untracked callback behind.
+    std::vector<SubscriptionID> removedDuringPublish;
+    removedDuringPublish.swap(list.pendingRemoves);
+    for (auto removeID : removedDuringPublish) {
         list.handlers.erase(
             std::remove_if(list.handlers.begin(), list.handlers.end(),
                 [removeID](const HandlerEntry& e) { return e.id == removeID; }),
             list.handlers.end()
         );
     }
-    list.pendingRemoves.clear();
 
     // Apply pending additions (sorted insertion)
     for (auto& addEntry : list.pendingAdds) {
+        if (std::find(removedDuringPublish.begin(), removedDuringPublish.end(),
+                      addEntry.id) != removedDuringPublish.end()) {
+            continue;
+        }
         auto ins = std::upper_bound(
             list.handlers.begin(), list.handlers.end(), addEntry,
             [](const HandlerEntry& a, const HandlerEntry& b) {
@@ -169,6 +183,8 @@ void EventBus::Publish(EventT& event) {
         list.handlers.insert(ins, std::move(addEntry));
     }
     list.pendingAdds.clear();
+
+    if (callbackError) std::rethrow_exception(callbackError);
 }
 
 template<typename EventT>

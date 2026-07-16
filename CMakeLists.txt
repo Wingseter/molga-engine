@@ -7,11 +7,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 우리 코드에만 적용할 경고/sanitizer 모음 (external 라이브러리는 제외)
 set(MOLGA_SANITIZER "" CACHE STRING "Enable a sanitizer: address | undefined | thread (empty = off)")
-set(MOLGA_PHYSICS_BACKEND "legacy" CACHE STRING "Physics backend to use: legacy | box2d")
-set_property(CACHE MOLGA_PHYSICS_BACKEND PROPERTY STRINGS legacy box2d)
-if(NOT MOLGA_PHYSICS_BACKEND STREQUAL "legacy" AND NOT MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
-    message(FATAL_ERROR "MOLGA_PHYSICS_BACKEND must be 'legacy' or 'box2d'")
-endif()
 
 add_library(molga_warnings INTERFACE)
 target_compile_options(molga_warnings INTERFACE -Wall -Wextra -Wpedantic)
@@ -22,18 +17,16 @@ if(NOT MOLGA_SANITIZER STREQUAL "")
 endif()
 
 # ── External dependencies ──────────────────────────────────────────────────────
-if(MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
-    include(FetchContent)
-    set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
-    set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(
-        box2d
-        GIT_REPOSITORY https://github.com/erincatto/box2d.git
-        GIT_TAG        v3.0.0
-        GIT_SHALLOW    TRUE
-    )
-    FetchContent_MakeAvailable(box2d)
-endif()
+include(FetchContent)
+set(BOX2D_SAMPLES OFF CACHE BOOL "" FORCE)
+set(BOX2D_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    box2d
+    GIT_REPOSITORY https://github.com/erincatto/box2d.git
+    GIT_TAG        v3.0.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(box2d)
 
 add_subdirectory(external/glfw)
 
@@ -69,6 +62,9 @@ set(ENGINE_SOURCES
     src/Rendering/SpriteBatcher.cpp
     src/Rendering/RenderPassState.cpp
     src/Rendering/Framebuffer.cpp
+    src/Rendering/Utf8.cpp
+    src/Rendering/FontFace.cpp
+    src/Rendering/FontAtlas.cpp
     src/Core/MolgaTime.cpp
     src/Systems/Input.cpp
     src/Rendering/Camera2D.cpp
@@ -77,8 +73,11 @@ set(ENGINE_SOURCES
     src/Physics/Collision.cpp
     src/Physics/PhysicsWorld.cpp
     src/Physics/Physics2D.cpp
+    src/Physics/PhysicsConversions.cpp
+    src/Physics/Box2DBackend.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
+    src/UI/UISystem.cpp
     src/Systems/Audio.cpp
     src/Core/Scene.cpp
     src/Systems/Particle.cpp
@@ -89,6 +88,11 @@ set(ENGINE_SOURCES
     src/ECS/Components/SpriteRenderer.cpp
     src/ECS/Components/TilemapRenderer.cpp
     src/ECS/Components/TextRenderer2D.cpp
+    src/ECS/Components/UICanvas.cpp
+    src/ECS/Components/RectTransform.cpp
+    src/ECS/Components/UIImage.cpp
+    src/ECS/Components/UILabel.cpp
+    src/ECS/Components/UIButton.cpp
     src/ECS/Components/ParticleSystem.cpp
     src/ECS/Components/BoxCollider2D.cpp
     src/ECS/Components/CircleCollider2D.cpp
@@ -102,6 +106,7 @@ set(ENGINE_SOURCES
     src/Core/PrefabRegistry.cpp
     src/Core/PrefabUtil.cpp
     src/Core/World.cpp
+    src/Core/SceneRuntime.cpp
     src/Core/Scheduler.cpp
     src/Scripting/Script.cpp
     src/Scripting/ScriptManager.cpp
@@ -127,19 +132,16 @@ set(ENGINE_SOURCES
     src/Core/PackageFinalizer.cpp
     src/Core/BuildProfile.cpp
     src/Core/GameConfig.cpp
+    src/Core/PersistentStorage.cpp
+    src/Core/PlayerPrefs.cpp
+    src/Core/SaveSystem.cpp
     src/Editor/Selection/SelectionService.cpp
     src/Core/AssetDatabase.cpp
     src/Core/Importers/TextureImporter.cpp
     src/Core/Importers/AudioImporter.cpp
     src/Core/Importers/PrefabImporter.cpp
+    src/Core/Importers/FontImporter.cpp
 )
-
-if(MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
-    list(APPEND ENGINE_SOURCES
-        src/Physics/PhysicsConversions.cpp
-        src/Physics/Box2DBackend.cpp
-    )
-endif()
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
 set(MARROW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Maroow")
@@ -160,20 +162,14 @@ target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/external/miniaudio
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
 )
+target_include_directories(molga_core PRIVATE ${IMGUI_DIR})
 
 if(MOLGA_MARROW_SUPPORT)
     target_include_directories(molga_core PUBLIC ${MARROW_DIR}/include)
     target_compile_definitions(molga_core PUBLIC MOLGA_MARROW_SUPPORT)
 endif()
 
-target_link_libraries(molga_core PUBLIC glad glfw)
-
-if (MOLGA_PHYSICS_BACKEND STREQUAL "box2d")
-    target_link_libraries(molga_core PUBLIC box2d)
-    target_compile_definitions(molga_core PUBLIC MOLGA_PHYSICS_BOX2D)
-else()
-    target_compile_definitions(molga_core PUBLIC MOLGA_PHYSICS_LEGACY)
-endif()
+target_link_libraries(molga_core PUBLIC glad glfw box2d)
 
 
 if(MOLGA_MARROW_SUPPORT)

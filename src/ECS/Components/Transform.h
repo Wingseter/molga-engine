@@ -37,9 +37,11 @@ public:
 
     // Get world position (considering parent transforms)
     Vector2 GetWorldPosition() const;
+    void SetWorldPosition(const Vector2& worldPosition);
 
     // Get world rotation
     float GetWorldRotation() const;
+    void SetWorldRotation(float worldDegrees);
 
     // Get world scale
     Vector2 GetWorldScale() const;

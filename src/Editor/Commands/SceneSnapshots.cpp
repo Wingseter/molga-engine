@@ -10,6 +10,86 @@
 
 namespace molga {
 
+namespace {
+
+struct ComponentIdentity {
+    size_t typeId = 0;
+    std::uint64_t instanceId = 0;
+};
+
+struct ObjectLease {
+    GameObject* object = nullptr;
+    unsigned int id = 0;
+    bool editorOwned = false;
+    std::shared_ptr<GameObject> hold;
+
+    GameObject* Resolve() const {
+        if (!object) return nullptr;
+        if (!editorOwned) return object;
+        GameObject* current = Editor::Get().FindObjectById(id);
+        return current == object ? current : nullptr;
+    }
+};
+
+ObjectLease HoldObject(GameObject* object) {
+    ObjectLease lease;
+    lease.object = object;
+    if (!object) return lease;
+    lease.id = object->GetID();
+    lease.hold = Editor::Get().ShareObjectById(lease.id);
+    lease.editorOwned = lease.hold && lease.hold.get() == object;
+    if (!lease.editorOwned) lease.hold.reset();
+    return lease;
+}
+
+std::vector<ComponentIdentity> SnapshotComponentIdentities(GameObject* object) {
+    std::vector<ComponentIdentity> plan;
+    if (!object) return plan;
+    for (Component* component : object->GetComponents()) {
+        if (component) {
+            plan.push_back(
+                {component->GetRuntimeTypeID(), component->GetInstanceID()});
+        }
+    }
+    return plan;
+}
+
+Component* ResolveComponentIdentity(GameObject* object, size_t typeId,
+                                    std::uint64_t instanceId) {
+    if (!object) return nullptr;
+    for (Component* component : object->GetComponents()) {
+        if (component && component->GetRuntimeTypeID() == typeId &&
+            component->GetInstanceID() == instanceId) {
+            return component;
+        }
+    }
+    return nullptr;
+}
+
+void RestoreResolvedComponent(const ObjectLease& lease, Component* component,
+                              const nlohmann::json& snapshot) {
+    GameObject* object = lease.Resolve();
+    if (!object || !component) return;
+    const size_t typeId = component->GetRuntimeTypeID();
+    const std::uint64_t instanceId = component->GetInstanceID();
+
+    component->Deserialize(snapshot);
+    object = lease.Resolve();
+    if (!object) return;
+    component = ResolveComponentIdentity(object, typeId, instanceId);
+    if (!component) return;
+
+    if (snapshot.contains("enabled")) {
+        component->SetEnabled(snapshot["enabled"].get<bool>());
+        object = lease.Resolve();
+        if (!object) return;
+        component = ResolveComponentIdentity(object, typeId, instanceId);
+    }
+    if (component) component->ResolveAssets();
+}
+
+} // namespace
+
 GameObject* FindGameObjectById(unsigned int id) {
     return Editor::Get().FindObjectById(id);
 }
@@ -25,6 +105,9 @@ nlohmann::json CaptureComponentSnapshot(const Component* comp) {
 
 void RestoreComponentSnapshot(GameObject* obj, const nlohmann::json& compJson) {
     if (!obj || compJson.is_null()) return;
+    const ObjectLease lease = HoldObject(obj);
+    obj = lease.Resolve();
+    if (!obj) return;
     std::string type = compJson.value("type", "");
     if (type.empty()) return;
 
@@ -47,13 +130,7 @@ void RestoreComponentSnapshot(GameObject* obj, const nlohmann::json& compJson) {
         }
     }
 
-    if (targetComp) {
-        targetComp->Deserialize(compJson);
-        if (compJson.contains("enabled")) {
-            targetComp->SetEnabled(compJson["enabled"].get<bool>());
-        }
-        targetComp->ResolveAssets();
-    }
+    RestoreResolvedComponent(lease, targetComp, compJson);
 }
 
 nlohmann::json CaptureGameObjectProperties(const GameObject* obj) {
@@ -77,15 +154,25 @@ void RestoreGameObjectProperties(GameObject* obj, const nlohmann::json& propJson
 nlohmann::json CaptureGameObjectComponents(const GameObject* obj) {
     nlohmann::json arr = nlohmann::json::array();
     if (!obj) return arr;
-    for (auto* comp : obj->GetComponents()) {
-        if (!comp) continue;
-        arr.push_back(CaptureComponentSnapshot(comp));
+    ObjectLease lease = HoldObject(const_cast<GameObject*>(obj));
+    GameObject* current = lease.Resolve();
+    if (!current) return arr;
+    const auto plan = SnapshotComponentIdentities(current);
+    for (const auto& identity : plan) {
+        current = lease.Resolve();
+        if (!current) break;
+        Component* component = ResolveComponentIdentity(
+            current, identity.typeId, identity.instanceId);
+        if (component) arr.push_back(CaptureComponentSnapshot(component));
     }
     return arr;
 }
 
 void RestoreGameObjectComponents(GameObject* obj, const nlohmann::json& componentsJson) {
     if (!obj || !componentsJson.is_array()) return;
+    const ObjectLease lease = HoldObject(obj);
+    obj = lease.Resolve();
+    if (!obj) return;
 
     std::unordered_set<std::string> restoredTypes;
     for (const auto& compJson : componentsJson) {
@@ -112,20 +199,23 @@ void RestoreGameObjectComponents(GameObject* obj, const nlohmann::json& componen
             }
         }
 
-        if (targetComp) {
-            targetComp->Deserialize(compJson);
-            if (compJson.contains("enabled")) {
-                targetComp->SetEnabled(compJson["enabled"].get<bool>());
-            }
-            targetComp->ResolveAssets();
-        }
+        RestoreResolvedComponent(lease, targetComp, compJson);
+        obj = lease.Resolve();
+        if (!obj) return;
     }
 
     // Remove components that are not in the snapshot (excluding Transform)
-    std::vector<Component*> currentComps = obj->GetComponents();
-    for (auto* c : currentComps) {
-        if (c && c->GetTypeName() != "Transform" && restoredTypes.find(c->GetTypeName()) == restoredTypes.end()) {
-            obj->RemoveComponentById(c->GetRuntimeTypeID());
+    const auto removalPlan = SnapshotComponentIdentities(obj);
+    for (const auto& identity : removalPlan) {
+        obj = lease.Resolve();
+        if (!obj) break;
+        Component* component = ResolveComponentIdentity(
+            obj, identity.typeId, identity.instanceId);
+        if (!component) continue;
+        const std::string componentType = component->GetTypeName();
+        if (componentType != "Transform" &&
+            restoredTypes.find(componentType) == restoredTypes.end()) {
+            obj->RemoveComponentById(identity.typeId);
         }
     }
 }

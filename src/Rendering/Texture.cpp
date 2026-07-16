@@ -67,3 +67,24 @@ void Texture::Bind(unsigned int slot) const {
 void Texture::Unbind() const {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
+
+bool Texture::UpdateSubData(int x, int y, int updateWidth, int updateHeight,
+                            const unsigned char* data, int updateChannels) {
+    if (!textureID || !data || updateWidth <= 0 || updateHeight <= 0 ||
+        x < 0 || y < 0 || x + updateWidth > width || y + updateHeight > height) {
+        return false;
+    }
+
+    GLenum format = GL_RGBA;
+    if (updateChannels == 1) format = GL_RED;
+    else if (updateChannels == 3) format = GL_RGB;
+    else if (updateChannels != 4) return false;
+
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, updateWidth, updateHeight,
+                    format, GL_UNSIGNED_BYTE, data);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    return true;
+}

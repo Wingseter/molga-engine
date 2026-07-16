@@ -5,10 +5,11 @@
 #include "ECS/Components/BoxCollider2D.h"
 #include "ECS/Components/CircleCollider2D.h"
 #include "Physics/Physics2D.h"
+#include "Core/ProjectSettings.h"
 #include <memory>
 
 // ── 좌표 규약 (BoxCollider2D::GetWorldBounds 기준) ──────────────────────────
-//   AABB 코너 = worldPos + offset,  크기 = size (회전 미지원)
+//   회전 0일 때 AABB 코너 = worldPos + offset, 크기 = size.
 //
 //   "Box"  pos(100,100) size(40,40) → x:[100,140] y:[100,140], center(120,120)
 //   "Box2" pos(200,100) size(40,40) → x:[200,240] y:[100,140]
@@ -158,4 +159,61 @@ TEST_CASE("GameObject GetComponentInChildren / GetComponentInParent") {
     // 조상 탐색: C엔 Circle 없음 → 부모 P에서 발견.
     CHECK(c->GetComponent<CircleCollider2D>() == nullptr);
     CHECK(c->GetComponentInParent<CircleCollider2D>() == pCircle);
+}
+
+TEST_CASE("Physics2D queries use rotated backend geometry") {
+    ProjectSettings::Get().SetDefaults();
+    World world;
+    auto box = MakeBox(world, "RotatedBox", {100, 100}, {100, 10});
+    box->GetComponent<Transform>()->SetRotation(45.0f);
+
+    // Rotated local center (50, 5) is approximately (131.82, 138.89).
+    CHECK(Physics2D::OverlapPoint(world, {131.82f, 138.89f}) == box.get());
+    // This lies in the enclosing AABB but outside the actual thin polygon.
+    CHECK(Physics2D::OverlapPoint(world, {100.0f, 170.0f}) == nullptr);
+
+    RaycastHit2D hit = Physics2D::Raycast(world, {50.0f, 138.89f}, {1.0f, 0.0f});
+    REQUIRE(hit.hit);
+    CHECK(hit.collider == box.get());
+    CHECK(hit.distance > 60.0f);
+    CHECK(hit.distance < 90.0f);
+}
+
+TEST_CASE("Physics2D rotates circle offsets with the owning transform") {
+    ProjectSettings::Get().SetDefaults();
+    World world;
+    auto circle = MakeCircle(world, "OffsetCircle", {100, 100}, 5.0f);
+    auto* transform = circle->GetComponent<Transform>();
+    transform->SetRotation(90.0f);
+    circle->GetComponent<CircleCollider2D>()->SetOffset(20.0f, 0.0f);
+
+    CHECK(Physics2D::OverlapPoint(world, {100.0f, 120.0f}) == circle.get());
+    CHECK(Physics2D::OverlapPoint(world, {120.0f, 100.0f}) == nullptr);
+}
+
+TEST_CASE("Physics2D layer queries are independent from collision matrix filtering") {
+    ProjectSettings::Get().SetDefaults();
+    ProjectSettings::Get().SetCollisionEnabled(5, 6, false);
+    World world;
+    auto box = MakeBox(world, "LayerFive", {100, 100}, {40, 40}, 5);
+
+    const RaycastHit2D hit = Physics2D::Raycast(
+        world, {0, 120}, {1, 0}, Physics2D::kInfinity, 1 << 5);
+    REQUIRE(hit.hit);
+    CHECK(hit.collider == box.get());
+
+    ProjectSettings::Get().SetDefaults();
+}
+
+TEST_CASE("Physics2D overlap results deduplicate shapes in World order") {
+    ProjectSettings::Get().SetDefaults();
+    World world;
+    auto composite = MakeBox(world, "Composite", {100, 100}, {40, 40});
+    composite->AddComponent<CircleCollider2D>()->SetRadius(30.0f);
+    auto second = MakeBox(world, "Second", {105, 105}, {10, 10});
+
+    const auto hits = Physics2D::OverlapCircleAll(world, {110, 110}, 5.0f);
+    REQUIRE(hits.size() == 2);
+    CHECK(hits[0] == composite.get());
+    CHECK(hits[1] == second.get());
 }

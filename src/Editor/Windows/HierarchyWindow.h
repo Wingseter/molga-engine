@@ -20,6 +20,7 @@ private:
     void CreateEmptyGameObject();
     void CreateSpriteObject();
     void CreateTilemapObject();
+    void CreateUIObject(int presetType);
     void DeleteSelectedObject();
     void DuplicateSelectedObject();
 

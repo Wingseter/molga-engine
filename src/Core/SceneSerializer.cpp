@@ -150,7 +150,13 @@ bool SceneSerializer::DeserializeScene(
             std::vector<std::shared_ptr<GameObject>> instantiatedObjects;
             GameObject* root = PrefabRegistry::Get().Instantiate(guid, instantiatedObjects, idRemap);
 
-            if (root) {
+            if (!root) {
+                std::cerr << "[SceneSerializer] Could not resolve prefab instance: "
+                          << guid << std::endl;
+                objects.clear();
+                return false;
+            }
+            {
                 unsigned int tempRootId = root->GetID();
                 unsigned int localRootId = 0;
                 for (const auto& [localId, tempId] : idRemap) {
@@ -404,10 +410,29 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
     std::vector<std::shared_ptr<GameObject>>& outObjects,
     std::unordered_map<unsigned int, unsigned int>& idRemap) {
 
-    if (!doc.contains("gameObjects")) {
+    if (!doc.contains("gameObjects") || !doc["gameObjects"].is_array()) {
         std::cerr << "[SceneSerializer] No gameObjects in subtree document" << std::endl;
         return nullptr;
     }
+
+    // A prefab instantiation is all-or-nothing, including every nested branch.
+    // This guard also rolls back partially appended objects when component
+    // deserialization throws.
+    const size_t outputStart = outObjects.size();
+    const auto originalRemap = idRemap;
+    bool committed = false;
+    struct RollbackGuard {
+        std::vector<std::shared_ptr<GameObject>>& objects;
+        std::unordered_map<unsigned int, unsigned int>& remap;
+        size_t start;
+        const std::unordered_map<unsigned int, unsigned int>& original;
+        bool& committed;
+        ~RollbackGuard() {
+            if (committed) return;
+            objects.resize(start);
+            remap = original;
+        }
+    } rollback{outObjects, idRemap, outputStart, originalRemap, committed};
 
     // Guard against cyclic (self-referential) nested prefabs blowing the stack.
     static thread_local int s_nestDepth = 0;
@@ -439,7 +464,12 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
             std::unordered_map<unsigned int, unsigned int> nestedRemap;
             size_t before = outObjects.size();
             GameObject* nestedRoot = PrefabRegistry::Get().Instantiate(nestedGuid, outObjects, nestedRemap);
-            if (nestedRoot) {
+            if (!nestedRoot) {
+                std::cerr << "[SceneSerializer] Could not resolve nested prefab instance: "
+                          << nestedGuid << std::endl;
+                return nullptr;
+            }
+            {
                 PrefabUtil::ApplyModifications(nestedRoot, mods, nestedRemap);
 
                 auto* pi = nestedRoot->AddComponent<PrefabInstance>();
@@ -460,6 +490,11 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
                 }
                 if (nestedRootPtr) {
                     loaded.push_back({nestedRootPtr, localParentId, localRootId});
+                    if (localParentId == -1 && !rootObj) rootObj = nestedRoot;
+                } else {
+                    std::cerr << "[SceneSerializer] Nested prefab root was not appended: "
+                              << nestedGuid << std::endl;
+                    return nullptr;
                 }
             }
             continue;
@@ -531,6 +566,10 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
         }
     }
 
+    if (!rootObj) {
+        std::cerr << "[SceneSerializer] Prefab subtree has no root object" << std::endl;
+        return nullptr;
+    }
+    committed = true;
     return rootObj;
 }
-
