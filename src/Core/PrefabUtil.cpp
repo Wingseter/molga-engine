@@ -1,7 +1,11 @@
 #include "PrefabUtil.h"
+#include "Core/PrefabRegistry.h"
+#include "Core/SceneSerializer.h"
 #include "ECS/GameObject.h"
 #include "ECS/Component.h"
+#include "ECS/Components/PrefabInstance.h"
 #include <iostream>
+#include <unordered_set>
 
 void PrefabUtil::ApplyModifications(
     GameObject* instanceRoot,
@@ -67,16 +71,16 @@ void PrefabUtil::ApplyModifications(
 
                 foundComp->Deserialize(compJson);
                 if (compJson.contains("enabled")) {
-                    foundComp->SetEnabled(compJson["enabled"].get<bool>());
+                    // Prefab modifications are applied while SceneSerializer is
+                    // assembling a detached object graph. Lifecycle begins only
+                    // after the completed graph is attached to its World.
+                    foundComp->SetEnabledFromSerializedState(
+                        compJson["enabled"].get<bool>());
                 }
             }
         }
     }
 }
-
-#include "Core/SceneSerializer.h"
-#include "Core/PrefabRegistry.h"
-#include "ECS/Components/PrefabInstance.h"
 
 nlohmann::json PrefabUtil::GenerateModifications(
     const GameObject* instanceRoot,
@@ -198,6 +202,32 @@ nlohmann::json PrefabUtil::GenerateModifications(
     }
 
     return modifications;
+}
+
+GameObject* PrefabUtil::FindNearestInstanceRoot(GameObject* target) {
+    for (GameObject* current = target; current; current = current->GetParent()) {
+        if (current->GetComponent<PrefabInstance>()) return current;
+    }
+    return nullptr;
+}
+
+std::size_t PrefabUtil::RefreshNearestInstanceOverrides(
+    const std::vector<GameObject*>& targets) {
+    std::unordered_set<unsigned int> refreshedRootIds;
+    std::size_t refreshedCount = 0;
+    for (GameObject* target : targets) {
+        GameObject* root = FindNearestInstanceRoot(target);
+        if (!root || !refreshedRootIds.insert(root->GetID()).second) continue;
+
+        auto* instance = root->GetComponent<PrefabInstance>();
+        const nlohmann::json prefab =
+            PrefabRegistry::Get().GetPrefabJson(instance->GetPrefabGuid());
+        if (!prefab.is_object() || !prefab.contains("gameObjects")) continue;
+        instance->SetModifications(GenerateModifications(
+            root, prefab, instance->GetIdRemap()));
+        ++refreshedCount;
+    }
+    return refreshedCount;
 }
 
 bool PrefabUtil::ApplyPrefab(GameObject* instanceRoot) {

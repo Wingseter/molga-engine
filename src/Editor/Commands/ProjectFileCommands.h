@@ -56,4 +56,24 @@ private:
     bool isDirectory_;
 };
 
+// Atomic text replacement for JSON assets and .meta sidecars. Asset authoring
+// has its own CommandHistory so these edits do not mark the active scene dirty.
+class AssetContentCommand : public ICommand {
+public:
+    AssetContentCommand(std::filesystem::path target, std::string before,
+                        std::string after, std::string assetGuid = {});
+    void Execute() override;
+    void Undo() override;
+    std::string Name() const override { return "Edit Asset"; }
+    bool Succeeded() const { return succeeded_; }
+
+private:
+    void Apply(const std::string& contents);
+    std::filesystem::path target_;
+    std::string before_;
+    std::string after_;
+    std::string assetGuid_;
+    bool succeeded_ = false;
+};
+
 } // namespace molga

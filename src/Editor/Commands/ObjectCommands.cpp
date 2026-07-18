@@ -8,7 +8,10 @@
 #include "ECS/Components/UILabel.h"
 #include "ECS/Components/UIButton.h"
 #include "Core/SceneSerializer.h"
+#include "Editor/Selection/SelectionUtils.h"
 #include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace molga {
 
@@ -173,6 +176,254 @@ void DuplicateObjectCommand::Undo() {
         Editor::Get().RemoveObjectsByIds(idsToRemove);
         Editor::Get().MarkSceneModified();
     }
+}
+
+// ── Multi-object delete/duplicate ───────────────────────────────────────────
+namespace {
+
+std::vector<HierarchyObjectPlacement> CapturePlacements(
+    const std::vector<GameObject*>& objects) {
+    std::vector<HierarchyObjectPlacement> placements;
+    std::unordered_set<unsigned int> captured;
+    placements.reserve(objects.size());
+    for (GameObject* object : objects) {
+        if (!object || !captured.insert(object->GetID()).second) continue;
+        std::size_t worldIndex = 0;
+        if (!Editor::Get().TryGetObjectIndex(object->GetID(), worldIndex)) continue;
+        GameObject* parent = object->GetParent();
+        placements.push_back({Editor::Get().ShareObjectById(object->GetID()),
+                              worldIndex,
+                              parent ? parent->GetID() : 0u,
+                              object->GetSiblingIndex()});
+    }
+    std::stable_sort(placements.begin(), placements.end(),
+                     [](const auto& left, const auto& right) {
+                         return left.worldIndex < right.worldIndex;
+                     });
+    return placements;
+}
+
+void RemovePlacements(const std::vector<HierarchyObjectPlacement>& placements) {
+    std::vector<unsigned int> ids;
+    ids.reserve(placements.size());
+    for (const auto& placement : placements) {
+        if (!placement.object ||
+            !Editor::Get().FindObjectById(placement.object->GetID())) {
+            continue;
+        }
+        placement.object->SetParent(nullptr);
+        ids.push_back(placement.object->GetID());
+    }
+    if (!ids.empty()) Editor::Get().RemoveObjectsByIds(ids);
+}
+
+void RestorePlacements(const std::vector<HierarchyObjectPlacement>& placements) {
+    for (const auto& placement : placements) {
+        if (!placement.object ||
+            Editor::Get().FindObjectById(placement.object->GetID())) {
+            continue;
+        }
+        Editor::Get().InsertExistingObjectAt(placement.object,
+                                             placement.worldIndex);
+    }
+
+    // Resolve parents only after every saved object is visible in the world.
+    for (const auto& placement : placements) {
+        if (!placement.object) continue;
+        GameObject* parent = placement.parentId == 0
+            ? nullptr
+            : Editor::Get().FindObjectById(placement.parentId);
+        placement.object->SetParent(parent);
+    }
+
+    // SetParent appends, so replay sibling slots from low to high per parent.
+    std::vector<const HierarchyObjectPlacement*> children;
+    children.reserve(placements.size());
+    for (const auto& placement : placements) {
+        if (placement.object && placement.parentId != 0) {
+            children.push_back(&placement);
+        }
+    }
+    std::stable_sort(children.begin(), children.end(),
+                     [](const auto* left, const auto* right) {
+                         if (left->parentId != right->parentId) {
+                             return left->parentId < right->parentId;
+                         }
+                         return left->siblingIndex < right->siblingIndex;
+                     });
+    for (const auto* placement : children) {
+        placement->object->SetSiblingIndex(placement->siblingIndex);
+    }
+}
+
+} // namespace
+
+DeleteObjectsCommand::DeleteObjectsCommand(std::vector<unsigned int> selectedIds)
+    : requestedIds_(std::move(selectedIds)) {}
+
+void DeleteObjectsCommand::Execute() {
+    auto& selection = Editor::Get().GetSelection();
+    if (!built_) {
+        built_ = true;
+        previousSelection_ = selection.State();
+        const auto roots = RootMostSelection(requestedIds_, [](unsigned int id) {
+            return Editor::Get().FindObjectById(id);
+        });
+        std::vector<GameObject*> removed;
+        for (unsigned int id : roots) {
+            if (GameObject* object = Editor::Get().FindObjectById(id)) {
+                object->CollectSubtree(removed);
+            }
+        }
+        removedObjects_ = CapturePlacements(removed);
+    }
+    if (removedObjects_.empty()) return;
+    RemovePlacements(removedObjects_);
+    selection.Clear(SelectionSource::Hierarchy);
+    selection.Rebind([](unsigned int id) {
+        return Editor::Get().FindObjectById(id) != nullptr;
+    });
+    if (!resultCaptured_) {
+        resultSelection_ = selection.State();
+        resultCaptured_ = true;
+    } else {
+        selection.RestoreState(resultSelection_, SelectionSource::Hierarchy);
+    }
+    Editor::Get().MarkSceneModified();
+}
+
+void DeleteObjectsCommand::Undo() {
+    RestorePlacements(removedObjects_);
+    Editor::Get().GetSelection().RestoreState(
+        previousSelection_, SelectionSource::Hierarchy);
+    if (!removedObjects_.empty()) Editor::Get().MarkSceneModified();
+}
+
+DuplicateObjectsCommand::DuplicateObjectsCommand(
+    std::vector<unsigned int> selectedIds)
+    : requestedIds_(std::move(selectedIds)) {}
+
+void DuplicateObjectsCommand::Execute() {
+    auto& selection = Editor::Get().GetSelection();
+    if (!built_) {
+        built_ = true;
+        previousSelection_ = selection.State();
+        const auto roots = RootMostSelection(requestedIds_, [](unsigned int id) {
+            return Editor::Get().FindObjectById(id);
+        });
+
+        struct DuplicateGroup {
+            unsigned int sourceId = 0;
+            unsigned int sourceParentId = 0;
+            std::size_t sourceSiblingIndex = 0;
+            std::size_t insertAfter = 0;
+            std::shared_ptr<GameObject> root;
+            std::vector<std::shared_ptr<GameObject>> objects;
+        };
+        std::vector<DuplicateGroup> groups;
+
+        for (unsigned int id : roots) {
+            GameObject* source = Editor::Get().FindObjectById(id);
+            if (!source) continue;
+
+            std::vector<GameObject*> sourceSubtree;
+            source->CollectSubtree(sourceSubtree);
+            std::size_t insertAfter = 0;
+            bool foundInWorld = false;
+            for (GameObject* object : sourceSubtree) {
+                std::size_t index = 0;
+                if (object && Editor::Get().TryGetObjectIndex(object->GetID(), index)) {
+                    insertAfter = foundInWorld ? std::max(insertAfter, index) : index;
+                    foundInWorld = true;
+                }
+            }
+            if (!foundInWorld) continue;
+
+            DuplicateGroup group;
+            group.sourceId = id;
+            group.sourceParentId = source->GetParent()
+                ? source->GetParent()->GetID() : 0u;
+            group.sourceSiblingIndex = source->GetSiblingIndex();
+            group.insertAfter = insertAfter;
+
+            std::unordered_map<unsigned int, unsigned int> idRemap;
+            GameObject* rootCopy = SceneSerializer::DeserializeSubtreeRemapped(
+                SceneSerializer::SerializeSubtree(source), group.objects, idRemap);
+            if (!rootCopy) continue;
+            rootCopy->SetName(source->GetName() + " (Copy)");
+            for (const auto& object : group.objects) {
+                if (object && object.get() == rootCopy) {
+                    group.root = object;
+                    break;
+                }
+            }
+            if (!group.root) continue;
+            duplicateRootIds_.push_back(group.root->GetID());
+            groups.push_back(std::move(group));
+        }
+
+        // Insert each cloned DFS block directly after its source subtree. Work
+        // from the back so earlier insertion points stay stable.
+        std::vector<DuplicateGroup*> groupOrder;
+        groupOrder.reserve(groups.size());
+        for (auto& group : groups) groupOrder.push_back(&group);
+        std::stable_sort(groupOrder.begin(), groupOrder.end(),
+                         [](const auto* left, const auto* right) {
+                             return left->insertAfter > right->insertAfter;
+                         });
+        for (DuplicateGroup* group : groupOrder) {
+            std::size_t index = group->insertAfter + 1;
+            for (const auto& object : group->objects) {
+                Editor::Get().InsertExistingObjectAt(object, index++);
+            }
+        }
+
+        // Descending source sibling order makes "copy immediately after source"
+        // stable when several selected roots share one parent.
+        std::stable_sort(groupOrder.begin(), groupOrder.end(),
+                         [](const auto* left, const auto* right) {
+                             if (left->sourceParentId != right->sourceParentId) {
+                                 return left->sourceParentId < right->sourceParentId;
+                             }
+                             return left->sourceSiblingIndex > right->sourceSiblingIndex;
+                         });
+        for (DuplicateGroup* group : groupOrder) {
+            GameObject* source = Editor::Get().FindObjectById(group->sourceId);
+            GameObject* parent = group->sourceParentId == 0
+                ? nullptr
+                : Editor::Get().FindObjectById(group->sourceParentId);
+            group->root->SetParent(parent);
+            if (parent && source) {
+                group->root->SetSiblingIndex(source->GetSiblingIndex() + 1);
+            }
+        }
+
+        std::vector<GameObject*> duplicated;
+        for (const auto& group : groups) {
+            for (const auto& object : group.objects) {
+                if (object) duplicated.push_back(object.get());
+            }
+        }
+        duplicateObjects_ = CapturePlacements(duplicated);
+        if (duplicateRootIds_.empty()) return;
+        selection.SelectMany(duplicateRootIds_, duplicateRootIds_.back(),
+                             SelectionSource::Hierarchy);
+        resultSelection_ = selection.State();
+        Editor::Get().MarkSceneModified();
+        return;
+    }
+
+    if (duplicateObjects_.empty()) return;
+    RestorePlacements(duplicateObjects_);
+    selection.RestoreState(resultSelection_, SelectionSource::Hierarchy);
+    Editor::Get().MarkSceneModified();
+}
+
+void DuplicateObjectsCommand::Undo() {
+    RemovePlacements(duplicateObjects_);
+    Editor::Get().GetSelection().RestoreState(
+        previousSelection_, SelectionSource::Hierarchy);
+    if (!duplicateObjects_.empty()) Editor::Get().MarkSceneModified();
 }
 
 // ── CreateUIPresetCommand ───────────────────────────────────────────────────

@@ -59,6 +59,10 @@ set(ENGINE_SOURCES
     src/Rendering/Sprite.cpp
     src/Rendering/Renderer.cpp
     src/Rendering/RenderSystem2D.cpp
+    src/Rendering/GameOutputRenderer.cpp
+    src/Rendering/OutputPresentationLayout.cpp
+    src/Rendering/WorldSort2D.cpp
+    src/Rendering/WorldRenderTraversal.cpp
     src/Rendering/SpriteBatcher.cpp
     src/Rendering/RenderPassState.cpp
     src/Rendering/Framebuffer.cpp
@@ -70,6 +74,8 @@ set(ENGINE_SOURCES
     src/Rendering/Camera2D.cpp
     src/Rendering/SpriteSheet.cpp
     src/Rendering/Animation.cpp
+    src/Rendering/AnimationClip2D.cpp
+    src/Rendering/AnimatorController2D.cpp
     src/Physics/Collision.cpp
     src/Physics/PhysicsWorld.cpp
     src/Physics/Physics2D.cpp
@@ -86,6 +92,7 @@ set(ENGINE_SOURCES
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
     src/ECS/Components/SpriteRenderer.cpp
+    src/ECS/Components/Animator2D.cpp
     src/ECS/Components/TilemapRenderer.cpp
     src/ECS/Components/TextRenderer2D.cpp
     src/ECS/Components/UICanvas.cpp
@@ -109,6 +116,7 @@ set(ENGINE_SOURCES
     src/Core/SceneRuntime.cpp
     src/Core/Scheduler.cpp
     src/Scripting/Script.cpp
+    src/Scripting/ScriptInvocationBoundary.cpp
     src/Scripting/ScriptManager.cpp
     src/Scripting/ScriptPackageLoader.cpp
     src/Scripting/ScriptReloadService.cpp
@@ -136,7 +144,14 @@ set(ENGINE_SOURCES
     src/Core/PlayerPrefs.cpp
     src/Core/SaveSystem.cpp
     src/Editor/Selection/SelectionService.cpp
+    src/Editor/Properties/EditorPropertyDescriptor.cpp
+    src/Editor/GameViewLayout.cpp
+    src/Editor/EditorPreferences.cpp
     src/Core/AssetDatabase.cpp
+    src/Core/AssetDependencyValidator.cpp
+    src/Core/SpriteResolver.cpp
+    src/Core/TileSetAsset.cpp
+    src/Core/Importers/ImporterRegistry.cpp
     src/Core/Importers/TextureImporter.cpp
     src/Core/Importers/AudioImporter.cpp
     src/Core/Importers/PrefabImporter.cpp
@@ -199,6 +214,7 @@ set(EDITOR_SOURCES
     src/Editor/Commands/SceneSnapshots.cpp
     src/Editor/Commands/PropertyCommands.cpp
     src/Editor/Commands/ComponentCommands.cpp
+    src/Editor/Commands/TilePaintCommand.cpp
     src/Editor/Gizmos/TransformGizmo.cpp
     src/Editor/FontManager.cpp
     src/Editor/VSCodeIntegration.cpp
@@ -208,6 +224,7 @@ set(EDITOR_SOURCES
     src/Editor/BuildManager.cpp
     src/Editor/GameBuilder.cpp
     src/Editor/Windows/SceneViewWindow.cpp
+    src/Editor/Windows/GameViewWindow.cpp
     src/Editor/Windows/StatsWindow.cpp
     src/Editor/Windows/ProfilerWindow.cpp
     src/Editor/Windows/HierarchyWindow.cpp
@@ -217,6 +234,8 @@ set(EDITOR_SOURCES
     src/Editor/Windows/ScriptWindow.cpp
     src/Editor/Windows/ProjectSettingsWindow.cpp
     src/Editor/Windows/ConsoleWindow.cpp
+    src/Editor/Windows/TilePaletteWindow.cpp
+    src/Editor/Windows/AnimationWindow.cpp
     src/Editor/Project.cpp
     src/Scripting/ScriptCompiler.cpp
     src/Editor/AssetReferenceScan.cpp

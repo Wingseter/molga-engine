@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <memory>
@@ -124,9 +125,13 @@ public:
     // Hierarchy
     GameObject* GetParent() const { return parent; }
     const std::vector<GameObject*>& GetChildren() const { return children; }
+    std::size_t GetSiblingIndex() const;
 
     // 성공 시 true. self/cycle을 만들면 거부하고 false를 반환한다.
     bool SetParent(GameObject* newParent);
+    // Keeps the current parent and moves this object to an exact sibling slot.
+    // Root ordering is owned by the World's flat object vector instead.
+    bool SetSiblingIndex(std::size_t index);
     void AddChild(GameObject* child);
     void RemoveChild(GameObject* child);
 

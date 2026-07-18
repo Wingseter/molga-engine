@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Core/Importers/Importer.h"
+#include "Core/AssetMeta.h"
+#include <nlohmann/json.hpp>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -17,7 +19,10 @@ struct AssetRecord {
     std::string artifactPath;      // 가져온 산출물 경로(없으면 빈 문자열)
     std::string hash;              // source file content hash at catalog build time
     std::vector<std::string> dependencies;  // 이 애셋이 참조하는 다른 애셋 guid
+    nlohmann::json settings = nlohmann::json::object();
+    nlohmann::json metadata = nlohmann::json::object();
     bool importFailed = false;     // badge용
+    std::string importError;
     bool generated = false;        // 산출물/임시 애셋 표시 badge용
     int textureWidth = 0;
     int textureHeight = 0;
@@ -49,6 +54,11 @@ public:
 
     // 단일 애셋만 다시 가져온다(importerVersion 변경/외부 수정 대응).
     void Reimport(const std::string& guid);
+    bool TryReimport(const std::string& guid, std::string* errorOut = nullptr);
+
+    AssetMeta MetaForGuid(const std::string& guid) const;
+    bool WriteMeta(const std::string& guid, const AssetMeta& meta,
+                   bool reimport = true, std::string* errorOut = nullptr);
 
     // Task E/F가 사용하는 인덱스 변경(파일 시스템 동작 후 호출).
     void OnSourceRenamed(const std::filesystem::path& oldRel, const std::filesystem::path& newRel);
@@ -67,12 +77,16 @@ public:
     AssetDatabase() = default;
 
 private:
-    static ImportResult RunImporter(const std::string& importer, const std::string& abs);
+    static ImportResult RunImporter(const std::string& importer, const std::string& abs,
+                                    const nlohmann::json& settings);
 
     void IndexOne(const std::filesystem::path& absPath);
     static std::string ImporterForExtension(const std::string& ext, int& versionOut);
 
     std::filesystem::path assetRoot_;
+    // ScanProject receives the directory being scanned, while LoadCatalog
+    // receives the package root containing the serialized Assets/ paths.
+    bool catalogPackageRoot_ = false;
     std::unordered_map<std::string, AssetRecord> byGuid_;       // guid -> record
     std::unordered_map<std::string, std::string> sourceToGuid_; // relPath -> guid
 };

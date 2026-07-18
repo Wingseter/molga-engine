@@ -4,6 +4,7 @@
 #include "ComponentFactory.h"
 #include "Components/AudioListener.h"
 #include "Components/AudioSource.h"
+#include "Components/Animator2D.h"
 #include "Components/BoxCollider2D.h"
 #include "Components/Camera.h"
 #include "Components/CircleCollider2D.h"
@@ -28,6 +29,7 @@ void RegisterBuiltinComponents() {
     auto& factory = ComponentFactory::Get();
     factory.Register<Transform>(Transform::StaticTypeName());
     factory.Register<SpriteRenderer>(SpriteRenderer::StaticTypeName());
+    factory.Register<Animator2D>(Animator2D::StaticTypeName());
     factory.Register<TilemapRenderer>(TilemapRenderer::StaticTypeName());
     factory.Register<TextRenderer2D>(TextRenderer2D::StaticTypeName());
     factory.Register<ParticleSystem>(ParticleSystem::StaticTypeName());

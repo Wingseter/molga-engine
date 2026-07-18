@@ -39,12 +39,6 @@ public:
         gameObjects_ = objects;
     }
 
-    // Runs at the beginning of the editor frame, before gameplay scripts.  It
-    // reads the Scene View platform window directly so ImGui's global mouse
-    // capture does not suppress overlay UI interaction.
-    void ProcessPlayUIInput();
-    void ResetPlayUIInput();
-
 private:
     // 렌더 리소스
     Renderer*   renderer_     = nullptr;
@@ -67,15 +61,6 @@ private:
     float vpWidth_  = 0.f;
     float vpHeight_ = 0.f;
 
-    // Last rendered Scene View image bounds. ImGui viewports may detach this
-    // panel into another GLFW window; retain the stable viewport id and resolve
-    // its current platform handle at input time.
-    ImVec2 uiPanelPos_{0.0f, 0.0f};
-    ImVec2 uiPanelSize_{0.0f, 0.0f};
-    ImGuiID uiPlatformViewportId_ = 0;
-    bool uiViewportValid_ = false;
-    bool uiMouseWasDown_ = false;
-
     // 입력 상태
     bool  isPanning_    = false;
     float lastMouseX_   = 0.f;
@@ -96,7 +81,6 @@ private:
     void DrawGrid();
     void DrawSprites();
     void DrawUI(float vpW, float vpH);
-
     // 입력 처리
     void HandleInput(ImVec2 panelPos, ImVec2 panelSize);
 

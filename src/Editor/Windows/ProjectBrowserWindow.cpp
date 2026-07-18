@@ -202,6 +202,8 @@ static int AssetTypeIndex(const std::string& ext) {
     if (ext == ".cpp" || ext == ".h" || ext == ".lua")     return 4; // Script
     if (ext == ".json" || ext == ".scene")                 return 5; // Scene
     if (ext == ".ttf" || ext == ".otf")                    return 6; // Font
+    if (ext == ".animclip" || ext == ".animator")          return 7; // Animation
+    if (ext == ".tileset")                                 return 8; // TileSet
     return 0; // All or Other
 }
 
@@ -217,7 +219,10 @@ void ProjectBrowserWindow::DrawFileGrid() {
     // 검색 바 + 타입 필터(그리드 위)
     ImGui::InputTextWithHint("##search", "Search assets...", searchBuffer_, sizeof(searchBuffer_));
     ImGui::SameLine();
-    const char* kFilters[] = {"All","Texture","Audio","Prefab","Script","Scene","Font"};
+    const char* kFilters[] = {
+        "All", "Texture", "Audio", "Prefab", "Script", "Scene", "Font",
+        "Animation", "TileSet"
+    };
     ImGui::SetNextItemWidth(120);
     ImGui::Combo("##typeFilter", &typeFilter_, kFilters, IM_ARRAYSIZE(kFilters));
 
@@ -292,33 +297,13 @@ void ProjectBrowserWindow::DrawFileGrid() {
             DrawBadge(buttonMinPos, IM_COL32(120,120,255,255), "G");    // generated
         }
 
-        // Drag source for image files
-        if (!entry.isDirectory && (entry.extension == ".png" || entry.extension == ".jpg" || entry.extension == ".jpeg")) {
+        // Every imported asset uses the same stable GUID payload. Individual
+        // inspectors may additionally accept legacy payload types while old
+        // projects migrate.
+        if (!entry.isDirectory && !guid.empty()) {
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-                // Store the path in drag data
-                std::string guid = molga::AssetDatabase::Get().GuidForSource(
-                    Project::Get().GetRelativePath(entry.path));
                 ImGui::SetDragDropPayload("ASSET_GUID", guid.c_str(), guid.size() + 1);
-                ImGui::Text("Texture: %s", entry.name.c_str());
-                ImGui::EndDragDropSource();
-            }
-        }
-
-        // Drag source for audio files
-        if (!entry.isDirectory && (entry.extension == ".wav" || entry.extension == ".mp3" || entry.extension == ".ogg")) {
-            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-                ImGui::SetDragDropPayload("AUDIO_PATH", entry.path.c_str(), entry.path.size() + 1);
-                ImGui::Text("Audio: %s", entry.name.c_str());
-                ImGui::EndDragDropSource();
-            }
-        }
-
-        if (!entry.isDirectory && (entry.extension == ".ttf" || entry.extension == ".otf")) {
-            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-                std::string fontGuid = molga::AssetDatabase::Get().GuidForSource(
-                    Project::Get().GetRelativePath(entry.path));
-                ImGui::SetDragDropPayload("ASSET_GUID", fontGuid.c_str(), fontGuid.size() + 1);
-                ImGui::Text("Font: %s", entry.name.c_str());
+                ImGui::Text("Asset: %s", entry.name.c_str());
                 ImGui::EndDragDropSource();
             }
         }
@@ -422,6 +407,19 @@ void ProjectBrowserWindow::DrawContextMenu() {
                 ImGui::CloseCurrentPopup();
                 StartCreateScene();
             }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Animation Clip")) {
+                ImGui::CloseCurrentPopup();
+                StartCreateAnimationClip();
+            }
+            if (ImGui::MenuItem("Animator Controller")) {
+                ImGui::CloseCurrentPopup();
+                StartCreateAnimatorController();
+            }
+            if (ImGui::MenuItem("Tile Set")) {
+                ImGui::CloseCurrentPopup();
+                StartCreateTileSet();
+            }
             ImGui::EndMenu();
         }
         ImGui::Separator();
@@ -517,6 +515,9 @@ void ProjectBrowserWindow::DrawCreateInlineInput() {
         case CreateMode::Script: label = "New Script Name:"; break;
         case CreateMode::Folder: label = "New Folder Name:"; break;
         case CreateMode::Scene:  label = "New Scene Name:";  break;
+        case CreateMode::AnimationClip: label = "New Animation Clip Name:"; break;
+        case CreateMode::AnimatorController: label = "New Animator Controller Name:"; break;
+        case CreateMode::TileSet: label = "New Tile Set Name:"; break;
         default: break;
     }
 
@@ -565,6 +566,27 @@ void ProjectBrowserWindow::StartCreateFolder() {
 void ProjectBrowserWindow::StartCreateScene() {
     createMode = CreateMode::Scene;
     strncpy(createNameBuffer, "NewScene", sizeof(createNameBuffer) - 1);
+    createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
+    createFocusNextFrame = true;
+}
+
+void ProjectBrowserWindow::StartCreateAnimationClip() {
+    createMode = CreateMode::AnimationClip;
+    strncpy(createNameBuffer, "NewAnimation", sizeof(createNameBuffer) - 1);
+    createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
+    createFocusNextFrame = true;
+}
+
+void ProjectBrowserWindow::StartCreateAnimatorController() {
+    createMode = CreateMode::AnimatorController;
+    strncpy(createNameBuffer, "NewAnimator", sizeof(createNameBuffer) - 1);
+    createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
+    createFocusNextFrame = true;
+}
+
+void ProjectBrowserWindow::StartCreateTileSet() {
+    createMode = CreateMode::TileSet;
+    strncpy(createNameBuffer, "NewTileSet", sizeof(createNameBuffer) - 1);
     createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
     createFocusNextFrame = true;
 }
@@ -665,6 +687,27 @@ void ProjectBrowserWindow::FinishCreate() {
             } else {
                 Log::Error("ProjectBrowser", "Failed to create scene: " + name);
             }
+            break;
+        }
+        case CreateMode::AnimationClip:
+        case CreateMode::AnimatorController:
+        case CreateMode::TileSet: {
+            const char* extension = createMode == CreateMode::AnimationClip ? ".animclip" :
+                                    createMode == CreateMode::AnimatorController ? ".animator" :
+                                    ".tileset";
+            const char* contents = createMode == CreateMode::AnimationClip ?
+                "{\n  \"schemaVersion\": 1,\n  \"textureGuid\": \"\",\n  \"loop\": true,\n  \"frames\": []\n}\n" :
+                createMode == CreateMode::AnimatorController ?
+                "{\n  \"schemaVersion\": 1,\n  \"parameters\": [],\n  \"states\": [],\n  \"defaultStateId\": \"\",\n  \"transitions\": []\n}\n" :
+                "{\n  \"schemaVersion\": 1,\n  \"cellSize\": [32, 32],\n  \"tiles\": [],\n  \"terrainRules\": []\n}\n";
+            fs::path assetPath = fs::path(currentPath) / (name + extension);
+            if (fs::exists(assetPath)) {
+                Log::Warn("ProjectBrowser", "Asset already exists: " + assetPath.filename().string());
+                break;
+            }
+            Editor::Get().GetAssetCommandHistory().Execute(
+                std::make_unique<molga::ProjectFileCreateCommand>(assetPath, contents, false));
+            Log::Info("ProjectBrowser", "Asset created: " + assetPath.filename().string());
             break;
         }
         default:

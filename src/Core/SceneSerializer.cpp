@@ -208,7 +208,8 @@ bool SceneSerializer::DeserializeScene(
                     if (comp) {
                         comp->Deserialize(compJson);
                         if (compJson.contains("enabled"))
-                            comp->SetEnabled(compJson["enabled"].get<bool>());
+                            comp->SetEnabledFromSerializedState(
+                                compJson["enabled"].get<bool>());
                     } else {
                         std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
                     }
@@ -318,7 +319,8 @@ std::shared_ptr<GameObject> SceneSerializer::DeserializeGameObject(const std::st
             if (comp) {
                 comp->Deserialize(compJson);
                 if (compJson.contains("enabled")) {
-                    comp->SetEnabled(compJson["enabled"].get<bool>());
+                    comp->SetEnabledFromSerializedState(
+                        compJson["enabled"].get<bool>());
                 }
             } else {
                 std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
@@ -525,7 +527,8 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
                 if (comp) {
                     comp->Deserialize(compJson);
                     if (compJson.contains("enabled"))
-                        comp->SetEnabled(compJson["enabled"].get<bool>());
+                        comp->SetEnabledFromSerializedState(
+                            compJson["enabled"].get<bool>());
                 } else {
                     std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
                 }

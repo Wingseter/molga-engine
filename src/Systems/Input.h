@@ -1,9 +1,22 @@
 #pragma once
 
 #include <GLFW/glfw3.h>
+#include <array>
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
+
+struct InputSnapshot {
+    std::array<bool, 512> keys{};
+    std::array<bool, 8> mouseButtons{};
+    std::array<bool, 15> gamepadButtons{};
+    std::array<float, 6> gamepadAxes{};
+    float mouseX = 0.0f;
+    float mouseY = 0.0f;
+    float scrollX = 0.0f;
+    float scrollY = 0.0f;
+    bool pointerValid = false;
+};
 
 class Input {
 public:
@@ -34,6 +47,20 @@ public:
 
     static void Init(GLFWwindow* window);
     static void Update();
+
+    // Editor Game View captures the detached panel's native GLFW window and
+    // maps its pointer to output pixels before gameplay scripts run.
+    static InputSnapshot CaptureSnapshot(GLFWwindow* sourceWindow,
+                                         float mappedMouseX,
+                                         float mappedMouseY,
+                                         bool pointerValid);
+    // ImGui platform windows are created after Input::Init. Registering their
+    // native window installs a chaining scroll callback without disturbing
+    // ImGui's own wheel handling.
+    static void RegisterScrollSource(GLFWwindow* sourceWindow);
+    static void DiscardPendingScroll(GLFWwindow* sourceWindow);
+    static void ApplySnapshot(const InputSnapshot& snapshot);
+    static void ReleaseAll();
 
     // Keyboard
     static bool GetKey(int key);
@@ -71,6 +98,10 @@ public:
     static void SetMouseButtonForTesting(int button, bool pressed);
     static void SetGamepadButtonForTesting(int button, bool pressed);
     static void SetGamepadAxisForTesting(int axis, float value);
+    static void AddScrollForTesting(GLFWwindow* sourceWindow,
+                                    float xoffset, float yoffset);
+    static InputSnapshot ConsumeScrollForTesting(GLFWwindow* sourceWindow,
+                                                 bool pointerValid = true);
 
 private:
     static GLFWwindow* window;
@@ -99,5 +130,5 @@ private:
     static float scrollX, scrollY;
 
     static void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset);
+    static void UpdateActions();
 };
-

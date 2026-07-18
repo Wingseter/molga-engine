@@ -6,7 +6,11 @@
 #include "Core/Importers/TextureImporter.h"
 #include "Core/Importers/AudioImporter.h"
 #include "Core/Importers/FontImporter.h"
+#include "Core/Importers/ImporterRegistry.h"
+#include "Core/PersistentStorage.h"
+#include "Core/TextureImportSettings.h"
 #include "Core/PathService.h"
+#include "Core/TextureManager.h"
 #include "Rendering/TextRenderer.h"
 #include <algorithm>
 #include <cstdint>
@@ -16,14 +20,6 @@
 #include <sstream>
 
 namespace molga {
-
-static ImportResult RunImporterImpl(const std::string& importer, const std::string& abs) {
-    if (importer == "TextureImporter") return TextureImporter().Import(abs);
-    if (importer == "AudioImporter")   return AudioImporter().Import(abs);
-    if (importer == "PrefabImporter")  return PrefabImporter().Import(abs);
-    if (importer == "FontImporter")    return FontImporter().Import(abs);
-    ImportResult ok; ok.success = true; return ok;  // GenericImporter
-}
 
 static std::string ComputeFileHash(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
@@ -59,10 +55,10 @@ std::string AssetDatabase::NormalizeRel(const std::filesystem::path& rel) {
 }
 
 std::string AssetDatabase::ImporterForExtension(const std::string& ext, int& versionOut) {
-    if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") { versionOut = 1; return "TextureImporter"; }
-    if (ext == ".wav" || ext == ".mp3" || ext == ".ogg")  { versionOut = 1; return "AudioImporter"; }
-    if (ext == ".prefab")                                  { versionOut = 1; return "PrefabImporter"; }
-    if (ext == ".ttf" || ext == ".otf")                    { versionOut = 1; return "FontImporter"; }
+    if (const IImporter* importer = ImporterRegistry::Get().FindForExtension(ext)) {
+        versionOut = importer->Version();
+        return importer->Name();
+    }
     versionOut = 1;
     return "GenericImporter";
 }
@@ -73,16 +69,40 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
                    [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
     if (ext == ".meta") return;  // sidecar 자체는 애셋이 아니다
 
+    const bool hadSidecar = std::filesystem::exists(AssetMeta::MetaPathFor(absPath));
     int version = 1;
     std::string importer = ImporterForExtension(ext, version);
     AssetMeta meta = AssetMeta::CreateOrLoad(absPath, importer, version);
 
     // Migrate sidecars created before a built-in importer existed (notably
     // .ttf/.otf files that used to be GenericImporter).
-    if (importer != "GenericImporter" &&
-        (meta.importer != importer || meta.importerVersion != version)) {
+    bool metaChanged = false;
+    if (importer != "GenericImporter" && meta.importer == "GenericImporter") {
         meta.importer = importer;
         meta.importerVersion = version;
+        metaChanged = true;
+    } else if (meta.importer == importer && meta.importerVersion < version) {
+        // Upgrade old built-in sidecars, but never downgrade a sidecar written
+        // by a newer editor or replace an explicitly selected custom importer.
+        meta.importerVersion = version;
+        metaChanged = true;
+    }
+    if (meta.importer == "TextureImporter") {
+        // Existing sidecars without a colour-space field keep their historical
+        // linear appearance; brand-new assets receive the P1 SRGB defaults.
+        const TextureImportSettings settings = DeserializeTextureImportSettings(
+            meta.settings, hadSidecar);
+        const nlohmann::json serialized = SerializeTextureImportSettings(settings);
+        if (serialized != meta.settings) {
+            meta.settings = serialized;
+            metaChanged = true;
+        }
+    }
+    if (meta.importer == "AudioImporter" && meta.settings.empty()) {
+        meta.settings = {{"loadMode", "DecodeOnLoad"}};
+        metaChanged = true;
+    }
+    if (metaChanged) {
         AssetMeta::Write(absPath, meta);
     }
 
@@ -106,13 +126,24 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
     rec.sourcePath = NormalizeRel(rel);
     rec.importer = meta.importer;
     rec.importerVersion = meta.importerVersion;
+    rec.settings = meta.settings;
 
-    ImportResult res = RunImporter(importer, absPath.string());
+    ImportResult res = RunImporter(meta.importer, absPath.string(), meta.settings);
     rec.importFailed = !res.success;
+    rec.importError = res.error;
     rec.artifactPath = res.artifactPath;
+    rec.dependencies = std::move(res.dependencies);
+    rec.metadata = std::move(res.metadata);
     if (res.width > 0)  rec.textureWidth  = res.width;
     if (res.height > 0) rec.textureHeight = res.height;
 
+    const auto duplicate = byGuid_.find(rec.guid);
+    if (duplicate != byGuid_.end() && duplicate->second.sourcePath != rec.sourcePath) {
+        rec.importFailed = true;
+        rec.importError = "duplicate asset guid also used by " + duplicate->second.sourcePath;
+        duplicate->second.importFailed = true;
+        duplicate->second.importError = "duplicate asset guid also used by " + rec.sourcePath;
+    }
     sourceToGuid_[rec.sourcePath] = rec.guid;
     byGuid_[rec.guid] = std::move(rec);
 }
@@ -122,6 +153,7 @@ void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
         TextRenderer::Get().InvalidateAllFonts();
     }
     assetRoot_ = assetRoot;
+    catalogPackageRoot_ = false;
     byGuid_.clear();
     sourceToGuid_.clear();
     if (assetRoot_.empty() || !std::filesystem::exists(assetRoot_)) return;
@@ -193,7 +225,7 @@ std::string AssetDatabase::GuidForAbsolutePath(const std::filesystem::path& abso
     if (assetRoot_.empty() || absolutePath.empty()) return "";
     
     std::filesystem::path rootDir = assetRoot_;
-    if (assetRoot_.filename() == "Assets") {
+    if (!catalogPackageRoot_ && assetRoot_.filename() == "Assets") {
         rootDir = assetRoot_.parent_path();
     }
     
@@ -221,22 +253,100 @@ std::filesystem::path AssetDatabase::AbsoluteSourcePath(const std::string& guid)
     const AssetRecord* rec = Find(guid);
     if (!rec) return {};
     
-    std::filesystem::path rootDir = assetRoot_;
-    if (assetRoot_.filename() == "Assets") {
-        rootDir = assetRoot_.parent_path();
+    if (catalogPackageRoot_) {
+        return assetRoot_ / rec->sourcePath;
     }
-    return rootDir / rec->sourcePath;
+    if (assetRoot_.filename() == "Assets") {
+        return assetRoot_.parent_path() / rec->sourcePath;
+    }
+
+    std::filesystem::path relative = rec->sourcePath;
+    auto first = relative.begin();
+    if (first != relative.end() && *first == "Assets") {
+        relative = relative.lexically_relative("Assets");
+    }
+    return assetRoot_ / relative;
 }
 
 void AssetDatabase::Reimport(const std::string& guid) {
-    const AssetRecord* rec = Find(guid);
-    if (!rec) return;
+    TryReimport(guid, nullptr);
+}
+
+bool AssetDatabase::TryReimport(const std::string& guid, std::string* errorOut) {
+    const AssetRecord* current = Find(guid);
+    if (!current) {
+        if (errorOut) *errorOut = "unknown asset guid: " + guid;
+        return false;
+    }
+    const AssetRecord previous = *current;
     const std::filesystem::path source = AbsoluteSourcePath(guid);
-    const bool isFont = rec->importer == "FontImporter";
+    const AssetMeta meta = AssetMeta::CreateOrLoad(
+        source, previous.importer, previous.importerVersion);
+    ImportResult result = RunImporter(meta.importer, source.string(), meta.settings);
+    if (!result.success) {
+        AssetRecord& failed = byGuid_[guid];
+        failed.importFailed = true;
+        failed.importError = result.error;
+        if (errorOut) *errorOut = result.error;
+        // Runtime consumers continue using the last successfully uploaded
+        // Texture object. Only the diagnostic state changes on failure.
+        return false;
+    }
+
     IndexOne(source);
-    if (isFont && this == &AssetDatabase::Get()) {
+    AssetRecord* refreshed = const_cast<AssetRecord*>(Find(guid));
+    if (!refreshed || refreshed->importFailed) {
+        byGuid_[guid] = previous;
+        if (errorOut) *errorOut = refreshed ? refreshed->importError
+                                            : "reimport changed asset guid";
+        return false;
+    }
+
+    if (previous.importer == "TextureImporter" && this == &AssetDatabase::Get()) {
+        const TextureImportSettings settings =
+            DeserializeTextureImportSettings(refreshed->settings, true);
+        std::string reloadError;
+        if (!TextureManager::Get().Reload(source.string(), settings, &reloadError)) {
+            // Reload returns true when the texture was not resident. A false
+            // result means a resident last-good texture could not be replaced.
+            refreshed->importFailed = true;
+            refreshed->importError = reloadError;
+            if (errorOut) *errorOut = reloadError;
+            return false;
+        }
+    }
+    if (previous.importer == "FontImporter" && this == &AssetDatabase::Get()) {
         TextRenderer::Get().InvalidateFont(guid);
     }
+    if (errorOut) errorOut->clear();
+    return true;
+}
+
+AssetMeta AssetDatabase::MetaForGuid(const std::string& guid) const {
+    const AssetRecord* record = Find(guid);
+    if (!record) return {};
+    const std::filesystem::path source = AbsoluteSourcePath(guid);
+    return AssetMeta::CreateOrLoad(source, record->importer, record->importerVersion);
+}
+
+bool AssetDatabase::WriteMeta(const std::string& guid, const AssetMeta& meta,
+                              bool reimport, std::string* errorOut) {
+    const std::filesystem::path source = AbsoluteSourcePath(guid);
+    if (source.empty()) {
+        if (errorOut) *errorOut = "unknown asset guid: " + guid;
+        return false;
+    }
+    if (meta.guid != guid) {
+        if (errorOut) *errorOut = "asset meta guid cannot be changed";
+        return false;
+    }
+    if (!AssetMeta::Write(source, meta)) {
+        if (errorOut) *errorOut = "could not atomically write asset meta";
+        return false;
+    }
+    if (reimport) return TryReimport(guid, errorOut);
+    if (errorOut) errorOut->clear();
+    return true;
 }
 
 void AssetDatabase::OnSourceAdded(const std::filesystem::path& rel) {
@@ -284,34 +394,42 @@ void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
 bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
     try {
         nlohmann::json j;
-        j["schemaVersion"] = 1;
+        j["schemaVersion"] = 2;
         j["assetRootMode"] = "packageRoot";
         
-        std::filesystem::path rootDir = assetRoot_;
-        if (assetRoot_.filename() == "Assets") {
-            rootDir = assetRoot_.parent_path();
+        std::vector<const AssetRecord*> ordered;
+        ordered.reserve(byGuid_.size());
+        for (const auto& [guid, rec] : byGuid_) {
+            (void)guid;
+            ordered.push_back(&rec);
         }
+        std::sort(ordered.begin(), ordered.end(), [](const AssetRecord* lhs,
+                                                     const AssetRecord* rhs) {
+            return lhs->sourcePath < rhs->sourcePath;
+        });
 
         nlohmann::json recordsJson = nlohmann::json::array();
-        for (const auto& [guid, rec] : byGuid_) {
+        for (const AssetRecord* record : ordered) {
+            const AssetRecord& rec = *record;
             nlohmann::json r;
             r["guid"] = rec.guid;
             r["sourcePath"] = rec.sourcePath;
             r["importer"] = rec.importer;
             r["importerVersion"] = rec.importerVersion;
             r["artifactPath"] = rec.artifactPath;
-            r["hash"] = ComputeFileHash(rootDir / rec.sourcePath);
+            r["hash"] = ComputeFileHash(AbsoluteSourcePath(rec.guid));
             r["width"] = rec.textureWidth;
             r["height"] = rec.textureHeight;
+            r["settings"] = rec.settings;
+            r["dependencies"] = rec.dependencies;
+            r["metadata"] = rec.metadata;
+            r["importFailed"] = rec.importFailed;
+            r["importError"] = rec.importError;
+            r["generated"] = rec.generated;
             recordsJson.push_back(r);
         }
         j["records"] = recordsJson;
-        
-        std::filesystem::create_directories(path.parent_path());
-        std::ofstream file(path);
-        if (!file.is_open()) return false;
-        file << j.dump(2);
-        return true;
+        return PersistentStorage::AtomicWriteText(path, j.dump(2));
     } catch (...) {
         return false;
     }
@@ -320,6 +438,7 @@ bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
 bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::filesystem::path& packageRoot) {
     Clear();
     assetRoot_ = packageRoot;
+    catalogPackageRoot_ = true;
     
     if (!std::filesystem::exists(path)) {
         return false;
@@ -331,6 +450,11 @@ bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::fi
         nlohmann::json j;
         file >> j;
         
+        const int schemaVersion = j.value("schemaVersion", 1);
+        if (schemaVersion < 1 || schemaVersion > 2 ||
+            !j.contains("records") || !j["records"].is_array()) {
+            return false;
+        }
         if (j.contains("records") && j["records"].is_array()) {
             for (const auto& r : j["records"]) {
                 AssetRecord rec;
@@ -342,6 +466,25 @@ bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::fi
                 rec.hash = r.value("hash", "");
                 rec.textureWidth = r.value("width", 0);
                 rec.textureHeight = r.value("height", 0);
+                if (schemaVersion >= 2) {
+                    if (r.contains("settings") && r["settings"].is_object())
+                        rec.settings = r["settings"];
+                    if (r.contains("dependencies") && r["dependencies"].is_array())
+                        rec.dependencies = r["dependencies"].get<std::vector<std::string>>();
+                    if (r.contains("metadata") && r["metadata"].is_object())
+                        rec.metadata = r["metadata"];
+                    rec.importFailed = r.value("importFailed", false);
+                    rec.importError = r.value("importError", std::string{});
+                    rec.generated = r.value("generated", false);
+                }
+
+                if (!Guid::IsValid(rec.guid) || rec.sourcePath.empty() ||
+                    sourceToGuid_.count(rec.sourcePath) != 0 || byGuid_.count(rec.guid) != 0) {
+                    Clear();
+                    assetRoot_ = packageRoot;
+                    catalogPackageRoot_ = true;
+                    return false;
+                }
                 
                 sourceToGuid_[rec.sourcePath] = rec.guid;
                 byGuid_[rec.guid] = std::move(rec);
@@ -349,6 +492,9 @@ bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::fi
         }
         return true;
     } catch (...) {
+        Clear();
+        assetRoot_ = packageRoot;
+        catalogPackageRoot_ = true;
         return false;
     }
 }
@@ -359,6 +505,7 @@ void AssetDatabase::Clear() {
     }
     byGuid_.clear();
     sourceToGuid_.clear();
+    catalogPackageRoot_ = false;
 }
 
 std::filesystem::path AssetDatabase::MissingTexturePath() {
@@ -369,8 +516,9 @@ std::filesystem::path AssetDatabase::MissingTexturePath() {
     return PathService::Get().EngineResource("Editor/missing_texture.png");
 }
 
-ImportResult AssetDatabase::RunImporter(const std::string& importer, const std::string& abs) {
-    return RunImporterImpl(importer, abs);
+ImportResult AssetDatabase::RunImporter(const std::string& importer, const std::string& abs,
+                                        const nlohmann::json& settings) {
+    return ImporterRegistry::Get().Import(importer, abs, settings);
 }
 
 } // namespace molga

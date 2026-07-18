@@ -1,6 +1,8 @@
 #include "Editor/Commands/ProjectFileCommands.h"
 #include "Core/AssetDatabase.h"
 #include "Core/AssetMeta.h"
+#include "Core/PersistentStorage.h"
+#include "Common/Log.h"
 #include <fstream>
 
 namespace molga {
@@ -76,7 +78,11 @@ void ProjectFileCreateCommand::Execute() {
     if (isDirectory_) {
         fs::create_directories(target_);
     } else {
-        std::ofstream(target_) << contents_;
+        std::string error;
+        if (!PersistentStorage::AtomicWriteText(target_, contents_, &error)) {
+            Log::Error("ProjectFile", "Could not create '" + target_.string() + "': " + error);
+            return;
+        }
         AssetDatabase::Get().OnSourceAdded(
             fs::relative(target_, AssetDatabase::Get().Root()));
     }
@@ -90,5 +96,29 @@ void ProjectFileCreateCommand::Undo() {
             fs::relative(target_, AssetDatabase::Get().Root()));
     }
 }
+
+AssetContentCommand::AssetContentCommand(fs::path target, std::string before,
+                                         std::string after, std::string assetGuid)
+    : target_(std::move(target)), before_(std::move(before)),
+      after_(std::move(after)), assetGuid_(std::move(assetGuid)) {}
+
+void AssetContentCommand::Apply(const std::string& contents) {
+    std::string error;
+    succeeded_ = PersistentStorage::AtomicWriteText(target_, contents, &error);
+    if (!succeeded_) {
+        Log::Error("AssetContent", "Could not write '" + target_.string() + "': " + error);
+        return;
+    }
+    if (!assetGuid_.empty()) {
+        // A failed import intentionally keeps the edited source/meta and the
+        // last-good runtime resource. The catalog exposes the failure badge;
+        // Undo remains able to restore the prior contents.
+        AssetDatabase::Get().TryReimport(assetGuid_, &error);
+        if (!error.empty()) Log::Warn("AssetContent", error);
+    }
+}
+
+void AssetContentCommand::Execute() { Apply(after_); }
+void AssetContentCommand::Undo() { Apply(before_); }
 
 } // namespace molga

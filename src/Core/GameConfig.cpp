@@ -7,12 +7,30 @@
 namespace {
 
 bool ParseGameConfigJson(const nlohmann::json& j, GameConfig& config) {
+    if (!j.is_object()) return false;
+    const int storedSchemaVersion = j.value("schemaVersion", 1);
+    if (storedSchemaVersion < 1 ||
+        storedSchemaVersion > GameConfig::CurrentSchemaVersion) {
+        return false;
+    }
+    config.schemaVersion = GameConfig::CurrentSchemaVersion;
+    config.outputScaleMode = molga::GameOutputScaleMode::Native;
+    config.resizable = true;
     if (j.contains("gameName")) config.gameName = j["gameName"].get<std::string>();
     if (j.contains("companyName")) config.companyName = j["companyName"].get<std::string>();
     if (j.contains("mainScene")) config.mainScene = j["mainScene"].get<std::string>();
     if (j.contains("windowWidth")) config.windowWidth = j["windowWidth"].get<int>();
     if (j.contains("windowHeight")) config.windowHeight = j["windowHeight"].get<int>();
     if (j.contains("fullscreen")) config.fullscreen = j["fullscreen"].get<bool>();
+    if (j.contains("resizable")) config.resizable = j["resizable"].get<bool>();
+    if (storedSchemaVersion >= 2 && j.contains("outputScaleMode")) {
+        if (!j["outputScaleMode"].is_string() ||
+            !molga::TryParseGameOutputScaleMode(
+                j["outputScaleMode"].get<std::string>(),
+                config.outputScaleMode)) {
+            return false;
+        }
+    }
     if (j.contains("projectSettings")) {
         ProjectSettings::Get().Deserialize(j["projectSettings"]);
     }

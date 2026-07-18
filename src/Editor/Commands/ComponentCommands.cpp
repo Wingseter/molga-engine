@@ -7,6 +7,7 @@
 #include "Scripting/ScriptManager.h"
 #include "Scripting/Script.h"
 #include "Editor/Editor.h"
+#include "Core/PrefabUtil.h"
 #include <iostream>
 
 namespace molga {
@@ -25,7 +26,44 @@ Component* ResolveComponentIdentity(GameObject* object, size_t typeId,
     return nullptr;
 }
 
+void RefreshNearestPrefabOverrides(const std::vector<unsigned int>& targetIds) {
+    std::vector<GameObject*> targets;
+    targets.reserve(targetIds.size());
+    for (unsigned int targetId : targetIds) {
+        if (GameObject* target = FindGameObjectById(targetId)) {
+            targets.push_back(target);
+        }
+    }
+    PrefabUtil::RefreshNearestInstanceOverrides(targets);
+}
+
 } // namespace
+
+std::vector<ComponentSnapshotChange> CaptureAppliedComponentChanges(
+    const std::vector<ComponentSnapshotBaseline>& baselines) {
+    std::vector<ComponentSnapshotChange> changes;
+    changes.reserve(baselines.size());
+    for (const ComponentSnapshotBaseline& baseline : baselines) {
+        GameObject* object = FindGameObjectById(baseline.targetId);
+        Component* component = ResolveComponentIdentity(
+            object, baseline.runtimeTypeId, baseline.instanceId);
+        if (!component || component->GetTypeName() != baseline.componentType) continue;
+
+        nlohmann::json after = CaptureComponentSnapshot(component);
+        // Serialize() is an extension point and may replace a component while
+        // producing the snapshot. Do not attach the old snapshot to the new
+        // same-type instance.
+        component = ResolveComponentIdentity(
+            FindGameObjectById(baseline.targetId), baseline.runtimeTypeId,
+            baseline.instanceId);
+        if (!component || component->GetTypeName() != baseline.componentType) continue;
+        if (after != baseline.before) {
+            changes.push_back({baseline.targetId, baseline.componentType,
+                               baseline.before, std::move(after)});
+        }
+    }
+    return changes;
+}
 
 // --- ComponentSnapshotCommand ---
 
@@ -39,6 +77,7 @@ void ComponentSnapshotCommand::Execute() {
     GameObject* obj = FindGameObjectById(targetId_);
     if (obj) {
         RestoreComponentSnapshot(obj, afterSnap_);
+        RefreshNearestPrefabOverrides({targetId_});
         Editor::Get().MarkSceneModified();
     }
 }
@@ -47,9 +86,56 @@ void ComponentSnapshotCommand::Undo() {
     GameObject* obj = FindGameObjectById(targetId_);
     if (obj) {
         RestoreComponentSnapshot(obj, beforeSnap_);
+        RefreshNearestPrefabOverrides({targetId_});
         Editor::Get().MarkSceneModified();
     }
 }
+
+// --- BatchComponentSnapshotCommand ---
+
+BatchComponentSnapshotCommand::BatchComponentSnapshotCommand(
+    std::vector<ComponentSnapshotChange> changes, bool valuesAlreadyApplied)
+    : changes_(std::move(changes)), valuesAlreadyApplied_(valuesAlreadyApplied) {}
+
+void BatchComponentSnapshotCommand::FinalizeAppliedTargets() {
+    std::vector<unsigned int> changedTargets;
+    changedTargets.reserve(changes_.size());
+    for (const auto& change : changes_) {
+        if (FindGameObjectById(change.targetId)) changedTargets.push_back(change.targetId);
+    }
+    if (!changedTargets.empty()) {
+        RefreshNearestPrefabOverrides(changedTargets);
+        Editor::Get().MarkSceneModified();
+    }
+}
+
+void BatchComponentSnapshotCommand::Apply(bool after) {
+    std::vector<unsigned int> changedTargets;
+    changedTargets.reserve(changes_.size());
+    for (const auto& change : changes_) {
+        GameObject* object = FindGameObjectById(change.targetId);
+        if (!object) continue;
+        RestoreComponentSnapshot(object, after ? change.after : change.before);
+        changedTargets.push_back(change.targetId);
+    }
+    if (!changedTargets.empty()) {
+        RefreshNearestPrefabOverrides(changedTargets);
+        Editor::Get().MarkSceneModified();
+    }
+}
+
+void BatchComponentSnapshotCommand::Execute() {
+    if (valuesAlreadyApplied_) {
+        // Inspector gestures are previewed live. Adopting that state avoids a
+        // restore/reapply cycle, which would invoke SetEnabled lifecycle hooks
+        // three times for one click. Redo uses the normal Apply path.
+        valuesAlreadyApplied_ = false;
+        FinalizeAppliedTargets();
+        return;
+    }
+    Apply(true);
+}
+void BatchComponentSnapshotCommand::Undo() { Apply(false); }
 
 // --- ComponentAddCommand ---
 

@@ -4,8 +4,15 @@
 #include "Editor/Commands/PropertyCommands.h"
 #include "Editor/Commands/ComponentCommands.h"
 #include "Editor/Commands/ObjectCommands.h"
+#include "Editor/Properties/EditorPropertyDescriptor.h"
+#include "Core/AssetDatabase.h"
+#include "Core/PathService.h"
+#include "Core/PrefabRegistry.h"
+#include "Core/SceneSerializer.h"
 #include "ECS/GameObject.h"
+#include "ECS/Components/PrefabInstance.h"
 #include "ECS/Components/Transform.h"
+#include "ECS/Components/Animator2D.h"
 #include "ECS/Components/SpriteRenderer.h"
 #include "ECS/Components/RectTransform.h"
 #include "ECS/Components/UIButton.h"
@@ -16,6 +23,8 @@
 #include <memory>
 #include <vector>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 
 // --- Mock Editor Implementation ---
 
@@ -87,6 +96,17 @@ public:
     static inline int resolveCount = 0;
 };
 
+class LifecycleCountingComponent : public Component {
+public:
+    COMPONENT_TYPE(LifecycleCountingComponent)
+
+    void OnEnable() override { ++enableCount; }
+    void OnDisable() override { ++disableCount; }
+
+    int enableCount = 0;
+    int disableCount = 0;
+};
+
 } // namespace
 
 // Mock implementations of EditorState transition callbacks
@@ -153,6 +173,27 @@ std::shared_ptr<GameObject> Editor::AddExistingObject(std::shared_ptr<GameObject
         s_gameObjects->push_back(obj);
     }
     return obj;
+}
+
+std::shared_ptr<GameObject> Editor::InsertExistingObjectAt(
+    std::shared_ptr<GameObject> obj, std::size_t index) {
+    if (s_gameObjects && obj) {
+        index = std::min(index, s_gameObjects->size());
+        s_gameObjects->insert(
+            s_gameObjects->begin() + static_cast<std::ptrdiff_t>(index), obj);
+    }
+    return obj;
+}
+
+bool Editor::TryGetObjectIndex(unsigned int id, std::size_t& index) const {
+    if (!s_gameObjects) return false;
+    for (std::size_t i = 0; i < s_gameObjects->size(); ++i) {
+        if ((*s_gameObjects)[i] && (*s_gameObjects)[i]->GetID() == id) {
+            index = i;
+            return true;
+        }
+    }
+    return false;
 }
 
 void Editor::RemoveObjectsByIds(const std::vector<unsigned int>& ids) {
@@ -317,6 +358,295 @@ TEST_CASE("ComponentSnapshotCommand size/color/enabled (Phase 3)") {
     CHECK_FALSE(sr->IsEnabled());
 
     s_gameObjects = nullptr;
+}
+
+TEST_CASE("BatchComponentSnapshotCommand changes every target in one undo step") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    auto& history = Editor::Get().GetCommandHistory();
+    history.Clear();
+
+    auto first = std::make_shared<GameObject>("First");
+    auto second = std::make_shared<GameObject>("Second");
+    auto* firstRenderer = first->AddComponent<SpriteRenderer>();
+    auto* secondRenderer = second->AddComponent<SpriteRenderer>();
+    firstRenderer->SetSize(10.f, 11.f);
+    secondRenderer->SetSize(20.f, 21.f);
+    gameObjects = {first, second};
+
+    const nlohmann::json firstBefore = molga::CaptureComponentSnapshot(firstRenderer);
+    const nlohmann::json secondBefore = molga::CaptureComponentSnapshot(secondRenderer);
+    firstRenderer->SetSize(100.f, 11.f);
+    secondRenderer->SetSize(100.f, 21.f);
+    const nlohmann::json firstAfter = molga::CaptureComponentSnapshot(firstRenderer);
+    const nlohmann::json secondAfter = molga::CaptureComponentSnapshot(secondRenderer);
+    molga::RestoreComponentSnapshot(first.get(), firstBefore);
+    molga::RestoreComponentSnapshot(second.get(), secondBefore);
+
+    history.Execute(std::make_unique<molga::BatchComponentSnapshotCommand>(
+        std::vector<molga::ComponentSnapshotChange>{
+            {first->GetID(), "SpriteRenderer", firstBefore, firstAfter},
+            {second->GetID(), "SpriteRenderer", secondBefore, secondAfter},
+        }));
+    CHECK(firstRenderer->GetWidth() == doctest::Approx(100.f));
+    CHECK(secondRenderer->GetWidth() == doctest::Approx(100.f));
+    history.Undo();
+    CHECK(firstRenderer->GetWidth() == doctest::Approx(10.f));
+    CHECK(secondRenderer->GetWidth() == doctest::Approx(20.f));
+    CHECK_FALSE(history.CanUndo());
+
+    // Deleting one target between undo and redo must not invalidate the rest.
+    gameObjects.erase(gameObjects.begin() + 1);
+    CHECK_NOTHROW(history.Redo());
+    CHECK(firstRenderer->GetWidth() == doctest::Approx(100.f));
+    s_gameObjects = nullptr;
+}
+
+TEST_CASE("adopted batch preview does not replay enabled lifecycle callbacks") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    auto& history = Editor::Get().GetCommandHistory();
+    history.Clear();
+
+    auto first = std::make_shared<GameObject>("First lifecycle");
+    auto second = std::make_shared<GameObject>("Second lifecycle");
+    auto* firstComponent = first->AddComponent<LifecycleCountingComponent>();
+    auto* secondComponent = second->AddComponent<LifecycleCountingComponent>();
+    gameObjects = {first, second};
+
+    const nlohmann::json firstBefore =
+        molga::CaptureComponentSnapshot(firstComponent);
+    const nlohmann::json secondBefore =
+        molga::CaptureComponentSnapshot(secondComponent);
+
+    // This is the Inspector's live preview. Each target receives one callback.
+    firstComponent->SetEnabled(false);
+    secondComponent->SetEnabled(false);
+    const nlohmann::json firstAfter =
+        molga::CaptureComponentSnapshot(firstComponent);
+    const nlohmann::json secondAfter =
+        molga::CaptureComponentSnapshot(secondComponent);
+
+    history.Execute(std::make_unique<molga::BatchComponentSnapshotCommand>(
+        std::vector<molga::ComponentSnapshotChange>{
+            {first->GetID(), "LifecycleCountingComponent", firstBefore, firstAfter},
+            {second->GetID(), "LifecycleCountingComponent", secondBefore, secondAfter},
+        }, true));
+    CHECK(firstComponent->disableCount == 1);
+    CHECK(secondComponent->disableCount == 1);
+    CHECK_FALSE(firstComponent->IsEnabled());
+    CHECK_FALSE(secondComponent->IsEnabled());
+
+    history.Undo();
+    CHECK(firstComponent->enableCount == 1);
+    CHECK(secondComponent->enableCount == 1);
+    CHECK(firstComponent->IsEnabled());
+    CHECK(secondComponent->IsEnabled());
+
+    history.Redo();
+    CHECK(firstComponent->disableCount == 2);
+    CHECK(secondComponent->disableCount == 2);
+    CHECK_FALSE(firstComponent->IsEnabled());
+    CHECK_FALSE(secondComponent->IsEnabled());
+    s_gameObjects = nullptr;
+}
+
+TEST_CASE("single component snapshots refresh nearest prefab overrides") {
+    namespace fs = std::filesystem;
+    const fs::path oldAssetRoot = PathService::Get().AssetRoot();
+    const fs::path assetRoot = fs::temp_directory_path() /
+        "molga_single_prefab_override_assets";
+    std::error_code error;
+    fs::remove_all(assetRoot, error);
+    fs::create_directories(assetRoot, error);
+    REQUIRE_FALSE(error);
+    PathService::Get().SetAssetRoot(assetRoot);
+    PrefabRegistry::Get().ScanAssets();
+
+    auto object = std::make_shared<GameObject>("Single prefab");
+    auto* renderer = object->AddComponent<SpriteRenderer>();
+    renderer->SetSize(20.f, 30.f);
+    const std::string guid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaac";
+    REQUIRE(PrefabRegistry::Get().SavePrefab(
+        guid, "single.prefab", SceneSerializer::SerializeSubtree(object.get())));
+
+    auto* instance = object->AddComponent<PrefabInstance>();
+    instance->SetPrefabGuid(guid);
+    instance->SetIdRemap({{object->GetID(), object->GetID()}});
+    std::vector<std::shared_ptr<GameObject>> gameObjects{object};
+    s_gameObjects = &gameObjects;
+
+    const nlohmann::json before = molga::CaptureComponentSnapshot(renderer);
+    renderer->SetSize(80.f, 90.f);
+    const nlohmann::json after = molga::CaptureComponentSnapshot(renderer);
+    molga::RestoreComponentSnapshot(object.get(), before);
+    molga::ComponentSnapshotCommand command(
+        object->GetID(), "SpriteRenderer", before, after);
+
+    command.Execute();
+    CHECK_FALSE(instance->GetModifications().empty());
+    command.Undo();
+    CHECK(instance->GetModifications().empty());
+
+    s_gameObjects = nullptr;
+    PathService::Get().SetAssetRoot(oldAssetRoot);
+    fs::remove_all(assetRoot, error);
+}
+
+TEST_CASE("batch component snapshots refresh prefab overrides through persisted reload") {
+    namespace fs = std::filesystem;
+    const fs::path oldAssetRoot = PathService::Get().AssetRoot();
+    const fs::path assetRoot = fs::temp_directory_path() /
+        "molga_batch_prefab_override_assets";
+    std::error_code error;
+    fs::remove_all(assetRoot, error);
+    fs::create_directories(assetRoot, error);
+    REQUIRE_FALSE(error);
+    PathService::Get().SetAssetRoot(assetRoot);
+
+    const fs::path controllerPath = assetRoot / "dropped.animator";
+    {
+        std::ofstream controller(controllerPath);
+        controller << nlohmann::json{
+            {"schemaVersion", 1},
+            {"parameters", nlohmann::json::array()},
+            {"states", nlohmann::json::array({
+                nlohmann::json{{"id", "idle-state"}, {"name", "Idle"},
+                               {"clipGuid", "cccccccccccccccccccccccccccccccc"},
+                               {"speed", 1.0f}}})},
+            {"defaultStateId", "idle-state"},
+            {"transitions", nlohmann::json::array()},
+        }.dump(2);
+    }
+    auto& assetDatabase = molga::AssetDatabase::Get();
+    assetDatabase.Clear();
+    assetDatabase.ScanProject(assetRoot);
+    const std::string controllerGuid =
+        assetDatabase.GuidForAbsolutePath(controllerPath);
+    REQUIRE_FALSE(controllerGuid.empty());
+    const molga::AssetRecord* controllerRecord =
+        assetDatabase.Find(controllerGuid);
+    REQUIRE(controllerRecord != nullptr);
+    CHECK(controllerRecord->importer == "AnimatorControllerImporter");
+    CHECK_FALSE(controllerRecord->importFailed);
+    PrefabRegistry::Get().ScanAssets();
+
+    auto prefabSource = std::make_shared<GameObject>("Batch prefab");
+    prefabSource->AddComponent<Transform>(10.0f, 20.0f);
+    prefabSource->AddComponent<Animator2D>();
+    const std::string guid = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    REQUIRE(PrefabRegistry::Get().SavePrefab(
+        guid, "batch.prefab", SceneSerializer::SerializeSubtree(prefabSource.get())));
+
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    std::unordered_map<unsigned int, unsigned int> firstRemap;
+    std::unordered_map<unsigned int, unsigned int> secondRemap;
+    GameObject* first = PrefabRegistry::Get().Instantiate(guid, gameObjects, firstRemap);
+    GameObject* second = PrefabRegistry::Get().Instantiate(guid, gameObjects, secondRemap);
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    auto* firstInstance = first->AddComponent<PrefabInstance>();
+    auto* secondInstance = second->AddComponent<PrefabInstance>();
+    firstInstance->SetPrefabGuid(guid);
+    secondInstance->SetPrefabGuid(guid);
+    firstInstance->SetIdRemap(firstRemap);
+    secondInstance->SetIdRemap(secondRemap);
+
+    auto* firstAnimator = first->GetComponent<Animator2D>();
+    auto* secondAnimator = second->GetComponent<Animator2D>();
+    REQUIRE(firstAnimator != nullptr);
+    REQUIRE(secondAnimator != nullptr);
+    const nlohmann::json firstBefore =
+        molga::CaptureComponentSnapshot(firstAnimator);
+    const nlohmann::json secondBefore =
+        molga::CaptureComponentSnapshot(secondAnimator);
+    const std::vector<molga::ComponentSnapshotBaseline> baselines{
+        {first->GetID(), firstAnimator->GetRuntimeTypeID(),
+         firstAnimator->GetInstanceID(), "Animator2D", firstBefore},
+        {second->GetID(), secondAnimator->GetRuntimeTypeID(),
+         secondAnimator->GetInstanceID(), "Animator2D", secondBefore},
+    };
+
+    std::vector<molga::EditorComponentIdentity> identities{
+        molga::CaptureEditorComponentIdentity(*firstAnimator),
+        molga::CaptureEditorComponentIdentity(*secondAnimator),
+    };
+    const molga::EditorComponentResolver resolve =
+        [](const molga::EditorComponentIdentity& identity) -> Component* {
+            GameObject* object = molga::FindGameObjectById(identity.objectId);
+            if (!object) return nullptr;
+            for (Component* component : object->GetComponents()) {
+                if (component &&
+                    component->GetRuntimeTypeID() == identity.runtimeTypeId &&
+                    component->GetInstanceID() == identity.instanceId &&
+                    component->GetTypeName() == identity.componentType) {
+                    return component;
+                }
+            }
+            return nullptr;
+        };
+    const auto descriptors =
+        molga::CommonEditorProperties(identities, resolve);
+    const auto controllerProperty = std::find_if(
+        descriptors.begin(), descriptors.end(), [](const auto& descriptor) {
+            return descriptor.key == "controllerGuid";
+        });
+    REQUIRE(controllerProperty != descriptors.end());
+    CHECK(controllerProperty->type == molga::EditorPropertyType::AssetGuid);
+    CHECK(controllerProperty->assetType == "AnimatorControllerImporter");
+    CHECK(molga::ShouldCommitEditorPropertyImmediately(
+        controllerProperty->type, true, false, false, false));
+    CHECK(molga::ApplyEditorPropertyValue(
+        *controllerProperty, identities, resolve, controllerGuid) == 2u);
+    CHECK(firstAnimator->GetControllerGuid() == controllerGuid);
+    CHECK(secondAnimator->GetControllerGuid() == controllerGuid);
+
+    auto changes = molga::CaptureAppliedComponentChanges(baselines);
+    REQUIRE(changes.size() == 2);
+
+    auto& history = Editor::Get().GetCommandHistory();
+    history.Clear();
+    s_sceneModified = false;
+    history.Execute(std::make_unique<molga::BatchComponentSnapshotCommand>(
+        std::move(changes), true));
+    CHECK(history.IsDirty());
+    CHECK(s_sceneModified);
+    CHECK_FALSE(firstInstance->GetModifications().empty());
+    CHECK_FALSE(secondInstance->GetModifications().empty());
+
+    history.Undo();
+    CHECK(firstAnimator->GetControllerGuid().empty());
+    CHECK(secondAnimator->GetControllerGuid().empty());
+    CHECK(firstInstance->GetModifications().empty());
+    CHECK(secondInstance->GetModifications().empty());
+    history.Redo();
+    CHECK(firstAnimator->GetControllerGuid() == controllerGuid);
+    CHECK(secondAnimator->GetControllerGuid() == controllerGuid);
+    CHECK_FALSE(firstInstance->GetModifications().empty());
+    CHECK_FALSE(secondInstance->GetModifications().empty());
+
+    const nlohmann::json saved =
+        SceneSerializer::SerializeScene(gameObjects, "Batch prefab overrides");
+    std::vector<std::shared_ptr<GameObject>> loaded;
+    REQUIRE(SceneSerializer::DeserializeScene(saved, loaded));
+    REQUIRE(loaded.size() == 2);
+    std::size_t loadedWithController = 0;
+    for (const auto& object : loaded) {
+        REQUIRE(object != nullptr);
+        const Animator2D* animator = object->GetComponent<Animator2D>();
+        REQUIRE(animator != nullptr);
+        if (animator->GetControllerGuid() == controllerGuid) {
+            ++loadedWithController;
+        }
+    }
+    CHECK(loadedWithController == 2u);
+
+    history.Clear();
+    s_gameObjects = nullptr;
+    assetDatabase.Clear();
+    PathService::Get().SetAssetRoot(oldAssetRoot);
+    fs::remove_all(assetRoot, error);
 }
 
 TEST_CASE("Component snapshot restore survives self-removal from OnDisable") {
@@ -530,5 +860,208 @@ TEST_CASE("DuplicateObjectCommand subtree and independence (Phase 6)") {
     history.Redo();
     CHECK(gameObjects.size() == 4); // Re-duplicated
 
+    s_gameObjects = nullptr;
+}
+
+TEST_CASE("multi-object hierarchy commands operate on root-most selections with stable redo ids") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    auto& history = Editor::Get().GetCommandHistory();
+    auto& selection = Editor::Get().GetSelection();
+    history.Clear();
+
+    auto parent = std::make_shared<GameObject>("Parent");
+    parent->AddComponent<Transform>();
+    auto child = std::make_shared<GameObject>("Child");
+    child->AddComponent<Transform>();
+    child->SetParent(parent.get());
+    gameObjects = {parent, child};
+    selection.SelectMany({parent->GetID(), child->GetID()}, child->GetID(),
+                         molga::SelectionSource::Hierarchy);
+
+    history.Execute(std::make_unique<molga::DuplicateObjectsCommand>(
+        selection.SelectedIds()));
+    REQUIRE(gameObjects.size() == 4u); // parent subtree duplicated only once
+    REQUIRE(selection.SelectedIds().size() == 1u);
+    const unsigned int duplicateRootId = selection.PrimaryId();
+    CHECK(duplicateRootId != parent->GetID());
+    history.Undo();
+    REQUIRE(gameObjects.size() == 2u);
+    CHECK(selection.SelectedIds() ==
+          std::vector<unsigned int>{parent->GetID(), child->GetID()});
+    history.Redo();
+    REQUIRE(gameObjects.size() == 4u);
+    CHECK(selection.PrimaryId() == duplicateRootId);
+
+    history.Clear();
+    selection.SelectMany({parent->GetID(), child->GetID()}, parent->GetID(),
+                         molga::SelectionSource::Hierarchy);
+    selection.LockInspector();
+    history.Execute(std::make_unique<molga::DeleteObjectsCommand>(
+        selection.SelectedIds()));
+    CHECK(gameObjects.size() == 2u); // duplicated subtree remains
+    CHECK_FALSE(selection.HasSelection());
+    CHECK_FALSE(selection.IsInspectorLocked());
+    history.Undo();
+    CHECK(gameObjects.size() == 4u);
+    CHECK(selection.IsSelected(parent->GetID()));
+    CHECK(selection.IsSelected(child->GetID()));
+    CHECK(selection.IsInspectorLocked());
+    CHECK(selection.InspectorTargetIds() ==
+          std::vector<unsigned int>{parent->GetID(), child->GetID()});
+
+    selection.RestoreState({}, molga::SelectionSource::Code);
+    s_gameObjects = nullptr;
+}
+
+TEST_CASE("multi delete restores exact world sibling and full selection state") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    auto& history = Editor::Get().GetCommandHistory();
+    auto& selection = Editor::Get().GetSelection();
+    history.Clear();
+    selection.RestoreState({}, molga::SelectionSource::Code);
+
+    auto parent = std::make_shared<GameObject>("Parent");
+    auto first = std::make_shared<GameObject>("First");
+    auto branch = std::make_shared<GameObject>("Branch");
+    auto branchChild = std::make_shared<GameObject>("Branch Child");
+    auto last = std::make_shared<GameObject>("Last");
+    auto otherRoot = std::make_shared<GameObject>("Other Root");
+    first->SetParent(parent.get());
+    branch->SetParent(parent.get());
+    branchChild->SetParent(branch.get());
+    last->SetParent(parent.get());
+    gameObjects = {parent, first, branch, branchChild, last, otherRoot};
+
+    const auto worldIds = [&]() {
+        std::vector<unsigned int> ids;
+        for (const auto& object : gameObjects) ids.push_back(object->GetID());
+        return ids;
+    };
+    const auto childIds = [](const GameObject& object) {
+        std::vector<unsigned int> ids;
+        for (const GameObject* child : object.GetChildren()) {
+            ids.push_back(child->GetID());
+        }
+        return ids;
+    };
+    const std::vector<unsigned int> beforeWorld = worldIds();
+    const std::vector<unsigned int> beforeSiblings = childIds(*parent);
+    const molga::SelectionState beforeSelection{
+        {branch->GetID(), branchChild->GetID(), otherRoot->GetID()},
+        otherRoot->GetID(), branch->GetID(), true,
+        {first->GetID(), otherRoot->GetID()}, first->GetID()};
+    selection.RestoreState(beforeSelection, molga::SelectionSource::Hierarchy);
+
+    history.Execute(std::make_unique<molga::DeleteObjectsCommand>(
+        selection.SelectedIds()));
+    CHECK(worldIds() == std::vector<unsigned int>{
+        parent->GetID(), first->GetID(), last->GetID()});
+    CHECK(childIds(*parent) == std::vector<unsigned int>{
+        first->GetID(), last->GetID()});
+    const molga::SelectionState afterSelection = selection.State();
+    CHECK(afterSelection.selectedIds.empty());
+    CHECK(afterSelection.rangeAnchor == 0u);
+    CHECK(afterSelection.inspectorLocked);
+    CHECK(afterSelection.inspectorTargetIds ==
+          std::vector<unsigned int>{first->GetID()});
+
+    history.Undo();
+    CHECK(worldIds() == beforeWorld);
+    CHECK(childIds(*parent) == beforeSiblings);
+    CHECK(selection.State() == beforeSelection);
+
+    history.Redo();
+    CHECK(worldIds() == std::vector<unsigned int>{
+        parent->GetID(), first->GetID(), last->GetID()});
+    CHECK(childIds(*parent) == std::vector<unsigned int>{
+        first->GetID(), last->GetID()});
+    CHECK(selection.State() == afterSelection);
+
+    history.Undo();
+    selection.RestoreState({}, molga::SelectionSource::Code);
+    history.Clear();
+    s_gameObjects = nullptr;
+}
+
+TEST_CASE("multi duplicate replays exact placement ids and full selection state") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    auto& history = Editor::Get().GetCommandHistory();
+    auto& selection = Editor::Get().GetSelection();
+    history.Clear();
+    selection.RestoreState({}, molga::SelectionSource::Code);
+
+    auto parent = std::make_shared<GameObject>("Parent");
+    auto first = std::make_shared<GameObject>("First");
+    auto branch = std::make_shared<GameObject>("Branch");
+    auto branchChild = std::make_shared<GameObject>("Branch Child");
+    auto last = std::make_shared<GameObject>("Last");
+    auto otherRoot = std::make_shared<GameObject>("Other Root");
+    first->SetParent(parent.get());
+    branch->SetParent(parent.get());
+    branchChild->SetParent(branch.get());
+    last->SetParent(parent.get());
+    gameObjects = {parent, first, branch, branchChild, last, otherRoot};
+
+    const auto worldIds = [&]() {
+        std::vector<unsigned int> ids;
+        for (const auto& object : gameObjects) ids.push_back(object->GetID());
+        return ids;
+    };
+    const auto childIds = [](const GameObject& object) {
+        std::vector<unsigned int> ids;
+        for (const GameObject* child : object.GetChildren()) {
+            ids.push_back(child->GetID());
+        }
+        return ids;
+    };
+    const std::vector<unsigned int> beforeWorld = worldIds();
+    const std::vector<unsigned int> beforeSiblings = childIds(*parent);
+    const molga::SelectionState beforeSelection{
+        {branch->GetID(), branchChild->GetID(), last->GetID()},
+        last->GetID(), branch->GetID(), true,
+        {first->GetID(), last->GetID()}, last->GetID()};
+    selection.RestoreState(beforeSelection, molga::SelectionSource::Hierarchy);
+
+    history.Execute(std::make_unique<molga::DuplicateObjectsCommand>(
+        selection.SelectedIds()));
+    REQUIRE(gameObjects.size() == beforeWorld.size() + 3u);
+    REQUIRE(selection.SelectedIds().size() == 2u);
+    const std::vector<unsigned int> resultWorld = worldIds();
+    const std::vector<unsigned int> resultSiblings = childIds(*parent);
+    const molga::SelectionState resultSelection = selection.State();
+    const std::vector<unsigned int> duplicateRootIds = selection.SelectedIds();
+    REQUIRE(duplicateRootIds.size() == 2u);
+    GameObject* branchCopy = Editor::Get().FindObjectById(duplicateRootIds[0]);
+    REQUIRE(branchCopy != nullptr);
+    REQUIRE(branchCopy->GetChildren().size() == 1u);
+    const unsigned int branchChildCopyId = branchCopy->GetChildren()[0]->GetID();
+    CHECK(resultWorld == std::vector<unsigned int>{
+        parent->GetID(), first->GetID(), branch->GetID(), branchChild->GetID(),
+        duplicateRootIds[0], branchChildCopyId, last->GetID(),
+        duplicateRootIds[1], otherRoot->GetID()});
+    CHECK(resultSiblings == std::vector<unsigned int>{
+        first->GetID(), branch->GetID(), duplicateRootIds[0], last->GetID(),
+        duplicateRootIds[1]});
+    CHECK(resultSelection.inspectorLocked);
+    CHECK(resultSelection.inspectorTargetIds == beforeSelection.inspectorTargetIds);
+    CHECK(resultSelection.rangeAnchor == resultSelection.primaryId);
+
+    history.Undo();
+    CHECK(worldIds() == beforeWorld);
+    CHECK(childIds(*parent) == beforeSiblings);
+    CHECK(selection.State() == beforeSelection);
+
+    history.Redo();
+    CHECK(worldIds() == resultWorld);
+    CHECK(childIds(*parent) == resultSiblings);
+    CHECK(selection.State() == resultSelection);
+    CHECK(selection.SelectedIds() == duplicateRootIds);
+
+    history.Undo();
+    selection.RestoreState({}, molga::SelectionSource::Code);
+    history.Clear();
     s_gameObjects = nullptr;
 }

@@ -1,9 +1,36 @@
 #include "ProjectSettings.h"
+#include "Common/Log.h"
+#include "Systems/Audio.h"
 #include <fstream>
 #include <iostream>
 #include <filesystem>
 #include <cmath>
 #include <algorithm>
+
+namespace {
+
+constexpr std::array<const char*, ProjectSettings::AudioBusCount> kAudioBusNames = {
+    "Master", "Music", "SFX", "Voice", "UI"
+};
+
+void DeserializeAudioBuses(const nlohmann::json& buses, ProjectSettings& settings) {
+    if (!buses.is_object()) return;
+    for (std::size_t i = 0; i < kAudioBusNames.size(); ++i) {
+        const auto found = buses.find(kAudioBusNames[i]);
+        if (found == buses.end() || !found->is_object()) continue;
+        if (found->contains("volume") && (*found)["volume"].is_number()) {
+            const float value = (*found)["volume"].get<float>();
+            if (std::isfinite(value)) {
+                settings.audioBusSettings[i].volume = std::clamp(value, 0.0f, 1.0f);
+            }
+        }
+        if (found->contains("muted") && (*found)["muted"].is_boolean()) {
+            settings.audioBusSettings[i].muted = (*found)["muted"].get<bool>();
+        }
+    }
+}
+
+} // namespace
 
 ProjectSettings& ProjectSettings::Get() {
     static ProjectSettings instance;
@@ -15,6 +42,7 @@ ProjectSettings::ProjectSettings() {
 }
 
 void ProjectSettings::SetDefaults() {
+    warnedMissingSortingLayers_.clear();
     tags = { "Untagged", "MainCamera", "Player" };
 
     // Initialize all layers to empty
@@ -40,6 +68,10 @@ void ProjectSettings::SetDefaults() {
     }
 
     sortingLayers = { "Default", "Background", "Foreground" };
+    for (auto& bus : audioBusSettings) {
+        bus.volume = 1.0f;
+        bus.muted = false;
+    }
     gravity = Vector2(0.0f, 981.0f);
     pixelsPerMeter = 100.0f;
     substeps = 4;
@@ -135,6 +167,15 @@ void ProjectSettings::Deserialize(const nlohmann::json& j) {
             }
         }
     }
+    NormalizeSortingLayers();
+
+    if (j.contains("audio") && j["audio"].is_object() &&
+        j["audio"].contains("buses")) {
+        DeserializeAudioBuses(j["audio"]["buses"], *this);
+    } else if (j.contains("audioBuses")) {
+        // Read the short-lived preview key for migration compatibility.
+        DeserializeAudioBuses(j["audioBuses"], *this);
+    }
 
     if (j.contains("gravity") && j["gravity"].is_array() && j["gravity"].size() >= 2) {
         const float x = j["gravity"][0].get<float>();
@@ -174,6 +215,14 @@ nlohmann::json ProjectSettings::Serialize() const {
     j["collisionMatrix"] = matrixArr;
 
     j["sortingLayers"] = sortingLayers;
+    nlohmann::json audioBuses = nlohmann::json::object();
+    for (std::size_t i = 0; i < kAudioBusNames.size(); ++i) {
+        audioBuses[kAudioBusNames[i]] = {
+            {"volume", std::clamp(audioBusSettings[i].volume, 0.0f, 1.0f)},
+            {"muted", audioBusSettings[i].muted}
+        };
+    }
+    j["audio"] = {{"buses", std::move(audioBuses)}};
     j["gravity"] = { gravity.x, gravity.y };
     j["pixelsPerMeter"] = pixelsPerMeter;
     j["substeps"] = substeps;
@@ -209,4 +258,50 @@ std::string ProjectSettings::GetLayerName(int index) const {
         return layerNames[index];
     }
     return "";
+}
+
+void ProjectSettings::NormalizeSortingLayers() {
+    std::vector<std::string> normalized;
+    normalized.reserve(sortingLayers.size() + 1U);
+    std::unordered_set<std::string> seen;
+    for (const std::string& name : sortingLayers) {
+        if (name.empty() || !seen.insert(name).second) continue;
+        normalized.push_back(name);
+    }
+    if (seen.count("Default") == 0U) {
+        normalized.insert(normalized.begin(), "Default");
+    }
+    sortingLayers = std::move(normalized);
+}
+
+int ProjectSettings::ResolveSortingLayerIndex(const std::string& name) const {
+    for (std::size_t index = 0; index < sortingLayers.size(); ++index) {
+        if (sortingLayers[index] == name) return static_cast<int>(index);
+    }
+
+    int fallback = 0;
+    for (std::size_t index = 0; index < sortingLayers.size(); ++index) {
+        if (sortingLayers[index] == "Default") {
+            fallback = static_cast<int>(index);
+            break;
+        }
+    }
+    if (warnedMissingSortingLayers_.insert(name).second) {
+        Log::Warn("SortingLayer",
+                  "Missing sorting layer '" + name +
+                      "'; rendering with Default while preserving the authored name.");
+    }
+    return fallback;
+}
+
+void AudioService::ApplyProjectSettings() {
+    static_assert(static_cast<std::size_t>(AudioBus::Count) ==
+                      ProjectSettings::AudioBusCount,
+                  "ProjectSettings and AudioBus must use the same fixed bus order");
+    const auto& settings = ProjectSettings::Get().audioBusSettings;
+    for (std::size_t i = 0; i < settings.size(); ++i) {
+        const AudioBus bus = static_cast<AudioBus>(i);
+        SetBusVolume(bus, settings[i].volume);
+        SetBusMuted(bus, settings[i].muted);
+    }
 }

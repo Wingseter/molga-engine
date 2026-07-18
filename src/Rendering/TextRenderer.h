@@ -37,6 +37,7 @@ struct TextDrawParams {
     int cameraPass = 0;
     int sortingLayer = 0;
     int sortingOrder = 0;
+    float depthOrYSort = 0.0f;
 };
 
 // Character info for bitmap font

@@ -507,6 +507,33 @@ TEST_CASE("Collider2D: negative scale bounds normalization") {
     CHECK(bounds.height > 0.0f);
 }
 
+TEST_CASE("Transform TrySetWorldScale handles different parents and rejects zero axes atomically") {
+    auto parentA = std::make_shared<GameObject>("Parent A");
+    auto parentB = std::make_shared<GameObject>("Parent B");
+    auto childA = std::make_shared<GameObject>("Child A");
+    auto childB = std::make_shared<GameObject>("Child B");
+    auto* parentATransform = parentA->AddComponent<Transform>();
+    auto* parentBTransform = parentB->AddComponent<Transform>();
+    auto* childATransform = childA->AddComponent<Transform>();
+    auto* childBTransform = childB->AddComponent<Transform>();
+    parentATransform->SetScale(2.0f, 4.0f);
+    parentBTransform->SetScale(-0.5f, 5.0f);
+    childA->SetParent(parentA.get());
+    childB->SetParent(parentB.get());
+
+    REQUIRE(childATransform->TrySetWorldScale({8.0f, 12.0f}));
+    REQUIRE(childBTransform->TrySetWorldScale({8.0f, 10.0f}));
+    CHECK(childATransform->GetScale().x == doctest::Approx(4.0f));
+    CHECK(childATransform->GetScale().y == doctest::Approx(3.0f));
+    CHECK(childBTransform->GetScale().x == doctest::Approx(-16.0f));
+    CHECK(childBTransform->GetScale().y == doctest::Approx(2.0f));
+
+    parentATransform->SetScale(0.0f, 4.0f);
+    const Vector2 before = childATransform->GetScale();
+    CHECK_FALSE(childATransform->TrySetWorldScale({1.0f, 1.0f}));
+    CHECK(childATransform->GetScale() == before);
+}
+
 #ifdef MOLGA_MARROW_SUPPORT
 #include "ECS/Components/MarrowRenderer.h"
 

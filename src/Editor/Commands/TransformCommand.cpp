@@ -1,4 +1,5 @@
 #include "Editor/Commands/TransformCommand.h"
+#include "Core/PrefabUtil.h"
 #include "Core/World.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
@@ -31,11 +32,47 @@ void TransformCommand::ApplyTo(const TransformState& s) {
         tr->SetPosition(s.position);
         tr->SetRotation(s.rotation);
         tr->SetScale(s.scale);
-        if (!world_) Editor::Get().MarkSceneModified();
+        if (!world_) {
+            PrefabUtil::RefreshNearestInstanceOverrides({tr->GetGameObject()});
+            Editor::Get().MarkSceneModified();
+        }
     }
 }
 
 void TransformCommand::Execute() { ApplyTo(after_); }
 void TransformCommand::Undo()    { ApplyTo(before_); }
+
+MultiTransformCommand::MultiTransformCommand(
+    World* world, std::vector<MultiTransformEntry> entries)
+    : world_(world), entries_(std::move(entries)) {}
+
+Transform* MultiTransformCommand::Resolve(unsigned int id) const {
+    GameObject* object = world_ ? world_->FindById(id)
+                                : Editor::Get().FindObjectById(id);
+    return object ? object->GetComponent<Transform>() : nullptr;
+}
+
+void MultiTransformCommand::Apply(bool after) {
+    bool changed = false;
+    std::vector<GameObject*> changedObjects;
+    changedObjects.reserve(entries_.size());
+    for (const auto& entry : entries_) {
+        if (Transform* transform = Resolve(entry.targetId)) {
+            const TransformState& state = after ? entry.after : entry.before;
+            transform->SetPosition(state.position);
+            transform->SetRotation(state.rotation);
+            transform->SetScale(state.scale);
+            changed = true;
+            changedObjects.push_back(transform->GetGameObject());
+        }
+    }
+    if (changed && !world_) {
+        PrefabUtil::RefreshNearestInstanceOverrides(changedObjects);
+        Editor::Get().MarkSceneModified();
+    }
+}
+
+void MultiTransformCommand::Execute() { Apply(true); }
+void MultiTransformCommand::Undo() { Apply(false); }
 
 } // namespace molga

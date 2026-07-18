@@ -134,6 +134,29 @@ TEST_CASE("UIButton release outside its captured rect does not click") {
     CHECK_FALSE(buttonObject->GetComponent<UIButton>()->WasClickedThisFrame());
 }
 
+TEST_CASE("UIButton invalid pointer immediately releases capture") {
+    World world;
+    auto canvas = MakeCanvas(world);
+    auto buttonObject = MakeButton(world, canvas.get(), "Button", 0);
+    auto* button = buttonObject->GetComponent<UIButton>();
+    int clicks = 0;
+    button->SetOnClick([&] { ++clicks; });
+
+    UISystem::Get().ResetPointerCapture();
+    UISystem::Get().ProcessInput(
+        world, {800.0f, 600.0f},
+        {{400.0f, 300.0f}, true, true, false, true});
+    REQUIRE(button->IsPressed());
+
+    UISystem::Get().ProcessInput(
+        world, {800.0f, 600.0f}, {{}, false, false, false, false});
+    CHECK_FALSE(button->IsPressed());
+    UISystem::Get().ProcessInput(
+        world, {800.0f, 600.0f},
+        {{400.0f, 300.0f}, false, false, true, true});
+    CHECK(clicks == 0);
+}
+
 TEST_CASE("UI ignores disabled canvases and inactive ancestors") {
     World world;
     auto canvas = MakeCanvas(world);

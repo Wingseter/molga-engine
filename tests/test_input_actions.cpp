@@ -211,6 +211,40 @@ TEST_CASE("Input Action Edge detection (Down/Up)") {
     CHECK(Input::GetActionUp("Jump") == false);
 }
 
+TEST_CASE("Input scroll is accumulated per native source and consumed once") {
+    Input::Init(nullptr);
+    auto* first = reinterpret_cast<GLFWwindow*>(0x1);
+    auto* second = reinterpret_cast<GLFWwindow*>(0x2);
+
+    Input::AddScrollForTesting(first, 1.0f, 2.0f);
+    Input::AddScrollForTesting(first, -0.25f, 3.0f);
+    Input::AddScrollForTesting(second, 9.0f, -4.0f);
+
+    const InputSnapshot firstFrame = Input::ConsumeScrollForTesting(first);
+    CHECK(firstFrame.scrollX == doctest::Approx(0.75f));
+    CHECK(firstFrame.scrollY == doctest::Approx(5.0f));
+    const InputSnapshot consumed = Input::ConsumeScrollForTesting(first);
+    CHECK(consumed.scrollX == doctest::Approx(0.0f));
+    CHECK(consumed.scrollY == doctest::Approx(0.0f));
+
+    const InputSnapshot otherSource = Input::ConsumeScrollForTesting(second);
+    CHECK(otherSource.scrollX == doctest::Approx(9.0f));
+    CHECK(otherSource.scrollY == doctest::Approx(-4.0f));
+}
+
+TEST_CASE("Input discards wheel events outside the game output") {
+    Input::Init(nullptr);
+    auto* source = reinterpret_cast<GLFWwindow*>(0x3);
+    Input::AddScrollForTesting(source, 2.0f, 7.0f);
+
+    const InputSnapshot outside = Input::ConsumeScrollForTesting(source, false);
+    CHECK(outside.scrollX == doctest::Approx(0.0f));
+    CHECK(outside.scrollY == doctest::Approx(0.0f));
+    const InputSnapshot nextFrame = Input::ConsumeScrollForTesting(source, true);
+    CHECK(nextFrame.scrollX == doctest::Approx(0.0f));
+    CHECK(nextFrame.scrollY == doctest::Approx(0.0f));
+}
+
 TEST_CASE("Input Action Serialization and Deserialization") {
     Input::Init(nullptr);
     Input::InitializeDefaultActions();

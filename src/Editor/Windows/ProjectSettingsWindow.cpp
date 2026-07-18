@@ -1,6 +1,7 @@
 #include "ProjectSettingsWindow.h"
 #include "../EditorConstants.h"
 #include "../../Core/ProjectSettings.h"
+#include "../../Systems/Audio.h"
 #include "../../Systems/Input.h"
 #include "../Project.h"
 #include <imgui.h>
@@ -194,6 +195,35 @@ void ProjectSettingsWindow::OnGUI() {
             if (ImGui::DragInt("Substeps", &substeps, 1.0f, 1, 32)) {
                 settings.substeps = std::max(substeps, 1);
                 modified = true;
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Audio")) {
+            ImGui::Text("Fixed Mixer Buses");
+            ImGui::TextDisabled("Master is the final gain; child buses route through it.");
+            ImGui::Separator();
+            for (std::size_t i = 0; i < ProjectSettings::AudioBusCount; ++i) {
+                const AudioBus bus = static_cast<AudioBus>(i);
+                auto& busSettings = settings.audioBusSettings[i];
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::Text("%s", AudioBusName(bus));
+                ImGui::SameLine(100.0f);
+                ImGui::SetNextItemWidth(260.0f);
+                float volume = busSettings.volume;
+                if (ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f")) {
+                    busSettings.volume = volume;
+                    Audio::SetBusVolume(bus, volume);
+                    modified = true;
+                }
+                ImGui::SameLine();
+                bool muted = busSettings.muted;
+                if (ImGui::Checkbox("Mute", &muted)) {
+                    busSettings.muted = muted;
+                    Audio::SetBusMuted(bus, muted);
+                    modified = true;
+                }
+                ImGui::PopID();
             }
             ImGui::EndTabItem();
         }

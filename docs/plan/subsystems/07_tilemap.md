@@ -1,12 +1,17 @@
 # 07. 타일맵 (Tilemap) 컴포넌트 구현 계획
 
 > 작성일: 2026-06-14
+> 상태 갱신: 2026-07-16 — TileSet/Tilemap v2와 Tile Palette까지 완료
 > 범위: `TilemapRenderer` ECS 컴포넌트, 타일맵 에셋 직렬화, 물리 충돌 통합, (이후) 타일 팔레트 편집기
 > 관련 문서: [`00_overview.md`](00_overview.md) · [`01_physics.md`](01_physics.md)
 
+> **현재 구현 기준:** `.tileset`, stable multi-layer RLE, NESW 4-way terrain, 32×32 dirty chunk batch,
+> revision별 solid-run collision, Tile Palette와 stroke 단위 Undo가 구현됐다. 아래 본문은 2026-06-14의 최초 계획
+> 기록이며, 현재 계약과 잔여 범위는 [P1 구현 계획](../2026-07-16_game_production_p1_plan.md)을 따른다.
+
 ---
 
-## 1. 현재 상태 (코드 증거)
+## 1. 최초 상태 (2026-06-14 코드 증거)
 
 | 자산 | 위치 | 상태 |
 |---|---|---|
@@ -70,7 +75,7 @@ TilemapRenderer : Component (src/ECS/Components/TilemapRenderer.{h,cpp})
 
 ---
 
-## 4. 작업 체크리스트
+## 4. 최초 작업 체크리스트 (역사적 기록)
 
 **1차: 컴포넌트화 + 렌더**
 - [ ] `TilemapRenderer` 컴포넌트가 `Tilemap` 래핑 + 등록
@@ -90,7 +95,7 @@ TilemapRenderer : Component (src/ECS/Components/TilemapRenderer.{h,cpp})
 
 ---
 
-## 5. 완료 기준
+## 5. 최초 완료 기준 (역사적 기록)
 
 - [ ] `TilemapRenderer`를 붙이고 시트/데이터를 지정하면 타일맵이 렌더된다.
 - [ ] 타일맵이 씬과 함께 저장·로드·빌드된다.

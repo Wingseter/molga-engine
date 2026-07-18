@@ -3,7 +3,7 @@
 
 TEST_CASE("BuildProfile defaults include main scene") {
     BuildProfile profile = BuildProfile::Defaults("MyGame");
-    CHECK(profile.schemaVersion == 1);
+    CHECK(profile.schemaVersion == BuildProfile::CurrentSchemaVersion);
     CHECK(profile.gameName == "MyGame");
     CHECK(profile.startupScene == "Scenes/main.json");
     REQUIRE(profile.scenes.size() == 1);
@@ -47,6 +47,8 @@ TEST_CASE("BuildProfile round trips JSON") {
     profile.window.width = 1280;
     profile.window.height = 720;
     profile.window.fullscreen = true;
+    profile.window.resizable = false;
+    profile.window.outputScaleMode = molga::GameOutputScaleMode::IntegerFit;
     profile.developmentBuild = true;
 
     nlohmann::json j = profile.Serialize();
@@ -59,7 +61,38 @@ TEST_CASE("BuildProfile round trips JSON") {
     CHECK(restored.window.width == 1280);
     CHECK(restored.window.height == 720);
     CHECK(restored.window.fullscreen);
+    CHECK_FALSE(restored.window.resizable);
+    CHECK(restored.window.outputScaleMode ==
+          molga::GameOutputScaleMode::IntegerFit);
     CHECK(restored.developmentBuild);
+}
+
+TEST_CASE("BuildProfile migrates schema v1 to Native schema v2") {
+    BuildProfile restored = BuildProfile::Defaults("Fallback");
+    restored.window.outputScaleMode = molga::GameOutputScaleMode::IntegerFit;
+    const nlohmann::json legacy = {
+        {"schemaVersion", 1},
+        {"gameName", "Legacy"},
+        {"companyName", "Studio"},
+        {"startupScene", "Scenes/main.json"},
+        {"scenes", nlohmann::json::array({"Scenes/main.json"})},
+        {"window", {{"width", 320}, {"height", 180},
+                    {"fullscreen", false}, {"resizable", false}}}
+    };
+    REQUIRE(restored.Deserialize(legacy));
+    CHECK(restored.schemaVersion == BuildProfile::CurrentSchemaVersion);
+    CHECK(restored.window.outputScaleMode == molga::GameOutputScaleMode::Native);
+    CHECK_FALSE(restored.window.resizable);
+    CHECK(restored.Serialize()["schemaVersion"] == 2);
+    CHECK(restored.Serialize()["window"]["outputScaleMode"] == "Native");
+
+    nlohmann::json future = legacy;
+    future["schemaVersion"] = 3;
+    CHECK_FALSE(restored.Deserialize(future));
+
+    nlohmann::json invalid = restored.Serialize();
+    invalid["window"]["outputScaleMode"] = "SmoothStretch";
+    CHECK_FALSE(restored.Deserialize(invalid));
 }
 
 #include "Core/BuildPlan.h"

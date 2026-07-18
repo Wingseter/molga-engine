@@ -1,6 +1,7 @@
 #include "Project.h"
 #include "../Common/Log.h"
 #include "../Core/ProjectSettings.h"
+#include "../Systems/Audio.h"
 #include "../Systems/Input.h"
 #include <filesystem>
 #include <fstream>
@@ -94,6 +95,7 @@ bool Project::Open(const std::string& path) {
     if (!ProjectSettings::Get().LoadFromFile(settingsPath)) {
         ProjectSettings::Get().SaveToFile(settingsPath);
     }
+    Audio::ApplyProjectSettings();
 
     // Load input actions
     std::string inputPath = (fs::path(projectPath) / "ProjectSettings" / "input_actions.json").string();
@@ -123,6 +125,7 @@ void Project::Close() {
     isOpen = false;
     buildProfile = BuildProfile::Defaults("");
     ProjectSettings::Get().SetDefaults();
+    Audio::ApplyProjectSettings();
 }
 
 std::string Project::GetAssetsPath() const {

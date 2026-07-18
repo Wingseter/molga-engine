@@ -1,6 +1,8 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include <cstddef>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -19,6 +21,13 @@ public:
         const GameObject* instanceRoot,
         const nlohmann::json& prefabJson,
         const std::unordered_map<unsigned int, unsigned int>& idRemap);
+
+    // Finds the closest owning prefab instance and refreshes its transient
+    // override list. The vector overload de-duplicates roots so one editor
+    // gesture only diffs each prefab instance once.
+    static GameObject* FindNearestInstanceRoot(GameObject* target);
+    static std::size_t RefreshNearestInstanceOverrides(
+        const std::vector<GameObject*>& targets);
 
     // Applies current instance modifications to the prefab template, saving it and clearing modifications
     static bool ApplyPrefab(GameObject* instanceRoot);

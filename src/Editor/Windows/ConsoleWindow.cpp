@@ -8,7 +8,7 @@ ConsoleWindow::ConsoleWindow()
     : EditorWindow(EditorConstants::WIN_CONSOLE),
       sink_(std::make_shared<molga::EditorConsoleSink>()) {}
 
-void ConsoleWindow::PullPending() {
+void ConsoleWindow::PumpPending() {
     bool hasError = false;
     for (auto& m : sink_->Drain()) {
         if (m.severity >= Log::Severity::Error) {
@@ -46,7 +46,6 @@ bool ConsoleWindow::PassesFilter(const Log::LogMessage& m) const {
 
 void ConsoleWindow::OnGUI() {
     if (!IsOpen()) return;
-    PullPending();                    // ← main thread에서만 표시 모델 변경
 
     ImGui::Begin(title.c_str(), nullptr);
 

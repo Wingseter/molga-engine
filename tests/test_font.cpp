@@ -166,11 +166,19 @@ TEST_CASE("TextRenderer measures kerning and submits batchable atlas quads") {
     params.fontGuid = guid;
     params.fontSizePx = 32.0f;
     params.alignment = TextHorizontalAlignment::Center;
+    params.cameraPass = 2;
+    params.sortingLayer = 3;
+    params.sortingOrder = -4;
+    params.depthOrYSort = 27.5f;
     renderer.CollectText(queue, params);
     REQUIRE(queue.GetCommands().size() == 4U);
     for (const molga::RenderCommand& command : queue.GetCommands()) {
         CHECK(command.batchKey.isBatchable);
         CHECK(command.isBatchableSprite);
+        CHECK(command.sortKey.cameraPass == 2);
+        CHECK(command.sortKey.sortingLayer == 3);
+        CHECK(command.sortKey.sortingOrder == -4);
+        CHECK(command.sortKey.depthOrYSort == doctest::Approx(27.5f));
     }
     CHECK(renderer.GetAtlasPageCount(guid, 32) >= 1U);
     CHECK(renderer.GetCachedFontSizeCount() == 1U);

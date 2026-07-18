@@ -14,6 +14,7 @@
 #include "../ECS/Components/TilemapRenderer.h"
 #include "../ECS/Components/Transform.h"
 #include "../Scripting/Script.h"
+#include "../Scripting/ScriptInvocationBoundary.h"
 
 #include <box2d/box2d.h>
 #include <algorithm>
@@ -587,28 +588,24 @@ void PhysicsWorld::Impl::SyncTilemap(BackendBodyState& body, TilemapRenderer& ti
                                      std::set<ShapeKey>& desiredShapes) {
     const Vector2 scale = transform ? transform->GetWorldScale() : Vector2::One();
     const b2Filter filter = FilterForLayer(body.owner->GetLayer());
-    for (int y = 0; y < tilemap.height; ++y) {
-        int x = 0;
-        while (x < tilemap.width) {
-            while (x < tilemap.width && !tilemap.IsSolid(x, y)) ++x;
-            if (x >= tilemap.width) break;
-            const int start = x;
-            while (x < tilemap.width && tilemap.IsSolid(x, y)) ++x;
-            const int end = x;
-            const ShapeKey key{BackendShapeKind::TileRun, y, start, end};
-            desiredShapes.insert(key);
+    for (const TilemapCollisionRun& run : tilemap.GetCollisionRuns()) {
+        const int y = run.row;
+        const int start = run.start;
+        const int end = run.end;
+        const int layerRow = run.layerIndex * std::max(1, tilemap.height) + y;
+        const ShapeKey key{BackendShapeKind::TileRun, layerRow, start, end};
+        desiredShapes.insert(key);
 
-            const float x0 = static_cast<float>(start * tilemap.tileSize) * scale.x;
-            const float x1 = static_cast<float>(end * tilemap.tileSize) * scale.x;
-            const float y0 = static_cast<float>(y * tilemap.tileSize) * scale.y;
-            const float y1 = static_cast<float>((y + 1) * tilemap.tileSize) * scale.y;
-            const Vector2 center((x0 + x1) * 0.5f, (y0 + y1) * 0.5f);
-            const float halfX = std::max(std::abs(x1 - x0) * 0.5f / ppm, kMinShapeMeters);
-            const float halfY = std::max(std::abs(y1 - y0) * 0.5f / ppm, kMinShapeMeters);
-            b2Polygon polygon = b2MakeOffsetBox(halfX, halfY, ToMeters(center, ppm), 0.0f);
-            const std::array<float, 4> geometry{center.x / ppm, center.y / ppm, halfX, halfY};
-            SyncPolygonShape(body, key, polygon, geometry, false, 0.4f, 0.0f, filter);
-        }
+        const float x0 = static_cast<float>(start * tilemap.tileSize) * scale.x;
+        const float x1 = static_cast<float>(end * tilemap.tileSize) * scale.x;
+        const float y0 = static_cast<float>(y * tilemap.tileSize) * scale.y;
+        const float y1 = static_cast<float>((y + 1) * tilemap.tileSize) * scale.y;
+        const Vector2 center((x0 + x1) * 0.5f, (y0 + y1) * 0.5f);
+        const float halfX = std::max(std::abs(x1 - x0) * 0.5f / ppm, kMinShapeMeters);
+        const float halfY = std::max(std::abs(y1 - y0) * 0.5f / ppm, kMinShapeMeters);
+        b2Polygon polygon = b2MakeOffsetBox(halfX, halfY, ToMeters(center, ppm), 0.0f);
+        const std::array<float, 4> geometry{center.x / ppm, center.y / ppm, halfX, halfY};
+        SyncPolygonShape(body, key, polygon, geometry, false, 0.4f, 0.0f, filter);
     }
 }
 
@@ -877,8 +874,7 @@ struct ScriptContactInvocation {
     unsigned int otherId = 0;
     std::shared_ptr<GameObject> objectIdentity;
     std::shared_ptr<GameObject> otherIdentity;
-    std::size_t componentTypeId = 0;
-    std::uint64_t componentInstanceId = 0;
+    ScriptHandle handle;
     bool trigger = false;
     ScriptContactPhase phase = ScriptContactPhase::Enter;
 };
@@ -898,7 +894,8 @@ void AppendScriptInvocations(World& world, unsigned int objectId, unsigned int o
     for (Component* component : object->GetComponents()) {
         if (!component || !component->IsEnabled() || !dynamic_cast<Script*>(component)) continue;
         out.push_back({objectId, otherId, object, other,
-                       component->GetRuntimeTypeID(), component->GetInstanceID(),
+                       ScriptInvocationBoundary::MakeHandle(
+                           *static_cast<Script*>(component)),
                        trigger, phase});
     }
 }
@@ -907,32 +904,34 @@ void InvokeScriptContact(World& world, const ScriptContactInvocation& invocation
     std::shared_ptr<GameObject> object = FindSharedObject(world, invocation.objectId);
     if (!object || object.get() != invocation.objectIdentity.get() || !object->IsActive()) return;
 
-    Script* script = nullptr;
-    for (Component* component : object->GetComponents()) {
-        if (!component || component->GetRuntimeTypeID() != invocation.componentTypeId ||
-            component->GetInstanceID() != invocation.componentInstanceId) {
-            continue;
-        }
-        if (component->IsEnabled()) script = dynamic_cast<Script*>(component);
-        break;
-    }
-    if (!script) return;
-
     std::shared_ptr<GameObject> other = FindSharedObject(world, invocation.otherId);
     GameObject* otherRaw = other && other.get() == invocation.otherIdentity.get()
         ? other.get() : nullptr;
 
-    // Do not touch `script` after entering user code. The callback may remove
-    // and destroy this very component.
+    ScriptPhase boundaryPhase = ScriptPhase::CollisionEnter;
     if (invocation.trigger) {
-        if (invocation.phase == ScriptContactPhase::Enter) script->OnTriggerEnter(otherRaw);
-        else if (invocation.phase == ScriptContactPhase::Stay) script->OnTriggerStay(otherRaw);
-        else script->OnTriggerExit(otherRaw);
-    } else {
-        if (invocation.phase == ScriptContactPhase::Enter) script->OnCollisionEnter(otherRaw);
-        else if (invocation.phase == ScriptContactPhase::Stay) script->OnCollisionStay(otherRaw);
-        else script->OnCollisionExit(otherRaw);
+        if (invocation.phase == ScriptContactPhase::Enter) boundaryPhase = ScriptPhase::TriggerEnter;
+        else if (invocation.phase == ScriptContactPhase::Stay) boundaryPhase = ScriptPhase::TriggerStay;
+        else boundaryPhase = ScriptPhase::TriggerExit;
+    } else if (invocation.phase == ScriptContactPhase::Stay) {
+        boundaryPhase = ScriptPhase::CollisionStay;
+    } else if (invocation.phase == ScriptContactPhase::Exit) {
+        boundaryPhase = ScriptPhase::CollisionExit;
     }
+
+    ScriptInvocationBoundary::Invoke(
+        world, invocation.handle, boundaryPhase,
+        [&](Script& script) {
+            if (invocation.trigger) {
+                if (invocation.phase == ScriptContactPhase::Enter) script.OnTriggerEnter(otherRaw);
+                else if (invocation.phase == ScriptContactPhase::Stay) script.OnTriggerStay(otherRaw);
+                else script.OnTriggerExit(otherRaw);
+            } else {
+                if (invocation.phase == ScriptContactPhase::Enter) script.OnCollisionEnter(otherRaw);
+                else if (invocation.phase == ScriptContactPhase::Stay) script.OnCollisionStay(otherRaw);
+                else script.OnCollisionExit(otherRaw);
+            }
+        });
 }
 
 void QueueTriggerEvents(const ObjectContactKey& key, const ObjectContactState& state, bool entered) {

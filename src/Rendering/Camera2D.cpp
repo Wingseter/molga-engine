@@ -1,5 +1,6 @@
 #include "Camera2D.h"
 #include "../Common/Constants.h"
+#include <algorithm>
 #include <cmath>
 
 Camera2D::Camera2D(float screenWidth, float screenHeight)
@@ -26,6 +27,11 @@ void Camera2D::SetZoom(float zoom) {
     this->zoom = zoom;
     if (this->zoom < Constants::Camera::MIN_ZOOM) this->zoom = Constants::Camera::MIN_ZOOM;
     if (this->zoom > Constants::Camera::MAX_ZOOM) this->zoom = Constants::Camera::MAX_ZOOM;
+    needsUpdate = true;
+}
+
+void Camera2D::SetPixelZoom(int pixelZoom) {
+    this->zoom = static_cast<float>(std::clamp(pixelZoom, 1, 64));
     needsUpdate = true;
 }
 
@@ -79,4 +85,19 @@ void Camera2D::GetViewMatrix(mat4x4 out) {
 void Camera2D::GetProjectionMatrix(mat4x4 out) {
     UpdateMatrices();
     mat4x4_dup(out, projectionMatrix);
+}
+
+AABB Camera2D::GetViewBounds() const {
+    const float safeZoom = std::max(zoom, Constants::Camera::MIN_ZOOM);
+    const float halfWidth = screenWidth * 0.5f / safeZoom;
+    const float halfHeight = screenHeight * 0.5f / safeZoom;
+    const float radians = rotation * Constants::DEG_TO_RAD;
+    const float cosine = std::abs(std::cos(radians));
+    const float sine = std::abs(std::sin(radians));
+    const float extentX = cosine * halfWidth + sine * halfHeight;
+    const float extentY = sine * halfWidth + cosine * halfHeight;
+    const float centerX = x + screenWidth * 0.5f;
+    const float centerY = y + screenHeight * 0.5f;
+    return {centerX - extentX, centerY - extentY,
+            extentX * 2.0f, extentY * 2.0f};
 }

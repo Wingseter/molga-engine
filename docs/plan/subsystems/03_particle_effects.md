@@ -1,12 +1,17 @@
 # 03. 이펙트 / 파티클 (Particle Effects) 구현 계획
 
 > 작성일: 2026-06-14
+> 상태 갱신: 2026-07-16 — `ParticleSystem` v2와 editor preview까지 완료
 > 범위: `ParticleSystem` ECS 컴포넌트화, 직렬화, 배치 렌더 통합, 프리셋 노출
 > 관련 문서: [`00_overview.md`](00_overview.md) · [`04_shader_material.md`](04_shader_material.md)
 
+> **현재 구현 기준:** texture slice frame, curve/gradient, deterministic RNG, local/world simulation,
+> active/free pool, Alpha/Additive multi-quad batch와 비직렬화 editor preview가 구현됐다. 아래 본문은 2026-06-14의
+> 최초 계획 기록이며, 현재 계약과 잔여 범위는 [P1 구현 계획](../2026-07-16_game_production_p1_plan.md)을 따른다.
+
 ---
 
-## 1. 현재 상태 (코드 증거)
+## 1. 최초 상태 (2026-06-14 코드 증거)
 
 | 자산 | 위치 | 상태 |
 |---|---|---|
@@ -77,7 +82,7 @@ ParticleSystem : Component (src/ECS/Components/ParticleSystem.{h,cpp})
 
 ---
 
-## 4. 작업 체크리스트
+## 4. 최초 작업 체크리스트 (역사적 기록)
 
 **1차: 컴포넌트화**
 - [ ] `ParticleSystem` 컴포넌트가 `ParticleEmitter` 래핑 + 등록
@@ -94,7 +99,7 @@ ParticleSystem : Component (src/ECS/Components/ParticleSystem.{h,cpp})
 
 ---
 
-## 5. 완료 기준
+## 5. 최초 완료 기준 (역사적 기록)
 
 - [ ] 오브젝트에 `ParticleSystem`을 붙이고 프리셋을 고르면 Play에서 효과가 보인다.
 - [ ] 에미터가 오브젝트를 따라 이동한다.

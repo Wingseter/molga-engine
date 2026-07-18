@@ -63,6 +63,7 @@ molga_add_test(test_play_mode_compile_policy test_play_mode_compile_policy.cpp)
 molga_add_test(test_collision         test_collision.cpp)
 molga_add_test(test_physics           test_physics.cpp)
 molga_add_test(test_tilemap           test_tilemap.cpp)
+molga_add_test(test_animation         test_animation.cpp)
 molga_add_test(test_ecs               test_ecs.cpp)
 molga_add_test(test_scene_serializer  test_scene_serializer.cpp)
 molga_add_test(test_time              test_time.cpp)
@@ -71,6 +72,7 @@ molga_add_test(test_audio             test_audio.cpp)
 molga_add_test(test_particle          test_particle.cpp)
 molga_add_test(test_renderer_contract test_renderer_contract.cpp)
 molga_add_test(test_render_queue      test_render_queue.cpp)
+molga_add_test(test_world_sort       test_world_sort.cpp)
 molga_add_test(test_hierarchy         test_hierarchy.cpp)
 molga_add_test(test_command_history   test_command_history.cpp)
 molga_add_test(test_world             test_world.cpp)
@@ -79,8 +81,14 @@ target_include_directories(test_scene_runtime PRIVATE "${CMAKE_CURRENT_SOURCE_DI
 molga_add_test(test_world_lifecycle   test_world_lifecycle.cpp)
 molga_add_test(test_prefab            test_prefab.cpp)
 molga_add_test(test_camera            test_camera.cpp)
+molga_add_test(test_game_view         test_game_view.cpp)
+molga_add_test(test_framebuffer_gl    test_framebuffer_gl.cpp)
+target_compile_definitions(test_framebuffer_gl PRIVATE
+    MOLGA_TEST_SHADER_DIR="${CMAKE_SOURCE_DIR}/src/Shaders")
+set_tests_properties(test_framebuffer_gl PROPERTIES LABELS "gl")
 molga_add_test(test_path_service       test_path_service.cpp)
 molga_add_test(test_shader_material   test_shader_material.cpp)
+set_tests_properties(test_shader_material PROPERTIES LABELS "gl")
 molga_add_test(test_game_builder      test_game_builder.cpp)
 molga_add_test(test_package_finalizer test_package_finalizer.cpp)
 
@@ -93,6 +101,7 @@ molga_add_test(test_selection_service test_selection_service.cpp)
 molga_add_test(test_viewport_math test_viewport_math.cpp)
 molga_add_test(test_scene_picker test_scene_picker.cpp)
 molga_add_test(test_transform_gizmo_math test_transform_gizmo_math.cpp)
+molga_add_test(test_editor_property_descriptor test_editor_property_descriptor.cpp)
 
 molga_add_test(test_transform_command test_transform_command.cpp)
 target_sources(test_transform_command PRIVATE
@@ -105,6 +114,7 @@ molga_add_test(test_script_compiler  test_script_compiler.cpp)
 molga_add_test(test_script_reflection test_script_reflection.cpp)
 molga_add_test(test_physics_query     test_physics_query.cpp)
 molga_add_test(test_scheduler         test_scheduler.cpp)
+molga_add_test(test_script_invocation_boundary test_script_invocation_boundary.cpp)
 molga_add_test(test_lifecycle         test_lifecycle.cpp)
 molga_add_test(test_input_actions     test_input_actions.cpp)
 molga_add_test(test_build_profile     test_build_profile.cpp)
@@ -146,19 +156,19 @@ molga_add_test(build_smoke
     test_build_smoke.cpp
 )
 target_include_directories(build_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-set_tests_properties(build_smoke PROPERTIES LABELS "unit;smoke")
+set_tests_properties(build_smoke PROPERTIES LABELS "smoke")
 
 molga_add_test(editor_smoke
     test_editor_smoke.cpp
 )
 target_include_directories(editor_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-set_tests_properties(editor_smoke PROPERTIES LABELS "unit;smoke")
+set_tests_properties(editor_smoke PROPERTIES LABELS "smoke")
 
 molga_add_test(runtime_smoke
     test_runtime_smoke.cpp
 )
 target_include_directories(runtime_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-set_tests_properties(runtime_smoke PROPERTIES LABELS "unit;smoke")
+set_tests_properties(runtime_smoke PROPERTIES LABELS "smoke")
 
 molga_add_test(test_runtime_script_package_loader
     test_runtime_script_package_loader.cpp

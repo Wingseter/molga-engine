@@ -2,6 +2,8 @@
 
 #include "Editor/Commands/EditorCommand.h"
 #include "ECS/GameObject.h"
+#include "Editor/Selection/SelectionService.h"
+#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -71,11 +73,53 @@ public:
     void Execute() override;
     void Undo() override;
     std::string Name() const override { return "Duplicate Object"; }
+    unsigned int CopyId() const { return copyId_; }
 private:
     unsigned int srcId_;
     std::shared_ptr<GameObject> copy_;
     unsigned int copyId_ = 0;
     std::vector<std::shared_ptr<GameObject>> duplicatedObjects_;
+};
+
+// Multi-object hierarchy operations filter selected descendants when an
+// ancestor is selected, then execute all roots as a single history entry.
+struct HierarchyObjectPlacement {
+    std::shared_ptr<GameObject> object;
+    std::size_t worldIndex = 0;
+    unsigned int parentId = 0;
+    std::size_t siblingIndex = 0;
+};
+
+class DeleteObjectsCommand : public ICommand {
+public:
+    explicit DeleteObjectsCommand(std::vector<unsigned int> selectedIds);
+    void Execute() override;
+    void Undo() override;
+    std::string Name() const override { return "Delete Objects"; }
+
+private:
+    std::vector<unsigned int> requestedIds_;
+    SelectionState previousSelection_;
+    SelectionState resultSelection_;
+    std::vector<HierarchyObjectPlacement> removedObjects_;
+    bool built_ = false;
+    bool resultCaptured_ = false;
+};
+
+class DuplicateObjectsCommand : public ICommand {
+public:
+    explicit DuplicateObjectsCommand(std::vector<unsigned int> selectedIds);
+    void Execute() override;
+    void Undo() override;
+    std::string Name() const override { return "Duplicate Objects"; }
+
+private:
+    std::vector<unsigned int> requestedIds_;
+    SelectionState previousSelection_;
+    SelectionState resultSelection_;
+    std::vector<unsigned int> duplicateRootIds_;
+    std::vector<HierarchyObjectPlacement> duplicateObjects_;
+    bool built_ = false;
 };
 
 enum class UIPresetType { Canvas, Image, Label, Button };

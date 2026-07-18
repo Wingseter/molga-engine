@@ -101,6 +101,31 @@ Vector2 Transform::GetWorldScale() const {
     return worldScale;
 }
 
+bool Transform::TrySetWorldScale(const Vector2& worldScale, float epsilon) {
+    if (!gameObject || !gameObject->GetParent()) {
+        scale = worldScale;
+        return true;
+    }
+
+    Transform* parentTransform = gameObject->GetParent()->GetComponent<Transform>();
+    if (!parentTransform) {
+        scale = worldScale;
+        return true;
+    }
+
+    const Vector2 parentScale = parentTransform->GetWorldScale();
+    if (std::abs(parentScale.x) <= epsilon || std::abs(parentScale.y) <= epsilon) {
+        return false;
+    }
+
+    // Compute both axes before mutating so failure can never leave a partial
+    // scale update behind.
+    const Vector2 local(worldScale.x / parentScale.x,
+                        worldScale.y / parentScale.y);
+    scale = local;
+    return true;
+}
+
 void Transform::Serialize(nlohmann::json& j) const {
     j["position"] = { position.x, position.y };
     j["rotation"] = rotation;

@@ -30,6 +30,8 @@ bool BuildManager::LoadFromProjectProfile() {
     buildWidth = profile.window.width;
     buildHeight = profile.window.height;
     buildFullscreen = profile.window.fullscreen;
+    buildResizable = profile.window.resizable;
+    buildOutputScaleMode = profile.window.outputScaleMode;
     loadedProjectPath = Project::Get().GetPath();
     profileLoaded = true;
     return true;
@@ -57,6 +59,8 @@ bool BuildManager::SaveToProjectProfile() {
     profile.window.width = buildWidth;
     profile.window.height = buildHeight;
     profile.window.fullscreen = buildFullscreen;
+    profile.window.resizable = buildResizable;
+    profile.window.outputScaleMode = buildOutputScaleMode;
     std::string error;
     if (!profile.Validate(error)) {
         Log::Error("Editor", "Invalid build profile: " + error);
@@ -88,6 +92,21 @@ void BuildManager::RenderBuildWindow(const std::string& currentScenePath) {
         ImGui::InputInt("Width", &buildWidth);
         ImGui::InputInt("Height", &buildHeight);
         ImGui::Checkbox("Fullscreen", &buildFullscreen);
+        ImGui::Checkbox("Resizable", &buildResizable);
+        if (ImGui::BeginCombo(
+                "Output Scale",
+                molga::GameOutputScaleModeName(buildOutputScaleMode))) {
+            for (const auto mode : {molga::GameOutputScaleMode::Native,
+                                    molga::GameOutputScaleMode::IntegerFit}) {
+                const bool selected = buildOutputScaleMode == mode;
+                if (ImGui::Selectable(molga::GameOutputScaleModeName(mode),
+                                      selected)) {
+                    buildOutputScaleMode = mode;
+                }
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
 
         ImGui::Separator();
 

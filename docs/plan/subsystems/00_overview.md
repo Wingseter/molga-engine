@@ -1,9 +1,11 @@
 # 서브시스템 구현 계획 — 개요 (Subsystem Implementation Plans)
 
 > 작성일: 2026-06-14
+> 상태 갱신: 2026-07-16 — P1 통합 이후 현황 반영
 > 범위: 이미지/애니메이션 이후 필요한 게임 구성 요소들의 **계획 문서 모음**
-> 성격: 구현 전 설계·작업 계획. 코드 작성은 각 문서를 별도 마일스톤으로 진행한다.
+> 성격: 최초 구현 전 설계와 현재 성숙도 추적
 > 관련 문서: [`../2026-06-06_project_gap_analysis.md`](../2026-06-06_project_gap_analysis.md), [`../../design/00_roadmap.md`](../../design/00_roadmap.md)
+> P1 기준: [`../2026-07-16_game_production_p1_plan.md`](../2026-07-16_game_production_p1_plan.md)
 
 ---
 
@@ -39,14 +41,14 @@ Designed → Utility 구현 → Engine 통합 → Editor 제작 가능 → 직�
 | 서브시스템 | Utility | Engine | Editor | 직렬화 | 현재 핵심 자산 | 문서 |
 |---|:--:|:--:|:--:|:--:|---|---|
 | 스프라이트 | ✅ | ✅ | ✅ | ✅ | `SpriteRenderer` (참조 구현) | — |
-| 애니메이션 | ✅ | ✅ | ✅ | ✅ | `MarrowRenderer`, `Animation` | — |
+| 애니메이션 | ✅ | ✅ | ✅ | ✅ | `AnimationClip2D`, `AnimatorController2D`, `Animator2D` | [P1](../2026-07-16_game_production_p1_plan.md) |
 | **물리** | 🟡 | ❌ | 🟡 | 🟡 | `Collision`, `Collider2D`/`BoxCollider2D`, `CollisionEvent`(미발화) | [01](01_physics.md) |
-| **사운드** | ✅ | ❌ | ❌ | ❌ | `Audio`(전역 static, miniaudio) | [02](02_audio.md) |
-| **이펙트(파티클)** | ✅ | ❌ | ❌ | ❌ | `ParticleEmitter` + 프리셋 | [03](03_particle_effects.md) |
+| **사운드** | ✅ | ✅ | ✅ | ✅ | `AudioService`, `AudioSource`, 고정 bus | [02](02_audio.md) |
+| **이펙트(파티클)** | ✅ | ✅ | ✅ | ✅ | `ParticleSystem` v2 + multi-quad batch | [03](03_particle_effects.md) |
 | **Shader/Material** | 🟡 | 🟡 | ❌ | ❌ | `Shader`(기본 1개), Material 없음 | [04](04_shader_material.md) |
 | **텍스트/폰트** | 🟡 | ❌ | ❌ | ❌ | `TextRenderer`(에디터 전용) | [05](05_text.md) |
 | **카메라** | 🟡 | 🟡 | ❌ | ❌ | `Camera2D`(렌더용 1개), Camera 컴포넌트 없음 | [06](06_camera.md) |
-| **타일맵** | ✅ | ❌ | ❌ | ❌ | `Tilemap`(독립 클래스) | [07](07_tilemap.md) |
+| **타일맵** | ✅ | ✅ | ✅ | ✅ | `TileSetAsset`, `TilemapRenderer` v2, Tile Palette | [07](07_tilemap.md) |
 | **입력(액션)** | 🟡 | ✅ | ❌ | ❌ | `Input`(전역, GLFW 키코드 직접) | [08](08_input_actions.md) |
 | **태그·레이어** | ❌ | ❌ | ❌ | ❌ | 없음 (`GameObject`에 필드 자체 없음) | [09](09_tags_layers.md) |
 

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <initializer_list>
+#include <utility>
 #include <vector>
 #include "Common/Types.h"
 
@@ -29,6 +31,7 @@ struct PrefabRef {
 enum class ScriptFieldType {
     Float,
     Int,
+    Enum,
     Bool,
     String,
     Vector2,
@@ -46,6 +49,7 @@ struct ScriptFieldRef {
     float uiSpeed = 1.0f;
     float uiMin = 0.0f;
     float uiMax = 0.0f;
+    std::vector<std::string> enumLabels;
 };
 
 // 스크립트 인스턴스가 자신의 멤버 포인터를 등록하는 컨테이너.
@@ -55,35 +59,48 @@ class ScriptFieldRegistry {
 public:
     ScriptFieldRegistry& Float(const std::string& name, float* p,
                                float speed = 1.0f, float min = 0.0f, float max = 0.0f) {
-        fields_.push_back({name, ScriptFieldType::Float, p, speed, min, max});
+        fields_.push_back({name, ScriptFieldType::Float, p, speed, min, max, {}});
         return *this;
     }
     ScriptFieldRegistry& Int(const std::string& name, int* p) {
-        fields_.push_back({name, ScriptFieldType::Int, p, 1.0f, 0.0f, 0.0f});
+        fields_.push_back({name, ScriptFieldType::Int, p, 1.0f, 0.0f, 0.0f, {}});
         return *this;
     }
+    ScriptFieldRegistry& Enum(const std::string& name, int* p,
+                              std::vector<std::string> labels) {
+        fields_.push_back({name, ScriptFieldType::Enum, p, 1.0f, 0.0f, 0.0f,
+                           std::move(labels)});
+        return *this;
+    }
+    ScriptFieldRegistry& Enum(const std::string& name, int* p,
+                              std::initializer_list<const char*> labels) {
+        std::vector<std::string> owned;
+        owned.reserve(labels.size());
+        for (const char* label : labels) owned.emplace_back(label ? label : "");
+        return Enum(name, p, std::move(owned));
+    }
     ScriptFieldRegistry& Bool(const std::string& name, bool* p) {
-        fields_.push_back({name, ScriptFieldType::Bool, p, 1.0f, 0.0f, 0.0f});
+        fields_.push_back({name, ScriptFieldType::Bool, p, 1.0f, 0.0f, 0.0f, {}});
         return *this;
     }
     ScriptFieldRegistry& String(const std::string& name, std::string* p) {
-        fields_.push_back({name, ScriptFieldType::String, p, 1.0f, 0.0f, 0.0f});
+        fields_.push_back({name, ScriptFieldType::String, p, 1.0f, 0.0f, 0.0f, {}});
         return *this;
     }
     ScriptFieldRegistry& Vec2(const std::string& name, ::Vector2* p) {
-        fields_.push_back({name, ScriptFieldType::Vector2, p, 1.0f, 0.0f, 0.0f});
+        fields_.push_back({name, ScriptFieldType::Vector2, p, 1.0f, 0.0f, 0.0f, {}});
         return *this;
     }
     ScriptFieldRegistry& Color(const std::string& name, ::Color* p) {
-        fields_.push_back({name, ScriptFieldType::Color, p, 1.0f, 0.0f, 0.0f});
+        fields_.push_back({name, ScriptFieldType::Color, p, 1.0f, 0.0f, 0.0f, {}});
         return *this;
     }
     ScriptFieldRegistry& Object(const std::string& name, ::ObjectRef* p) {
-        fields_.push_back({name, ScriptFieldType::ObjectRef, p, 1.0f, 0.0f, 0.0f});
+        fields_.push_back({name, ScriptFieldType::ObjectRef, p, 1.0f, 0.0f, 0.0f, {}});
         return *this;
     }
     ScriptFieldRegistry& Prefab(const std::string& name, ::PrefabRef* p) {
-        fields_.push_back({name, ScriptFieldType::PrefabRef, p, 1.0f, 0.0f, 0.0f});
+        fields_.push_back({name, ScriptFieldType::PrefabRef, p, 1.0f, 0.0f, 0.0f, {}});
         return *this;
     }
 

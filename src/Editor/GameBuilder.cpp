@@ -4,6 +4,7 @@
 #include "../Core/BuildManifest.h"
 #include "../Core/PackageLayout.h"
 #include "../Core/PackageFinalizer.h"
+#include "../Core/GameConfig.h"
 #include "../Core/ProjectSettings.h"
 #include "../Systems/Input.h"
 #include "Project.h"
@@ -20,6 +21,7 @@
 #include "../Scripting/ScriptManager.h"
 #include "../Scripting/ScriptCompiler.h"
 #include "../Core/AssetDatabase.h"
+#include "../Core/AssetDependencyValidator.h"
 
 namespace fs = std::filesystem;
 
@@ -255,6 +257,19 @@ bool GameBuilder::Build(const BuildSettings& settings) {
 
     if (Project::Get().IsOpen()) {
         molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+    }
+    {
+        std::vector<fs::path> dependencyScenes;
+        dependencyScenes.reserve(plan.sceneEntries.size());
+        for (const auto& entry : plan.sceneEntries) {
+            dependencyScenes.emplace_back(entry.sourceAbsolutePath);
+        }
+        const auto dependencies = molga::AssetDependencyValidator::ValidateScenes(
+            dependencyScenes, molga::AssetDatabase::Get());
+        if (!dependencies) {
+            lastError = "Asset dependency validation failed:\n" + dependencies.Summary();
+            return false;
+        }
     }
     if (!ValidateSceneFontReferences(plan, {}, lastError)) {
         return false;
@@ -546,7 +561,7 @@ bool GameBuilder::CopyScenes(const BuildPlan& plan, const std::string& outputPat
 bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildPlan& plan, const std::string& outputPath) {
     try {
         nlohmann::json config;
-        config["schemaVersion"] = 1;
+        config["schemaVersion"] = GameConfig::CurrentSchemaVersion;
         config["gameName"] = settings.profile.gameName;
         config["productVersion"] = settings.profile.productVersion;
         config["companyName"] = settings.profile.companyName;
@@ -556,6 +571,8 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildP
         config["windowHeight"] = settings.profile.window.height;
         config["fullscreen"] = settings.profile.window.fullscreen;
         config["resizable"] = settings.profile.window.resizable;
+        config["outputScaleMode"] = molga::GameOutputScaleModeName(
+            settings.profile.window.outputScaleMode);
         config["developmentBuild"] = settings.profile.developmentBuild;
         config["projectSettings"] = ProjectSettings::Get().Serialize();
 

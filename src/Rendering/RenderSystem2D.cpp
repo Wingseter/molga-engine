@@ -2,6 +2,7 @@
 #include "Rendering/Renderer.h"
 #include "Core/Profiling/ScopedTimer.h"
 #include "Core/Profiling/ProfileScope.h"
+#include "Rendering/Camera2D.h"
 
 namespace molga {
 
@@ -37,10 +38,19 @@ void RenderSystem2D::Render(RenderQueue& queue, Renderer* renderer, Camera2D* ca
     // 2. Render commands
     batcher_.Begin(renderer);
 
+    const std::optional<AABB> cameraBounds = camera
+        ? std::optional<AABB>(camera->GetViewBounds()) : std::nullopt;
+
     for (const auto& cmd : queue.GetCommands()) {
+        if (cameraBounds && cmd.worldBounds &&
+            !cameraBounds->Intersects(*cmd.worldBounds)) {
+            continue;
+        }
         renderer->Stats().submittedCommands++;
 
-        if (cmd.isBatchableSprite) {
+        if (cmd.geometry && cmd.batchKey.isBatchable) {
+            batcher_.DrawGeometry(*cmd.geometry, cmd.batchKey);
+        } else if (cmd.isBatchableSprite) {
             batcher_.DrawSprite(cmd.vertices, cmd.batchKey);
         } else {
             // Flush dynamic batch before drawing non-batchable sprites

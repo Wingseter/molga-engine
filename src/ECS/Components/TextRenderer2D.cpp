@@ -72,10 +72,16 @@ void TextRenderer2D::Serialize(nlohmann::json& j) const {
     j["fontSizePx"] = fontSizePx;
     j["lineSpacing"] = lineSpacing;
     j["fontName"] = fontName;
-    j["sortingOrder"] = sortingOrder;
+    molga::SerializeWorldSortSettings(j, GetWorldSortSettings());
 }
 
 void TextRenderer2D::Deserialize(const nlohmann::json& j) {
+    const molga::WorldSortSettings2D worldSort =
+        molga::DeserializeWorldSortSettings(j);
+    sortingLayer = worldSort.sortingLayer;
+    sortingOrder = worldSort.sortingOrder;
+    sortMode = worldSort.sortMode;
+    ySortOffset = worldSort.ySortOffset;
     if (j.contains("text")) {
         text = j["text"].get<std::string>();
     }
@@ -104,9 +110,6 @@ void TextRenderer2D::Deserialize(const nlohmann::json& j) {
     }
     if (j.contains("fontName")) {
         fontName = j["fontName"].get<std::string>();
-    }
-    if (j.contains("sortingOrder")) {
-        sortingOrder = j["sortingOrder"].get<int>();
     }
 }
 
@@ -180,7 +183,12 @@ void TextRenderer2D::CollectRender(molga::RenderQueue& queue) {
     params.scale = scale;
     params.lineSpacing = lineSpacing;
     params.color = color;
-    params.sortingOrder = sortingOrder;
+    const molga::SortKey sortKey = molga::MakeWorldSortKey(
+        GetWorldSortSettings(), position.y);
+    params.cameraPass = sortKey.cameraPass;
+    params.sortingLayer = sortKey.sortingLayer;
+    params.sortingOrder = sortKey.sortingOrder;
+    params.depthOrYSort = sortKey.depthOrYSort;
     switch (alignment) {
         case Alignment::Center:
             params.alignment = TextHorizontalAlignment::Center;

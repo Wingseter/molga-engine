@@ -1,8 +1,11 @@
 #include "Input.h"
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <cmath>
+#include <unordered_map>
 #include <nlohmann/json.hpp>
 
 #ifdef MOLGA_EDITOR
@@ -33,6 +36,35 @@ float Input::mouseDeltaY = 0.0f;
 float Input::scrollX = 0.0f;
 float Input::scrollY = 0.0f;
 
+namespace {
+
+struct PendingScroll {
+    float x = 0.0f;
+    float y = 0.0f;
+};
+
+std::unordered_map<GLFWwindow*, PendingScroll> g_pendingScroll;
+std::unordered_map<GLFWwindow*, GLFWscrollfun> g_chainedScrollCallbacks;
+
+void AccumulateScroll(GLFWwindow* sourceWindow, float xoffset, float yoffset) {
+    PendingScroll& pending = g_pendingScroll[sourceWindow];
+    pending.x += xoffset;
+    pending.y += yoffset;
+}
+
+void ConsumeScroll(GLFWwindow* sourceWindow, bool deliver,
+                   InputSnapshot& snapshot) {
+    const auto it = g_pendingScroll.find(sourceWindow);
+    if (it == g_pendingScroll.end()) return;
+    if (deliver) {
+        snapshot.scrollX = it->second.x;
+        snapshot.scrollY = it->second.y;
+    }
+    g_pendingScroll.erase(it);
+}
+
+} // namespace
+
 static std::string DeviceTypeToString(Input::DeviceType type) {
     switch (type) {
         case Input::DeviceType::Keyboard: return "Keyboard";
@@ -54,6 +86,9 @@ static Input::DeviceType StringToDeviceType(const std::string& str) {
 void Input::Init(GLFWwindow* win) {
     window = win;
 
+    g_pendingScroll.clear();
+    g_chainedScrollCallbacks.clear();
+
     std::memset(currentKeys, false, sizeof(currentKeys));
     std::memset(previousKeys, false, sizeof(previousKeys));
     std::memset(currentMouseButtons, false, sizeof(currentMouseButtons));
@@ -68,74 +103,135 @@ void Input::Init(GLFWwindow* win) {
         mouseX = lastMouseX = static_cast<float>(mx);
         mouseY = lastMouseY = static_cast<float>(my);
 
-        glfwSetScrollCallback(window, ScrollCallback);
+        GLFWscrollfun previous = glfwSetScrollCallback(window, ScrollCallback);
+        if (previous && previous != ScrollCallback) {
+            g_chainedScrollCallbacks[window] = previous;
+        }
     }
 }
 
 void Input::Update() {
-    // Store previous states
-    std::memcpy(previousKeys, currentKeys, sizeof(currentKeys));
-    std::memcpy(previousMouseButtons, currentMouseButtons, sizeof(currentMouseButtons));
-    std::memcpy(previousGamepadButtons, currentGamepadButtons, sizeof(currentGamepadButtons));
-
+    InputSnapshot snapshot;
     if (window) {
-        // Update keyboard state
-        for (int i = 0; i < MAX_KEYS; i++) {
-            currentKeys[i] = glfwGetKey(window, i) == GLFW_PRESS;
-        }
-
-        // Update mouse button state
-        for (int i = 0; i < MAX_MOUSE_BUTTONS; i++) {
-            currentMouseButtons[i] = glfwGetMouseButton(window, i) == GLFW_PRESS;
-        }
-
-        // Update mouse position
         double mx, my;
         glfwGetCursorPos(window, &mx, &my);
-        mouseX = static_cast<float>(mx);
-        mouseY = static_cast<float>(my);
-
-        mouseDeltaX = mouseX - lastMouseX;
-        mouseDeltaY = mouseY - lastMouseY;
-
-        lastMouseX = mouseX;
-        lastMouseY = mouseY;
+        snapshot = CaptureSnapshot(window, static_cast<float>(mx),
+                                   static_cast<float>(my), true);
     } else {
-        // In unit tests, window is nullptr. We preserve currentKeys/currentMouseButtons so tests can set them manually.
-        mouseDeltaX = 0.0f;
-        mouseDeltaY = 0.0f;
-    }
-
-    // Poll Gamepad
-    GLFWgamepadstate gamepadState;
-    if (window && glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState)) {
-        for (int i = 0; i < MAX_GAMEPAD_BUTTONS; i++) {
-            currentGamepadButtons[i] = gamepadState.buttons[i] == GLFW_PRESS;
-        }
-        for (int i = 0; i < MAX_GAMEPAD_AXES; i++) {
-            currentGamepadAxes[i] = gamepadState.axes[i];
-        }
-    } else if (window) {
-        // Only clear if we actually have a window but no gamepad.
-        std::memset(currentGamepadButtons, false, sizeof(currentGamepadButtons));
-        std::memset(currentGamepadAxes, 0, sizeof(currentGamepadAxes));
+        // Unit tests set the current arrays directly; preserve those authored
+        // values while still advancing action-map state.
+        std::copy(std::begin(currentKeys), std::end(currentKeys), snapshot.keys.begin());
+        std::copy(std::begin(currentMouseButtons), std::end(currentMouseButtons),
+                  snapshot.mouseButtons.begin());
+        std::copy(std::begin(currentGamepadButtons), std::end(currentGamepadButtons),
+                  snapshot.gamepadButtons.begin());
+        std::copy(std::begin(currentGamepadAxes), std::end(currentGamepadAxes),
+                  snapshot.gamepadAxes.begin());
+        snapshot.mouseX = mouseX;
+        snapshot.mouseY = mouseY;
+        snapshot.pointerValid = true;
+        ConsumeScroll(nullptr, true, snapshot);
     }
 
 #ifdef MOLGA_EDITOR
     if (ImGui::GetCurrentContext()) {
         auto& io = ImGui::GetIO();
         if (io.WantCaptureKeyboard) {
-            std::memset(currentKeys, false, sizeof(currentKeys));
+            snapshot.keys.fill(false);
         }
         if (io.WantCaptureMouse) {
-            std::memset(currentMouseButtons, false, sizeof(currentMouseButtons));
+            snapshot.mouseButtons.fill(false);
         }
     }
 #endif
 
-    // Reset scroll (scroll is event-based, so reset after each frame)
-    scrollX = 0.0f;
-    scrollY = 0.0f;
+    ApplySnapshot(snapshot);
+}
+
+InputSnapshot Input::CaptureSnapshot(GLFWwindow* sourceWindow,
+                                     float mappedMouseX,
+                                     float mappedMouseY,
+                                     bool pointerValid) {
+    InputSnapshot snapshot;
+    snapshot.mouseX = mappedMouseX;
+    snapshot.mouseY = mappedMouseY;
+    snapshot.pointerValid = pointerValid;
+    // Consume even when the pointer lies outside the output image so a wheel
+    // event cannot leak into a later frame after the pointer returns.
+    ConsumeScroll(sourceWindow, pointerValid, snapshot);
+    if (!sourceWindow) return snapshot;
+
+    for (int i = 0; i < MAX_KEYS; ++i) {
+        snapshot.keys[static_cast<std::size_t>(i)] =
+            glfwGetKey(sourceWindow, i) == GLFW_PRESS;
+    }
+    if (pointerValid) {
+        for (int i = 0; i < MAX_MOUSE_BUTTONS; ++i) {
+            snapshot.mouseButtons[static_cast<std::size_t>(i)] =
+                glfwGetMouseButton(sourceWindow, i) == GLFW_PRESS;
+        }
+    }
+
+    GLFWgamepadstate gamepadState;
+    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepadState)) {
+        for (int i = 0; i < MAX_GAMEPAD_BUTTONS; ++i) {
+            snapshot.gamepadButtons[static_cast<std::size_t>(i)] =
+                gamepadState.buttons[i] == GLFW_PRESS;
+        }
+        for (int i = 0; i < MAX_GAMEPAD_AXES; ++i) {
+            snapshot.gamepadAxes[static_cast<std::size_t>(i)] = gamepadState.axes[i];
+        }
+    }
+    return snapshot;
+}
+
+void Input::RegisterScrollSource(GLFWwindow* sourceWindow) {
+    if (!sourceWindow || sourceWindow == window) return;
+
+    GLFWscrollfun previous = glfwSetScrollCallback(sourceWindow, ScrollCallback);
+    if (previous == ScrollCallback) return;
+    if (previous) {
+        g_chainedScrollCallbacks[sourceWindow] = previous;
+    } else {
+        g_chainedScrollCallbacks.erase(sourceWindow);
+    }
+}
+
+void Input::DiscardPendingScroll(GLFWwindow* sourceWindow) {
+    g_pendingScroll.erase(sourceWindow);
+}
+
+void Input::ApplySnapshot(const InputSnapshot& snapshot) {
+    std::memcpy(previousKeys, currentKeys, sizeof(currentKeys));
+    std::memcpy(previousMouseButtons, currentMouseButtons, sizeof(currentMouseButtons));
+    std::memcpy(previousGamepadButtons, currentGamepadButtons,
+                sizeof(currentGamepadButtons));
+
+    std::copy(snapshot.keys.begin(), snapshot.keys.end(), std::begin(currentKeys));
+    std::copy(snapshot.mouseButtons.begin(), snapshot.mouseButtons.end(),
+              std::begin(currentMouseButtons));
+    std::copy(snapshot.gamepadButtons.begin(), snapshot.gamepadButtons.end(),
+              std::begin(currentGamepadButtons));
+    std::copy(snapshot.gamepadAxes.begin(), snapshot.gamepadAxes.end(),
+              std::begin(currentGamepadAxes));
+
+    mouseX = snapshot.mouseX;
+    mouseY = snapshot.mouseY;
+    mouseDeltaX = snapshot.pointerValid ? mouseX - lastMouseX : 0.0f;
+    mouseDeltaY = snapshot.pointerValid ? mouseY - lastMouseY : 0.0f;
+    lastMouseX = mouseX;
+    lastMouseY = mouseY;
+    scrollX = snapshot.scrollX;
+    scrollY = snapshot.scrollY;
+    UpdateActions();
+}
+
+void Input::ReleaseAll() {
+    InputSnapshot released;
+    ApplySnapshot(released);
+}
+
+void Input::UpdateActions() {
 
     // Update Action Map States
     for (auto& action : actions) {
@@ -193,9 +289,14 @@ void Input::Update() {
     }
 }
 
-void Input::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
-    scrollX = static_cast<float>(xoffset);
-    scrollY = static_cast<float>(yoffset);
+void Input::ScrollCallback(GLFWwindow* sourceWindow, double xoffset, double yoffset) {
+    AccumulateScroll(sourceWindow, static_cast<float>(xoffset),
+                     static_cast<float>(yoffset));
+    const auto chained = g_chainedScrollCallbacks.find(sourceWindow);
+    if (chained != g_chainedScrollCallbacks.end() && chained->second &&
+        chained->second != ScrollCallback) {
+        chained->second(sourceWindow, xoffset, yoffset);
+    }
 }
 
 // Keyboard
@@ -239,6 +340,19 @@ float Input::GetMouseDeltaY() { return mouseDeltaY; }
 // Scroll
 float Input::GetScrollX() { return scrollX; }
 float Input::GetScrollY() { return scrollY; }
+
+void Input::AddScrollForTesting(GLFWwindow* sourceWindow,
+                                float xoffset, float yoffset) {
+    AccumulateScroll(sourceWindow, xoffset, yoffset);
+}
+
+InputSnapshot Input::ConsumeScrollForTesting(GLFWwindow* sourceWindow,
+                                             bool pointerValid) {
+    InputSnapshot snapshot;
+    snapshot.pointerValid = pointerValid;
+    ConsumeScroll(sourceWindow, pointerValid, snapshot);
+    return snapshot;
+}
 
 // Action Map
 bool Input::GetAction(const std::string& name) {
@@ -467,4 +581,3 @@ void Input::SetGamepadAxisForTesting(int axis, float value) {
         currentGamepadAxes[axis] = value;
     }
 }
-

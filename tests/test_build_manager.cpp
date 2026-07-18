@@ -2,6 +2,7 @@
 #include "Editor/EditorState.h"
 #include "Editor/GameBuilder.h"
 #include "Editor/Project.h"
+#include "Editor/Windows/ConsoleWindow.h"
 #include "SmokeTestSupport.h"
 #include "doctest.h"
 
@@ -21,6 +22,8 @@ TEST_CASE("BuildManager direct build loads project profile before saving UI fiel
     profile.window.width = 1366;
     profile.window.height = 768;
     profile.window.fullscreen = true;
+    profile.window.resizable = false;
+    profile.window.outputScaleMode = molga::GameOutputScaleMode::IntegerFit;
     REQUIRE(Project::Get().SaveBuildProfile());
 
     BuildManager manager;
@@ -34,6 +37,9 @@ TEST_CASE("BuildManager direct build loads project profile before saving UI fiel
     CHECK(afterBuild.window.width == 1366);
     CHECK(afterBuild.window.height == 768);
     CHECK(afterBuild.window.fullscreen);
+    CHECK_FALSE(afterBuild.window.resizable);
+    CHECK(afterBuild.window.outputScaleMode ==
+          molga::GameOutputScaleMode::IntegerFit);
 
     Project::Get().Close();
 }
@@ -68,6 +74,24 @@ TEST_CASE("EditorState remains in Edit mode when entering Play is rejected") {
     CHECK(exitCalls == 1);
 
     state.SetPlayCallbacks({}, {});
+}
+
+TEST_CASE("Console Error Pause drains errors while its window is hidden") {
+    ConsoleWindow console;
+    console.SetOpen(false);
+    console.SetErrorPause(true);
+
+    EditorState& state = EditorState::Get();
+    state.SetMode(EditorMode::Play);
+    Log::LogMessage error;
+    error.severity = Log::Severity::Error;
+    error.category = "Script";
+    error.message = "hidden console fault";
+    console.Sink()->Write(error);
+
+    console.PumpPending();
+    CHECK(state.IsPaused());
+    state.SetMode(EditorMode::Edit);
 }
 
 TEST_CASE("GameBuilder validates font GUIDs referenced only by prefabs") {

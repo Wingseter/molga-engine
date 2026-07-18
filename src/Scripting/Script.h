@@ -3,10 +3,12 @@
 #include "../ECS/Component.h"
 #include "Common/Types.h"
 #include "ScriptField.h"
+#include "ScriptInvocationBoundary.h"
 #include "Core/World.h"          // FindObjectOfType<T>, Find 등 World API
 #include "../Physics/Physics2D.h" // RaycastHit2D, Physics2D 질의
 #include <vector>
 #include <functional>
+#include <optional>
 
 class Scheduler;
 
@@ -23,6 +25,19 @@ public:
     static std::string StaticTypeName() { return "Script"; }
 
     virtual ~Script() = default;
+
+    // Script enable transitions are exception-isolated while attached to a
+    // World. Explicitly re-enabling a faulted instance clears its runtime-only
+    // fault and retries unfinished lifecycle phases.
+    void SetEnabled(bool value) override;
+
+    ScriptHandle GetHandle() const {
+        return ScriptInvocationBoundary::MakeHandle(*this);
+    }
+    bool IsFaulted() const { return faultInfo_.has_value(); }
+    const ScriptFaultInfo* GetFaultInfo() const {
+        return faultInfo_ ? &*faultInfo_ : nullptr;
+    }
 
     // Called once for self-initialization, before any Start (do not reference other objects).
     void Awake() override {}
@@ -154,8 +169,11 @@ public:
     size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<Script>(); }
 
 private:
+    friend class ScriptInvocationBoundary;
+
     ScriptFieldRegistry fieldRegistry_;
     bool fieldsBuilt_ = false;
+    std::optional<ScriptFaultInfo> faultInfo_;
 };
 
 // Macro for easy script definition

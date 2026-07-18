@@ -3,6 +3,7 @@
 #include "../GameObject.h"
 #include "../ComponentFactory.h"
 #include "Core/AssetDatabase.h"
+#include "Core/SpriteResolver.h"
 
 REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Rendering/Renderer.h"
@@ -19,6 +20,8 @@ REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Editor/Project.h"
 #endif
 #include <nlohmann/json.hpp>
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
@@ -26,41 +29,232 @@ REGISTER_COMPONENT(SpriteRenderer)
 
 using json = nlohmann::json;
 
+void SpriteRenderer::SetTexture(Texture* tex) {
+    texture = tex;
+}
+
+void SpriteRenderer::SetTexturePath(const std::string& path) {
+    if (texturePath == path) return;
+    texturePath = path;
+    texture = nullptr;
+    if (authoredSprite.textureGuid.empty() && !texturePath.empty()) {
+        const std::string guid =
+            molga::AssetDatabase::Get().GuidForSource(texturePath);
+        if (!guid.empty()) authoredSprite.textureGuid = guid;
+    }
+    InvalidateAuthoredResolution();
+}
+
+void SpriteRenderer::SetTextureGuid(const std::string& guid) {
+    if (authoredSprite.textureGuid == guid && authoredSprite.sliceId.empty()) return;
+    authoredSprite.textureGuid = guid;
+    authoredSprite.sliceId.clear();
+    texture = nullptr;
+    InvalidateAuthoredResolution();
+}
+
+void SpriteRenderer::SetSpriteRef(const molga::SpriteRef& value) {
+    if (authoredSprite == value) return;
+    authoredSprite = value;
+    texture = nullptr;
+    InvalidateAuthoredResolution();
+}
+
+void SpriteRenderer::SetRuntimeSpriteOverride(const molga::SpriteRef& value) {
+    if (value.Empty()) {
+        ClearRuntimeSpriteOverride();
+        return;
+    }
+    if (hasRuntimeSpriteOverride && runtimeSpriteOverride == value) return;
+    runtimeSpriteOverride = value;
+    hasRuntimeSpriteOverride = true;
+    InvalidateRuntimeResolution();
+}
+
+void SpriteRenderer::ClearRuntimeSpriteOverride() {
+    hasRuntimeSpriteOverride = false;
+    runtimeSpriteOverride = {};
+    InvalidateRuntimeResolution();
+}
+
+void SpriteRenderer::InvalidateAuthoredResolution() {
+    authoredResolved = {};
+    authoredResolveAttempted = false;
+}
+
+void SpriteRenderer::InvalidateRuntimeResolution() {
+    runtimeResolved = {};
+    runtimeResolveAttempted = false;
+}
+
+void SpriteRenderer::EnsureSpriteResolution() {
+    if (!authoredResolveAttempted && !authoredSprite.Empty()) {
+        authoredResolveAttempted = true;
+        authoredResolved = molga::SpriteResolver::Resolve(authoredSprite);
+        if (authoredResolved.valid) texture = authoredResolved.texture;
+    }
+    if (hasRuntimeSpriteOverride && !runtimeResolveAttempted &&
+        !runtimeSpriteOverride.Empty()) {
+        runtimeResolveAttempted = true;
+        runtimeResolved = molga::SpriteResolver::Resolve(runtimeSpriteOverride);
+    }
+}
+
+SpriteRenderer::VisualSprite SpriteRenderer::GetVisualSprite() {
+    EnsureSpriteResolution();
+    const molga::ResolvedSprite* resolved = nullptr;
+    if (hasRuntimeSpriteOverride && runtimeResolved.valid) {
+        resolved = &runtimeResolved;
+    } else if (authoredResolved.valid) {
+        resolved = &authoredResolved;
+    }
+
+    VisualSprite visual;
+    if (resolved) {
+        visual.texture = resolved->texture;
+        visual.uv = resolved->uv;
+        visual.pivot = resolved->pivot;
+        visual.nativeSize = resolved->nativeSize;
+        visual.resolved = true;
+    } else {
+        visual.texture = texture;
+        visual.uv = Frame{};
+        visual.pivot = {0.5f, 0.5f};
+        if (texture) {
+            visual.nativeSize = {
+                static_cast<float>(texture->GetWidth()),
+                static_cast<float>(texture->GetHeight())
+            };
+        }
+    }
+    return visual;
+}
+
+Vector2 SpriteRenderer::GetSize() const {
+    if (sizeMode == SizeMode::Custom) return {width, height};
+    if (hasRuntimeSpriteOverride && runtimeResolved.valid) {
+        return runtimeResolved.nativeSize;
+    }
+    if (authoredResolved.valid) return authoredResolved.nativeSize;
+    if (texture) {
+        return {static_cast<float>(texture->GetWidth()),
+                static_cast<float>(texture->GetHeight())};
+    }
+    return {width, height};
+}
+
+Vector2 SpriteRenderer::GetPivot() const {
+    if (sizeMode == SizeMode::Custom) return {0.0f, 0.0f};
+    if (hasRuntimeSpriteOverride && runtimeResolved.valid) return runtimeResolved.pivot;
+    if (authoredResolved.valid) return authoredResolved.pivot;
+    return {0.5f, 0.5f};
+}
+
+namespace {
+
+inline void TransformVertex(const mat4x4 model, float localX, float localY,
+                            float& outX, float& outY) {
+    outX = model[0][0] * localX + model[1][0] * localY + model[3][0];
+    outY = model[0][1] * localX + model[1][1] * localY + model[3][1];
+}
+
+Vector2 RotateVector(Vector2 value, float degrees) {
+    constexpr float Pi = 3.14159265358979323846f;
+    const float radians = degrees * Pi / 180.0f;
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    return {value.x * cosine - value.y * sine,
+            value.x * sine + value.y * cosine};
+}
+
+void ConfigureSprite(Sprite& sprite, const Transform& transform,
+                     const Vector2& localSize, const Vector2& pivot,
+                     bool usePivot, const Frame& uv, bool flipX, bool flipY) {
+    const Vector2 worldPosition = transform.GetWorldPosition();
+    const Vector2 worldScale = transform.GetWorldScale();
+    const float rotation = transform.GetWorldRotation();
+    const Vector2 size{localSize.x * worldScale.x,
+                       localSize.y * worldScale.y};
+
+    Vector2 topLeft = worldPosition;
+    if (usePivot) {
+        const Vector2 centerOffset{
+            (0.5f - pivot.x) * size.x,
+            (0.5f - pivot.y) * size.y
+        };
+        const Vector2 center = worldPosition + RotateVector(centerOffset, rotation);
+        topLeft = {center.x - size.x * 0.5f,
+                   center.y - size.y * 0.5f};
+    }
+
+    sprite.SetPosition(topLeft.x, topLeft.y);
+    sprite.SetSize(size.x, size.y);
+    sprite.SetRotation(rotation);
+    sprite.SetFrame(uv);
+    if (flipX) std::swap(sprite.uv[0], sprite.uv[2]);
+    if (flipY) std::swap(sprite.uv[1], sprite.uv[3]);
+}
+
+AABB CalculateSpriteBounds(Sprite& sprite) {
+    mat4x4 model;
+    sprite.GetModelMatrix(model);
+    float x = 0.0f;
+    float y = 0.0f;
+    TransformVertex(model, 0.0f, 0.0f, x, y);
+    float minX = x;
+    float maxX = x;
+    float minY = y;
+    float maxY = y;
+    for (const Vector2 corner : {Vector2{1.0f, 0.0f}, Vector2{1.0f, 1.0f},
+                                 Vector2{0.0f, 1.0f}}) {
+        TransformVertex(model, corner.x, corner.y, x, y);
+        minX = std::min(minX, x);
+        maxX = std::max(maxX, x);
+        minY = std::min(minY, y);
+        maxY = std::max(maxY, y);
+    }
+    return {minX, minY, maxX - minX, maxY - minY};
+}
+
+} // namespace
+
+std::optional<AABB> SpriteRenderer::GetWorldBounds() {
+    if (!gameObject || !enabled) return std::nullopt;
+    Transform* transform = gameObject->GetComponent<Transform>();
+    if (!transform) return std::nullopt;
+
+    const VisualSprite visual = GetVisualSprite();
+    Sprite sprite;
+    ConfigureSprite(sprite, *transform,
+                    sizeMode == SizeMode::Native && visual.nativeSize.x > 0.0f &&
+                            visual.nativeSize.y > 0.0f
+                        ? visual.nativeSize : Vector2{width, height},
+                    visual.pivot, sizeMode == SizeMode::Native,
+                    visual.uv, flipX, flipY);
+    return CalculateSpriteBounds(sprite);
+}
+
 void SpriteRenderer::RenderSprite(Renderer* renderer) {
     if (!gameObject || !enabled) return;
 
     Transform* transform = gameObject->GetComponent<Transform>();
     if (!transform) return;
 
-    // Apply material
+    VisualSprite visual = GetVisualSprite();
     material.Apply(renderer);
-
-    // Create a temporary sprite for rendering
     Sprite sprite;
-
-    Vector2 worldPos = transform->GetWorldPosition();
-    Vector2 worldScale = transform->GetWorldScale();
-    float worldRot = transform->GetWorldRotation();
-
-    sprite.SetPosition(worldPos.x, worldPos.y);
-    sprite.SetSize(width * worldScale.x, height * worldScale.y);
-    sprite.SetRotation(worldRot);
+    ConfigureSprite(sprite, *transform,
+                    sizeMode == SizeMode::Native && visual.nativeSize.x > 0.0f &&
+                            visual.nativeSize.y > 0.0f
+                        ? visual.nativeSize : Vector2{width, height},
+                    visual.pivot, sizeMode == SizeMode::Native,
+                    visual.uv, flipX, flipY);
     sprite.SetColor(color.r * material.tint.r, color.g * material.tint.g, color.b * material.tint.b, color.a * material.tint.a);
 
     if (material.mainTexture) {
         sprite.SetTexture(material.mainTexture);
-    } else if (texture) {
-        sprite.SetTexture(texture);
-    }
-
-    // Apply flip
-    if (flipX) {
-        sprite.x += sprite.width;
-        sprite.width = -sprite.width;
-    }
-    if (flipY) {
-        sprite.y += sprite.height;
-        sprite.height = -sprite.height;
+    } else if (visual.texture) {
+        sprite.SetTexture(visual.texture);
     }
 
     renderer->DrawSprite(&sprite);
@@ -70,53 +264,34 @@ void SpriteRenderer::RenderSprite(Renderer* renderer) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-namespace {
-    inline void TransformVertex(const mat4x4 model, float localX, float localY, float& outX, float& outY) {
-        outX = model[0][0] * localX + model[1][0] * localY + model[3][0];
-        outY = model[0][1] * localX + model[1][1] * localY + model[3][1];
-    }
-}
-
 void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
     if (!gameObject || !enabled) return;
 
     Transform* transform = gameObject->GetComponent<Transform>();
     if (!transform) return;
 
+    VisualSprite visual = GetVisualSprite();
     molga::RenderCommand cmd;
     
-    // Sort key setup
-    cmd.sortKey.cameraPass = 0;
-    cmd.sortKey.sortingLayer = 0;
-    cmd.sortKey.sortingOrder = sortingOrder;
-    cmd.sortKey.depthOrYSort = 0.0f;
+    cmd.sortKey = molga::MakeWorldSortKey(
+        GetWorldSortSettings(), transform->GetWorldPosition().y);
 
     // Batch key setup
     cmd.batchKey = material.GetBatchKey();
     if (!cmd.batchKey.texture) {
-        cmd.batchKey.texture = texture;
+        cmd.batchKey.texture = visual.texture;
     }
 
     if (cmd.batchKey.isBatchable) {
         cmd.isBatchableSprite = true;
 
         Sprite sprite;
-        Vector2 worldPos = transform->GetWorldPosition();
-        Vector2 worldScale = transform->GetWorldScale();
-        float worldRot = transform->GetWorldRotation();
-
-        sprite.SetPosition(worldPos.x, worldPos.y);
-        sprite.SetSize(width * worldScale.x, height * worldScale.y);
-        sprite.SetRotation(worldRot);
-
-        if (flipX) {
-            sprite.x += sprite.width;
-            sprite.width = -sprite.width;
-        }
-        if (flipY) {
-            sprite.y += sprite.height;
-            sprite.height = -sprite.height;
-        }
+        ConfigureSprite(sprite, *transform,
+                        sizeMode == SizeMode::Native && visual.nativeSize.x > 0.0f &&
+                                visual.nativeSize.y > 0.0f
+                            ? visual.nativeSize : Vector2{width, height},
+                        visual.pivot, sizeMode == SizeMode::Native,
+                        visual.uv, flipX, flipY);
 
         mat4x4 model;
         sprite.GetModelMatrix(model);
@@ -147,6 +322,8 @@ void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
         cmd.vertices[3].u = sprite.uv[0];
         cmd.vertices[3].v = sprite.uv[1];
         cmd.vertices[3].r = r; cmd.vertices[3].g = g; cmd.vertices[3].b = b; cmd.vertices[3].a = a;
+
+        cmd.worldBounds = CalculateSpriteBounds(sprite);
     } else {
         cmd.isBatchableSprite = false;
         cmd.fallbackRender = [this](Renderer* r) {
@@ -162,9 +339,11 @@ void SpriteRenderer::Serialize(nlohmann::json& j) const {
     j["size"] = { width, height };
     j["flipX"] = flipX;
     j["flipY"] = flipY;
-    j["sortingOrder"] = sortingOrder;
+    molga::SerializeWorldSortSettings(j, GetWorldSortSettings());
     j["texturePath"] = texturePath;
-    j["textureGuid"] = textureGuid;   // 권위값. texturePath는 하위 호환용으로 함께 보존.
+    j["textureGuid"] = authoredSprite.textureGuid;
+    j["spriteRef"] = molga::SerializeSpriteRef(authoredSprite);
+    j["sizeMode"] = sizeMode == SizeMode::Native ? "Native" : "Custom";
 
     nlohmann::json matJson;
     material.Serialize(matJson);
@@ -172,11 +351,21 @@ void SpriteRenderer::Serialize(nlohmann::json& j) const {
 }
 
 void SpriteRenderer::Deserialize(const nlohmann::json& j) {
+    ClearRuntimeSpriteOverride();
+    const molga::WorldSortSettings2D worldSort =
+        molga::DeserializeWorldSortSettings(j);
+    sortingLayer = worldSort.sortingLayer;
+    sortingOrder = worldSort.sortingOrder;
+    sortMode = worldSort.sortMode;
+    ySortOffset = worldSort.ySortOffset;
+    const bool hasModernSprite = j.contains("spriteRef") && j["spriteRef"].is_object();
+    const bool hasModernSizeMode = j.contains("sizeMode") && j["sizeMode"].is_string();
     if (j.contains("color") && j["color"].is_array()) {
         SetColor(j["color"][0], j["color"][1], j["color"][2], j["color"][3]);
     }
     if (j.contains("size") && j["size"].is_array()) {
-        SetSize(j["size"][0], j["size"][1]);
+        width = j["size"][0].get<float>();
+        height = j["size"][1].get<float>();
     }
     if (j.contains("flipX")) {
         SetFlipX(j["flipX"]);
@@ -184,15 +373,11 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
     if (j.contains("flipY")) {
         SetFlipY(j["flipY"]);
     }
-    if (j.contains("sortingOrder")) {
-        SetSortingOrder(j["sortingOrder"]);
-    }
-    if (j.contains("textureGuid") && j["textureGuid"].is_string()) {
-        std::string g = j["textureGuid"].get<std::string>();
-        if (g != textureGuid) {
-            textureGuid = g;
-            texture = nullptr;
-        }
+    if (hasModernSprite) {
+        authoredSprite = molga::DeserializeSpriteRef(j["spriteRef"]);
+    } else if (j.contains("textureGuid") && j["textureGuid"].is_string()) {
+        authoredSprite.textureGuid = j["textureGuid"].get<std::string>();
+        authoredSprite.sliceId.clear();
     }
     if (j.contains("texturePath")) {
         std::string p = j["texturePath"].get<std::string>();
@@ -202,20 +387,29 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
         }
     }
     // 구버전 마이그레이션: guid가 없고 path만 있으면 path를 guid로 승격(메모리에서만).
-    if (textureGuid.empty() && !texturePath.empty()) {
+    if (authoredSprite.textureGuid.empty() && !texturePath.empty()) {
         std::string g = molga::AssetDatabase::Get().GuidForSource(texturePath);
-        if (!g.empty()) textureGuid = g;
+        if (!g.empty()) authoredSprite.textureGuid = g;
     }
+    // Scene v1 stored a top-left position plus explicit pixel size. Only the
+    // explicit v2 Native mode opts into pivot/PPU placement.
+    sizeMode = hasModernSizeMode && j["sizeMode"].get<std::string>() == "Native"
+        ? SizeMode::Native : SizeMode::Custom;
+    texture = nullptr;
+    InvalidateAuthoredResolution();
     if (j.contains("material")) {
         material.Deserialize(j["material"]);
     }
 }
 
 void SpriteRenderer::ResolveAssets() {
+    authoredResolveAttempted = false;
+    runtimeResolveAttempted = false;
+    EnsureSpriteResolution();
     if (!texture) {
         std::filesystem::path src;
-        if (!textureGuid.empty()) {
-            src = molga::AssetDatabase::Get().AbsoluteSourcePath(textureGuid);
+        if (!authoredSprite.textureGuid.empty() && authoredSprite.sliceId.empty()) {
+            src = molga::AssetDatabase::Get().AbsoluteSourcePath(authoredSprite.textureGuid);
         }
         if (src.empty() && !texturePath.empty()) {
             src = PathService::Get().ResolveAsset(texturePath);  // guid 미해석 시 폴백
@@ -225,16 +419,17 @@ void SpriteRenderer::ResolveAssets() {
         }
         if (!texture) {
             // UX-2 Console로 경고(없으면 stdout). 시각적 placeholder는 missing_texture.
-            Log::Warn("SpriteRenderer", "Missing texture for guid '" + textureGuid +
+            Log::Warn("SpriteRenderer", "Missing texture for guid '" + authoredSprite.textureGuid +
                       "' (path '" + texturePath + "')");
             texture = TextureManager::Get().Load(
                 molga::AssetDatabase::MissingTexturePath().string());
-        } else if (width == 32.0f && height == 32.0f) {
-            width = static_cast<float>(texture->GetWidth());
-            height = static_cast<float>(texture->GetHeight());
         }
     }
+    const bool hasAuthoredMaterialTexture = material.mainTexture != nullptr ||
+                                            !material.mainTextureGuid.empty() ||
+                                            !material.mainTexturePath.empty();
     material.ResolveAssets();
+    if (!hasAuthoredMaterialTexture) material.mainTexture = nullptr;
 }
 
 void SpriteRenderer::OnInspectorGUI() {
@@ -252,11 +447,12 @@ void SpriteRenderer::OnInspectorGUI() {
 
     ImGui::SetNextItemWidth(-60);
     if (ImGui::InputText("##texpath", pathBuffer, sizeof(pathBuffer))) {
-        texturePath = pathBuffer;
+        SetTexturePath(pathBuffer);
     }
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
         texturePath.clear();
+        SetSpriteRef({});
         texture = nullptr;
     }
 
@@ -275,17 +471,12 @@ void SpriteRenderer::OnInspectorGUI() {
                 guid = molga::AssetDatabase::Get().GuidForSource(
                     Project::Get().GetRelativePath(path));
             }
-            textureGuid = guid;
+            SetTextureGuid(guid);
             texturePath = Project::Get().IsOpen() ? Project::Get().GetRelativePath(path) : path;
 
             // Load the texture
             texture = TextureManager::Get().Load(path);
 
-            // Auto-set size from texture if not set
-            if (texture && (width == 32.0f && height == 32.0f)) {
-                width = static_cast<float>(texture->GetWidth());
-                height = static_cast<float>(texture->GetHeight());
-            }
         }
         ImGui::EndDragDropTarget();
     }

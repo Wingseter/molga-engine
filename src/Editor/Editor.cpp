@@ -19,10 +19,13 @@
 #include "Windows/ProjectBrowserWindow.h"
 #include "Windows/ScriptWindow.h"
 #include "Windows/SceneViewWindow.h"
+#include "Windows/GameViewWindow.h"
 #include "Windows/StatsWindow.h"
 #include "Windows/ProfilerWindow.h"
 #include "Windows/ProjectSettingsWindow.h"
 #include "Windows/ConsoleWindow.h"
+#include "Windows/TilePaletteWindow.h"
+#include "Windows/AnimationWindow.h"
 #include "../Common/Log.h"
 #include "../Core/PathService.h"
 #include <cstring>
@@ -168,9 +171,12 @@ void Editor::Init() {
   windowManager.Register(EditorConstants::WIN_PROJECT_BROWSER, std::make_unique<ProjectBrowserWindow>());
   windowManager.Register(EditorConstants::WIN_SCRIPTS, std::make_unique<ScriptWindow>());
   windowManager.Register(EditorConstants::WIN_SCENE, std::make_unique<SceneViewWindow>());
+  windowManager.Register(EditorConstants::WIN_GAME, std::make_unique<GameViewWindow>());
   windowManager.Register(EditorConstants::WIN_STATS, std::make_unique<StatsWindow>());
   windowManager.Register(EditorConstants::WIN_PROFILER, std::make_unique<ProfilerWindow>());
   windowManager.Register(EditorConstants::WIN_PROJECT_SETTINGS, std::make_unique<ProjectSettingsWindow>());
+  windowManager.Register(EditorConstants::WIN_TILE_PALETTE, std::make_unique<TilePaletteWindow>());
+  windowManager.Register(EditorConstants::WIN_ANIMATION, std::make_unique<AnimationWindow>());
 
   auto console = std::make_unique<ConsoleWindow>();
   Log::AddSink(console->Sink());
@@ -182,9 +188,33 @@ void Editor::Init() {
   // Register Selection listener to sync Inspector target
   selection_.AddListener([this](const molga::SelectionService& s, molga::SelectionSource) {
       if (auto* insp = windowManager.GetAs<InspectorWindow>(EditorConstants::WIN_INSPECTOR)) {
-          insp->SetTarget(FindObjectById(s.InspectorTargetId()));
+          insp->ClearAssetTarget();
+          std::vector<GameObject*> targets;
+          for (unsigned int id : s.InspectorTargetIds()) {
+              if (GameObject* object = FindObjectById(id)) targets.push_back(object);
+          }
+          insp->SetTargets(targets);
       }
   });
+
+  if (auto* browser = windowManager.GetAs<ProjectBrowserWindow>(
+          EditorConstants::WIN_PROJECT_BROWSER)) {
+      browser->SetOnFileSelected([this](const std::string& path) {
+          selection_.Clear(molga::SelectionSource::Code);
+          if (auto* inspector = windowManager.GetAs<InspectorWindow>(
+                  EditorConstants::WIN_INSPECTOR)) {
+              inspector->SetAssetTarget(path);
+          }
+          const std::filesystem::path selected(path);
+          const std::string extension = selected.extension().string();
+          if (extension == ".animclip" || extension == ".animator") {
+              if (auto* animation = windowManager.GetAs<AnimationWindow>(
+                      EditorConstants::WIN_ANIMATION)) {
+                  animation->SetAsset(path);
+              }
+          }
+      });
+  }
 
   // Find engine source root from executable dir
   std::filesystem::path current = PathService::Get().ExecutableDir();
@@ -217,7 +247,11 @@ void Editor::Shutdown() {
 }
 
 void Editor::Update(float dt) {
-  // Editor-specific updates can go here
+  (void)dt;
+  if (auto* console = windowManager.GetAs<ConsoleWindow>(
+          EditorConstants::WIN_CONSOLE)) {
+    console->PumpPending();
+  }
 }
 
 void Editor::BeginDockSpace() {
@@ -274,6 +308,7 @@ void Editor::SetupDefaultLayout(ImGuiID dockId) {
   ImGui::DockBuilderDockWindow(EditorConstants::WIN_HIERARCHY, dockLeft);
   ImGui::DockBuilderDockWindow(EditorConstants::WIN_INSPECTOR, dockRight);
   ImGui::DockBuilderDockWindow(EditorConstants::WIN_SCENE, dockMain);
+  ImGui::DockBuilderDockWindow(EditorConstants::WIN_GAME, dockMain);
   ImGui::DockBuilderDockWindow(EditorConstants::WIN_PROJECT_BROWSER, dockBottom);
   ImGui::DockBuilderDockWindow(EditorConstants::WIN_SCRIPTS, dockBottom);
   ImGui::DockBuilderDockWindow(EditorConstants::WIN_STATS, dockBottom);
@@ -299,16 +334,16 @@ void Editor::RenderGUI() {
 }
 
 void Editor::ProcessPlayUIInput() {
-    if (auto* sceneView = windowManager.GetAs<SceneViewWindow>(
-            EditorConstants::WIN_SCENE)) {
-        sceneView->ProcessPlayUIInput();
+    if (auto* gameView = windowManager.GetAs<GameViewWindow>(
+            EditorConstants::WIN_GAME)) {
+        gameView->ProcessPlayInput();
     }
 }
 
 void Editor::ResetPlayUIInput() {
-    if (auto* sceneView = windowManager.GetAs<SceneViewWindow>(
-            EditorConstants::WIN_SCENE)) {
-        sceneView->ResetPlayUIInput();
+    if (auto* gameView = windowManager.GetAs<GameViewWindow>(
+            EditorConstants::WIN_GAME)) {
+        gameView->ResetPlayInput();
     }
 }
 
@@ -421,6 +456,7 @@ void Editor::RenderPlayControls() {
     ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::PAUSE_BUTTON);
     if (ImGui::Button(" || Pause ")) {
       editorState.Pause();
+      ResetPlayUIInput();
     }
     ImGui::PopStyleColor();
     ImGui::SameLine();
@@ -467,6 +503,10 @@ void Editor::SetGameObjects(std::vector<std::shared_ptr<GameObject>> *objects) {
   auto* sceneView = windowManager.GetAs<SceneViewWindow>(EditorConstants::WIN_SCENE);
   if (sceneView) {
     sceneView->SetGameObjects(objects);
+  }
+  auto* gameView = windowManager.GetAs<GameViewWindow>(EditorConstants::WIN_GAME);
+  if (gameView) {
+    gameView->SetGameObjects(objects);
   }
 }
 
@@ -591,6 +631,28 @@ std::shared_ptr<GameObject> Editor::AddExistingObject(std::shared_ptr<GameObject
     return obj;
 }
 
+std::shared_ptr<GameObject> Editor::InsertExistingObjectAt(
+    std::shared_ptr<GameObject> obj, std::size_t index) {
+    if (!gameObjects || !obj) return nullptr;
+    index = std::min(index, gameObjects->size());
+    gameObjects->insert(gameObjects->begin() + static_cast<std::ptrdiff_t>(index),
+                        obj);
+    sceneOps.MarkModified();
+    return obj;
+}
+
+bool Editor::TryGetObjectIndex(unsigned int id, std::size_t& index) const {
+    if (!gameObjects) return false;
+    for (std::size_t i = 0; i < gameObjects->size(); ++i) {
+        const auto& object = (*gameObjects)[i];
+        if (object && object->GetID() == id) {
+            index = i;
+            return true;
+        }
+    }
+    return false;
+}
+
 void Editor::RemoveObjectsByIds(const std::vector<unsigned int>& ids) {
     if (!gameObjects) return;
     gameObjects->erase(
@@ -629,6 +691,10 @@ void Editor::SetSceneViewResources(Renderer* renderer, Shader* shader) {
     auto* sceneView = windowManager.GetAs<SceneViewWindow>(EditorConstants::WIN_SCENE);
     if (sceneView) {
         sceneView->SetSceneResources(renderer, shader, gameObjects);
+    }
+    auto* gameView = windowManager.GetAs<GameViewWindow>(EditorConstants::WIN_GAME);
+    if (gameView) {
+        gameView->SetSceneResources(renderer, shader, gameObjects);
     }
 }
 

@@ -72,6 +72,7 @@ public:
     void StartPending();
     void FixedStep(float fixedDt);   // 스크립트 FixedUpdate
     void Update(float dt);           // 전 컴포넌트 Update
+    void EvaluateAnimations(float dt); // Animator2D 전용, Update 이후/LateUpdate 이전
     void LateUpdate(float dt);       // 스크립트 LateUpdate
     void ResolveAssets();            // 모든 컴포넌트의 지연 에셋 로드
 

@@ -2,6 +2,7 @@
 
 #include "../Component.h"
 #include "../../Common/Types.h"
+#include "../../Rendering/WorldSort2D.h"
 #include <algorithm>
 #include <string>
 
@@ -46,6 +47,15 @@ public:
 
     void SetSortingOrder(int val) { sortingOrder = val; }
     int GetSortingOrder() const { return sortingOrder; }
+    void SetSortingLayer(const std::string& layer) { sortingLayer = layer; }
+    const std::string& GetSortingLayer() const { return sortingLayer; }
+    void SetSortMode(molga::SortMode2D mode) { sortMode = mode; }
+    molga::SortMode2D GetSortMode() const { return sortMode; }
+    void SetYSortOffset(float offset) { ySortOffset = offset; }
+    float GetYSortOffset() const { return ySortOffset; }
+    molga::WorldSortSettings2D GetWorldSortSettings() const {
+        return {sortingLayer, sortingOrder, sortMode, ySortOffset};
+    }
 
     // Lifecycle
     void RenderSprite(Renderer* renderer) override;
@@ -69,4 +79,7 @@ private:
     // Kept for source and scene compatibility. New assets identify fonts by GUID.
     std::string fontName = "default";
     int sortingOrder = 0;
+    std::string sortingLayer = "Default";
+    molga::SortMode2D sortMode = molga::SortMode2D::Fixed;
+    float ySortOffset = 0.0f;
 };

@@ -1,14 +1,66 @@
 #include "Core/SceneSerializer.h"
+#include "Core/World.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/BoxCollider2D.h"
+#include "Scripting/Script.h"
+#include "Scripting/ScriptManager.h"
 #include "doctest.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <memory>
+#include <stdexcept>
 #include <vector>
+
+namespace {
+
+class DeserializeLifecycleProbeScript final : public Script {
+public:
+    SCRIPT_CLASS(DeserializeLifecycleProbeScript)
+
+    static inline int awakeCalls = 0;
+    static inline int enableCalls = 0;
+    static inline int startCalls = 0;
+    static inline int disableCalls = 0;
+    static inline bool throwOnDisable = false;
+
+    static void Reset(bool shouldThrowOnDisable) {
+        awakeCalls = 0;
+        enableCalls = 0;
+        startCalls = 0;
+        disableCalls = 0;
+        throwOnDisable = shouldThrowOnDisable;
+    }
+
+    void Awake() override { ++awakeCalls; }
+    void OnEnable() override { ++enableCalls; }
+    void Start() override { ++startCalls; }
+    void OnDisable() override {
+        ++disableCalls;
+        if (throwOnDisable) {
+            throw std::runtime_error("OnDisable must not run while deserializing");
+        }
+    }
+};
+
+void RegisterDeserializeLifecycleProbe() {
+    ScriptManager::Get().RegisterDynamic(
+        "DeserializeLifecycleProbeScript",
+        []() -> std::unique_ptr<Script> {
+            return std::make_unique<DeserializeLifecycleProbeScript>();
+        });
+}
+
+void CheckNoDeserializeLifecycleCalls() {
+    CHECK(DeserializeLifecycleProbeScript::awakeCalls == 0);
+    CHECK(DeserializeLifecycleProbeScript::enableCalls == 0);
+    CHECK(DeserializeLifecycleProbeScript::startCalls == 0);
+    CHECK(DeserializeLifecycleProbeScript::disableCalls == 0);
+}
+
+} // namespace
 
 // ── Single GameObject round-trip ─────────────────────────────────────────────
 
@@ -150,6 +202,65 @@ TEST_CASE("SceneSerializer: enabled serialization") {
     CHECK(!rbc->IsEnabled());  // was disabled
 }
 
+TEST_CASE("SceneSerializer: disabled Script state loads without lifecycle callbacks") {
+    RegisterDeserializeLifecycleProbe();
+    DeserializeLifecycleProbeScript::Reset(true);
+
+    const nlohmann::json scene = {
+        {"version", "1.0"},
+        {"name", "Disabled Script Load"},
+        {"gameObjects", nlohmann::json::array({
+            {
+                {"name", "Probe"},
+                {"id", 41001u},
+                {"active", true},
+                {"parentId", -1},
+                {"components", nlohmann::json::array({
+                    {
+                        {"type", "DeserializeLifecycleProbeScript"},
+                        {"enabled", false},
+                    },
+                })},
+            },
+        })},
+    };
+
+    std::vector<std::shared_ptr<GameObject>> loaded;
+    CHECK_NOTHROW(SceneSerializer::DeserializeScene(scene, loaded));
+    REQUIRE(loaded.size() == 1);
+    auto* script = loaded.front()->GetComponent<DeserializeLifecycleProbeScript>();
+    REQUIRE(script != nullptr);
+    CHECK_FALSE(script->IsEnabled());
+    CheckNoDeserializeLifecycleCalls();
+}
+
+TEST_CASE("World::Clone preserves a disabled Script without lifecycle callbacks") {
+    RegisterDeserializeLifecycleProbe();
+    DeserializeLifecycleProbeScript::Reset(false);
+
+    World source;
+    auto object = std::make_shared<GameObject>("Clone Probe");
+    auto* sourceScript = static_cast<DeserializeLifecycleProbeScript*>(
+        object->AddComponentRaw(new DeserializeLifecycleProbeScript()));
+    REQUIRE(sourceScript != nullptr);
+
+    // Explicit standalone SetEnabled keeps its normal lifecycle semantics.
+    CHECK_NOTHROW(sourceScript->SetEnabled(false));
+    CHECK(DeserializeLifecycleProbeScript::disableCalls == 1);
+    source.Add(object);
+
+    DeserializeLifecycleProbeScript::Reset(true);
+    std::unique_ptr<World> clone;
+    CHECK_NOTHROW(clone = source.Clone());
+    REQUIRE(clone != nullptr);
+    REQUIRE(clone->Objects().size() == 1);
+    auto* clonedScript =
+        clone->Objects().front()->GetComponent<DeserializeLifecycleProbeScript>();
+    REQUIRE(clonedScript != nullptr);
+    CHECK_FALSE(clonedScript->IsEnabled());
+    CheckNoDeserializeLifecycleCalls();
+}
+
 // ── Parent-child serialization ──────────────────────────────────────────────
 
 TEST_CASE("SceneSerializer: parent-child serialization") {
@@ -240,4 +351,21 @@ TEST_CASE("ProjectSettings: serialization round-trip") {
     CHECK_FALSE(restored.IsCollisionEnabled(0, 8));
     CHECK(restored.sortingLayers.size() == 4);
     CHECK(restored.sortingLayers.back() == "CustomSortingLayer");
+}
+
+TEST_CASE("ProjectSettings normalizes sorting layers while preserving authored order") {
+    ProjectSettings settings;
+    settings.Deserialize({
+        {"sortingLayers", {"", "Foreground", "Default", "Foreground",
+                            "Background", "Default", ""}}
+    });
+    CHECK(settings.sortingLayers ==
+          std::vector<std::string>{"Foreground", "Default", "Background"});
+
+    settings.Deserialize({{"sortingLayers", {"Foreground", "Background"}}});
+    CHECK(settings.sortingLayers ==
+          std::vector<std::string>{"Default", "Foreground", "Background"});
+
+    settings.Deserialize({{"sortingLayers", nlohmann::json::array()}});
+    CHECK(settings.sortingLayers == std::vector<std::string>{"Default"});
 }

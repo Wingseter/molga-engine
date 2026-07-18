@@ -2,6 +2,7 @@
 #include "Core/SceneSerializer.h"
 #include "Core/Scheduler.h"
 #include "ECS/GameObject.h"
+#include "ECS/Components/Animator2D.h"
 #include "Physics/PhysicsWorld.h"
 #include "Core/Profiling/ProfileScope.h"
 #include "Core/Profiling/ProfilerService.h"
@@ -30,7 +31,7 @@ private:
 
 World::World()
     : physicsWorld(std::make_unique<PhysicsWorld>()),
-      scheduler(std::make_unique<Scheduler>()) {
+      scheduler(std::make_unique<Scheduler>(this)) {
 }
 
 World::~World() {
@@ -55,6 +56,7 @@ World& World::operator=(World&& other) noexcept {
     name_ = std::move(other.name_);
     physicsWorld = std::move(other.physicsWorld);
     scheduler = std::move(other.scheduler);
+    if (scheduler) scheduler->SetWorld(this);
     running_ = other.running_;
     sceneRuntime_ = other.sceneRuntime_;
     pendingAdds_ = std::move(other.pendingAdds_);
@@ -224,6 +226,16 @@ void World::Update(float dt) {
         if (OwnsObject(object) && object->IsActive()) object->Update(dt);
     }
     scheduler->Tick(dt);  // Invoke/InvokeRepeating/코루틴 구동
+}
+void World::EvaluateAnimations(float dt) {
+    CallbackDispatchGuard dispatchGuard(callbackDispatchDepth_);
+    MOLGA_PROFILE_SCOPE("World.EvaluateAnimations", molga::ProfileCategory::Scripts);
+    const auto phaseObjects = objects_;
+    for (const auto& object : phaseObjects) {
+        if (!OwnsObject(object) || !object->IsActive()) continue;
+        Animator2D* animator = object->GetComponent<Animator2D>();
+        if (animator && animator->IsEnabled()) animator->Evaluate(dt);
+    }
 }
 void World::LateUpdate(float dt) {
     CallbackDispatchGuard dispatchGuard(callbackDispatchDepth_);

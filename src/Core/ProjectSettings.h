@@ -3,11 +3,19 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <cstddef>
+#include <unordered_set>
 #include <nlohmann/json.hpp>
 #include "Common/Types.h"
 
+struct AudioBusProjectSetting {
+    float volume = 1.0f;
+    bool muted = false;
+};
+
 class ProjectSettings {
 public:
+    static constexpr std::size_t AudioBusCount = 5;
     static ProjectSettings& Get();
 
     ProjectSettings();
@@ -17,6 +25,8 @@ public:
     std::array<std::string, 32> layerNames;
     std::array<std::array<bool, 32>, 32> collisionMatrix;
     std::vector<std::string> sortingLayers;
+    // Stable order shared with AudioBus: Master, Music, SFX, Voice, UI.
+    std::array<AudioBusProjectSetting, AudioBusCount> audioBusSettings;
 
     // 2D physics uses pixels at the engine boundary and metres internally in
     // Box2D. These defaults preserve the engine's historical 981 px/s^2
@@ -47,4 +57,12 @@ public:
     // Manage Tags & Layers
     int GetLayerIndex(const std::string& name) const;
     std::string GetLayerName(int index) const;
+
+    // Sorting layer names are serialized on renderer components so project
+    // layer reordering remains live. Invalid lists are normalized on load.
+    void NormalizeSortingLayers();
+    int ResolveSortingLayerIndex(const std::string& name) const;
+
+private:
+    mutable std::unordered_set<std::string> warnedMissingSortingLayers_;
 };

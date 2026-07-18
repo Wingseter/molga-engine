@@ -534,6 +534,7 @@ void TextRenderer::CollectText(molga::RenderQueue& queue, const TextDrawParams& 
                     command.sortKey.cameraPass = params.cameraPass;
                     command.sortKey.sortingLayer = params.sortingLayer;
                     command.sortKey.sortingOrder = params.sortingOrder;
+                    command.sortKey.depthOrYSort = params.depthOrYSort;
                     command.batchKey.texture = glyph.texture;
                     command.batchKey.isBatchable = true;
                     command.isBatchableSprite = true;
@@ -566,6 +567,7 @@ void TextRenderer::CollectText(molga::RenderQueue& queue, const TextDrawParams& 
                     command.sortKey.cameraPass = params.cameraPass;
                     command.sortKey.sortingLayer = params.sortingLayer;
                     command.sortKey.sortingOrder = params.sortingOrder;
+                    command.sortKey.depthOrYSort = params.depthOrYSort;
                     command.batchKey.texture = fontTexture.get();
                     command.batchKey.isBatchable = true;
                     command.isBatchableSprite = true;

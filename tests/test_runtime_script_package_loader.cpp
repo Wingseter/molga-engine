@@ -1,5 +1,6 @@
 #include "Core/GameConfig.h"
 #include "Scripting/ScriptPackageLoader.h"
+#include "ECS/BuiltinComponents.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/Script.h"
 #include "doctest.h"
@@ -21,11 +22,38 @@ TEST_CASE("GameConfig parses without script manifest") {
     CHECK(config.windowWidth == 1024);
     CHECK(config.windowHeight == 768);
     CHECK(config.fullscreen == true);
+    CHECK(config.schemaVersion == GameConfig::CurrentSchemaVersion);
+    CHECK(config.resizable);
+    CHECK(config.outputScaleMode == molga::GameOutputScaleMode::Native);
     CHECK_FALSE(config.scripts.enabled);
     REQUIRE(config.sceneCatalog.size() == 1);
     CHECK(config.sceneCatalog[0].id == "scenes/level1.json");
     CHECK(config.sceneCatalog[0].packagePath == "scenes/level1.json");
     CHECK(config.startupSceneId == "scenes/level1.json");
+}
+
+TEST_CASE("GameConfig parses schema v2 output mode and resizable setting") {
+    const std::string jsonStr = R"({
+        "schemaVersion": 2,
+        "gameName": "Pixel Game",
+        "mainScene": "Scenes/main.json",
+        "windowWidth": 320,
+        "windowHeight": 180,
+        "fullscreen": false,
+        "resizable": false,
+        "outputScaleMode": "IntegerFit"
+    })";
+
+    GameConfig config;
+    REQUIRE(LoadGameConfigFromString(jsonStr, config));
+    CHECK(config.schemaVersion == 2);
+    CHECK_FALSE(config.resizable);
+    CHECK(config.outputScaleMode == molga::GameOutputScaleMode::IntegerFit);
+
+    CHECK_FALSE(LoadGameConfigFromString(
+        R"({"schemaVersion":2,"outputScaleMode":"Fractional"})", config));
+    CHECK_FALSE(LoadGameConfigFromString(
+        R"({"schemaVersion":3})", config));
 }
 
 TEST_CASE("GameConfig parses scene catalog and storage identity") {
@@ -73,6 +101,10 @@ TEST_CASE("GameConfig parses with script manifest") {
 }
 
 TEST_CASE("ScriptPackageLoader validation cases") {
+    // A packaged runtime registers the built-in components before loading user
+    // scripts. Mirror that host surface here so script-facing P1 component
+    // methods are retained and exported from this test executable as well.
+    RegisterBuiltinComponents();
     // Force linker to include Script vtable/methods to avoid dynamic loader lookup failure in tests
     {
         struct TestDummyScript : public Script {

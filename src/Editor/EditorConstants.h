@@ -9,6 +9,7 @@ namespace EditorConstants {
     constexpr const char* WIN_INSPECTOR = "Inspector";
     constexpr const char* WIN_PROJECT_BROWSER = "Project Browser";
     constexpr const char* WIN_SCENE = "Scene";
+    constexpr const char* WIN_GAME = "Game";
     constexpr const char* WIN_SCRIPTS = "Scripts";
     constexpr const char* WIN_STATS = "Stats";
     constexpr const char* WIN_PROJECT_SETTINGS = "Project Settings";
@@ -16,6 +17,8 @@ namespace EditorConstants {
     constexpr const char* WIN_SCRIPT_EDITOR = "Script Editor";
     constexpr const char* WIN_CONSOLE = "Console";
     constexpr const char* WIN_PROFILER = "Profiler";
+    constexpr const char* WIN_TILE_PALETTE = "Tile Palette";
+    constexpr const char* WIN_ANIMATION = "Animation";
 
     // Default Files
     constexpr const char* DEFAULT_SCENE_FILE = "scene.json";

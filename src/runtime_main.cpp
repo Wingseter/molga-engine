@@ -13,6 +13,7 @@
 #include "Rendering/ShaderManager.h"
 #include "Rendering/Renderer.h"
 #include "Rendering/RenderSystem2D.h"
+#include "Rendering/GameOutputRenderer.h"
 #include "Core/Profiling/ProfileScope.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
@@ -603,6 +604,7 @@ int main(int argc, char* argv[]) {
     wc.width = config.windowWidth;
     wc.height = config.windowHeight;
     wc.fullscreen = config.fullscreen;
+    wc.resizable = config.resizable;
     wc.visible = !smoke->enabled;
     GLFWwindow* window = EngineInit(wc);
     if (!window) return -1;
@@ -619,10 +621,6 @@ int main(int argc, char* argv[]) {
     auto batchVertPath = PathService::Get().EngineResource("Shaders/batch.vert").string();
     auto batchFragPath = PathService::Get().EngineResource("Shaders/batch.frag").string();
     ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
-    auto camera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
-                                             static_cast<float>(config.windowHeight));
-    auto uiCamera = std::make_unique<Camera2D>(static_cast<float>(config.windowWidth),
-                                               static_cast<float>(config.windowHeight));
     SceneRuntime sceneRuntime(std::move(sceneCatalog));
 
     // Initialize scripting
@@ -635,7 +633,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Script package initialization failed: " << loaderError << std::endl;
         sceneRuntime.Shutdown();
         PlayerPrefs::Shutdown();
-        camera.reset();
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
         renderer.reset();
@@ -681,7 +678,6 @@ int main(int argc, char* argv[]) {
         sceneRuntime.Shutdown();
         PlayerPrefs::Shutdown();
         TextRenderer::Get().Shutdown();
-        camera.reset();
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
         renderer.reset();
@@ -710,10 +706,11 @@ int main(int argc, char* argv[]) {
     nlohmann::json expectedSlotPayload;
     bool scriptDrivenPrefsSaved = false;
     bool scriptDrivenSlotSaved = false;
+    bool rawMouseWasDown = false;
+    auto gameOutputRenderer = std::make_unique<molga::GameOutputRenderer>();
     // Main game loop
     while (!glfwWindowShouldClose(window)) {
         Time::Update();
-        Input::Update();
         float dt = Time::GetDeltaTime();
         World& world = sceneRuntime.ActiveWorld();
 
@@ -723,22 +720,56 @@ int main(int argc, char* argv[]) {
         int windowHeight = 0;
         glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
         glfwGetWindowSize(window, &windowWidth, &windowHeight);
-        framebufferWidth = std::max(framebufferWidth, 1);
-        framebufferHeight = std::max(framebufferHeight, 1);
-        const float pointerScaleX = windowWidth > 0
-            ? static_cast<float>(framebufferWidth) / static_cast<float>(windowWidth)
-            : 1.0f;
-        const float pointerScaleY = windowHeight > 0
-            ? static_cast<float>(framebufferHeight) / static_cast<float>(windowHeight)
-            : 1.0f;
-        const Vector2 uiViewport{static_cast<float>(framebufferWidth),
-                                 static_cast<float>(framebufferHeight)};
+        const molga::PixelSize framebufferSize{framebufferWidth,
+                                                framebufferHeight};
+        const molga::PixelSize configuredLogicalSize{config.windowWidth,
+                                                      config.windowHeight};
+        const molga::OutputPresentationLayout presentation =
+            molga::OutputPresentationLayout::Calculate(
+                config.outputScaleMode, configuredLogicalSize,
+                framebufferSize);
+
+        double windowPointerX = 0.0;
+        double windowPointerY = 0.0;
+        glfwGetCursorPos(window, &windowPointerX, &windowPointerY);
+        const bool canMapWindowPointer = windowWidth > 0 && windowHeight > 0 &&
+                                         framebufferSize.IsValid();
+        const float framebufferPointerX = canMapWindowPointer
+            ? static_cast<float>(windowPointerX) *
+                  static_cast<float>(framebufferWidth) /
+                  static_cast<float>(windowWidth)
+            : 0.0f;
+        const float framebufferPointerY = canMapWindowPointer
+            ? static_cast<float>(windowPointerY) *
+                  static_cast<float>(framebufferHeight) /
+                  static_cast<float>(windowHeight)
+            : 0.0f;
+        const auto logicalPointer = canMapWindowPointer
+            ? presentation.FramebufferToLogical(framebufferPointerX,
+                                                framebufferPointerY)
+            : std::nullopt;
+        const float mappedMouseX = logicalPointer
+            ? static_cast<float>(logicalPointer->x) : 0.0f;
+        const float mappedMouseY = logicalPointer
+            ? static_cast<float>(logicalPointer->y) : 0.0f;
+        Input::ApplySnapshot(Input::CaptureSnapshot(
+            window, mappedMouseX, mappedMouseY, logicalPointer.has_value()));
+
+        // UI capture follows the physical button edge, independently from the
+        // script snapshot's pointer invalidation. Leaving a bar releases UI
+        // capture, and re-entering while still held cannot synthesize a press.
+        const bool rawMouseDown =
+            glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+
+        const Vector2 uiViewport{
+            static_cast<float>(presentation.logicalSize.width),
+            static_cast<float>(presentation.logicalSize.height)};
         UIPointerState uiPointer{
-            {Input::GetMouseX() * pointerScaleX, Input::GetMouseY() * pointerScaleY},
-            Input::GetMouseButton(GLFW_MOUSE_BUTTON_LEFT),
-            Input::GetMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT),
-            Input::GetMouseButtonUp(GLFW_MOUSE_BUTTON_LEFT),
-            true};
+            {mappedMouseX, mappedMouseY},
+            logicalPointer.has_value() && rawMouseDown,
+            logicalPointer.has_value() && rawMouseDown && !rawMouseWasDown,
+            logicalPointer.has_value() && !rawMouseDown && rawMouseWasDown,
+            logicalPointer.has_value()};
         bool releasedSmokeAction = false;
         SmokeUIAction releasedAction = SmokeUIAction::SaveOption;
         if (smoke->enabled && smokeUIActionIndex < kSmokeUIActions.size()) {
@@ -786,7 +817,9 @@ int main(int argc, char* argv[]) {
             uiPointer = {{}, false, false, false, false};
         }
 
+        if (!uiPointer.valid) UISystem::Get().ResetPointerCapture();
         UISystem::Get().ProcessInput(world, uiViewport, uiPointer);
+        rawMouseWasDown = rawMouseDown;
 
         if (releasedSmokeAction) {
             if (releasedAction == SmokeUIAction::SaveOption) {
@@ -821,62 +854,20 @@ int main(int argc, char* argv[]) {
 
         // Update all game objects
         world.Update(dt);
+        world.EvaluateAnimations(dt);
         world.LateUpdate(dt);
         world.FlushDeferred(dt);
+        Audio::Update(dt);
 
-        // Collect render commands
-        molga::RenderQueue queue;
         {
-            MOLGA_PROFILE_SCOPE("RenderQueue.Collect", molga::ProfileCategory::Rendering);
-            for (auto& obj : world.Objects()) {
-                if (obj && obj->IsActive()) {
-                    for (auto* comp : obj->GetComponents()) {
-                        if (comp && comp->IsEnabled()) {
-                            comp->CollectRender(queue);
-                        }
-                    }
-                }
+            MOLGA_PROFILE_SCOPE("GameOutput.Render", molga::ProfileCategory::Rendering);
+            if (framebufferSize.IsValid()) {
+                gameOutputRenderer->Render(
+                    world.Objects(),
+                    {framebufferSize, configuredLogicalSize,
+                     config.outputScaleMode},
+                    *renderer, shader);
             }
-        }
-
-        Camera* mainCam = nullptr;
-        for (const auto& obj : world.Objects()) {
-            if (obj && obj->IsActive()) {
-                if (auto cam = obj->GetComponent<Camera>()) {
-                    if (cam->IsEnabled() && cam->IsMain()) {
-                        if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
-                            mainCam = cam;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (mainCam) {
-            Color clearColor = mainCam->GetBackgroundColor();
-            renderer->Clear(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-            {
-                molga::RenderPass pass(*renderer, shader, mainCam->GetCamera2D());
-                molga::RenderSystem2D::Get().Render(queue, renderer.get(), mainCam->GetCamera2D());
-            }
-        } else {
-            renderer->Clear(0.1f, 0.1f, 0.15f, 1.0f);
-            {
-                molga::RenderPass pass(*renderer, shader, camera.get());
-                molga::RenderSystem2D::Get().Render(queue, renderer.get(), camera.get());
-            }
-        }
-
-        molga::RenderQueue uiQueue;
-        UISystem::Get().CollectRender(
-            world,
-            {static_cast<float>(framebufferWidth), static_cast<float>(framebufferHeight)},
-            uiQueue);
-        if (!uiQueue.GetCommands().empty()) {
-            uiCamera->SetScreenSize(static_cast<float>(framebufferWidth),
-                                    static_cast<float>(framebufferHeight));
-            molga::RenderPass pass(*renderer, shader, uiCamera.get());
-            molga::RenderSystem2D::Get().Render(uiQueue, renderer.get(), uiCamera.get());
         }
 
         EventBus::ProcessQueue();
@@ -1042,8 +1033,7 @@ int main(int argc, char* argv[]) {
     UISystem::Get().ResetPointerCapture();
     PlayerPrefs::Shutdown();
     TextRenderer::Get().Shutdown();
-    camera.reset();
-    uiCamera.reset();
+    gameOutputRenderer.reset();
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
     renderer.reset();

@@ -323,7 +323,8 @@ int main(int argc, char* argv[]) {
         // Main editor loop
         while (!glfwWindowShouldClose(window)) {
             Time::Update();
-            Input::Update();
+            if (EditorState::Get().IsEditMode()) Input::Update();
+            else if (EditorState::Get().IsPaused()) Input::ReleaseAll();
             float dt = Time::GetDeltaTime();
 
             if (projectLoaded) {
@@ -373,30 +374,17 @@ int main(int argc, char* argv[]) {
                     Time::ConsumeFixedStep();
                 }
                 sceneDoc.ActiveWorld().Update(scaledDt);
+                sceneDoc.ActiveWorld().EvaluateAnimations(scaledDt);
                 sceneDoc.ActiveWorld().LateUpdate(scaledDt);
                 sceneDoc.ActiveWorld().FlushDeferred(scaledDt);
             }
+            // Mixer fades and completed one-shot reclamation are engine-level,
+            // so they continue while the editor is paused or in edit mode.
+            Audio::Update(dt);
 
-            // 메인 백버퍼 클리어 (씬 렌더는 SceneViewWindow FBO 안에서 수행)
-            Camera* mainCam = nullptr;
-            for (const auto& obj : sceneDoc.ActiveWorld().Objects()) {
-                if (obj && obj->IsActive()) {
-                    if (auto cam = obj->GetComponent<Camera>()) {
-                        if (cam->IsEnabled() && cam->IsMain()) {
-                            if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
-                                mainCam = cam;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (mainCam) {
-                Color clearColor = mainCam->GetBackgroundColor();
-                renderer->Clear(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-            } else {
-                renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
-            }
+            // Game output is rendered exclusively by GameViewWindow. The
+            // editor backbuffer only hosts ImGui and remains camera-independent.
+            renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
 
             // ImGui Editor UI
             {

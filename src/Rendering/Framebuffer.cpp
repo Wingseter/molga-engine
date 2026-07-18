@@ -1,9 +1,11 @@
 #include "Framebuffer.h"
 #include "Common/Log.h"
+#include <algorithm>
 
 Framebuffer::Framebuffer() = default;
 
 Framebuffer::~Framebuffer() {
+    if (saved_.valid) Unbind();
     Cleanup();
 }
 
@@ -16,56 +18,118 @@ void Framebuffer::Cleanup() {
 
 bool Framebuffer::Init(int width, int height) {
     if (width <= 0 || height <= 0) return false;
+    if (saved_.valid) {
+        Log::Error("Framebuffer", "Cannot recreate a framebuffer while it is bound");
+        return false;
+    }
 
-    Cleanup();
+    GLint maxTextureSize = 0;
+    GLint maxRenderbufferSize = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+    glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize);
+    const GLint maximum = std::min(maxTextureSize, maxRenderbufferSize);
+    if (maximum <= 0 || width > maximum || height > maximum) {
+        Log::Error("Framebuffer", "Rejected framebuffer size " +
+            std::to_string(width) + "x" + std::to_string(height) +
+            " (device maximum " + std::to_string(maximum) + ")");
+        return false;
+    }
 
-    // FBO
-    glGenFramebuffers(1, &fbo_);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+    GLint previousDrawFramebuffer = 0;
+    GLint previousReadFramebuffer = 0;
+    GLint previousTexture = 0;
+    GLint previousRenderbuffer = 0;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousDrawFramebuffer);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer);
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTexture);
+    glGetIntegerv(GL_RENDERBUFFER_BINDING, &previousRenderbuffer);
+
+    GLuint newFbo = 0;
+    GLuint newColorTexture = 0;
+    GLuint newRbo = 0;
+    glGenFramebuffers(1, &newFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, newFbo);
 
     // 컬러 텍스처
-    glGenTextures(1, &colorTexture_);
-    glBindTexture(GL_TEXTURE_2D, colorTexture_);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glGenTextures(1, &newColorTexture);
+    glBindTexture(GL_TEXTURE_2D, newColorTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, width, height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTexture_, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           newColorTexture, 0);
 
     // 깊이/스텐실 렌더버퍼 (2D에서도 없으면 일부 드라이버에서 completeness 실패)
-    glGenRenderbuffers(1, &rbo_);
-    glBindRenderbuffer(GL_RENDERBUFFER, rbo_);
+    glGenRenderbuffers(1, &newRbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, newRbo);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo_);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                              GL_RENDERBUFFER, newRbo);
 
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
+                      static_cast<GLuint>(previousDrawFramebuffer));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER,
+                      static_cast<GLuint>(previousReadFramebuffer));
+    glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTexture));
+    glBindRenderbuffer(GL_RENDERBUFFER, static_cast<GLuint>(previousRenderbuffer));
 
     if (status != GL_FRAMEBUFFER_COMPLETE) {
         Log::Error("Framebuffer", "Framebuffer incomplete: status=" + std::to_string(status));
-        Cleanup();
+        if (newColorTexture) glDeleteTextures(1, &newColorTexture);
+        if (newRbo) glDeleteRenderbuffers(1, &newRbo);
+        if (newFbo) glDeleteFramebuffers(1, &newFbo);
         return false;
     }
 
+    Cleanup();
+    fbo_ = newFbo;
+    colorTexture_ = newColorTexture;
+    rbo_ = newRbo;
     width_  = width;
     height_ = height;
     return true;
 }
 
-void Framebuffer::Resize(int width, int height) {
-    if (width == width_ && height == height_) return;
-    if (width <= 0 || height <= 0) return;
-    Init(width, height);
+bool Framebuffer::Resize(int width, int height) {
+    if (width == width_ && height == height_ && IsValid()) return true;
+    if (width <= 0 || height <= 0) return false;
+    return Init(width, height);
 }
 
 void Framebuffer::Bind() {
-    if (fbo_) {
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-        glViewport(0, 0, width_, height_);
-    }
+    if (!fbo_ || saved_.valid) return;
+
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &saved_.drawFramebuffer);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &saved_.readFramebuffer);
+    glGetIntegerv(GL_VIEWPORT, saved_.viewport);
+    glGetIntegerv(GL_SCISSOR_BOX, saved_.scissorBox);
+    saved_.scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+    saved_.framebufferSrgbEnabled = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+    saved_.valid = true;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
+    glEnable(GL_FRAMEBUFFER_SRGB);
+    glDisable(GL_SCISSOR_TEST);
+    glViewport(0, 0, width_, height_);
 }
 
 void Framebuffer::Unbind() {
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (!saved_.valid) return;
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
+                      static_cast<GLuint>(saved_.drawFramebuffer));
+    glBindFramebuffer(GL_READ_FRAMEBUFFER,
+                      static_cast<GLuint>(saved_.readFramebuffer));
+    glViewport(saved_.viewport[0], saved_.viewport[1],
+               saved_.viewport[2], saved_.viewport[3]);
+    glScissor(saved_.scissorBox[0], saved_.scissorBox[1],
+              saved_.scissorBox[2], saved_.scissorBox[3]);
+    if (saved_.scissorEnabled) glEnable(GL_SCISSOR_TEST);
+    else glDisable(GL_SCISSOR_TEST);
+    if (saved_.framebufferSrgbEnabled) glEnable(GL_FRAMEBUFFER_SRGB);
+    else glDisable(GL_FRAMEBUFFER_SRGB);
+    saved_.valid = false;
 }

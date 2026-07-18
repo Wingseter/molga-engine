@@ -1,5 +1,12 @@
 #include "Rendering/RenderQueue.h"
+#include "Rendering/WorldSort2D.h"
+#include "Core/ProjectSettings.h"
+#include "Common/Log.h"
+#include "Common/RingBufferSink.h"
 #include "doctest.h"
+
+#include <limits>
+#include <memory>
 
 using namespace molga;
 
@@ -62,4 +69,92 @@ TEST_CASE("BatchKey equivalence and grouping compatibility") {
     k3.isBatchable = true;
 
     CHECK(k1 != k3);
+}
+
+TEST_CASE("SortKey priority is camera pass then layer order Y and submission") {
+    SortKey base;
+    base.cameraPass = 2;
+    base.sortingLayer = 3;
+    base.sortingOrder = -5;
+    base.depthOrYSort = 10.0f;
+    base.submissionIndex = 9;
+
+    SortKey camera = base;
+    camera.cameraPass = 1;
+    CHECK(camera < base);
+    SortKey layer = base;
+    layer.sortingLayer = 2;
+    CHECK(layer < base);
+    SortKey order = base;
+    order.sortingOrder = -6;
+    CHECK(order < base);
+    SortKey y = base;
+    y.depthOrYSort = 9.0f;
+    CHECK(y < base);
+    SortKey submission = base;
+    submission.submissionIndex = 8;
+    CHECK(submission < base);
+}
+
+TEST_CASE("RenderQueue normalizes non-finite direct depth keys") {
+    RenderQueue queue;
+    RenderCommand nan;
+    nan.sortKey.depthOrYSort = std::numeric_limits<float>::quiet_NaN();
+    RenderCommand negative;
+    negative.sortKey.depthOrYSort = -1.0f;
+    RenderCommand zero;
+    zero.sortKey.depthOrYSort = 0.0f;
+    queue.Submit(nan);
+    queue.Submit(negative);
+    queue.Submit(zero);
+
+    CHECK(nan.sortKey == zero.sortKey); // equality also uses normalized depth
+    queue.Sort();
+    REQUIRE(queue.GetCommands().size() == 3U);
+    CHECK(queue.GetCommands()[0].sortKey.depthOrYSort == -1.0f);
+    CHECK(std::isnan(queue.GetCommands()[1].sortKey.depthOrYSort));
+    CHECK(queue.GetCommands()[1].sortKey.submissionIndex <
+          queue.GetCommands()[2].sortKey.submissionIndex);
+}
+
+TEST_CASE("WorldSort2D resolves current layer order Y and missing fallback once") {
+    ProjectSettings& settings = ProjectSettings::Get();
+    settings.SetDefaults();
+    settings.sortingLayers = {"Background", "Default", "Foreground"};
+
+    WorldSortSettings2D authored;
+    authored.sortingLayer = "Foreground";
+    authored.sortingOrder = -7;
+    authored.sortMode = SortMode2D::YAxis;
+    authored.ySortOffset = 2.5f;
+    SortKey key = MakeWorldSortKey(authored, 12.0f);
+    CHECK(key.sortingLayer == 2);
+    CHECK(key.sortingOrder == -7);
+    CHECK(key.depthOrYSort == doctest::Approx(14.5f));
+
+    settings.sortingLayers = {"Foreground", "Background", "Default"};
+    key = MakeWorldSortKey(authored, 12.0f);
+    CHECK(key.sortingLayer == 0); // component stores a name, not a stale index
+
+    Log::ClearSinks();
+    auto sink = std::make_shared<Log::RingBufferSink>(8);
+    Log::AddSink(sink);
+    authored.sortingLayer = "Deleted";
+    CHECK(MakeWorldSortKey(authored, 0.0f).sortingLayer == 2);
+    CHECK(MakeWorldSortKey(authored, 5.0f).sortingLayer == 2);
+    CHECK(sink->Snapshot().size() == 1U);
+    Log::ClearSinks();
+    settings.SetDefaults();
+}
+
+TEST_CASE("WorldSort2D normalizes malformed authored Y without changing fixed mode") {
+    ProjectSettings::Get().SetDefaults();
+    WorldSortSettings2D settings;
+    settings.sortMode = SortMode2D::YAxis;
+    settings.ySortOffset = std::numeric_limits<float>::infinity();
+    CHECK(MakeWorldSortKey(settings,
+                           std::numeric_limits<float>::quiet_NaN()).depthOrYSort == 0.0f);
+    settings.sortMode = SortMode2D::Fixed;
+    settings.ySortOffset = 100.0f;
+    CHECK(MakeWorldSortKey(settings, 100.0f).depthOrYSort == 0.0f);
 }

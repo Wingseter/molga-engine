@@ -23,8 +23,10 @@ private:
     void CreateUIObject(int presetType);
     void DeleteSelectedObject();
     void DuplicateSelectedObject();
+    void CollectVisibleDfs(const std::vector<GameObject*>& roots);
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
+    std::vector<unsigned int> visibleOrder_;
 
     // Rename state
     bool isRenaming = false;

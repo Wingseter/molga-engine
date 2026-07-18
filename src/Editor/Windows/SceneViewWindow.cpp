@@ -6,6 +6,7 @@
 #include "../../Rendering/RenderPass.h"
 #include "Rendering/RenderQueue.h"
 #include "Rendering/RenderSystem2D.h"
+#include "Rendering/WorldRenderTraversal.h"
 #include "Core/Profiling/ProfileScope.h"
 #include "../../ECS/GameObject.h"
 #include "../../ECS/Components/SpriteRenderer.h"
@@ -13,7 +14,6 @@
 #include "../../ECS/Components/MarrowRenderer.h"
 #include "../../ECS/Components/ParticleSystem.h"
 #include "../../ECS/Components/Transform.h"
-#include "../../ECS/Components/Camera.h"
 #include "../../ECS/Components/TextRenderer2D.h"
 #include "../../ECS/Components/RectTransform.h"
 #include "../../UI/UISystem.h"
@@ -28,13 +28,14 @@
 #include "Core/AssetDatabase.h"
 #include "Editor/Commands/CreateSpriteFromAssetCommand.h"
 #include "Editor/Project.h"
+#include "Editor/Windows/TilePaletteWindow.h"
 #include <cstring>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <glad/glad.h>
-#include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 SceneViewWindow::SceneViewWindow()
     : EditorWindow(EditorConstants::WIN_SCENE) {
@@ -150,12 +151,6 @@ void SceneViewWindow::OnGUI() {
         // GL 텍스처는 좌하단 원점이므로 UV Y를 뒤집어야 한다
         ImGui::Image(texId, ImVec2(vpW, vpH), ImVec2(0, 1), ImVec2(1, 0));
         sceneImageHovered = ImGui::IsItemHovered();
-        uiPanelPos_ = panelPos;
-        uiPanelSize_ = ImVec2(vpW, vpH);
-        ImGuiViewport* platformViewport = ImGui::GetWindowViewport();
-        uiPlatformViewportId_ = platformViewport ? platformViewport->ID : 0;
-        uiViewportValid_ = platformViewport && platformViewport->PlatformHandle;
-        
         if (ImGui::BeginDragDropTarget()) {
             const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ASSET_GUID");
             if (!p) p = ImGui::AcceptDragDropPayload("TEXTURE_PATH"); // 구 payload 호환
@@ -169,6 +164,13 @@ void SceneViewWindow::OnGUI() {
                         Project::Get().GetRelativePath(path));
                 }
                 if (!guid.empty()) {
+                    const molga::AssetRecord* record = molga::AssetDatabase::Get().Find(guid);
+                    if (!record || record->importer != "TextureImporter" || record->importFailed) {
+                        Log::Warn("SceneView", "Only a valid texture asset can create a sprite.");
+                        guid.clear();
+                    }
+                }
+                if (!guid.empty()) {
                     float worldX = 0.0f;
                     float worldY = 0.0f;
                     ScreenToWorld(panelPos, ImVec2(vpW, vpH), ImGui::GetMousePos(), worldX, worldY);
@@ -178,7 +180,6 @@ void SceneViewWindow::OnGUI() {
                     if (activeObjects) {
                         auto cmd = std::make_unique<molga::CreateSpriteFromAssetCommand>(
                             guid, "Sprite", world, activeObjects);
-                        auto* createdObj = cmd->created(); // Execute() 전에는 nullptr일 수 있음. 아래에서 Execute 후 캐스팅합니다.
                         Editor::Get().GetCommandHistory().Execute(std::move(cmd));
                         
                         // commandHistory.Execute() 가 command를 소유해서 실행했으므로, 
@@ -243,18 +244,47 @@ void SceneViewWindow::OnGUI() {
             if (active) ImGui::PopStyleColor();
             ImGui::SameLine();
         }
+
+        const bool localSpace = gizmo_.Space() == molga::GizmoSpace::Local;
+        if (ImGui::Button(localSpace ? "Local" : "World")) {
+            gizmo_.SetSpace(localSpace ? molga::GizmoSpace::World
+                                       : molga::GizmoSpace::Local);
+        }
+        ImGui::SameLine();
         
         ImGui::Spacing(); ImGui::SameLine();
         
-        static int currentSnap = 0; // 0: Off, 1: 16px, 2: 32px, 3: 64px
-        const char* snapNames[] = { "Snap: Off", "Snap: 16", "Snap: 32", "Snap: 64" };
-        if (ImGui::Button(snapNames[currentSnap])) {
-            currentSnap = (currentSnap + 1) % 4;
-            if (currentSnap == 0) gizmo_.SetSnap(molga::SnapMode::Off, 0.f);
-            else if (currentSnap == 1) gizmo_.SetSnap(molga::SnapMode::Grid, 16.f);
-            else if (currentSnap == 2) gizmo_.SetSnap(molga::SnapMode::Grid, 32.f);
-            else if (currentSnap == 3) gizmo_.SetSnap(molga::SnapMode::Grid, 64.f);
+        const molga::GizmoSnapSettings snap = gizmo_.SnapSettings();
+        const bool snapOff = snap.mode == molga::SnapMode::Off;
+        const char* snapLabel = "Snap: Off";
+        if (!snapOff && gizmo_.Tool() == molga::GizmoTool::Move) {
+            if (snap.step <= 16.f) snapLabel = "Snap: 16";
+            else if (snap.step <= 32.f) snapLabel = "Snap: 32";
+            else snapLabel = "Snap: 64";
+        } else if (!snapOff && gizmo_.Tool() == molga::GizmoTool::Rotate) {
+            snapLabel = "Snap: 15 deg";
+        } else if (!snapOff && gizmo_.Tool() == molga::GizmoTool::Scale) {
+            snapLabel = "Snap: 0.1";
         }
+        const bool selectTool = gizmo_.Tool() == molga::GizmoTool::Select;
+        if (selectTool) ImGui::BeginDisabled();
+        if (ImGui::Button(snapLabel)) {
+            if (gizmo_.Tool() == molga::GizmoTool::Move) {
+                if (snapOff) gizmo_.SetSnap(molga::SnapMode::Grid, 16.f);
+                else if (snap.step <= 16.f) gizmo_.SetSnap(molga::SnapMode::Grid, 32.f);
+                else if (snap.step <= 32.f) gizmo_.SetSnap(molga::SnapMode::Grid, 64.f);
+                else gizmo_.SetSnap(molga::SnapMode::Off, 0.f);
+            } else if (gizmo_.Tool() == molga::GizmoTool::Rotate) {
+                gizmo_.SetSnap(snapOff ? molga::SnapMode::Increment
+                                       : molga::SnapMode::Off,
+                               snapOff ? 15.f : 0.f);
+            } else if (gizmo_.Tool() == molga::GizmoTool::Scale) {
+                gizmo_.SetSnap(snapOff ? molga::SnapMode::Increment
+                                       : molga::SnapMode::Off,
+                               snapOff ? 0.1f : 0.f);
+            }
+        }
+        if (selectTool) ImGui::EndDisabled();
         
         ImGui::PopStyleColor();
         ImGui::PopStyleVar();
@@ -263,17 +293,59 @@ void SceneViewWindow::OnGUI() {
     // ── 입력 처리 (Image 위젯이 렌더된 후) ──────────────────────────────────
     HandleInput(panelPos, ImVec2(vpW, vpH));
 
-    GameObject* primaryTarget = Editor::Get().FindObjectById(Editor::Get().GetSelection().PrimaryId());
+    std::vector<GameObject*> selectedTargets;
+    for (unsigned int id : Editor::Get().GetSelection().SelectedIds()) {
+        if (GameObject* object = Editor::Get().FindObjectById(id)) {
+            selectedTargets.push_back(object);
+        }
+    }
     DrawSelectionOutline(panelPos, ImVec2(vpW, vpH));
-    bool gizmoUsed = gizmo_.Draw(primaryTarget, ViewportCam(), panelPos, ImVec2(vpW, vpH));
+    bool tilePaintUsed = false;
+    if (EditorState::Get().IsEditMode()) {
+        if (auto* palette = Editor::Get().GetWindowManager().GetAs<TilePaletteWindow>(
+                EditorConstants::WIN_TILE_PALETTE); palette && palette->IsOpen()) {
+            float worldX = 0.0f;
+            float worldY = 0.0f;
+            ScreenToWorld(panelPos, ImVec2(vpW, vpH), ImGui::GetMousePos(), worldX, worldY);
+            if (sceneImageHovered || palette->HasActiveStroke()) {
+                tilePaintUsed = palette->HandleSceneInput(
+                    {worldX, worldY}, sceneImageHovered,
+                    sceneImageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+                    sceneImageHovered && ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                    ImGui::IsMouseReleased(ImGuiMouseButton_Left));
+            }
+            palette->DrawSceneOverlay(ImGui::GetWindowDrawList(), panelPos,
+                                      ImVec2(vpW, vpH), ViewportCam());
+        }
+    }
+    bool gizmoUsed = !tilePaintUsed &&
+        gizmo_.Draw(selectedTargets, ViewportCam(), panelPos, ImVec2(vpW, vpH));
 
-    if (EditorState::Get().IsEditMode() && !gizmoUsed && sceneImageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+    if (EditorState::Get().IsEditMode() && !tilePaintUsed && !gizmoUsed && sceneImageHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)
         && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         HandlePick(panelPos, ImVec2(vpW, vpH));
     }
 
+    if (EditorState::Get().IsEditMode() && sceneImageHovered &&
+        !ImGui::GetIO().WantTextInput) {
+        const ImGuiIO& io = ImGui::GetIO();
+#if defined(__APPLE__)
+        const bool command = io.KeySuper;
+#else
+        const bool command = io.KeyCtrl;
+#endif
+        const auto ids = Editor::Get().GetSelection().SelectedIds();
+        if (!ids.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+            Editor::Get().GetCommandHistory().Execute(
+                std::make_unique<molga::DeleteObjectsCommand>(ids));
+        } else if (!ids.empty() && command && ImGui::IsKeyPressed(ImGuiKey_D)) {
+            Editor::Get().GetCommandHistory().Execute(
+                std::make_unique<molga::DuplicateObjectsCommand>(ids));
+        }
+    }
+
     // ── 우클릭 컨텍스트 메뉴 트리거 ──────────────────────────────────────────
-    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    if (sceneImageHovered && !tilePaintUsed && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         ImVec2 mousePos = ImGui::GetMousePos();
         ScreenToWorld(panelPos, ImVec2(vpW, vpH), mousePos, ctxWorldX_, ctxWorldY_);
         ImGui::OpenPopup("SceneViewContextMenu");
@@ -284,71 +356,14 @@ void SceneViewWindow::OnGUI() {
     ImGui::End();
 }
 
-void SceneViewWindow::ProcessPlayUIInput() {
-    if (!isOpen || !gameObjects_ || !uiViewportValid_ ||
-        uiPlatformViewportId_ == 0 || !ImGui::GetCurrentContext() ||
-        uiPanelSize_.x <= 0.0f || uiPanelSize_.y <= 0.0f) {
-        ResetPlayUIInput();
-        return;
-    }
-
-    ImGuiViewport* viewport = ImGui::FindViewportByID(uiPlatformViewportId_);
-    auto* platformWindow = viewport
-        ? static_cast<GLFWwindow*>(viewport->PlatformHandle) : nullptr;
-    if (!viewport || !platformWindow) {
-        ResetPlayUIInput();
-        return;
-    }
-
-    double localX = 0.0;
-    double localY = 0.0;
-    glfwGetCursorPos(platformWindow, &localX, &localY);
-    const float screenX = static_cast<float>(localX) + viewport->Pos.x;
-    const float screenY = static_cast<float>(localY) + viewport->Pos.y;
-    const Vector2 point(screenX - uiPanelPos_.x, screenY - uiPanelPos_.y);
-    const bool inside = point.x >= 0.0f && point.y >= 0.0f &&
-                        point.x <= uiPanelSize_.x && point.y <= uiPanelSize_.y;
-    const bool down = glfwGetMouseButton(platformWindow, GLFW_MOUSE_BUTTON_LEFT) ==
-                      GLFW_PRESS;
-
-    UISystem::Get().ProcessInput(
-        *gameObjects_, {uiPanelSize_.x, uiPanelSize_.y},
-        {point, down, down && !uiMouseWasDown_, !down && uiMouseWasDown_, inside});
-    uiMouseWasDown_ = down;
-}
-
-void SceneViewWindow::ResetPlayUIInput() {
-    UISystem::Get().ResetPointerCapture();
-    uiMouseWasDown_ = false;
-}
-
 // ── 씬 렌더 ──────────────────────────────────────────────────────────────────
 
 void SceneViewWindow::RenderSceneToFBO(float vpW, float vpH) {
-    fbo_.Bind();
+    ScopedFramebufferBinding binding(fbo_);
 
-    Camera* mainCam = nullptr;
-    if (EditorState::Get().IsPlayMode() && gameObjects_) {
-        for (auto& obj : *gameObjects_) {
-            if (obj && obj->IsActive()) {
-                if (auto cam = obj->GetComponent<Camera>()) {
-                    if (cam->IsEnabled() && cam->IsMain()) {
-                        if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
-                            mainCam = cam;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 배경 클리어
-    if (mainCam) {
-        Color bg = mainCam->GetBackgroundColor();
-        glClearColor(bg.r, bg.g, bg.b, bg.a);
-    } else {
-        glClearColor(0.18f, 0.18f, 0.22f, 1.f);
-    }
+    // Scene View is always an editor visualization. Main-camera output and
+    // screen-space UI are rendered by the separate Game View.
+    glClearColor(0.18f, 0.18f, 0.22f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // 알파 블렌딩 활성화
@@ -361,10 +376,9 @@ void SceneViewWindow::RenderSceneToFBO(float vpW, float vpH) {
     // 그 위에 스프라이트
     DrawSprites();
 
-    // 월드 카메라와 무관한 화면 오버레이 UI 패스
+    // Keep the editor UI overlay visible/pickable in Scene View without
+    // routing its input to gameplay.
     DrawUI(vpW, vpH);
-
-    fbo_.Unbind();
 }
 
 void SceneViewWindow::DrawGrid() {
@@ -410,53 +424,41 @@ void SceneViewWindow::DrawSprites() {
 
     auto& fc = Editor::Get().FrameCounters();
 
+    Camera2D* activeCamera = editorCamera_.get();
+
     // Collect render commands
     molga::RenderQueue queue;
+    queue.SetViewBounds(activeCamera->GetViewBounds());
     {
         MOLGA_PROFILE_SCOPE("RenderQueue.Collect", molga::ProfileCategory::Rendering);
-        for (auto& obj : *gameObjects_) {
-            if (obj && obj->IsActive()) {
-                if (auto sr = obj->GetComponent<SpriteRenderer>()) {
-                    sr->CollectRender(queue);
-                    fc.sprites++;
+        molga::CollectWorldRender(
+            *gameObjects_, queue,
+            [&](Component& component, molga::RenderQueue& target) {
+                if (dynamic_cast<SpriteRenderer*>(&component)) ++fc.sprites;
+                if (auto* tilemap = dynamic_cast<TilemapRenderer*>(&component)) {
+                    tilemap->CollectRender(target);
+                    fc.tileChunks += tilemap->GetLastSubmittedChunkCount();
+                    return true;
                 }
-                if (auto tm = obj->GetComponent<TilemapRenderer>()) {
-                    tm->CollectRender(queue);
-                    fc.tileChunks++;
-                }
-                if (auto mr = obj->GetComponent<MarrowRenderer>()) {
-                    mr->CollectRender(queue);
-                }
-                if (auto ps = obj->GetComponent<ParticleSystem>()) {
-                    ps->CollectRender(queue);
-                    fc.particles += ps->GetEmitter().GetActiveCount();
-                }
-                if (auto tr = obj->GetComponent<TextRenderer2D>()) {
-                    tr->CollectRender(queue);
-                    fc.text++;
-                }
-            }
-        }
-    }
-
-    Camera2D* activeCamera = editorCamera_.get();
-    if (EditorState::Get().IsPlayMode() && gameObjects_) {
-        // Let's rewrite the camera search to match exactly
-        Camera* mainCam = nullptr;
-        for (auto& obj : *gameObjects_) {
-            if (obj && obj->IsActive()) {
-                if (auto cam = obj->GetComponent<Camera>()) {
-                    if (cam->IsEnabled() && cam->IsMain()) {
-                        if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
-                            mainCam = cam;
-                        }
+                if (auto* particles = dynamic_cast<ParticleSystem*>(&component)) {
+                    if (!EditorState::Get().IsPlayMode() &&
+                        particles->TryGetEditorPreviewEmitter()) {
+                        // The preview replaces the live emitter at the same
+                        // component traversal slot without touching authored state.
+                        particles->UpdateEditorPreview(ImGui::GetIO().DeltaTime);
+                        particles->CollectEditorPreviewRender(target);
+                        fc.particles +=
+                            particles->TryGetEditorPreviewEmitter()->GetActiveCount();
+                    } else {
+                        particles->CollectRender(target);
+                        fc.particles += particles->GetEmitter().GetActiveCount();
                     }
+                    return true;
                 }
+                if (dynamic_cast<TextRenderer2D*>(&component)) ++fc.text;
+                return false;
             }
-        }
-        if (mainCam) {
-            activeCamera = mainCam->GetCamera2D();
-        }
+        );
     }
 
     {
@@ -469,6 +471,8 @@ void SceneViewWindow::DrawSprites() {
     Editor::Get().FrameCounters().drawCalls = renderer_->Stats().drawCalls;
 }
 
+// ── 입력 처리 ─────────────────────────────────────────────────────────────────
+
 void SceneViewWindow::DrawUI(float vpW, float vpH) {
     if (!renderer_ || !spriteShader_ || !gameObjects_) return;
     molga::RenderQueue queue;
@@ -479,8 +483,6 @@ void SceneViewWindow::DrawUI(float vpW, float vpH) {
     molga::RenderPass pass(*renderer_, spriteShader_, &uiCamera);
     molga::RenderSystem2D::Get().Render(queue, renderer_, &uiCamera);
 }
-
-// ── 입력 처리 ─────────────────────────────────────────────────────────────────
 
 void SceneViewWindow::HandleInput(ImVec2 panelPos, ImVec2 panelSize) {
     ImVec2 mousePos = ImGui::GetMousePos();
@@ -659,8 +661,13 @@ void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
     if (GameObject* ui = UISystem::Get().HitTest(
             *gameObjects_, {panelSize.x, panelSize.y},
             {m.x - panelPos.x, m.y - panelPos.y})) {
-        Editor::Get().GetSelection().Select(
-            ui->GetID(), molga::SelectionSource::SceneView);
+        if (ImGui::GetIO().KeyShift) {
+            Editor::Get().GetSelection().Add(
+                ui->GetID(), molga::SelectionSource::SceneView);
+        } else {
+            Editor::Get().GetSelection().Select(
+                ui->GetID(), molga::SelectionSource::SceneView);
+        }
         return;
     }
 
@@ -669,23 +676,37 @@ void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
                          m.x - panelPos.x, m.y - panelPos.y, wx, wy);
 
     std::vector<molga::PickCandidate> cands;
-    for (auto& obj : *gameObjects_) {
-        if (!obj || !obj->IsActive()) continue;
-        auto* tr = obj->GetComponent<Transform>();
-        auto* sr = obj->GetComponent<SpriteRenderer>();
-        if (!tr || !sr) continue;
-        Vector2 wp = tr->GetWorldPosition();
-        cands.push_back({ obj->GetID(), wp.x, wp.y,
-                          sr->GetWidth() * 0.5f, sr->GetHeight() * 0.5f,
-                          sr->GetSortingOrder() });
-    }
+    std::uint64_t sceneSubmission = 0;
+    molga::ForEachWorldRenderComponent(
+        *gameObjects_, [&](Component& component) {
+            const std::uint64_t componentSubmission = sceneSubmission++;
+            auto* sprite = dynamic_cast<SpriteRenderer*>(&component);
+            if (!sprite) return;
+            GameObject* object = sprite->GetGameObject();
+            Transform* transform = object ? object->GetComponent<Transform>() : nullptr;
+            if (!object || !transform) return;
+            const std::optional<AABB> bounds = sprite->GetWorldBounds();
+            if (!bounds) return;
+            const Vector2 worldPosition = transform->GetWorldPosition();
+            molga::SortKey sortKey = molga::MakeWorldSortKey(
+                sprite->GetWorldSortSettings(), worldPosition.y);
+            sortKey.submissionIndex = componentSubmission;
+            cands.push_back({object->GetID(),
+                             bounds->x + bounds->width * 0.5f,
+                             bounds->y + bounds->height * 0.5f,
+                             bounds->width * 0.5f,
+                             bounds->height * 0.5f, sortKey});
+        });
     auto hits = molga::PickAt(cands, wx, wy);
 
     auto& sel = Editor::Get().GetSelection();
     if (hits.empty()) {
-        sel.Clear(molga::SelectionSource::SceneView);
+        if (!ImGui::GetIO().KeyShift) sel.Clear(molga::SelectionSource::SceneView);
     } else {
-        sel.Select(hits.front(), molga::SelectionSource::SceneView);
+        if (ImGui::GetIO().KeyShift)
+            sel.Add(hits.front(), molga::SelectionSource::SceneView);
+        else
+            sel.Select(hits.front(), molga::SelectionSource::SceneView);
     }
 }
 
@@ -711,13 +732,14 @@ void SceneViewWindow::DrawSelectionOutline(ImVec2 panelPos, ImVec2 panelSize) {
         auto* tr = go->GetComponent<Transform>();
         auto* sr = go->GetComponent<SpriteRenderer>();
         if (!tr || !sr) continue;
-        Vector2 wp = tr->GetWorldPosition();
-        float hw = sr->GetWidth() * 0.5f, hh = sr->GetHeight() * 0.5f;
+        const std::optional<AABB> bounds = sr->GetWorldBounds();
+        if (!bounds) continue;
         float sx0, sy0, sx1, sy1;
         molga::WorldToScreen(ViewportCam(), panelSize.x, panelSize.y,
-                             wp.x - hw, wp.y - hh, sx0, sy0);
+                             bounds->x, bounds->y, sx0, sy0);
         molga::WorldToScreen(ViewportCam(), panelSize.x, panelSize.y,
-                             wp.x + hw, wp.y + hh, sx1, sy1);
+                             bounds->x + bounds->width,
+                             bounds->y + bounds->height, sx1, sy1);
         bool primary = (id == sel.PrimaryId());
         dl->AddRect(ImVec2(panelPos.x + sx0, panelPos.y + sy0),
                     ImVec2(panelPos.x + sx1, panelPos.y + sy1),

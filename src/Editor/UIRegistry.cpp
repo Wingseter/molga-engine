@@ -17,6 +17,9 @@ const std::unordered_map<std::string, UIRegistry::FileTypeInfo> UIRegistry::s_fi
     { ".ogg",  { Icons::FileAudio, EditorTheme::FileColor::AUDIO } },
     { ".ttf",  { Icons::File,      EditorTheme::FileColor::DEFAULT } },
     { ".otf",  { Icons::File,      EditorTheme::FileColor::DEFAULT } },
+    { ".animclip", { Icons::FileCode, EditorTheme::FileColor::JSON } },
+    { ".animator", { Icons::Sitemap,  EditorTheme::FileColor::JSON } },
+    { ".tileset",  { Icons::Image,    EditorTheme::FileColor::IMAGE } },
 };
 
 const std::unordered_map<std::string, UIRegistry::ComponentTypeInfo> UIRegistry::s_componentTypes = {
@@ -28,6 +31,9 @@ const std::unordered_map<std::string, UIRegistry::ComponentTypeInfo> UIRegistry:
     { "TextRenderer2D", { Icons::ListUl    } },
     { "AudioSource",    { Icons::Music     } },
     { "AudioListener",  { Icons::VolumeUp  } },
+    { "Animator2D",     { Icons::Sitemap   } },
+    { "TilemapRenderer",{ Icons::Image     } },
+    { "ParticleSystem", { Icons::Circle    } },
     { "Camera",         { Icons::Camera    } },
     { "UICanvas",       { Icons::Square    } },
     { "RectTransform",  { Icons::ArrowsAlt } },

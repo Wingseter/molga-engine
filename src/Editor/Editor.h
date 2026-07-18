@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 #include <imgui.h>
@@ -45,6 +46,7 @@ public:
     std::shared_ptr<GameObject> CreateGameObject(const std::string& name = "GameObject");
 
     molga::CommandHistory& GetCommandHistory() { return commandHistory; }
+    molga::CommandHistory& GetAssetCommandHistory() { return assetCommandHistory_; }
     WindowManager& GetWindowManager() { return windowManager; }
     molga::SelectionService& GetSelection() { return selection_; }
     molga::EditorTaskService& GetTaskService() { return taskService; }
@@ -62,6 +64,9 @@ public:
 
     // Command가 사용하는 저수준 헬퍼
     std::shared_ptr<GameObject> AddExistingObject(std::shared_ptr<GameObject> obj);
+    std::shared_ptr<GameObject> InsertExistingObjectAt(
+        std::shared_ptr<GameObject> obj, std::size_t index);
+    bool TryGetObjectIndex(unsigned int id, std::size_t& index) const;
     void RemoveObjectsByIds(const std::vector<unsigned int>& ids);
     GameObject* FindObjectById(unsigned int id) const;
     void MarkSceneModified();
@@ -109,6 +114,7 @@ private:
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
     molga::CommandHistory commandHistory;
+    molga::CommandHistory assetCommandHistory_;
     molga::SelectionService selection_;
 
     // DockSpace

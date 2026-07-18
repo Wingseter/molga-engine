@@ -105,6 +105,18 @@ void SpriteBatcher::DrawSprite(const std::array<Vertex2D, 4>& vertices, const Ba
     renderer_->Stats().submittedSprites++;
 }
 
+void SpriteBatcher::DrawGeometry(const std::vector<Vertex2D>& vertices,
+                                 const BatchKey& key) {
+    if (vertices.size() % 4 != 0) return;
+    for (std::size_t offset = 0; offset < vertices.size(); offset += 4) {
+        std::array<Vertex2D, 4> quad{
+            vertices[offset], vertices[offset + 1],
+            vertices[offset + 2], vertices[offset + 3]
+        };
+        DrawSprite(quad, key);
+    }
+}
+
 void SpriteBatcher::Flush() {
     if (spriteCount_ == 0 || !renderer_) return;
 
@@ -113,7 +125,12 @@ void SpriteBatcher::Flush() {
     // Apply Shader
     Shader* shader = activeKey_.shader;
     if (!shader) {
-        shader = ShaderManager::Get().Get("default");
+        // Every command reaching SpriteBatcher uses the batched vertex format
+        // (position/UV/per-vertex color). UI rectangles, text glyphs and
+        // tilemap geometry intentionally leave the shader unspecified, so the
+        // compatible batch shader is their canonical fallback.
+        shader = ShaderManager::Get().Get("batch");
+        if (!shader) shader = ShaderManager::Get().Get("default");
     }
     if (shader) {
         renderer_->SetShader(shader);

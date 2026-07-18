@@ -18,7 +18,9 @@ public:
     bool Init(int width, int height);
 
     // 현재 크기와 다를 때 FBO·텍스처를 재생성
-    void Resize(int width, int height);
+    // Returns false without disturbing the last valid allocation when the
+    // requested size is invalid, exceeds GL limits, or allocation fails.
+    bool Resize(int width, int height);
 
     // 이 FBO를 현재 렌더 타깃으로 바인드
     void Bind();
@@ -28,6 +30,9 @@ public:
 
     // 컬러 어태치먼트 텍스처 ID
     GLuint ColorTexture() const { return colorTexture_; }
+    // Low-level presentation paths may bind this as a read framebuffer. Callers
+    // must preserve the binding state around direct use.
+    GLuint Id() const { return fbo_; }
 
     int Width()  const { return width_; }
     int Height() const { return height_; }
@@ -42,4 +47,31 @@ private:
     GLuint rbo_          = 0;  // 깊이/스텐실 렌더버퍼 (선택적)
     int    width_        = 0;
     int    height_       = 0;
+
+    struct SavedBindingState {
+        GLint drawFramebuffer = 0;
+        GLint readFramebuffer = 0;
+        GLint viewport[4] = {0, 0, 0, 0};
+        GLint scissorBox[4] = {0, 0, 0, 0};
+        GLboolean scissorEnabled = GL_FALSE;
+        GLboolean framebufferSrgbEnabled = GL_FALSE;
+        bool valid = false;
+    } saved_;
+};
+
+// Guarantees restoration when rendering throws (non-Script engine components
+// intentionally remain fail-loud).
+class ScopedFramebufferBinding {
+public:
+    explicit ScopedFramebufferBinding(Framebuffer& framebuffer)
+        : framebuffer_(&framebuffer) {
+        framebuffer_->Bind();
+    }
+    ~ScopedFramebufferBinding() { framebuffer_->Unbind(); }
+
+    ScopedFramebufferBinding(const ScopedFramebufferBinding&) = delete;
+    ScopedFramebufferBinding& operator=(const ScopedFramebufferBinding&) = delete;
+
+private:
+    Framebuffer* framebuffer_;
 };

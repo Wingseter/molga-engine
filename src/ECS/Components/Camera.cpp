@@ -3,8 +3,9 @@
 #include "../GameObject.h"
 #include "../ComponentFactory.h"
 #include "../../Core/World.h"
+#include <algorithm>
+#include <cmath>
 #include <nlohmann/json.hpp>
-#include <GLFW/glfw3.h>
 
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
@@ -14,6 +15,8 @@ REGISTER_COMPONENT(Camera)
 
 Camera::Camera()
     : orthoSize(300.0f),
+      pixelPerfect(false),
+      pixelZoom(1),
       backgroundColor(0.12f, 0.12f, 0.15f, 1.0f),
       depth(0),
       isMain(false),
@@ -28,6 +31,10 @@ void Camera::SetFollowTarget(GameObject* target) {
     targetId = target ? target->GetID() : 0;
 }
 
+void Camera::SetPixelZoom(int zoom) {
+    pixelZoom = std::clamp(zoom, 1, 64);
+}
+
 void Camera::ResolveAssets() {
     if (targetId > 0 && gameObject && gameObject->GetWorld()) {
         followTarget = gameObject->GetWorld()->FindById(targetId);
@@ -35,59 +42,72 @@ void Camera::ResolveAssets() {
         followTarget = nullptr;
     }
 
-    // Initialize/update screen size if window is available
-    float w = 800.0f;
-    float h = 600.0f;
-    GLFWwindow* window = glfwGetCurrentContext();
-    if (window) {
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-        if (width > 0 && height > 0) {
-            w = static_cast<float>(width);
-            h = static_cast<float>(height);
-        }
-    }
-    if (camera2D) {
-        camera2D->SetScreenSize(w, h);
-        camera2D->SetZoom(h / (2.0f * orthoSize));
-    }
+    PrepareForViewport({800, 600});
 }
 
 void Camera::Update(float dt) {
-    GLFWwindow* window = glfwGetCurrentContext();
-    if (window) {
-        int w, h;
-        glfwGetFramebufferSize(window, &w, &h);
-        if (w > 0 && h > 0 && camera2D) {
-            camera2D->SetScreenSize(static_cast<float>(w), static_cast<float>(h));
-            camera2D->SetZoom(static_cast<float>(h) / (2.0f * orthoSize));
-        }
-    }
-
     if (followTarget) {
         auto targetTransform = followTarget->GetComponent<Transform>();
         if (targetTransform) {
-            Vector2 current(camera2D->GetX(), camera2D->GetY());
+            // Camera2D may hold a pixel-snapped render position from the
+            // previous frame. Follow interpolation must remain in the
+            // unsnapped simulation state owned by the Transform.
+            Transform* cameraTransform = gameObject
+                ? gameObject->GetComponent<Transform>() : nullptr;
+            Vector2 current = renderPositionSnapped_ && cameraTransform
+                ? cameraTransform->GetWorldPosition()
+                : Vector2(camera2D->GetX(), camera2D->GetY());
             Vector2 targetPos = targetTransform->GetWorldPosition();
             Vector2 next = current + (targetPos - current) * smoothing * dt;
             camera2D->SetPosition(next.x, next.y);
+            renderPositionSnapped_ = false;
 
-            auto transform = gameObject->GetComponent<Transform>();
-            if (transform) {
-                transform->SetPosition(next.x, next.y);
+            if (cameraTransform) {
+                cameraTransform->SetPosition(next.x, next.y);
             }
         }
     } else {
-        auto transform = gameObject->GetComponent<Transform>();
+        auto transform = gameObject ? gameObject->GetComponent<Transform>() : nullptr;
         if (transform) {
             Vector2 pos = transform->GetWorldPosition();
             camera2D->SetPosition(pos.x, pos.y);
+            renderPositionSnapped_ = false;
         }
     }
+}
+
+bool Camera::PrepareForViewport(molga::PixelSize viewport) {
+    if (!camera2D || !viewport.IsValid()) return false;
+    if (gameObject) {
+        if (Transform* transform = gameObject->GetComponent<Transform>()) {
+            Vector2 position = transform->GetWorldPosition();
+            if (pixelPerfect) {
+                const float zoom = static_cast<float>(pixelZoom);
+                position.x = std::round(position.x * zoom) / zoom;
+                position.y = std::round(position.y * zoom) / zoom;
+                renderPositionSnapped_ = true;
+            } else {
+                renderPositionSnapped_ = false;
+            }
+            camera2D->SetPosition(position.x, position.y);
+        }
+    }
+    camera2D->SetScreenSize(static_cast<float>(viewport.width),
+                            static_cast<float>(viewport.height));
+    if (pixelPerfect) {
+        camera2D->SetPixelZoom(pixelZoom);
+    } else {
+        const float safeOrthoSize = std::max(orthoSize, 0.01f);
+        camera2D->SetZoom(static_cast<float>(viewport.height) /
+                          (2.0f * safeOrthoSize));
+    }
+    return true;
 }
 
 void Camera::Serialize(nlohmann::json& j) const {
     j["orthoSize"] = orthoSize;
+    j["pixelPerfect"] = pixelPerfect;
+    j["pixelZoom"] = pixelZoom;
     j["backgroundColor"] = { backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a };
     j["depth"] = depth;
     j["isMain"] = isMain;
@@ -99,6 +119,8 @@ void Camera::Deserialize(const nlohmann::json& j) {
     if (j.contains("orthoSize")) orthoSize = j["orthoSize"];
     // zoom = h / (2 * orthoSize) 계산에서 0 나눗셈을 막는다 (손상된 씬 방어).
     if (orthoSize < 0.01f) orthoSize = 0.01f;
+    if (j.contains("pixelPerfect")) pixelPerfect = j["pixelPerfect"];
+    if (j.contains("pixelZoom")) SetPixelZoom(j["pixelZoom"]);
     if (j.contains("backgroundColor") && j["backgroundColor"].is_array()) {
         backgroundColor.r = j["backgroundColor"][0];
         backgroundColor.g = j["backgroundColor"][1];
@@ -113,7 +135,15 @@ void Camera::Deserialize(const nlohmann::json& j) {
 
 void Camera::OnInspectorGUI() {
 #ifdef MOLGA_EDITOR
-    ImGui::DragFloat("Ortho Size", &orthoSize, 1.0f, 1.0f, 5000.0f);
+    ImGui::Checkbox("Pixel Perfect", &pixelPerfect);
+    if (pixelPerfect) {
+        int zoom = pixelZoom;
+        if (ImGui::DragInt("Pixel Zoom", &zoom, 1.0f, 1, 64)) {
+            SetPixelZoom(zoom);
+        }
+    } else {
+        ImGui::DragFloat("Ortho Size", &orthoSize, 1.0f, 1.0f, 5000.0f);
+    }
     
     float col[4] = { backgroundColor.r, backgroundColor.g, backgroundColor.b, backgroundColor.a };
     if (ImGui::ColorEdit4("Clear Color", col)) {

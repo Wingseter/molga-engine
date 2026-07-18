@@ -33,8 +33,17 @@ void MarrowRenderer::Update(float) {}
 void MarrowRenderer::RenderSprite(Renderer*) {}
 void MarrowRenderer::ResolveAssets(bool) {}
 void MarrowRenderer::OnDestroy() {}
-void MarrowRenderer::Serialize(nlohmann::json&) const {}
-void MarrowRenderer::Deserialize(const nlohmann::json&) {}
+void MarrowRenderer::Serialize(nlohmann::json& json) const {
+    molga::SerializeWorldSortSettings(json, GetWorldSortSettings());
+}
+void MarrowRenderer::Deserialize(const nlohmann::json& json) {
+    const molga::WorldSortSettings2D settings =
+        molga::DeserializeWorldSortSettings(json);
+    sortingLayer = settings.sortingLayer;
+    sortingOrder = settings.sortingOrder;
+    sortMode = settings.sortMode;
+    ySortOffset = settings.ySortOffset;
+}
 void MarrowRenderer::OnInspectorGUI() {
 #ifdef MOLGA_EDITOR
     ImGui::TextColored(ImVec4(0.8f, 0.3f, 0.3f, 1.0f), "Marrow Support Disabled");
@@ -371,7 +380,7 @@ void MarrowRenderer::CleanGLBuffers() {
 void MarrowRenderer::Serialize(nlohmann::json& j) const {
     j["skeletonPath"] = skeletonPath;
     j["atlasPath"] = atlasPath;
-    j["sortingOrder"] = sortingOrder;
+    molga::SerializeWorldSortSettings(j, GetWorldSortSettings());
     j["color"] = { color.r, color.g, color.b, color.a };
 
     // Serialize custom mix durations
@@ -387,14 +396,17 @@ void MarrowRenderer::Serialize(nlohmann::json& j) const {
 }
 
 void MarrowRenderer::Deserialize(const nlohmann::json& j) {
+    const molga::WorldSortSettings2D settings =
+        molga::DeserializeWorldSortSettings(j);
+    sortingLayer = settings.sortingLayer;
+    sortingOrder = settings.sortingOrder;
+    sortMode = settings.sortMode;
+    ySortOffset = settings.ySortOffset;
     if (j.contains("skeletonPath")) {
         skeletonPath = j["skeletonPath"];
     }
     if (j.contains("atlasPath")) {
         atlasPath = j["atlasPath"];
-    }
-    if (j.contains("sortingOrder")) {
-        sortingOrder = j["sortingOrder"];
     }
     if (j.contains("color") && j["color"].is_array()) {
         color = Color(j["color"][0], j["color"][1], j["color"][2], j["color"][3]);
@@ -493,14 +505,14 @@ void MarrowRenderer::CollectRender(molga::RenderQueue& queue) {
     if (!gameObject || !enabled) return;
 
     molga::RenderCommand cmd;
-    cmd.sortKey.cameraPass = 0;
-    cmd.sortKey.sortingLayer = 0;
-    cmd.sortKey.sortingOrder = sortingOrder;
-    cmd.sortKey.depthOrYSort = 0.0f;
+    float worldY = 0.0f;
+    if (const Transform* transform = gameObject->GetComponent<Transform>()) {
+        worldY = transform->GetWorldPosition().y;
+    }
+    cmd.sortKey = molga::MakeWorldSortKey(GetWorldSortSettings(), worldY);
     cmd.batchKey.isBatchable = false;
     cmd.fallbackRender = [this](Renderer* r) {
         this->RenderSprite(r);
     };
     queue.Submit(cmd);
 }
-

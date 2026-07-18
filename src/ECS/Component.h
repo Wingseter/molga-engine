@@ -92,12 +92,18 @@ public:
 
     // Enable/Disable component
     bool IsEnabled() const { return enabled; }
-    void SetEnabled(bool value) {
+    virtual void SetEnabled(bool value) {
         if (enabled == value) return;
         enabled = value;
         if (enabled) OnEnable();
         else OnDisable();
     }
+
+    // Scene/prefab deserialization restores persisted state while objects are
+    // still being assembled. It must not enter user lifecycle code: the World
+    // owns the later Awake/OnEnable/Start transition once loading is complete.
+    // Runtime and editor interactions must continue to use SetEnabled().
+    void SetEnabledFromSerializedState(bool value) noexcept { enabled = value; }
 
     // Awake/Start state tracking (각각 1회만 실행 보장)
     bool HasAwoken() const { return awoken; }

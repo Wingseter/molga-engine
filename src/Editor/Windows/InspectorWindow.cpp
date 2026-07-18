@@ -3,6 +3,7 @@
 #include "../../ECS/Component.h"
 #include "../../ECS/Components/Transform.h"
 #include "../../ECS/Components/SpriteRenderer.h"
+#include "../../ECS/Components/Animator2D.h"
 #include "../../ECS/Components/TilemapRenderer.h"
 #include "../../ECS/Components/ParticleSystem.h"
 #include "../../ECS/Components/BoxCollider2D.h"
@@ -13,32 +14,33 @@
 #include "../../ECS/Components/AudioListener.h"
 #include "../../ECS/Components/Camera.h"
 #include "../../ECS/Components/TextRenderer2D.h"
-#include "../../ECS/Components/UICanvas.h"
 #include "../../ECS/Components/RectTransform.h"
-#include "../../ECS/Components/UIImage.h"
-#include "../../ECS/Components/UILabel.h"
-#include "../../ECS/Components/UIButton.h"
-#include "../../Scripting/Script.h"
 #include "../../Scripting/ScriptManager.h"
-#include "../../Scripting/ScriptField.h"
-#include "../../Scripting/BuiltinScripts.h"
-#include "../../Core/PrefabRegistry.h"
 #include "../../Core/AssetDatabase.h"
-#include "../../Core/World.h"
+#include "../../Core/AssetMeta.h"
+#include "../../Core/TextureImportSettings.h"
 #include "../FontManager.h"
 #include "../UIRegistry.h"
 #include "../../Core/ProjectSettings.h"
 #include "../Editor.h"
 #include "../EditorConstants.h"
+#include "../Project.h"
 #include "../../ECS/Components/PrefabInstance.h"
 #include "../Commands/PrefabCommands.h"
 #include "../Commands/SceneSnapshots.h"
 #include "../Commands/PropertyCommands.h"
 #include "../Commands/ComponentCommands.h"
+#include "../Properties/EditorPropertyDescriptor.h"
+#include "../Commands/ProjectFileCommands.h"
 #include <imgui.h>
-#include <cfloat>
+#include <imgui_internal.h>
 #include <cstring>
 #include <vector>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+#include <cstdint>
 
 namespace {
 
@@ -54,6 +56,125 @@ Component* FindComponentInstance(GameObject* object, const std::string& typeName
     return nullptr;
 }
 
+Component* FindComponentType(GameObject* object, const std::string& typeName) {
+    if (!object) return nullptr;
+    for (Component* component : object->GetComponents()) {
+        if (component && component->GetTypeName() == typeName) return component;
+    }
+    return nullptr;
+}
+
+std::string ReadFileText(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    std::ostringstream contents;
+    contents << input.rdbuf();
+    return contents.str();
+}
+
+bool CreateTileSetAndConvert(TilemapRenderer& tilemap, std::string& errorOut) {
+    namespace fs = std::filesystem;
+    errorOut.clear();
+    if (tilemap.spriteSheetPath.empty() || tilemap.tileSize <= 0) {
+        errorOut = "A legacy sprite sheet and positive tile size are required.";
+        return false;
+    }
+
+    auto& database = molga::AssetDatabase::Get();
+    std::string textureGuid = database.GuidForSource(tilemap.spriteSheetPath);
+    if (textureGuid.empty()) {
+        textureGuid = database.GuidForAbsolutePath(tilemap.spriteSheetPath);
+    }
+    if (textureGuid.empty() && Project::Get().IsOpen()) {
+        textureGuid = database.GuidForAbsolutePath(
+            Project::Get().GetAbsolutePath(tilemap.spriteSheetPath));
+    }
+    const molga::AssetRecord* textureRecord = database.Find(textureGuid);
+    if (!textureRecord || textureRecord->importer != "TextureImporter" ||
+        textureRecord->importFailed || textureRecord->textureWidth <= 0 ||
+        textureRecord->textureHeight <= 0) {
+        errorOut = "The legacy sprite sheet is not a valid imported texture.";
+        return false;
+    }
+    const fs::path texturePath = database.AbsoluteSourcePath(textureGuid);
+    if (texturePath.empty()) {
+        errorOut = "The sprite sheet source path could not be resolved.";
+        return false;
+    }
+
+    molga::AssetMeta meta = database.MetaForGuid(textureGuid);
+    molga::TextureImportSettings settings =
+        molga::DeserializeTextureImportSettings(meta.settings, true);
+    settings.spriteMode = molga::SpriteImportMode::Multiple;
+    settings.slices = molga::BuildGridSlices(
+        textureRecord->textureWidth, textureRecord->textureHeight,
+        tilemap.tileSize, tilemap.tileSize, settings.slices,
+        settings.defaultPivot);
+    if (settings.slices.empty()) {
+        errorOut = "The texture dimensions do not contain a complete tile cell.";
+        return false;
+    }
+    // Retain settings owned by newer importers/plugins while replacing the
+    // texture keys understood by this editor version.
+    if (!meta.settings.is_object()) meta.settings = nlohmann::json::object();
+    const nlohmann::json serializedSettings =
+        molga::SerializeTextureImportSettings(settings);
+    for (auto it = serializedSettings.begin(); it != serializedSettings.end(); ++it) {
+        meta.settings[it.key()] = it.value();
+    }
+    nlohmann::json metaDocument = meta.preserved.is_object()
+        ? meta.preserved : nlohmann::json::object();
+    metaDocument["guid"] = meta.guid;
+    metaDocument["importer"] = meta.importer;
+    metaDocument["importerVersion"] = meta.importerVersion;
+    metaDocument["settings"] = meta.settings;
+    const fs::path metaPath = molga::AssetMeta::MetaPathFor(texturePath);
+    const std::string beforeMeta = ReadFileText(metaPath);
+    const std::string afterMeta = metaDocument.dump(2) + '\n';
+    if (beforeMeta != afterMeta) {
+        Editor::Get().GetAssetCommandHistory().Execute(
+            std::make_unique<molga::AssetContentCommand>(
+                metaPath, beforeMeta, afterMeta, textureGuid));
+    }
+
+    molga::TileSetAsset tileSet;
+    tileSet.cellWidth = tilemap.tileSize;
+    tileSet.cellHeight = tilemap.tileSize;
+    tileSet.tiles.reserve(settings.slices.size());
+    for (std::size_t index = 0; index < settings.slices.size(); ++index) {
+        const bool solid = index < tilemap.solidTiles.size() &&
+                           tilemap.solidTiles[index];
+        tileSet.tiles.push_back({
+            static_cast<int>(index), settings.slices[index].name,
+            {textureGuid, settings.slices[index].id}, solid, -1});
+    }
+
+    fs::path tileSetPath = texturePath.parent_path() /
+        (texturePath.stem().string() + ".tileset");
+    int suffix = 1;
+    while (fs::exists(tileSetPath)) {
+        tileSetPath = texturePath.parent_path() /
+            (texturePath.stem().string() + "_" + std::to_string(suffix++) + ".tileset");
+    }
+    Editor::Get().GetAssetCommandHistory().Execute(
+        std::make_unique<molga::ProjectFileCreateCommand>(
+            tileSetPath, tileSet.Serialize().dump(2) + '\n', false));
+    const std::string tileSetGuid = database.GuidForAbsolutePath(tileSetPath);
+    if (!molga::Guid::IsValid(tileSetGuid)) {
+        errorOut = "The generated TileSet was not indexed.";
+        return false;
+    }
+    if (!tilemap.ConvertToLayered(tileSetGuid)) {
+        errorOut = "The legacy cells could not be converted.";
+        return false;
+    }
+    tilemap.ResolveAssets();
+    return true;
+}
+
+bool DrawEditorPropertyValue(const molga::EditorPropertyDescriptor& descriptor,
+                             const molga::EditorPropertyValue& current,
+                             molga::EditorPropertyValue& edited);
+
 } // namespace
 
 InspectorWindow::InspectorWindow()
@@ -61,8 +182,50 @@ InspectorWindow::InspectorWindow()
 }
 
 void InspectorWindow::SetTarget(GameObject* object) {
+    CommitMultiEdit();
     target = object;
     targetId_ = object ? object->GetID() : 0u;
+    targetIds_.clear();
+    if (object) targetIds_.push_back(object->GetID());
+    ClearMultiEdit();
+}
+
+void InspectorWindow::SetTargets(const std::vector<GameObject*>& objects) {
+    CommitMultiEdit();
+    targetIds_.clear();
+    for (GameObject* object : objects) {
+        if (!object || std::find(targetIds_.begin(), targetIds_.end(), object->GetID()) !=
+                           targetIds_.end()) continue;
+        targetIds_.push_back(object->GetID());
+    }
+    target = objects.empty() ? nullptr : objects.back();
+    targetId_ = target ? target->GetID() : 0u;
+    ClearActiveEdit();
+    ClearMultiEdit();
+}
+
+void InspectorWindow::SetAssetTarget(const std::string& path) {
+    CommitMultiEdit();
+    target = nullptr;
+    targetId_ = 0;
+    targetIds_.clear();
+    ClearActiveEdit();
+    assetPath_ = path;
+    assetGuid_ = molga::AssetDatabase::Get().GuidForAbsolutePath(path);
+    if (assetGuid_.empty()) {
+        assetGuid_ = molga::AssetDatabase::Get().GuidForSource(path);
+    }
+    if (tileSetEditGuid_ != assetGuid_) {
+        tileSetEditLoaded_ = false;
+        tileSetEditDirty_ = false;
+        tileSetEditError_.clear();
+        tileSetEditGuid_ = assetGuid_;
+    }
+}
+
+void InspectorWindow::ClearAssetTarget() {
+    assetPath_.clear();
+    assetGuid_.clear();
 }
 
 void InspectorWindow::ClearActiveEdit() {
@@ -72,14 +235,200 @@ void InspectorWindow::ClearActiveEdit() {
     beforeEditSnap_ = nlohmann::json{};
 }
 
+void InspectorWindow::ClearMultiEdit() {
+    activeMultiEditKey_.clear();
+    activeMultiComponentType_.clear();
+    activeMultiBaselines_.clear();
+}
+
+void InspectorWindow::CommitMultiEdit() {
+    if (activeMultiEditKey_.empty() || activeMultiComponentType_.empty()) return;
+    std::vector<molga::ComponentSnapshotChange> changes =
+        molga::CaptureAppliedComponentChanges(activeMultiBaselines_);
+    ClearMultiEdit();
+    if (!changes.empty()) {
+        Editor::Get().GetCommandHistory().Execute(
+            std::make_unique<molga::BatchComponentSnapshotCommand>(
+                std::move(changes), true));
+    }
+}
+
 bool InspectorWindow::IsActiveEdit(unsigned int targetId, const Component* component) const {
     return component && activeEditTargetId_ == targetId &&
            activeEditComponentInstanceId_ == component->GetInstanceID() &&
            activeEditComponentType_ == component->GetTypeName();
 }
 
+void InspectorWindow::DrawMultiInspector() {
+    std::vector<unsigned int> objectIds;
+    objectIds.reserve(targetIds_.size());
+    for (unsigned int id : targetIds_) {
+        if (molga::FindGameObjectById(id)) objectIds.push_back(id);
+    }
+    if (objectIds.size() < 2) return;
+
+    const molga::EditorComponentResolver resolve =
+        [](const molga::EditorComponentIdentity& identity) -> Component* {
+            if (!identity.IsValid()) return nullptr;
+            GameObject* object = molga::FindGameObjectById(identity.objectId);
+            if (!object) return nullptr;
+            for (Component* component : object->GetComponents()) {
+                if (component &&
+                    component->GetRuntimeTypeID() == identity.runtimeTypeId &&
+                    component->GetInstanceID() == identity.instanceId &&
+                    component->GetTypeName() == identity.componentType) {
+                    return component;
+                }
+            }
+            return nullptr;
+        };
+
+    const auto captureBaselines =
+        [&resolve](const std::vector<molga::EditorComponentIdentity>& identities) {
+            std::vector<molga::ComponentSnapshotBaseline> baselines;
+            baselines.reserve(identities.size());
+            for (const molga::EditorComponentIdentity& identity : identities) {
+                Component* component = resolve(identity);
+                if (!component) continue;
+                nlohmann::json before = molga::CaptureComponentSnapshot(component);
+                // Serialize() may replace this component or another selected
+                // target. Only retain an exact instance that survived it.
+                if (!resolve(identity)) continue;
+                baselines.push_back({identity.objectId, identity.runtimeTypeId,
+                                     identity.instanceId, identity.componentType,
+                                     std::move(before)});
+            }
+            return baselines;
+        };
+
+    const auto commitApplied =
+        [](const std::vector<molga::ComponentSnapshotBaseline>& baselines) {
+            auto changes = molga::CaptureAppliedComponentChanges(baselines);
+            if (changes.empty()) return;
+            Editor::Get().GetCommandHistory().Execute(
+                std::make_unique<molga::BatchComponentSnapshotCommand>(
+                    std::move(changes), true));
+        };
+
+    bool locked = Editor::Get().GetSelection().IsInspectorLocked();
+    if (ImGui::Checkbox("Lock", &locked)) {
+        if (locked) Editor::Get().GetSelection().LockInspector();
+        else Editor::Get().GetSelection().UnlockInspector();
+    }
+    ImGui::SameLine();
+    ImGui::Text("%zu objects selected", objectIds.size());
+    ImGui::TextDisabled("Only common components and value properties are editable.");
+    ImGui::Separator();
+
+    std::vector<std::string> commonTypes;
+    GameObject* firstObject = molga::FindGameObjectById(objectIds.front());
+    if (!firstObject) return;
+    for (Component* component : firstObject->GetComponents()) {
+        if (!component) continue;
+        const std::string type = component->GetTypeName();
+        if (std::all_of(objectIds.begin() + 1, objectIds.end(),
+                        [&type](unsigned int objectId) {
+                            return FindComponentType(
+                                molga::FindGameObjectById(objectId), type) != nullptr;
+                        })) {
+            commonTypes.push_back(type);
+        }
+    }
+
+    for (const std::string& type : commonTypes) {
+        ImGui::PushID(type.c_str());
+        const bool open = ImGui::TreeNodeEx(
+            "CommonComponent", ImGuiTreeNodeFlags_DefaultOpen |
+            ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_SpanAvailWidth,
+            "%s %s", UIRegistry::GetComponentInfo(type).icon, type.c_str());
+        if (open) {
+            std::vector<molga::EditorComponentIdentity> identities;
+            identities.reserve(objectIds.size());
+            for (unsigned int objectId : objectIds) {
+                Component* component = FindComponentType(
+                    molga::FindGameObjectById(objectId), type);
+                if (!component) break;
+                identities.push_back(
+                    molga::CaptureEditorComponentIdentity(*component));
+            }
+            if (identities.size() != objectIds.size()) {
+                ImGui::TreePop();
+                ImGui::PopID();
+                continue;
+            }
+
+            const auto descriptors =
+                molga::CommonEditorProperties(identities, resolve);
+            for (const auto& descriptor : descriptors) {
+                if (!descriptor.getter || !descriptor.setter) continue;
+                ImGui::PushID(descriptor.key.c_str());
+                const bool mixed =
+                    molga::HasMixedEditorPropertyValue(
+                        descriptor, identities, resolve);
+                Component* firstComponent = resolve(identities.front());
+                if (!firstComponent) {
+                    ImGui::PopID();
+                    continue;
+                }
+                const molga::EditorPropertyValue first =
+                    descriptor.getter(*firstComponent);
+                if (!resolve(identities.front())) {
+                    ImGui::PopID();
+                    continue;
+                }
+
+                const std::vector<molga::ComponentSnapshotBaseline> rowBaselines =
+                    captureBaselines(identities);
+                if (rowBaselines.size() != identities.size()) {
+                    ImGui::PopID();
+                    continue;
+                }
+
+                molga::EditorPropertyValue edited = first;
+                if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+                const bool changed = DrawEditorPropertyValue(descriptor, first, edited);
+                if (mixed) ImGui::PopItemFlag();
+
+                const bool activated = ImGui::IsItemActivated();
+                const bool itemActive = ImGui::IsItemActive();
+                const bool finished = ImGui::IsItemDeactivatedAfterEdit();
+                if (activated && descriptor.type != molga::EditorPropertyType::Bool) {
+                    activeMultiEditKey_ = descriptor.key;
+                    activeMultiComponentType_ = type;
+                    activeMultiBaselines_ = rowBaselines;
+                }
+                const bool ownsActiveGesture =
+                    activeMultiEditKey_ == descriptor.key &&
+                    activeMultiComponentType_ == type;
+                if (changed) {
+                    molga::ApplyEditorPropertyValue(
+                        descriptor, identities, resolve, edited);
+                    if (molga::ShouldCommitEditorPropertyImmediately(
+                            descriptor.type, true, activated, itemActive,
+                            ownsActiveGesture)) {
+                        commitApplied(rowBaselines);
+                    }
+                }
+                if (finished && ownsActiveGesture) {
+                    CommitMultiEdit();
+                }
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+}
+
 void InspectorWindow::OnGUI() {
-    if (!isOpen) return;
+    if (!isOpen) {
+        CommitMultiEdit();
+        return;
+    }
+
+    if (!activeMultiEditKey_.empty() && !ImGui::IsAnyItemActive()) {
+        CommitMultiEdit();
+    }
 
     // Check if active drag edit has finished
     if (activeEditComponentInstanceId_ != 0 && !ImGui::IsAnyItemActive()) {
@@ -90,17 +439,32 @@ void InspectorWindow::OnGUI() {
             if (comp) {
                 nlohmann::json afterSnap = molga::CaptureComponentSnapshot(comp);
                 if (beforeEditSnap_ != afterSnap) {
-                    molga::RestoreComponentSnapshot(editObj, beforeEditSnap_);
                     Editor::Get().GetCommandHistory().Execute(
-                        std::make_unique<molga::ComponentSnapshotCommand>(
-                            activeEditTargetId_, activeEditComponentType_,
-                            beforeEditSnap_, afterSnap
-                        )
+                        std::make_unique<molga::BatchComponentSnapshotCommand>(
+                            std::vector<molga::ComponentSnapshotChange>{
+                                {activeEditTargetId_, activeEditComponentType_,
+                                 beforeEditSnap_, afterSnap}}, true)
                     );
                 }
             }
         }
         ClearActiveEdit();
+    }
+
+    if (targetIds_.size() > 1) {
+        targetIds_.erase(std::remove_if(targetIds_.begin(), targetIds_.end(),
+            [](unsigned int id) { return molga::FindGameObjectById(id) == nullptr; }),
+            targetIds_.end());
+        if (targetIds_.size() > 1) {
+            ImGui::Begin(title.c_str(), &isOpen);
+            DrawMultiInspector();
+            ImGui::End();
+            return;
+        }
+        if (targetIds_.size() == 1) {
+            target = molga::FindGameObjectById(targetIds_.front());
+            targetId_ = target ? target->GetID() : 0u;
+        }
     }
 
     // Selection changes normally keep this synchronized, but commands and
@@ -116,6 +480,13 @@ void InspectorWindow::OnGUI() {
     }
 
     ImGui::Begin(title.c_str(), &isOpen);
+
+    if (!target && !assetPath_.empty()) {
+        ClearActiveEdit();
+        DrawAssetInspector();
+        ImGui::End();
+        return;
+    }
 
     if (!target) {
         ClearActiveEdit();
@@ -408,6 +779,13 @@ void InspectorWindow::OnGUI() {
                 );
             }
         }
+        if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Animator 2D").c_str())) {
+            if (!target->HasComponent<Animator2D>()) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(target->GetID(), "Animator2D")
+                );
+            }
+        }
         if (ImGui::MenuItem((std::string(Icons::Sitemap) + " Tilemap Renderer").c_str())) {
             if (!target->HasComponent<TilemapRenderer>()) {
                 Editor::Get().GetCommandHistory().Execute(
@@ -530,7 +908,411 @@ void InspectorWindow::OnGUI() {
     ImGui::End();
 }
 
+void InspectorWindow::DrawAssetInspector() {
+    namespace fs = std::filesystem;
+    ImGui::Text("Asset");
+    ImGui::Separator();
+    ImGui::TextWrapped("%s", assetPath_.c_str());
+    const molga::AssetRecord* record = molga::AssetDatabase::Get().Find(assetGuid_);
+    if (!record) {
+        ImGui::TextDisabled("Directory or unindexed asset");
+        return;
+    }
+    ImGui::TextDisabled("GUID %s", record->guid.c_str());
+    ImGui::Text("Importer: %s v%d", record->importer.c_str(), record->importerVersion);
+    if (record->importFailed) {
+        ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f), "Import failed: %s",
+                           record->importError.c_str());
+    }
+
+    auto readText = [](const fs::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        std::ostringstream stream;
+        stream << input.rdbuf();
+        return stream.str();
+    };
+    auto metaJson = [](const molga::AssetMeta& meta) {
+        nlohmann::json json = meta.preserved.is_object()
+            ? meta.preserved : nlohmann::json::object();
+        json["guid"] = meta.guid;
+        json["importer"] = meta.importer;
+        json["importerVersion"] = meta.importerVersion;
+        json["settings"] = meta.settings;
+        return json.dump(2);
+    };
+    auto commitMeta = [&](const molga::AssetMeta& changed) {
+        const fs::path path = molga::AssetMeta::MetaPathFor(assetPath_);
+        const std::string before = readText(path);
+        const std::string after = metaJson(changed);
+        if (before == after) return;
+        Editor::Get().GetAssetCommandHistory().Execute(
+            std::make_unique<molga::AssetContentCommand>(
+                path, before, after, assetGuid_));
+    };
+
+    if (ImGui::Button("Reimport")) {
+        std::string error;
+        molga::AssetDatabase::Get().TryReimport(assetGuid_, &error);
+    }
+    ImGui::SameLine();
+    auto& history = Editor::Get().GetAssetCommandHistory();
+    const bool canUndo = history.CanUndo();
+    if (!canUndo) ImGui::BeginDisabled();
+    if (ImGui::Button("Undo Asset")) {
+        history.Undo();
+        tileSetEditLoaded_ = false;
+        tileSetEditDirty_ = false;
+    }
+    if (!canUndo) ImGui::EndDisabled();
+    ImGui::SameLine();
+    const bool canRedo = history.CanRedo();
+    if (!canRedo) ImGui::BeginDisabled();
+    if (ImGui::Button("Redo Asset")) {
+        history.Redo();
+        tileSetEditLoaded_ = false;
+        tileSetEditDirty_ = false;
+    }
+    if (!canRedo) ImGui::EndDisabled();
+
+    if (record->importer == "TileSetImporter") {
+        if (!tileSetEditLoaded_ || tileSetEditGuid_ != assetGuid_) {
+            tileSetEditGuid_ = assetGuid_;
+            tileSetEditLoaded_ = true;
+            tileSetEditDirty_ = false;
+            tileSetEditError_.clear();
+            tileSetEdit_ = molga::TileSetAsset{};
+            tileSetEdit_.LoadFromFile(assetPath_, &tileSetEditError_);
+        }
+        auto& tileSet = tileSetEdit_;
+        int cellSize[2] = {tileSet.cellWidth, tileSet.cellHeight};
+        if (ImGui::DragInt2("Cell Size", cellSize, 1.0f, 1, 8192)) {
+            tileSet.cellWidth = cellSize[0];
+            tileSet.cellHeight = cellSize[1];
+            tileSetEditDirty_ = true;
+        }
+
+        ImGui::SeparatorText("Tiles");
+        for (std::size_t index = 0; index < tileSet.tiles.size();) {
+            auto& tile = tileSet.tiles[index];
+            ImGui::PushID(static_cast<int>(index));
+            ImGui::Text("Tile %d", tile.id);
+            char name[128];
+            std::strncpy(name, tile.name.c_str(), sizeof(name) - 1);
+            name[sizeof(name) - 1] = '\0';
+            if (ImGui::InputText("Name", name, sizeof(name))) {
+                tile.name = name;
+                tileSetEditDirty_ = true;
+            }
+            if (ImGui::InputInt("ID", &tile.id)) tileSetEditDirty_ = true;
+            char texture[128];
+            std::strncpy(texture, tile.sprite.textureGuid.c_str(), sizeof(texture) - 1);
+            texture[sizeof(texture) - 1] = '\0';
+            if (ImGui::InputText("Texture GUID", texture, sizeof(texture))) {
+                tile.sprite.textureGuid = texture;
+                tileSetEditDirty_ = true;
+            }
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+                    const char* data = static_cast<const char*>(payload->Data);
+                    const std::string guid = data ? data : "";
+                    const auto* textureRecord = molga::AssetDatabase::Get().Find(guid);
+                    if (textureRecord && textureRecord->importer == "TextureImporter") {
+                        tile.sprite.textureGuid = guid;
+                        tileSetEditDirty_ = true;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            const auto* textureRecord =
+                molga::AssetDatabase::Get().Find(tile.sprite.textureGuid);
+            std::vector<molga::SpriteSlice> slices;
+            if (textureRecord && textureRecord->importer == "TextureImporter") {
+                slices = molga::DeserializeTextureImportSettings(
+                    textureRecord->settings, true).slices;
+            }
+            const auto selectedSlice = std::find_if(slices.begin(), slices.end(),
+                [&](const auto& slice) { return slice.id == tile.sprite.sliceId; });
+            const std::string slicePreview = selectedSlice == slices.end()
+                ? (tile.sprite.sliceId.empty() ? "(full texture)" : tile.sprite.sliceId)
+                : selectedSlice->name;
+            if (!slices.empty() && ImGui::BeginCombo("Slice", slicePreview.c_str())) {
+                for (const auto& slice : slices) {
+                    if (ImGui::Selectable((slice.name + "##" + slice.id).c_str(),
+                                          slice.id == tile.sprite.sliceId)) {
+                        tile.sprite.sliceId = slice.id;
+                        tileSetEditDirty_ = true;
+                    }
+                }
+                ImGui::EndCombo();
+            } else if (slices.empty()) {
+                char slice[128];
+                std::strncpy(slice, tile.sprite.sliceId.c_str(), sizeof(slice) - 1);
+                slice[sizeof(slice) - 1] = '\0';
+                if (ImGui::InputText("Slice ID", slice, sizeof(slice))) {
+                    tile.sprite.sliceId = slice;
+                    tileSetEditDirty_ = true;
+                }
+            }
+            if (ImGui::Checkbox("Solid", &tile.solid)) tileSetEditDirty_ = true;
+            if (ImGui::InputInt("Terrain ID", &tile.terrainId)) tileSetEditDirty_ = true;
+            const bool remove = ImGui::Button("Remove Tile");
+            ImGui::Separator();
+            ImGui::PopID();
+            if (remove) {
+                const int removedId = tile.id;
+                tileSet.tiles.erase(tileSet.tiles.begin() +
+                                    static_cast<std::ptrdiff_t>(index));
+                tileSet.terrainRules.erase(
+                    std::remove_if(tileSet.terrainRules.begin(), tileSet.terrainRules.end(),
+                        [&](const auto& rule) { return rule.tileId == removedId; }),
+                    tileSet.terrainRules.end());
+                tileSetEditDirty_ = true;
+            } else {
+                ++index;
+            }
+        }
+        if (ImGui::Button("Add Tile")) {
+            int nextId = 0;
+            for (const auto& tile : tileSet.tiles) nextId = std::max(nextId, tile.id + 1);
+            tileSet.tiles.push_back({nextId, "Tile " + std::to_string(nextId), {}, false, -1});
+            tileSetEditDirty_ = true;
+        }
+
+        ImGui::SeparatorText("NESW Terrain Rules");
+        for (std::size_t index = 0; index < tileSet.terrainRules.size();) {
+            auto& rule = tileSet.terrainRules[index];
+            ImGui::PushID(100000 + static_cast<int>(index));
+            if (ImGui::InputInt("Terrain", &rule.terrainId)) tileSetEditDirty_ = true;
+            if (ImGui::SliderInt("Mask (NESW)", &rule.mask, 0, 15)) tileSetEditDirty_ = true;
+            if (ImGui::InputInt("Tile ID", &rule.tileId)) tileSetEditDirty_ = true;
+            const bool remove = ImGui::Button("Remove Rule");
+            ImGui::Separator();
+            ImGui::PopID();
+            if (remove) {
+                tileSet.terrainRules.erase(tileSet.terrainRules.begin() +
+                    static_cast<std::ptrdiff_t>(index));
+                tileSetEditDirty_ = true;
+            } else {
+                ++index;
+            }
+        }
+        if (!tileSet.tiles.empty() && ImGui::Button("Add Terrain Rule")) {
+            tileSet.terrainRules.push_back({0, 0, tileSet.tiles.front().id});
+            tileSetEditDirty_ = true;
+        }
+
+        if (tileSetEditDirty_) {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f), "Unsaved TileSet changes");
+        }
+        if (!tileSetEditError_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f), "%s",
+                               tileSetEditError_.c_str());
+        }
+        if (ImGui::Button("Save TileSet")) {
+            molga::TileSetAsset validated;
+            const nlohmann::json document = tileSet.Serialize();
+            if (validated.Deserialize(document, &tileSetEditError_)) {
+                const std::string before = readText(assetPath_);
+                const std::string after = document.dump(2) + '\n';
+                if (before != after) {
+                    Editor::Get().GetAssetCommandHistory().Execute(
+                        std::make_unique<molga::AssetContentCommand>(
+                            assetPath_, before, after, assetGuid_));
+                }
+                tileSetEditDirty_ = false;
+                tileSetEditError_.clear();
+            }
+        }
+        return;
+    }
+
+    if (record->importer != "TextureImporter") {
+        if (!record->metadata.empty()) {
+            ImGui::TextWrapped("Metadata: %s", record->metadata.dump().c_str());
+        }
+        if (!record->dependencies.empty()) {
+            ImGui::Text("Dependencies");
+            for (const auto& dependency : record->dependencies) {
+                ImGui::BulletText("%s", dependency.c_str());
+            }
+        }
+        return;
+    }
+
+    molga::AssetMeta meta = molga::AssetDatabase::Get().MetaForGuid(assetGuid_);
+    molga::TextureImportSettings settings =
+        molga::DeserializeTextureImportSettings(meta.settings, true);
+    bool changed = false;
+    int filter = settings.filter == molga::TextureFilterMode::Nearest ? 0 : 1;
+    const char* filters[] = {"Nearest", "Linear"};
+    if (ImGui::Combo("Filter", &filter, filters, 2)) {
+        settings.filter = filter == 0 ? molga::TextureFilterMode::Nearest
+                                      : molga::TextureFilterMode::Linear;
+        changed = true;
+    }
+    auto drawWrap = [&](const char* label, molga::TextureWrapMode& value) {
+        int selected = value == molga::TextureWrapMode::Clamp ? 0
+            : value == molga::TextureWrapMode::Repeat ? 1 : 2;
+        const char* options[] = {"Clamp", "Repeat", "Mirrored Repeat"};
+        if (ImGui::Combo(label, &selected, options, 3)) {
+            value = selected == 0 ? molga::TextureWrapMode::Clamp
+                : selected == 1 ? molga::TextureWrapMode::Repeat
+                                : molga::TextureWrapMode::MirroredRepeat;
+            changed = true;
+        }
+    };
+    drawWrap("Wrap U", settings.wrapU);
+    drawWrap("Wrap V", settings.wrapV);
+    changed |= ImGui::Checkbox("Mipmaps", &settings.mipmaps);
+    int colorSpace = settings.colorSpace == molga::TextureColorSpace::LegacyLinear ? 0 : 1;
+    const char* spaces[] = {"Legacy Linear", "sRGB"};
+    if (ImGui::Combo("Color Space", &colorSpace, spaces, 2)) {
+        settings.colorSpace = colorSpace == 0 ? molga::TextureColorSpace::LegacyLinear
+                                               : molga::TextureColorSpace::SRGB;
+        changed = true;
+    }
+    changed |= ImGui::DragFloat("Pixels Per Unit", &settings.pixelsPerUnit,
+                                0.1f, 0.001f, 100000.0f);
+    int spriteMode = settings.spriteMode == molga::SpriteImportMode::Single ? 0 : 1;
+    const char* modes[] = {"Single", "Multiple"};
+    if (ImGui::Combo("Sprite Mode", &spriteMode, modes, 2)) {
+        settings.spriteMode = spriteMode == 0 ? molga::SpriteImportMode::Single
+                                               : molga::SpriteImportMode::Multiple;
+        changed = true;
+    }
+    float pivot[2] = {settings.defaultPivot.x, settings.defaultPivot.y};
+    if (ImGui::DragFloat2("Default Pivot", pivot, 0.01f, 0.0f, 1.0f)) {
+        settings.defaultPivot = {pivot[0], pivot[1]};
+        changed = true;
+    }
+
+    if (settings.spriteMode == molga::SpriteImportMode::Multiple) {
+        static std::string slicingAsset;
+        static int grid[2] = {32, 32};
+        if (slicingAsset != assetGuid_) {
+            slicingAsset = assetGuid_;
+            grid[0] = grid[1] = 32;
+        }
+        ImGui::DragInt2("Grid Cell", grid, 1.0f, 1, 8192);
+        if (ImGui::Button("Slice Grid (preserve IDs)")) {
+            settings.slices = molga::BuildGridSlices(
+                record->textureWidth, record->textureHeight, grid[0], grid[1],
+                settings.slices, settings.defaultPivot);
+            changed = true;
+        }
+        ImGui::Text("Slices: %zu", settings.slices.size());
+        for (std::size_t index = 0; index < settings.slices.size(); ++index) {
+            auto& slice = settings.slices[index];
+            ImGui::PushID(static_cast<int>(index));
+            char name[128];
+            std::strncpy(name, slice.name.c_str(), sizeof(name) - 1);
+            name[sizeof(name) - 1] = '\0';
+            if (ImGui::InputText("Name", name, sizeof(name))) {
+                slice.name = name;
+                changed = true;
+            }
+            int rect[4] = {slice.pixelRect.x, slice.pixelRect.y,
+                           slice.pixelRect.width, slice.pixelRect.height};
+            if (ImGui::DragInt4("Pixel Rect", rect, 1.0f, 0, 16384)) {
+                slice.pixelRect = {rect[0], rect[1], rect[2], rect[3]};
+                changed = true;
+            }
+            float slicePivot[2] = {slice.pivot.x, slice.pivot.y};
+            if (ImGui::DragFloat2("Pivot", slicePivot, 0.01f, 0.0f, 1.0f)) {
+                slice.pivot = {slicePivot[0], slicePivot[1]};
+                changed = true;
+            }
+            ImGui::TextDisabled("ID %s", slice.id.c_str());
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+    }
+    if (changed) {
+        settings.Sanitize();
+        // Preserve importer/plugin keys this editor version does not know.
+        nlohmann::json serialized = molga::SerializeTextureImportSettings(settings);
+        if (!meta.settings.is_object()) meta.settings = nlohmann::json::object();
+        for (auto it = serialized.begin(); it != serialized.end(); ++it) {
+            meta.settings[it.key()] = it.value();
+        }
+        commitMeta(meta);
+    }
+}
+
 namespace {
+
+bool AcceptAssetGuidDrop(const char* expectedImporter, std::string& outGuid);
+
+bool DrawEditorPropertyValue(const molga::EditorPropertyDescriptor& descriptor,
+                             const molga::EditorPropertyValue& current,
+                             molga::EditorPropertyValue& edited) {
+    switch (descriptor.type) {
+        case molga::EditorPropertyType::Bool: {
+            bool value = std::get<bool>(current);
+            const bool changed = ImGui::Checkbox(descriptor.label.c_str(), &value);
+            edited = value;
+            return changed;
+        }
+        case molga::EditorPropertyType::Integer: {
+            std::int64_t value = std::get<std::int64_t>(current);
+            const bool changed = ImGui::DragScalar(
+                descriptor.label.c_str(), ImGuiDataType_S64, &value, 1.0f);
+            edited = value;
+            return changed;
+        }
+        case molga::EditorPropertyType::Float: {
+            float value = static_cast<float>(std::get<double>(current));
+            const bool changed = ImGui::DragFloat(
+                descriptor.label.c_str(), &value, 0.1f);
+            edited = static_cast<double>(value);
+            return changed;
+        }
+        case molga::EditorPropertyType::Enum: {
+            if (descriptor.enumLabels.empty() ||
+                descriptor.enumLabels.size() != descriptor.enumValues.size()) return false;
+            int selected = 0;
+            for (std::size_t index = 0; index < descriptor.enumValues.size(); ++index) {
+                if (molga::EditorPropertyValuesEqual(
+                        descriptor, current, descriptor.enumValues[index])) {
+                    selected = static_cast<int>(index);
+                    break;
+                }
+            }
+            if (!ImGui::Combo(descriptor.label.c_str(), &selected,
+                              [](void* data, int index) -> const char* {
+                                  const auto* labels =
+                                      static_cast<const std::vector<std::string>*>(data);
+                                  if (index < 0 || static_cast<std::size_t>(index) >= labels->size())
+                                      return nullptr;
+                                  return (*labels)[static_cast<std::size_t>(index)].c_str();
+                              }, const_cast<std::vector<std::string>*>(&descriptor.enumLabels),
+                              static_cast<int>(descriptor.enumLabels.size()))) {
+                return false;
+            }
+            edited = descriptor.enumValues[static_cast<std::size_t>(selected)];
+            return true;
+        }
+        case molga::EditorPropertyType::String:
+        case molga::EditorPropertyType::AssetGuid: {
+            char buffer[512]{};
+            const std::string& value = std::get<std::string>(current);
+            std::strncpy(buffer, value.c_str(), sizeof(buffer) - 1);
+            bool changed = ImGui::InputText(descriptor.label.c_str(), buffer,
+                                            sizeof(buffer));
+            edited = std::string(buffer);
+            if (descriptor.type == molga::EditorPropertyType::AssetGuid &&
+                !descriptor.assetType.empty()) {
+                std::string dropped;
+                if (AcceptAssetGuidDrop(descriptor.assetType.c_str(), dropped)) {
+                    edited = std::move(dropped);
+                    changed = true;
+                }
+            }
+            return changed && molga::IsEditorPropertyValueValid(descriptor, edited);
+        }
+    }
+    return false;
+}
 
 bool AcceptAssetGuidDrop(const char* expectedImporter, std::string& outGuid) {
     if (!ImGui::BeginDragDropTarget()) return false;
@@ -550,282 +1332,309 @@ bool AcceptAssetGuidDrop(const char* expectedImporter, std::string& outGuid) {
     return accepted;
 }
 
-bool DrawP0ComponentFields(Component* component) {
-    if (auto* body = dynamic_cast<Rigidbody2D*>(component)) {
-        const char* bodyTypes[] = {"Static", "Kinematic", "Dynamic"};
-        int type = static_cast<int>(body->GetBodyType());
-        if (ImGui::Combo("Body Type", &type, bodyTypes, 3))
-            body->SetBodyType(static_cast<Rigidbody2D::BodyType>(type));
-        float gravityScale = body->GetGravityScale();
-        if (ImGui::DragFloat("Gravity Scale", &gravityScale, 0.01f))
-            body->SetGravityScale(gravityScale);
-        float mass = body->GetMass();
-        if (ImGui::DragFloat("Mass", &mass, 0.01f, 0.001f, FLT_MAX)) body->SetMass(mass);
-        float linearDamping = body->GetLinearDamping();
-        if (ImGui::DragFloat("Linear Damping", &linearDamping, 0.01f, 0.0f, FLT_MAX))
-            body->SetLinearDamping(linearDamping);
-        float angularDamping = body->GetAngularDamping();
-        if (ImGui::DragFloat("Angular Damping", &angularDamping, 0.01f, 0.0f, FLT_MAX))
-            body->SetAngularDamping(angularDamping);
-        bool freezeRotation = body->IsRotationFrozen();
-        if (ImGui::Checkbox("Freeze Rotation", &freezeRotation))
-            body->SetFreezeRotation(freezeRotation);
-        Vector2 velocity = body->GetVelocity();
-        float velocityValues[2] = {velocity.x, velocity.y};
-        if (ImGui::DragFloat2("Velocity", velocityValues, 0.1f))
-            body->SetVelocity({velocityValues[0], velocityValues[1]});
-        float angularVelocity = body->GetAngularVelocity();
-        if (ImGui::DragFloat("Angular Velocity", &angularVelocity, 0.1f))
-            body->SetAngularVelocity(angularVelocity);
-        return true;
+// Single-selection-only editors for structural collections and runtime preview
+// controls. Scalar values are intentionally absent: those are rendered by the
+// shared EditorPropertyDescriptor path above for both single and multi edit.
+void DrawComponentStructureEditors(Component* component) {
+    if (auto* sprite = dynamic_cast<SpriteRenderer*>(component)) {
+        const molga::SpriteRef& reference = sprite->GetAuthoredSpriteRef();
+        const Vector2 size = sprite->GetSize();
+        const Vector2 pivot = sprite->GetPivot();
+        ImGui::TextDisabled("Sprite: %s / %s", reference.textureGuid.empty()
+            ? "(none)" : reference.textureGuid.c_str(), reference.sliceId.empty()
+            ? "(whole texture)" : reference.sliceId.c_str());
+        ImGui::TextDisabled("Resolved %.2f x %.2f, pivot %.2f %.2f",
+                            size.x, size.y, pivot.x, pivot.y);
+        return;
     }
-    auto drawColliderBase = [](Collider2D* collider) {
-        Vector2 offset = collider->GetOffset();
-        float offsetValues[2] = {offset.x, offset.y};
-        if (ImGui::DragFloat2("Offset", offsetValues, 0.1f))
-            collider->SetOffset({offsetValues[0], offsetValues[1]});
-        bool trigger = collider->IsTrigger();
-        if (ImGui::Checkbox("Is Trigger", &trigger)) collider->SetTrigger(trigger);
-        float friction = collider->GetFriction();
-        if (ImGui::DragFloat("Friction", &friction, 0.01f, 0.0f, FLT_MAX))
-            collider->SetFriction(friction);
-        float restitution = collider->GetRestitution();
-        if (ImGui::DragFloat("Restitution", &restitution, 0.01f, 0.0f, FLT_MAX))
-            collider->SetRestitution(restitution);
-    };
-    if (auto* box = dynamic_cast<BoxCollider2D*>(component)) {
-        Vector2 size = box->GetSize();
-        float sizeValues[2] = {size.x, size.y};
-        if (ImGui::DragFloat2("Size", sizeValues, 0.1f, 0.001f, FLT_MAX))
-            box->SetSize({sizeValues[0], sizeValues[1]});
-        drawColliderBase(box);
-        return true;
+
+    if (auto* animator = dynamic_cast<Animator2D*>(component)) {
+        ImGui::SeparatorText("Runtime Preview");
+        if (ImGui::Button("Play")) animator->Play();
+        ImGui::SameLine();
+        if (ImGui::Button("Pause")) animator->Pause();
+        ImGui::SameLine();
+        if (ImGui::Button("Resume")) animator->Resume();
+        ImGui::SameLine();
+        if (ImGui::Button("Stop")) animator->Stop();
+        ImGui::TextDisabled("State: %s  time: %.3f  frame: %zu",
+            animator->GetCurrentStateName().empty()
+                ? "(none)" : animator->GetCurrentStateName().c_str(),
+            animator->GetNormalizedTime(), animator->GetCurrentFrameIndex());
+        if (const auto* controller = animator->GetController()) {
+            if (ImGui::TreeNode("Runtime Parameters")) {
+                for (const auto& parameter : controller->GetParameters()) {
+                    ImGui::PushID(parameter.name.c_str());
+                    using Type = molga::AnimatorParameterType2D;
+                    if (parameter.type == Type::Bool) {
+                        bool value = animator->GetBool(parameter.name);
+                        if (ImGui::Checkbox(parameter.name.c_str(), &value))
+                            animator->SetBool(parameter.name, value);
+                    } else if (parameter.type == Type::Int) {
+                        int value = animator->GetInt(parameter.name);
+                        if (ImGui::InputInt(parameter.name.c_str(), &value))
+                            animator->SetInt(parameter.name, value);
+                    } else if (parameter.type == Type::Float) {
+                        float value = animator->GetFloat(parameter.name);
+                        if (ImGui::DragFloat(parameter.name.c_str(), &value, 0.05f))
+                            animator->SetFloat(parameter.name, value);
+                    } else {
+                        const bool set = animator->IsTriggerSet(parameter.name);
+                        const std::string label = (set ? "Reset " : "Set ") + parameter.name;
+                        if (ImGui::Button(label.c_str())) {
+                            if (set) animator->ResetTrigger(parameter.name);
+                            else animator->SetTrigger(parameter.name);
+                        }
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
+            }
+        }
+        return;
     }
-    if (auto* circle = dynamic_cast<CircleCollider2D*>(component)) {
-        float radius = circle->GetRadius();
-        if (ImGui::DragFloat("Radius", &radius, 0.1f, 0.001f, FLT_MAX))
-            circle->SetRadius(radius);
-        drawColliderBase(circle);
-        return true;
+
+    if (auto* tilemap = dynamic_cast<TilemapRenderer*>(component)) {
+        ImGui::SeparatorText("Tilemap Structure");
+        if (!tilemap->IsLayered()) {
+            ImGui::TextDisabled("Legacy single-layer tilemap");
+            static std::uint64_t conversionOwner = 0;
+            static std::string conversionError;
+            if (conversionOwner != tilemap->GetInstanceID()) {
+                conversionOwner = tilemap->GetInstanceID();
+                conversionError.clear();
+            }
+            if (ImGui::Button("Create TileSet & Convert"))
+                CreateTileSetAndConvert(*tilemap, conversionError);
+            const bool canConvert = molga::Guid::IsValid(tilemap->GetTileSetGuid());
+            ImGui::SameLine();
+            if (!canConvert) ImGui::BeginDisabled();
+            if (ImGui::Button("Use Selected TileSet & Convert")) {
+                if (!tilemap->ConvertToLayered(tilemap->GetTileSetGuid()))
+                    conversionError = "The selected TileSet could not be applied.";
+                else {
+                    conversionError.clear();
+                    tilemap->ResolveAssets();
+                }
+            }
+            if (!canConvert) ImGui::EndDisabled();
+            if (!conversionError.empty()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f), "%s",
+                                   conversionError.c_str());
+            }
+            return;
+        }
+
+        const TilemapLayer* active = tilemap->GetLayer(tilemap->GetActiveLayerId());
+        if (ImGui::BeginCombo("Active Layer", active ? active->name.c_str() : "(none)")) {
+            for (const auto& layer : tilemap->GetLayers()) {
+                if (ImGui::Selectable(layer.name.c_str(), active && layer.id == active->id))
+                    tilemap->SetActiveLayer(layer.id);
+            }
+            ImGui::EndCombo();
+        }
+        active = tilemap->GetLayer(tilemap->GetActiveLayerId());
+        if (ImGui::Button("Add Layer")) {
+            const std::string added = tilemap->AddLayer("Layer");
+            if (!added.empty()) tilemap->SetActiveLayer(added);
+        }
+        ImGui::SameLine();
+        active = tilemap->GetLayer(tilemap->GetActiveLayerId());
+        const bool canRemove = active && tilemap->GetLayers().size() > 1;
+        if (!canRemove) ImGui::BeginDisabled();
+        if (ImGui::Button("Remove Layer") && active) tilemap->RemoveLayer(active->id);
+        if (!canRemove) ImGui::EndDisabled();
+
+        active = tilemap->GetLayer(tilemap->GetActiveLayerId());
+        if (active) {
+            const std::string activeId = active->id;
+            const auto& layers = tilemap->GetLayers();
+            const auto found = std::find_if(layers.begin(), layers.end(),
+                [&](const auto& layer) { return layer.id == activeId; });
+            const int index = found == layers.end() ? -1
+                : static_cast<int>(std::distance(layers.begin(), found));
+            if (index <= 0) ImGui::BeginDisabled();
+            if (ImGui::Button("Layer Up")) tilemap->MoveLayer(activeId, index - 1);
+            if (index <= 0) ImGui::EndDisabled();
+            ImGui::SameLine();
+            const bool canMoveDown = index >= 0 &&
+                index + 1 < static_cast<int>(layers.size());
+            if (!canMoveDown) ImGui::BeginDisabled();
+            if (ImGui::Button("Layer Down")) tilemap->MoveLayer(activeId, index + 1);
+            if (!canMoveDown) ImGui::EndDisabled();
+
+            active = tilemap->GetLayer(activeId);
+            if (active) {
+                char name[128]{};
+                std::strncpy(name, active->name.c_str(), sizeof(name) - 1);
+                if (ImGui::InputText("Layer Name", name, sizeof(name)))
+                    tilemap->SetLayerName(activeId, name);
+                bool visible = active->visible;
+                bool locked = active->locked;
+                bool collision = active->collisionEnabled;
+                float opacity = active->opacity;
+                int offset = active->sortingOffset;
+                if (ImGui::Checkbox("Visible", &visible))
+                    tilemap->SetLayerVisible(activeId, visible);
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Locked", &locked))
+                    tilemap->SetLayerLocked(activeId, locked);
+                ImGui::SameLine();
+                if (ImGui::Checkbox("Collision", &collision))
+                    tilemap->SetLayerCollisionEnabled(activeId, collision);
+                if (ImGui::SliderFloat("Opacity", &opacity, 0.0f, 1.0f))
+                    tilemap->SetLayerOpacity(activeId, opacity);
+                if (ImGui::InputInt("Layer Sorting Offset", &offset))
+                    tilemap->SetLayerSortingOffset(activeId, offset);
+            }
+        }
+        if (ImGui::Button("Open Tile Palette")) {
+            Editor::Get().GetWindowManager().SetVisible(
+                EditorConstants::WIN_TILE_PALETTE, true);
+        }
+        std::string warning;
+        if (!tilemap->CanAuthor(&warning)) {
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.15f, 1.0f), "%s",
+                               warning.c_str());
+        }
+        return;
     }
-    if (auto* textRenderer = dynamic_cast<TextRenderer2D*>(component)) {
-        char text[2048];
-        std::strncpy(text, textRenderer->GetText().c_str(), sizeof(text) - 1);
-        text[sizeof(text) - 1] = '\0';
-        if (ImGui::InputTextMultiline("Text", text, sizeof(text), ImVec2(-FLT_MIN, 72.0f)))
-            textRenderer->SetText(text);
-        char guid[128];
-        std::strncpy(guid, textRenderer->GetFontGuid().c_str(), sizeof(guid) - 1);
-        guid[sizeof(guid) - 1] = '\0';
-        if (ImGui::InputText("Font GUID", guid, sizeof(guid))) textRenderer->SetFontGuid(guid);
-        std::string droppedGuid;
-        if (AcceptAssetGuidDrop("FontImporter", droppedGuid)) textRenderer->SetFontGuid(droppedGuid);
-        float fontSize = textRenderer->GetFontSizePx();
-        if (ImGui::DragFloat("Font Size", &fontSize, 0.5f, 1.0f, 512.0f))
-            textRenderer->SetFontSizePx(fontSize);
-        float lineSpacing = textRenderer->GetLineSpacing();
-        if (ImGui::DragFloat("Line Spacing", &lineSpacing, 0.01f, 0.1f, 10.0f))
-            textRenderer->SetLineSpacing(lineSpacing);
-        float scale = textRenderer->GetScale();
-        if (ImGui::DragFloat("Scale", &scale, 0.01f, 0.01f, FLT_MAX))
-            textRenderer->SetScale(scale);
-        Color color = textRenderer->GetColor();
-        float rgba[4] = {color.r, color.g, color.b, color.a};
-        if (ImGui::ColorEdit4("Color", rgba))
-            textRenderer->SetColor({rgba[0], rgba[1], rgba[2], rgba[3]});
-        const char* alignments[] = {"Left", "Center", "Right"};
-        int alignment = static_cast<int>(textRenderer->GetAlignment());
-        if (ImGui::Combo("Alignment", &alignment, alignments, 3))
-            textRenderer->SetAlignment(static_cast<TextRenderer2D::Alignment>(alignment));
-        int order = textRenderer->GetSortingOrder();
-        if (ImGui::InputInt("Sorting Order", &order)) textRenderer->SetSortingOrder(order);
-        return true;
+
+    if (auto* particles = dynamic_cast<ParticleSystem*>(component)) {
+        bool changed = false;
+        ImGui::SeparatorText("Particle Structures");
+        if (ImGui::TreeNodeEx("Size Curve", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& keys = particles->config.sizeOverLife.keys;
+            for (std::size_t index = 0; index < keys.size();) {
+                ImGui::PushID(static_cast<int>(index));
+                float key[2] = {keys[index].time, keys[index].value};
+                if (ImGui::DragFloat2("Key", key, 0.01f)) {
+                    keys[index] = {key[0], key[1]};
+                    changed = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("-")) {
+                    keys.erase(keys.begin() + static_cast<std::ptrdiff_t>(index));
+                    changed = true;
+                    ImGui::PopID();
+                    continue;
+                }
+                ImGui::PopID();
+                ++index;
+            }
+            if (ImGui::Button("Add Size Key")) {
+                keys.push_back({keys.empty() ? 0.0f : 1.0f,
+                    keys.empty() ? particles->config.startSize
+                                 : particles->config.endSize});
+                changed = true;
+            }
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNodeEx("Color Gradient", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& keys = particles->config.colorOverLife.keys;
+            for (std::size_t index = 0; index < keys.size();) {
+                ImGui::PushID(static_cast<int>(index));
+                changed |= ImGui::SliderFloat("Time", &keys[index].time, 0.0f, 1.0f);
+                float color[4] = {keys[index].color.r, keys[index].color.g,
+                                  keys[index].color.b, keys[index].color.a};
+                if (ImGui::ColorEdit4("Color", color)) {
+                    keys[index].color = {color[0], color[1], color[2], color[3]};
+                    changed = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("-")) {
+                    keys.erase(keys.begin() + static_cast<std::ptrdiff_t>(index));
+                    changed = true;
+                    ImGui::PopID();
+                    continue;
+                }
+                ImGui::PopID();
+                ++index;
+            }
+            if (ImGui::Button("Add Color Key")) {
+                keys.push_back({keys.empty() ? 0.0f : 1.0f, Color::White()});
+                changed = true;
+            }
+            ImGui::TreePop();
+        }
+        if (ImGui::TreeNodeEx("Particle Sprites", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& sprites = particles->config.sprites;
+            for (std::size_t index = 0; index < sprites.size();) {
+                ImGui::PushID(static_cast<int>(index));
+                char texture[128]{};
+                char slice[128]{};
+                std::strncpy(texture, sprites[index].textureGuid.c_str(), sizeof(texture) - 1);
+                std::strncpy(slice, sprites[index].sliceId.c_str(), sizeof(slice) - 1);
+                if (ImGui::InputText("Texture", texture, sizeof(texture))) {
+                    sprites[index].textureGuid = texture;
+                    changed = true;
+                }
+                std::string dropped;
+                if (AcceptAssetGuidDrop("TextureImporter", dropped)) {
+                    sprites[index].textureGuid = std::move(dropped);
+                    changed = true;
+                }
+                if (ImGui::InputText("Slice", slice, sizeof(slice))) {
+                    sprites[index].sliceId = slice;
+                    changed = true;
+                }
+                if (ImGui::Button("Remove Sprite")) {
+                    sprites.erase(sprites.begin() + static_cast<std::ptrdiff_t>(index));
+                    changed = true;
+                    ImGui::PopID();
+                    continue;
+                }
+                ImGui::Separator();
+                ImGui::PopID();
+                ++index;
+            }
+            if (ImGui::Button("Add Sprite")) {
+                sprites.push_back({});
+                changed = true;
+            }
+            ImGui::TreePop();
+        }
+        if (changed) {
+            particles->config.Normalize();
+            particles->ResetEditorPreview();
+        }
+
+        ImGui::SeparatorText("Editor Preview");
+        ParticleEmitter& preview = particles->GetEditorPreviewEmitter();
+        if (ImGui::Button("Preview Play")) preview.Start();
+        ImGui::SameLine();
+        if (ImGui::Button("Preview Pause")) preview.Pause();
+        ImGui::SameLine();
+        if (ImGui::Button("Preview Stop")) preview.Stop();
+        ImGui::SameLine();
+        if (ImGui::Button("Burst 10")) preview.Burst(10);
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Preview")) preview.Clear();
+        ImGui::TextDisabled("%d live preview particles", preview.GetActiveCount());
+        return;
     }
-    if (auto* canvas = dynamic_cast<UICanvas*>(component)) {
-        Vector2 reference = canvas->GetReferenceResolution();
-        float values[2] = {reference.x, reference.y};
-        if (ImGui::DragFloat2("Reference Resolution", values, 1.0f, 1.0f, 16384.0f))
-            canvas->SetReferenceResolution({values[0], values[1]});
-        float match = canvas->GetMatchWidthOrHeight();
-        if (ImGui::SliderFloat("Width / Height Match", &match, 0.0f, 1.0f))
-            canvas->SetMatchWidthOrHeight(match);
-        int order = canvas->GetSortingOrder();
-        if (ImGui::InputInt("Sorting Order", &order)) canvas->SetSortingOrder(order);
-        return true;
+
+    if (auto* audio = dynamic_cast<AudioSource*>(component)) {
+        ImGui::SeparatorText("Runtime Preview");
+        if (ImGui::Button("Play Clip")) audio->Play();
+        ImGui::SameLine();
+        if (ImGui::Button("Pause Clip")) audio->Pause();
+        ImGui::SameLine();
+        if (ImGui::Button("Resume Clip")) audio->Resume();
+        ImGui::SameLine();
+        if (ImGui::Button("Stop Clip")) audio->Stop();
+        ImGui::TextDisabled("Voice: %s", audio->IsPlaying() ? "playing" : "stopped");
+        return;
     }
+
     if (auto* rect = dynamic_cast<RectTransform*>(component)) {
-        Vector2 amin = rect->GetAnchorMin();
-        Vector2 amax = rect->GetAnchorMax();
-        Vector2 pivot = rect->GetPivot();
-        Vector2 position = rect->GetAnchoredPosition();
-        Vector2 size = rect->GetSizeDelta();
-        float v2[2];
-        v2[0] = amin.x; v2[1] = amin.y;
-        if (ImGui::DragFloat2("Anchor Min", v2, 0.01f, 0.0f, 1.0f)) rect->SetAnchorMin({v2[0], v2[1]});
-        v2[0] = amax.x; v2[1] = amax.y;
-        if (ImGui::DragFloat2("Anchor Max", v2, 0.01f, 0.0f, 1.0f)) rect->SetAnchorMax({v2[0], v2[1]});
-        v2[0] = pivot.x; v2[1] = pivot.y;
-        if (ImGui::DragFloat2("Pivot", v2, 0.01f, 0.0f, 1.0f)) rect->SetPivot({v2[0], v2[1]});
-        v2[0] = position.x; v2[1] = position.y;
-        if (ImGui::DragFloat2("Anchored Position", v2, 0.5f)) rect->SetAnchoredPosition({v2[0], v2[1]});
-        v2[0] = size.x; v2[1] = size.y;
-        if (ImGui::DragFloat2("Size Delta", v2, 0.5f)) rect->SetSizeDelta({v2[0], v2[1]});
-        ImGui::TextDisabled("Anchor Presets");
-        if (ImGui::Button("Center")) rect->SetAnchors({0.5f, 0.5f}, {0.5f, 0.5f});
+        ImGui::SeparatorText("Anchor Presets");
+        if (ImGui::Button("Center"))
+            rect->SetAnchors({0.5f, 0.5f}, {0.5f, 0.5f});
         ImGui::SameLine();
         if (ImGui::Button("Stretch")) {
             rect->SetAnchors({0.0f, 0.0f}, {1.0f, 1.0f});
             rect->SetSizeDelta({0.0f, 0.0f});
-        }
-        return true;
-    }
-    if (auto* image = dynamic_cast<UIImage*>(component)) {
-        char guid[128];
-        std::strncpy(guid, image->GetTextureGuid().c_str(), sizeof(guid) - 1);
-        guid[sizeof(guid) - 1] = '\0';
-        if (ImGui::InputText("Texture GUID", guid, sizeof(guid))) image->SetTextureGuid(guid);
-        std::string droppedGuid;
-        if (AcceptAssetGuidDrop("TextureImporter", droppedGuid)) image->SetTextureGuid(droppedGuid);
-        Color color = image->GetTint();
-        float rgba[4] = {color.r, color.g, color.b, color.a};
-        if (ImGui::ColorEdit4("Tint", rgba)) image->SetTint({rgba[0], rgba[1], rgba[2], rgba[3]});
-        int order = image->GetSortingOrder();
-        if (ImGui::InputInt("Sorting Order", &order)) image->SetSortingOrder(order);
-        return true;
-    }
-    if (auto* label = dynamic_cast<UILabel*>(component)) {
-        char text[2048];
-        std::strncpy(text, label->GetText().c_str(), sizeof(text) - 1);
-        text[sizeof(text) - 1] = '\0';
-        if (ImGui::InputTextMultiline("Text", text, sizeof(text), ImVec2(-FLT_MIN, 72.0f)))
-            label->SetText(text);
-        char guid[128];
-        std::strncpy(guid, label->GetFontGuid().c_str(), sizeof(guid) - 1);
-        guid[sizeof(guid) - 1] = '\0';
-        if (ImGui::InputText("Font GUID", guid, sizeof(guid))) label->SetFontGuid(guid);
-        std::string droppedGuid;
-        if (AcceptAssetGuidDrop("FontImporter", droppedGuid)) label->SetFontGuid(droppedGuid);
-        float size = label->GetFontSizePx();
-        if (ImGui::DragFloat("Font Size", &size, 0.5f, 1.0f, 512.0f)) label->SetFontSizePx(size);
-        float spacing = label->GetLineSpacing();
-        if (ImGui::DragFloat("Line Spacing", &spacing, 0.01f, 0.1f, 10.0f)) label->SetLineSpacing(spacing);
-        Color color = label->GetColor();
-        float rgba[4] = {color.r, color.g, color.b, color.a};
-        if (ImGui::ColorEdit4("Color", rgba)) label->SetColor({rgba[0], rgba[1], rgba[2], rgba[3]});
-        const char* horizontal[] = {"Left", "Center", "Right"};
-        int h = static_cast<int>(label->GetHorizontalAlignment());
-        if (ImGui::Combo("Horizontal", &h, horizontal, 3))
-            label->SetHorizontalAlignment(static_cast<UILabel::HorizontalAlignment>(h));
-        const char* vertical[] = {"Top", "Middle", "Bottom"};
-        int v = static_cast<int>(label->GetVerticalAlignment());
-        if (ImGui::Combo("Vertical", &v, vertical, 3))
-            label->SetVerticalAlignment(static_cast<UILabel::VerticalAlignment>(v));
-        int order = label->GetSortingOrder();
-        if (ImGui::InputInt("Sorting Order", &order)) label->SetSortingOrder(order);
-        return true;
-    }
-    if (auto* button = dynamic_cast<UIButton*>(component)) {
-        bool interactable = button->IsInteractable();
-        if (ImGui::Checkbox("Interactable", &interactable)) button->SetInteractable(interactable);
-        auto colorField = [](const char* name, Color value, auto setter) {
-            float rgba[4] = {value.r, value.g, value.b, value.a};
-            if (ImGui::ColorEdit4(name, rgba)) setter(Color{rgba[0], rgba[1], rgba[2], rgba[3]});
-        };
-        colorField("Normal", button->GetNormalColor(), [&](Color c) { button->SetNormalColor(c); });
-        colorField("Hover", button->GetHoverColor(), [&](Color c) { button->SetHoverColor(c); });
-        colorField("Pressed", button->GetPressedColor(), [&](Color c) { button->SetPressedColor(c); });
-        colorField("Disabled", button->GetDisabledColor(), [&](Color c) { button->SetDisabledColor(c); });
-        int order = button->GetSortingOrder();
-        if (ImGui::InputInt("Sorting Order", &order)) button->SetSortingOrder(order);
-        return true;
-    }
-    return false;
-}
-
-// Script가 RegisterFields()로 노출한 필드를 인스펙터에 그린다.
-// 데이터(레지스트리)는 molga_core에, 렌더링(imgui)은 에디터에 있다.
-void DrawScriptFields(Script* script) {
-    const ScriptFieldRegistry& reg = script->Fields();
-    if (reg.Empty()) return;
-
-    World* world = script->GetGameObject() ? script->GetGameObject()->GetWorld() : nullptr;
-
-    for (const auto& f : reg.Fields()) {
-        switch (f.type) {
-            case ScriptFieldType::Float:
-                ImGui::DragFloat(f.name.c_str(), static_cast<float*>(f.ptr),
-                                 f.uiSpeed, f.uiMin, f.uiMax);
-                break;
-            case ScriptFieldType::Int:
-                ImGui::DragInt(f.name.c_str(), static_cast<int*>(f.ptr));
-                break;
-            case ScriptFieldType::Bool:
-                ImGui::Checkbox(f.name.c_str(), static_cast<bool*>(f.ptr));
-                break;
-            case ScriptFieldType::String: {
-                auto* s = static_cast<std::string*>(f.ptr);
-                char buf[256];
-                std::strncpy(buf, s->c_str(), sizeof(buf) - 1);
-                buf[sizeof(buf) - 1] = '\0';
-                if (ImGui::InputText(f.name.c_str(), buf, sizeof(buf))) {
-                    *s = buf;
-                }
-                break;
-            }
-            case ScriptFieldType::Vector2:
-                ImGui::DragFloat2(f.name.c_str(),
-                                  reinterpret_cast<float*>(static_cast<Vector2*>(f.ptr)),
-                                  f.uiSpeed);
-                break;
-            case ScriptFieldType::Color:
-                ImGui::ColorEdit4(f.name.c_str(),
-                                  reinterpret_cast<float*>(static_cast<Color*>(f.ptr)));
-                break;
-            case ScriptFieldType::ObjectRef: {
-                auto* ref = static_cast<ObjectRef*>(f.ptr);
-                const char* preview = "(None)";
-                if (ref->targetId != 0) {
-                    GameObject* target = world ? world->FindById(ref->targetId) : nullptr;
-                    preview = target ? target->GetName().c_str() : "(Missing)";
-                }
-                if (ImGui::BeginCombo(f.name.c_str(), preview)) {
-                    if (ImGui::Selectable("(None)", ref->targetId == 0)) ref->targetId = 0;
-                    if (world) {
-                        for (const auto& obj : world->Objects()) {
-                            if (!obj) continue;
-                            ImGui::PushID(static_cast<int>(obj->GetID()));
-                            std::string entry = obj->GetName() + " #" + std::to_string(obj->GetID());
-                            if (ImGui::Selectable(entry.c_str(), ref->targetId == obj->GetID())) {
-                                ref->targetId = obj->GetID();
-                            }
-                            ImGui::PopID();
-                        }
-                    }
-                    ImGui::EndCombo();
-                }
-                break;
-            }
-            case ScriptFieldType::PrefabRef: {
-                auto* ref = static_cast<PrefabRef*>(f.ptr);
-                auto& registry = PrefabRegistry::Get();
-                std::string preview = "(None)";
-                if (!ref->guid.empty()) {
-                    auto path = registry.GetPrefabPath(ref->guid);
-                    preview = path.empty() ? "(Missing)" : path.filename().string();
-                }
-                if (ImGui::BeginCombo(f.name.c_str(), preview.c_str())) {
-                    if (ImGui::Selectable("(None)", ref->guid.empty())) ref->guid.clear();
-                    for (const auto& [guid, path] : registry.GetAllPrefabs()) {
-                        ImGui::PushID(guid.c_str());
-                        if (ImGui::Selectable(path.filename().string().c_str(), ref->guid == guid)) {
-                            ref->guid = guid;
-                        }
-                        ImGui::PopID();
-                    }
-                    ImGui::EndCombo();
-                }
-                break;
-            }
         }
     }
 }
@@ -932,15 +1741,15 @@ void InspectorWindow::DrawComponent(Component* component) {
             if (open) ImGui::TreePop();
             return;
         }
-        nlohmann::json afterSnap = beforeSnap;
-        afterSnap["enabled"] = enabled;
-        // Revert temporarily so Execute() works
-        component->SetEnabled(!enabled);
-        Editor::Get().GetCommandHistory().Execute(
-            std::make_unique<molga::ComponentSnapshotCommand>(
-                componentTargetId, typeName, beforeSnap, afterSnap
-            )
-        );
+        const auto descriptors = molga::DescribeEditorProperties(*component);
+        const auto enabledDescriptor = std::find_if(
+            descriptors.begin(), descriptors.end(),
+            [](const auto& descriptor) { return descriptor.key == "enabled"; });
+        if (enabledDescriptor == descriptors.end() ||
+            molga::ApplyEditorPropertyValue(*enabledDescriptor, {component}, enabled) == 0u) {
+            if (open) ImGui::TreePop();
+            return;
+        }
 
         // SetEnabled invokes user lifecycle callbacks. They are allowed to
         // remove this component (or the target object), so refresh before the
@@ -958,17 +1767,50 @@ void InspectorWindow::DrawComponent(Component* component) {
         }
         target = liveTarget;
         component = liveComponent;
+        const nlohmann::json afterSnap =
+            molga::CaptureComponentSnapshot(liveComponent);
+        if (afterSnap != beforeSnap) {
+            Editor::Get().GetCommandHistory().Execute(
+                std::make_unique<molga::BatchComponentSnapshotCommand>(
+                    std::vector<molga::ComponentSnapshotChange>{
+                        {componentTargetId, typeName, beforeSnap, afterSnap}}, true)
+            );
+        }
     }
 
     if (open) {
         ImGui::Spacing();
-        // 스크립트는 RegisterFields()로 노출한 필드를 자동 렌더링한다.
-        if (auto* script = dynamic_cast<Script*>(component)) {
-            DrawScriptFields(script);
+        // Single and multi selection intentionally share the exact same
+        // descriptor/getter/setter path. Component::OnInspectorGUI and the old
+        // P0 renderer mutated fields independently and could create duplicate
+        // widgets or separate undo gestures for one value.
+        const auto descriptors = molga::DescribeEditorProperties(*component);
+        bool componentAlive = true;
+        for (const auto& descriptor : descriptors) {
+            if (descriptor.key == "enabled" || !descriptor.getter || !descriptor.setter)
+                continue;
+            ImGui::PushID(descriptor.key.c_str());
+            const molga::EditorPropertyValue current = descriptor.getter(*component);
+            molga::EditorPropertyValue edited = current;
+            const bool changed = DrawEditorPropertyValue(descriptor, current, edited);
+            ImGui::PopID();
+            if (!changed) continue;
+            molga::ApplyEditorPropertyValue(descriptor, {component}, edited);
+
+            // Deserialize/ResolveAssets are extensibility hooks. Re-resolve
+            // after each mutation before the next descriptor dereferences it.
+            GameObject* liveOwner = molga::FindGameObjectById(componentTargetId);
+            Component* liveComponent = liveOwner && liveOwner == componentTargetIdentity
+                ? FindComponentInstance(liveOwner, typeName, componentInstanceId)
+                : nullptr;
+            if (!liveComponent) {
+                componentAlive = false;
+                break;
+            }
+            target = liveOwner;
+            component = liveComponent;
         }
-        DrawP0ComponentFields(component);
-        // 컴포넌트/스크립트의 커스텀 OnInspectorGUI (오버라이드 시).
-        component->OnInspectorGUI();
+        if (componentAlive) DrawComponentStructureEditors(component);
         ImGui::TreePop();
     }
 
@@ -1001,11 +1843,10 @@ void InspectorWindow::DrawComponent(Component* component) {
             activeEditTargetId_ = componentTargetId;
         } else {
             // Immediate change
-            molga::RestoreComponentSnapshot(target, beforeEditSnap_);
             Editor::Get().GetCommandHistory().Execute(
-                std::make_unique<molga::ComponentSnapshotCommand>(
-                    componentTargetId, typeName, beforeEditSnap_, snapAfter
-                )
+                std::make_unique<molga::BatchComponentSnapshotCommand>(
+                    std::vector<molga::ComponentSnapshotChange>{
+                        {componentTargetId, typeName, beforeEditSnap_, snapAfter}}, true)
             );
             ClearActiveEdit();
         }

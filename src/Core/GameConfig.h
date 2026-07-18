@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Rendering/OutputPresentationLayout.h"
+
 #include <string>
 #include <vector>
 #include <nlohmann/json.hpp>
@@ -17,6 +19,9 @@ struct SceneCatalogEntry {
 };
 
 struct GameConfig {
+    static constexpr int CurrentSchemaVersion = 2;
+
+    int schemaVersion = CurrentSchemaVersion;
     std::string gameName = "Molga Game";
     std::string companyName = "Molga";
     std::string mainScene = "Scenes/main.json";
@@ -26,6 +31,9 @@ struct GameConfig {
     int windowWidth = 800;
     int windowHeight = 600;
     bool fullscreen = false;
+    bool resizable = true;
+    molga::GameOutputScaleMode outputScaleMode =
+        molga::GameOutputScaleMode::Native;
     ScriptManifest scripts;
 };
 

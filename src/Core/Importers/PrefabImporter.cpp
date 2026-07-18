@@ -1,4 +1,5 @@
 #include "Core/Importers/PrefabImporter.h"
+#include "Core/Guid.h"
 #include <filesystem>
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -10,7 +11,10 @@ std::string PrefabImporter::ReadEmbeddedGuid(const std::string& absSourcePath) {
     if (!in.is_open()) return {};
     nlohmann::json j;
     try { in >> j; } catch (...) { return {}; }
-    return j.value("guid", std::string());
+    if (!j.is_object()) return {};
+    const auto guid = j.find("guid");
+    return guid != j.end() && guid->is_string()
+        ? guid->get<std::string>() : std::string{};
 }
 
 ImportResult PrefabImporter::Import(const std::string& absSourcePath) const {
@@ -19,8 +23,8 @@ ImportResult PrefabImporter::Import(const std::string& absSourcePath) const {
         r.error = "source not found: " + absSourcePath;
         return r;
     }
-    r.success = !ReadEmbeddedGuid(absSourcePath).empty();
-    if (!r.success) r.error = "prefab has no embedded guid";
+    r.success = Guid::IsValid(ReadEmbeddedGuid(absSourcePath));
+    if (!r.success) r.error = "prefab has no valid embedded guid";
     return r;
 }
 

@@ -114,6 +114,7 @@ void UISystem::ProcessInput(World& world, const Vector2& viewportSize,
                             const UIPointerState& pointer) {
     auto& objects = world.Objects();
     auto buttons = GatherButtons(objects, viewportSize);
+    if (!pointer.valid) ResetPointerCapture();
     ButtonEntry* topmost = nullptr;
     if (pointer.valid) {
         for (auto& entry : buttons) {
@@ -165,6 +166,7 @@ void UISystem::ProcessInput(std::vector<std::shared_ptr<GameObject>>& objects,
                             const Vector2& viewportSize,
                             const UIPointerState& pointer) {
     auto buttons = GatherButtons(objects, viewportSize);
+    if (!pointer.valid) ResetPointerCapture();
     ButtonEntry* topmost = nullptr;
     if (pointer.valid) {
         for (auto& entry : buttons) {

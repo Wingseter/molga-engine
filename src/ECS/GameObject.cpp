@@ -1,6 +1,7 @@
 #include "GameObject.h"
 #include "Component.h"
 #include "../Scripting/Script.h"
+#include "../Scripting/ScriptInvocationBoundary.h"
 #include "../Core/World.h"
 #include "Common/Log.h"
 #include <algorithm>
@@ -58,7 +59,24 @@ void GameObject::InvokeOnDisable(Component* component) {
     };
     std::exception_ptr error;
     try {
-        component->OnDisable();
+        if (auto* script = dynamic_cast<Script*>(component)) {
+            const ScriptHandle handle = script->GetHandle();
+            Script* resolved = world ? ScriptInvocationBoundary::Resolve(
+                *world, handle, true, true, true) : nullptr;
+            if (resolved == script) {
+                ScriptInvocationBoundary::Invoke(
+                    *world, handle, ScriptPhase::OnDisable,
+                    [](Script& current) { current.OnDisable(); }, true, true);
+            } else {
+                // Component removal erases the lookup identity before invoking
+                // teardown, but the caller retains unique ownership.
+                ScriptInvocationBoundary::InvokeDetached(
+                    *script, ScriptPhase::OnDisable,
+                    [](Script& current) { current.OnDisable(); });
+            }
+        } else {
+            component->OnDisable();
+        }
     } catch (...) {
         error = std::current_exception();
     }
@@ -159,6 +177,27 @@ bool GameObject::SetParent(GameObject* newParent) {
     return true;
 }
 
+std::size_t GameObject::GetSiblingIndex() const {
+    if (!parent) return 0;
+    const auto& siblings = parent->children;
+    const auto it = std::find(siblings.begin(), siblings.end(), this);
+    return it == siblings.end()
+        ? 0
+        : static_cast<std::size_t>(std::distance(siblings.begin(), it));
+}
+
+bool GameObject::SetSiblingIndex(std::size_t index) {
+    if (!parent) return false;
+    auto& siblings = parent->children;
+    const auto current = std::find(siblings.begin(), siblings.end(), this);
+    if (current == siblings.end()) return false;
+    GameObject* object = *current;
+    siblings.erase(current);
+    index = std::min(index, siblings.size());
+    siblings.insert(siblings.begin() + static_cast<std::ptrdiff_t>(index), object);
+    return true;
+}
+
 bool GameObject::IsAncestorOf(const GameObject* node) const {
     for (const GameObject* p = (node ? node->parent : nullptr); p; p = p->parent) {
         if (p == this) return true;
@@ -198,7 +237,16 @@ void GameObject::Update(float dt) {
     for (const auto& identity : plan) {
         if (!active || destroyed) break;
         Component* component = ResolveComponent(identity);
-        if (component && component->IsEnabled()) component->Update(dt);
+        if (!component || !component->IsEnabled()) continue;
+        if (auto* script = dynamic_cast<Script*>(component); script && world) {
+            const ScriptHandle handle = script->GetHandle();
+            ScriptInvocationBoundary::Invoke(
+                *world, handle, ScriptPhase::Update,
+                [dt](Script& current) { current.Update(dt); });
+        } else {
+            // Engine Components intentionally remain fail-loud.
+            component->Update(dt);
+        }
     }
 }
 
@@ -318,7 +366,14 @@ void GameObject::FixedUpdateScripts(float fixedDt) {
         Component* component = ResolveComponent(identity);
         if (!component || !component->IsEnabled()) continue;
         if (auto* script = dynamic_cast<Script*>(component)) {
-            script->FixedUpdate(fixedDt);
+            if (world) {
+                const ScriptHandle handle = script->GetHandle();
+                ScriptInvocationBoundary::Invoke(
+                    *world, handle, ScriptPhase::FixedUpdate,
+                    [fixedDt](Script& current) { current.FixedUpdate(fixedDt); });
+            } else {
+                script->FixedUpdate(fixedDt);
+            }
         }
     }
 }
@@ -331,7 +386,14 @@ void GameObject::LateUpdateScripts(float dt) {
         Component* component = ResolveComponent(identity);
         if (!component || !component->IsEnabled()) continue;
         if (auto* script = dynamic_cast<Script*>(component)) {
-            script->LateUpdate(dt);
+            if (world) {
+                const ScriptHandle handle = script->GetHandle();
+                ScriptInvocationBoundary::Invoke(
+                    *world, handle, ScriptPhase::LateUpdate,
+                    [dt](Script& current) { current.LateUpdate(dt); });
+            } else {
+                script->LateUpdate(dt);
+            }
         }
     }
 }
@@ -344,6 +406,17 @@ void GameObject::AwakeScripts() {
         if (!active || destroyed) break;
         Component* comp = ResolveComponent(identity);
         if (comp && comp->IsEnabled() && !comp->HasAwoken()) {
+            if (auto* script = dynamic_cast<Script*>(comp); script && world) {
+                const ScriptHandle handle = script->GetHandle();
+                if (ScriptInvocationBoundary::Invoke(
+                        *world, handle, ScriptPhase::Awake,
+                        [](Script& current) { current.Awake(); })) {
+                    if (Component* stillPresent = ResolveComponent(identity)) {
+                        stillPresent->MarkAwoken();
+                    }
+                }
+                continue;
+            }
             try {
                 comp->Awake();
                 if (Component* stillPresent = ResolveComponent(identity)) {
@@ -366,6 +439,12 @@ void GameObject::EnableScripts() {
         Component* comp = ResolveComponent(identity);
         if (!comp) continue;
         if (!comp->IsEnabled()) continue;
+        if (auto* script = dynamic_cast<Script*>(comp); script && world) {
+            ScriptInvocationBoundary::Invoke(
+                *world, script->GetHandle(), ScriptPhase::OnEnable,
+                [](Script& current) { current.OnEnable(); });
+            continue;
+        }
         try {
             comp->OnEnable();
         } catch (...) {
@@ -401,6 +480,17 @@ void GameObject::StartScripts() {
         if (!comp) continue;
         if (!comp->IsEnabled()) continue;
         if (!comp->HasStarted()) {
+            if (auto* script = dynamic_cast<Script*>(comp); script && world) {
+                const ScriptHandle handle = script->GetHandle();
+                if (ScriptInvocationBoundary::Invoke(
+                        *world, handle, ScriptPhase::Start,
+                        [](Script& current) { current.Start(); })) {
+                    if (Component* stillPresent = ResolveComponent(identity)) {
+                        stillPresent->MarkStarted();
+                    }
+                }
+                continue;
+            }
             try {
                 comp->Start();
                 if (Component* stillPresent = ResolveComponent(identity)) {

@@ -31,7 +31,8 @@ std::vector<std::filesystem::path> AssetReferenceScan::FindReferencers(
         if (inTrash) continue;
 
         std::string ext = e.path().extension().string();
-        if (ext == ".json" || ext == ".prefab" || ext == ".mat" || ext == ".scene") {
+        if (ext == ".json" || ext == ".prefab" || ext == ".mat" || ext == ".scene" ||
+            ext == ".animclip" || ext == ".animator" || ext == ".tileset") {
             if (FileContainsGuid(e.path(), guid)) out.push_back(e.path());
         }
     }

@@ -20,6 +20,7 @@ GLFWwindow* EngineInit(const WindowConfig& config) {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SRGB_CAPABLE, GLFW_TRUE);
 
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
@@ -27,6 +28,7 @@ GLFWwindow* EngineInit(const WindowConfig& config) {
 
     GLFWmonitor* monitor = config.fullscreen ? glfwGetPrimaryMonitor() : nullptr;
     glfwWindowHint(GLFW_VISIBLE, config.visible ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, config.resizable ? GLFW_TRUE : GLFW_FALSE);
     GLFWwindow* window = glfwCreateWindow(config.width, config.height,
                                           config.title.c_str(), monitor, nullptr);
     if (window == nullptr) {
@@ -47,6 +49,7 @@ GLFWwindow* EngineInit(const WindowConfig& config) {
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_FRAMEBUFFER_SRGB);
 
     Log::AddSink(std::make_shared<Log::StdoutSink>());
 
