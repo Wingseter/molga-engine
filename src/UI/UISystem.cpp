@@ -94,13 +94,18 @@ void SubmitRect(molga::RenderQueue& queue, const AABB& rect, const Color& color,
     command.sortKey.cameraPass = 1;
     command.sortKey.sortingLayer = canvasOrder;
     command.sortKey.sortingOrder = sortingOrder;
-    command.batchKey.texture = texture;
+    command.batchKey.shaderName = "batch";
+    if (texture && texture->IsValid()) {
+        command.batchKey.texture = texture->Handle();
+        command.batchKey.textureSampler = texture->Sampler();
+        command.batchKey.textureStableId = texture->StableId();
+    }
     command.batchKey.isBatchable = true;
     command.isBatchableSprite = true;
-    FillVertex(command.vertices[0], rect.x, rect.y, 0.0f, 1.0f, color);
-    FillVertex(command.vertices[1], rect.x + rect.width, rect.y, 1.0f, 1.0f, color);
-    FillVertex(command.vertices[2], rect.x + rect.width, rect.y + rect.height, 1.0f, 0.0f, color);
-    FillVertex(command.vertices[3], rect.x, rect.y + rect.height, 0.0f, 0.0f, color);
+    FillVertex(command.vertices[0], rect.x, rect.y, 0.0f, 0.0f, color);
+    FillVertex(command.vertices[1], rect.x + rect.width, rect.y, 1.0f, 0.0f, color);
+    FillVertex(command.vertices[2], rect.x + rect.width, rect.y + rect.height, 1.0f, 1.0f, color);
+    FillVertex(command.vertices[3], rect.x, rect.y + rect.height, 0.0f, 1.0f, color);
     queue.Submit(command);
 }
 } // namespace

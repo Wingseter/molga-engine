@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "name": "default",
+  "source": "default.hlsl",
+  "vertex": {
+    "entry": "VSMain",
+    "layout": {
+      "stride": 16,
+      "attributes": [
+        { "location": 0, "format": "Float2", "offset": 0 },
+        { "location": 1, "format": "Float2", "offset": 8 }
+      ]
+    }
+  },
+  "fragment": { "entry": "PSMain" },
+  "parameters": [],
+  "textures": [
+    { "name": "uTexture", "stage": "fragment", "dimension": "2D" }
+  ]
+}

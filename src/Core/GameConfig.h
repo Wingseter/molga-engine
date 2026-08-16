@@ -18,8 +18,16 @@ struct SceneCatalogEntry {
     std::string packagePath;
 };
 
+struct GraphicsManifest {
+    std::string api = "sdlgpu";
+    std::string driver = "metal";
+    std::string shaderFormat = "msl";
+    std::string shaderManifest = "ShaderBundle/manifest.json";
+    std::string shaderManifestSha256;
+};
+
 struct GameConfig {
-    static constexpr int CurrentSchemaVersion = 3;
+    static constexpr int CurrentSchemaVersion = 4;
 
     int schemaVersion = CurrentSchemaVersion;
     std::string gameName = "Molga Game";
@@ -34,6 +42,7 @@ struct GameConfig {
     bool resizable = true;
     molga::GameOutputScaleMode outputScaleMode =
         molga::GameOutputScaleMode::Native;
+    GraphicsManifest graphics;
     ScriptManifest scripts;
 };
 

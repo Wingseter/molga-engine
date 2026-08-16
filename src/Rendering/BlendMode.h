@@ -4,5 +4,6 @@ enum class BlendMode {
     Opaque,
     Alpha,
     Additive,
-    Multiply
+    Multiply,
+    Screen
 };

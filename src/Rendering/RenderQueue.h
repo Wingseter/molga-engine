@@ -1,21 +1,19 @@
 #pragma once
 
 #include <vector>
-#include <functional>
 #include <array>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include "../Common/linmath.h"
 #include "Common/Types.h"
 #include "Rendering/BlendMode.h"
+#include "Rendering/GraphicsDevice.h"
 
 class Renderer;
-class Shader;
-class Texture;
-
 namespace molga {
 
 struct SortKey {
@@ -50,34 +48,56 @@ struct SortKey {
 };
 
 struct BatchKey {
-    Shader* shader = nullptr;
-    Texture* texture = nullptr;
-    Texture* normalTexture = nullptr;
+    struct ExtraTexture {
+        bool vertexStage = false;
+        std::uint32_t slot = 0;
+        TextureHandle texture;
+        SamplerHandle sampler;
+        std::uint64_t stableId = 0;
+    };
+
+    std::string shaderName;
+    std::uint64_t shaderRevision = 0;
+    TextureHandle texture;
+    SamplerHandle textureSampler;
+    std::uint64_t textureStableId = 0;
+    TextureHandle normalTexture;
+    SamplerHandle normalSampler;
+    std::uint64_t normalTextureStableId = 0;
     BlendMode blendMode = BlendMode::Alpha;
     bool isBatchable = true;
     bool lit = false;
     std::uint32_t receiverLayer = 0;
     float normalStrength = 1.0f;
+    std::uint64_t materialId = 0;
+    std::shared_ptr<const std::vector<std::uint8_t>> materialParameters;
+    std::shared_ptr<const std::vector<ExtraTexture>> materialTextures;
 
     bool operator<(const BatchKey& other) const {
         if (isBatchable != other.isBatchable) return isBatchable < other.isBatchable;
         if (lit != other.lit) return lit < other.lit;
-        if (shader != other.shader) return shader < other.shader;
-        if (texture != other.texture) return texture < other.texture;
-        if (normalTexture != other.normalTexture) return normalTexture < other.normalTexture;
+        if (shaderName != other.shaderName) return shaderName < other.shaderName;
+        if (shaderRevision != other.shaderRevision) return shaderRevision < other.shaderRevision;
+        if (textureStableId != other.textureStableId) return textureStableId < other.textureStableId;
+        if (normalTextureStableId != other.normalTextureStableId) {
+            return normalTextureStableId < other.normalTextureStableId;
+        }
         if (receiverLayer != other.receiverLayer) return receiverLayer < other.receiverLayer;
         if (normalStrength != other.normalStrength) return normalStrength < other.normalStrength;
+        if (materialId != other.materialId) return materialId < other.materialId;
         return blendMode < other.blendMode;
     }
 
     bool operator==(const BatchKey& other) const {
         return isBatchable == other.isBatchable &&
                lit == other.lit &&
-               shader == other.shader &&
-               texture == other.texture &&
-               normalTexture == other.normalTexture &&
+               shaderName == other.shaderName &&
+               shaderRevision == other.shaderRevision &&
+               textureStableId == other.textureStableId &&
+               normalTextureStableId == other.normalTextureStableId &&
                receiverLayer == other.receiverLayer &&
                normalStrength == other.normalStrength &&
+               materialId == other.materialId &&
                blendMode == other.blendMode;
     }
 
@@ -102,9 +122,9 @@ struct RenderCommand {
     // dirty cache can replace its shared_ptr without invalidating commands that
     // were already submitted for the current frame.
     std::shared_ptr<const std::vector<Vertex2D>> geometry;
+    std::shared_ptr<const std::vector<std::uint32_t>> geometryIndices;
     std::optional<AABB> worldBounds;
     
-    std::function<void(Renderer*)> fallbackRender;
 };
 
 class RenderQueue {
@@ -141,7 +161,9 @@ public:
     void ForceUnlit() {
         for (auto& command : commands_) {
             command.batchKey.lit = false;
-            command.batchKey.normalTexture = nullptr;
+            command.batchKey.normalTexture = {};
+            command.batchKey.normalSampler = {};
+            command.batchKey.normalTextureStableId = 0;
             command.batchKey.receiverLayer = 0;
             command.batchKey.normalStrength = 1.0f;
         }

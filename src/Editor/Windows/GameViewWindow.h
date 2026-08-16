@@ -3,7 +3,7 @@
 #include "Editor/EditorPreferences.h"
 #include "Editor/GameViewLayout.h"
 #include "Editor/Windows/EditorWindow.h"
-#include "Rendering/Framebuffer.h"
+#include "Rendering/RenderTarget.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/PixelSize.h"
 #include "Platform/Window.h"
@@ -47,7 +47,7 @@ private:
     Renderer* renderer_ = nullptr;
     Shader* spriteShader_ = nullptr;
     std::vector<std::shared_ptr<GameObject>>* gameObjects_ = nullptr;
-    Framebuffer fbo_;
+    molga::RenderTarget outputTarget_;
     molga::GameOutputRenderer outputRenderer_;
 
     molga::EditorPreferences preferences_;

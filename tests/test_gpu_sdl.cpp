@@ -15,6 +15,7 @@ TEST_CASE("SDL_GPU creates a native device and submits a swapchain pass") {
     const molga::GraphicsDeviceInfo& info = host->GraphicsInfo();
     CHECK(info.backend == molga::GraphicsBackend::SdlGpu);
     CHECK_FALSE(info.driver.empty());
+    CHECK(info.validationEnabled);
     CHECK(info.capabilityPipelineReady);
 #if defined(__APPLE__)
     CHECK(info.driver == "metal");
@@ -27,4 +28,7 @@ TEST_CASE("SDL_GPU creates a native device and submits a swapchain pass") {
     CHECK(info.supportsSpirv);
 #endif
     REQUIRE(host->RenderCapabilityFrame(0.04f, 0.08f, 0.16f, 1.0f));
+    std::string waitError;
+    REQUIRE(host->Graphics().WaitIdle(&waitError));
+    CHECK(host->Graphics().ValidationErrorCount() == 0U);
 }

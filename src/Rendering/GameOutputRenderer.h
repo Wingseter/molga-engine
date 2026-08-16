@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Rendering/Framebuffer.h"
+#include "Rendering/RenderTarget.h"
 #include "Rendering/CameraOutputLayout.h"
 #include "Rendering/OutputPresentationLayout.h"
 #include "Rendering/PixelSize.h"
@@ -67,10 +67,13 @@ struct GameOutputRequest {
     PixelSize targetSize{};
     PixelSize logicalSize{};
     GameOutputScaleMode scaleMode = GameOutputScaleMode::Native;
+    // Null presents to the acquired main-window swapchain. Editor Game View
+    // supplies its private render target explicitly.
+    RenderTarget* destination = nullptr;
 };
 
 // The sole game-output path used by both the standalone player and Game View.
-// The caller owns the current render target (backbuffer or FBO).
+// The caller owns the current render target (swapchain or offscreen texture).
 class GameOutputRenderer {
 public:
     static Camera* FindMainCamera(
@@ -92,6 +95,9 @@ public:
     PixelSize LogicalFramebufferSize() const {
         return {logicalFramebuffer_.Width(), logicalFramebuffer_.Height()};
     }
+    TextureView LogicalColorView() const {
+        return logicalFramebuffer_.ColorView();
+    }
 
     std::size_t CachedPostProcessPipelineCount() const {
         return postProcessPipelines_.size();
@@ -107,11 +113,13 @@ private:
         Renderer& renderer,
         Shader* spriteShader);
 
-    Framebuffer logicalFramebuffer_;
+    RenderTarget logicalFramebuffer_;
     std::unordered_map<std::uint64_t, std::unique_ptr<PostProcessPipeline>>
         postProcessPipelines_;
     std::unordered_map<std::uint64_t, std::unique_ptr<LightingPipeline2D>>
         lightingPipelines_;
+    std::unordered_map<std::uint64_t, std::unique_ptr<RenderTarget>>
+        cameraTargets_;
     PixelSize lastObservedTarget_{};
     bool observedTarget_ = false;
     std::unordered_set<std::string> postProcessWarnings_;

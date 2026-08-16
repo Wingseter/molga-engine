@@ -88,19 +88,6 @@ private:
     // Mix caching: {(from_anim, to_anim) -> mix_duration_seconds}
     std::map<std::pair<std::string, std::string>, float> customMixDurations;
 
-    // OpenGL texture
     Texture* texture = nullptr;
-
-    // Local mesh buffers for rendering (if we want to draw custom meshes)
-    unsigned int VAO = 0;
-    unsigned int VBO = 0;
-    unsigned int EBO = 0;
-
-    // Preallocated buffers to prevent per-frame heap allocations (reused across draws)
-    std::vector<float> vboData;
-    std::vector<unsigned int> indices;
-
-    void SetupGLBuffers();
-    void CleanGLBuffers();
 #endif
 };

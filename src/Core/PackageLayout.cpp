@@ -1,5 +1,11 @@
 #include "Core/PackageLayout.h"
+#include "Common/Sha256.h"
+#include "Core/GameConfig.h"
+#include "Rendering/ShaderBundle.h"
+#include "Scripting/ScriptApi.h"
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <unordered_map>
@@ -83,6 +89,15 @@ bool ValidatePackageFile(const fs::path& root,
     return true;
 }
 
+bool IsSha256(const std::string& value) {
+    return value.size() == 64U && std::all_of(
+        value.begin(), value.end(), [](unsigned char character) {
+            return std::isdigit(character) ||
+                   (character >= static_cast<unsigned char>('a') &&
+                    character <= static_cast<unsigned char>('f'));
+        });
+}
+
 } // namespace
 
 bool PackageLayout::Validate(
@@ -103,7 +118,7 @@ bool PackageLayout::Validate(
         return false;
     }
 
-    for (const auto& required : { "Assets", "Shaders" }) {
+    for (const auto& required : { "Assets", "Scenes", "ShaderBundle" }) {
         if (!std::filesystem::exists(root / required)) {
             errorOut = "Missing package entry: " + (root / required).string();
             return false;
@@ -130,6 +145,101 @@ bool PackageLayout::Validate(
         }
         nlohmann::json j;
         file >> j;
+
+        if (!j.is_object() ||
+            j.value("schemaVersion", 0) != GameConfig::CurrentSchemaVersion) {
+            errorOut = "game.json must use package schema v4";
+            return false;
+        }
+        if (!j.contains("graphics") || !j["graphics"].is_object()) {
+            errorOut = "game.json is missing graphics manifest";
+            return false;
+        }
+        const auto& graphics = j["graphics"];
+        const std::string shaderManifest =
+            graphics.value("shaderManifest", std::string{});
+        const std::string shaderManifestSha256 =
+            graphics.value("shaderManifestSha256", std::string{});
+        if (graphics.value("api", std::string{}) != "sdlgpu" ||
+            graphics.value("driver", std::string{}) != "metal" ||
+            graphics.value("shaderFormat", std::string{}) != "msl" ||
+            shaderManifest != "ShaderBundle/manifest.json" ||
+            !IsSha256(shaderManifestSha256)) {
+            errorOut = "graphics manifest must select SDL_GPU/Metal with MSL";
+            return false;
+        }
+        std::string normalizedShaderManifest;
+        if (!ValidatePackageFile(root, shaderManifest,
+                                 normalizedShaderManifest, errorOut,
+                                 "shader manifest")) {
+            return false;
+        }
+        std::string hashError;
+        const std::string actualManifestSha256 = molga::Sha256File(
+            root / normalizedShaderManifest, &hashError);
+        if (actualManifestSha256.empty() ||
+            actualManifestSha256 != shaderManifestSha256) {
+            errorOut = hashError.empty()
+                ? "shader manifest SHA-256 mismatch"
+                : hashError;
+            return false;
+        }
+        molga::ShaderBundleManifest bundle;
+        if (!molga::ShaderBundleManifest::Load(
+                root / normalizedShaderManifest, bundle, errorOut) ||
+            !bundle.Validate(root / "ShaderBundle", false, errorOut)) {
+            return false;
+        }
+        std::error_code scanError;
+        for (fs::recursive_directory_iterator iterator(root / "ShaderBundle",
+                                                        scanError), end;
+             !scanError && iterator != end; iterator.increment(scanError)) {
+            if (!iterator->is_regular_file(scanError)) continue;
+            const fs::path relative = fs::relative(
+                iterator->path(), root / "ShaderBundle", scanError);
+            if (scanError) break;
+            if (relative == "manifest.json") continue;
+            if (relative.extension() != ".msl") {
+                errorOut = "forbidden non-MSL shader package entry: " +
+                           relative.generic_string();
+                return false;
+            }
+        }
+        if (scanError) {
+            errorOut = "could not inspect packaged shader bundle: " +
+                       scanError.message();
+            return false;
+        }
+        for (fs::recursive_directory_iterator iterator(root, scanError), end;
+             !scanError && iterator != end; iterator.increment(scanError)) {
+            if (!iterator->is_regular_file(scanError)) continue;
+            std::string extension = iterator->path().extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                           [](unsigned char character) {
+                               return static_cast<char>(std::tolower(character));
+                           });
+            if (extension == ".hlsl" || extension == ".spv" ||
+                extension == ".dxil" || extension == ".vert" ||
+                extension == ".frag") {
+                errorOut = "forbidden shader authoring/compiler payload: " +
+                           fs::relative(iterator->path(), root).generic_string();
+                return false;
+            }
+            std::string filename = iterator->path().filename().string();
+            std::transform(filename.begin(), filename.end(), filename.begin(),
+                           [](unsigned char character) {
+                               return static_cast<char>(std::tolower(character));
+                           });
+            if (filename == "molga_shaderc" || filename == "molga_shaderc.exe") {
+                errorOut = "shader compiler must not be included in a game package";
+                return false;
+            }
+        }
+        if (scanError) {
+            errorOut = "could not inspect package shader exclusions: " +
+                       scanError.message();
+            return false;
+        }
 
         std::string mainScene = j.value("mainScene", "Scenes/main.json");
         std::string normalizedMainScene;
@@ -213,6 +323,10 @@ bool PackageLayout::Validate(
             bool enabled = s.value("enabled", false);
             std::string library = s.value("library", "");
             if (enabled && !library.empty()) {
+                if (s.value("apiVersion", 0) != molga::ScriptApiVersion) {
+                    errorOut = "script package must be rebuilt for Script API v3";
+                    return false;
+                }
                 std::string normalizedLibrary;
                 if (!NormalizeSafeRelative(library, normalizedLibrary, errorOut,
                                            "script library")) return false;

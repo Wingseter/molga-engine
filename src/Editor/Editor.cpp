@@ -37,7 +37,93 @@
 #include "Platform/Platform.h"
 #include "Platform/Process.h"
 
+#ifndef MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR
+#define MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR "src/Shaders"
+#endif
+
 namespace {
+std::string QuoteShaderToolArgument(const std::filesystem::path& path) {
+    const std::string value = path.string();
+#ifdef _WIN32
+    std::string quoted = "\"";
+    for (const char character : value) {
+        if (character == '"') quoted += '\\';
+        quoted += character;
+    }
+    return quoted + "\"";
+#else
+    std::string quoted = "'";
+    for (const char character : value) {
+        if (character == '\'') quoted += "'\\''";
+        else quoted += character;
+    }
+    return quoted + "'";
+#endif
+}
+
+bool DirectoryContainsShaderDescriptor(const std::filesystem::path& root) {
+    std::error_code error;
+    if (!std::filesystem::is_directory(root, error)) return false;
+    for (std::filesystem::recursive_directory_iterator iterator(root, error), end;
+         !error && iterator != end; iterator.increment(error)) {
+        const std::string filename = iterator->path().filename().string();
+        if (iterator->is_regular_file(error) && filename.size() > 12U &&
+            filename.compare(filename.size() - 12U, 12U,
+                             ".shader.json") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ReloadShaderBundle() {
+    std::filesystem::path compiler =
+        PathService::Get().ExecutableDir() / "molga_shaderc";
+#ifdef _WIN32
+    compiler += ".exe";
+#endif
+    const std::filesystem::path engineDescriptors =
+        MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR;
+    if (!std::filesystem::is_regular_file(compiler) ||
+        !DirectoryContainsShaderDescriptor(engineDescriptors)) {
+        Log::Error("Shader", "Shader compiler or engine descriptors are missing");
+        return;
+    }
+
+    std::string command = QuoteShaderToolArgument(compiler) +
+        " build --descriptors " + QuoteShaderToolArgument(engineDescriptors);
+    if (Project::Get().IsOpen()) {
+        const std::filesystem::path projectShaders =
+            std::filesystem::path(Project::Get().GetAssetsPath()) / "Shaders";
+        if (DirectoryContainsShaderDescriptor(projectShaders)) {
+            command += " --descriptors " +
+                       QuoteShaderToolArgument(projectShaders);
+        }
+    }
+    command += " --output " +
+               QuoteShaderToolArgument(ShaderManager::Get().BundleRoot());
+
+    std::string compilerOutput;
+    molga::SystemProcessRunner runner;
+    const auto result = runner.Run(
+        command, PathService::Get().ExecutableDir().string(),
+        [&](const std::string& line) { compilerOutput += line; },
+        [] { return false; });
+    if (result.cancelled || result.exitCode != 0) {
+        Log::Error("Shader", "Shader reload compile failed; last-good bundle kept:\n" +
+                                 compilerOutput);
+        return;
+    }
+    std::string reloadError;
+    if (!ShaderManager::Get().ReloadAll(&reloadError)) {
+        Log::Error("Shader", "Shader reload validation failed; last-good state kept: " +
+                                 reloadError);
+        return;
+    }
+    Log::Info("Shader", "Shader bundle reloaded atomically (" +
+                            ShaderManager::Get().ManifestSha256() + ")");
+}
+
 class EditorLibraryPort : public molga::ILibraryPort {
 public:
     explicit EditorLibraryPort(Editor* editor) : editor_(editor) {}
@@ -382,7 +468,7 @@ void Editor::RenderMenuBar() {
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Reload Shaders")) {
-        ShaderManager::Get().ReloadAll();
+        ReloadShaderBundle();
       }
       ImGui::EndMenu();
     }

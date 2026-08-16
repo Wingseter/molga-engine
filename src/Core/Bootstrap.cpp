@@ -121,10 +121,8 @@ void EngineHost::PollEvents() {
                 Input::ProcessWindowFocus(event.window.windowID, false);
                 break;
             case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-                if (event.window.windowID == SDL_GetWindowID(impl_->window)) {
-                    impl_->graphics->ResizeViewport(
-                        event.window.data1, event.window.data2);
-                }
+                // SDL_GPU swapchain dimensions are acquired per-frame. No
+                // mutable global viewport state is carried across resizes.
                 break;
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
@@ -191,14 +189,6 @@ void EngineHost::PollEvents() {
     }
 }
 
-void EngineHost::SwapBuffers() {
-    if (impl_ && impl_->graphics) impl_->graphics->Present();
-}
-
-bool EngineHost::MakeContextCurrent() {
-    return impl_ && impl_->graphics && impl_->graphics->MakeCurrent();
-}
-
 bool EngineHost::ShouldClose() const {
     return !impl_ || impl_->closeRequested;
 }
@@ -232,9 +222,24 @@ const molga::GraphicsDeviceInfo& EngineHost::GraphicsInfo() const {
     return impl_ && impl_->graphics ? impl_->graphics->Info() : unavailable;
 }
 
+molga::GraphicsDevice& EngineHost::Graphics() { return *impl_->graphics; }
+
+const molga::GraphicsDevice& EngineHost::Graphics() const {
+    return *impl_->graphics;
+}
+
+molga::BeginFrameResult EngineHost::BeginFrame() {
+    if (!impl_ || !impl_->graphics) {
+        molga::BeginFrameResult result;
+        result.error = "engine host has no graphics device";
+        return result;
+    }
+    return impl_->graphics->BeginFrame(WindowId());
+}
+
 bool EngineHost::RenderCapabilityFrame(float r, float g, float b, float a) {
     return impl_ && impl_->graphics &&
-           impl_->graphics->RenderCapabilityFrame(r, g, b, a);
+           impl_->graphics->RenderCapabilityFrame(r, g, b, a, nullptr);
 }
 
 void EngineHost::SetNativeEventObserver(NativeEventObserver observer) {
@@ -245,14 +250,6 @@ void* EngineHost::NativeWindowHandle() const {
     return impl_ ? impl_->window : nullptr;
 }
 
-void* EngineHost::NativeGLContextHandle() const {
-    return impl_ && impl_->graphics ? impl_->graphics->NativeContext() : nullptr;
-}
-
-void* EngineHost::NativeGraphicsDeviceHandle() const {
-    return impl_ && impl_->graphics ? impl_->graphics->NativeDevice() : nullptr;
-}
-
 std::unique_ptr<EngineHost> EngineInit(const WindowConfig& config) {
     SDL_SetHint(SDL_HINT_IME_IMPLEMENTED_UI, "1");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
@@ -260,22 +257,7 @@ std::unique_ptr<EngineHost> EngineInit(const WindowConfig& config) {
         return nullptr;
     }
 
-    if (config.graphicsBackend == molga::GraphicsBackend::OpenGL33) {
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                            SDL_GL_CONTEXT_PROFILE_CORE);
-        SDL_GL_SetAttribute(SDL_GL_FRAMEBUFFER_SRGB_CAPABLE, 1);
-#ifdef __APPLE__
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS,
-                            SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-#endif
-    }
-
     SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
-    if (config.graphicsBackend == molga::GraphicsBackend::OpenGL33) {
-        flags |= SDL_WINDOW_OPENGL;
-    }
     if (config.resizable) flags |= SDL_WINDOW_RESIZABLE;
     if (!config.visible) flags |= SDL_WINDOW_HIDDEN;
     if (config.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
@@ -291,8 +273,7 @@ std::unique_ptr<EngineHost> EngineInit(const WindowConfig& config) {
 
     std::string graphicsError;
     impl->graphics = molga::CreateGraphicsDevice(
-        config.graphicsBackend, impl->window, config.graphicsValidation,
-        graphicsError);
+        impl->window, config.graphicsValidation, graphicsError);
     if (!impl->graphics) {
         std::cerr << "Failed to initialize graphics device: "
                   << graphicsError << std::endl;

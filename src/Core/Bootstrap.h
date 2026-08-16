@@ -16,7 +16,7 @@ struct WindowConfig {
     bool fullscreen = false;
     bool resizable = true;
     bool visible = true;
-    molga::GraphicsBackend graphicsBackend = molga::GraphicsBackend::OpenGL33;
+    molga::GraphicsBackend graphicsBackend = molga::GraphicsBackend::SdlGpu;
     bool graphicsValidation = false;
 };
 
@@ -31,8 +31,6 @@ public:
     EngineHost& operator=(const EngineHost&) = delete;
 
     void PollEvents();
-    void SwapBuffers();
-    bool MakeContextCurrent();
     bool ShouldClose() const;
     void RequestClose();
     void SetTitle(const std::string& title);
@@ -40,14 +38,15 @@ public:
     molga::WindowMetrics Metrics() const;
     molga::WindowPointerState Pointer() const;
     const molga::GraphicsDeviceInfo& GraphicsInfo() const;
+    molga::GraphicsDevice& Graphics();
+    const molga::GraphicsDevice& Graphics() const;
+    molga::BeginFrameResult BeginFrame();
     bool RenderCapabilityFrame(float r, float g, float b, float a = 1.0f);
     void SetNativeEventObserver(NativeEventObserver observer);
 
 private:
     explicit EngineHost(std::unique_ptr<Impl> impl);
     void* NativeWindowHandle() const;
-    void* NativeGLContextHandle() const;
-    void* NativeGraphicsDeviceHandle() const;
 
     std::unique_ptr<Impl> impl_;
 
@@ -60,5 +59,7 @@ private:
 // platform lifetime.
 std::unique_ptr<EngineHost> EngineInit(const WindowConfig& config);
 
-// Caller must release all renderer resources before resetting the host.
+// Caller must release all renderer resources before resetting the host. The
+// host waits for GPU idle, releases resources/device, destroys the window, and
+// finally shuts SDL down.
 void EngineShutdown(std::unique_ptr<EngineHost>& host);

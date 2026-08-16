@@ -1,4 +1,5 @@
 #include "AnimationWindow.h"
+#include "Editor/ImGuiTextureBridge.h"
 
 #include "Core/AssetDatabase.h"
 #include "Core/AssetMeta.h"
@@ -273,9 +274,9 @@ void AnimationWindow::DrawClip() {
                                          maxSide / std::max(sprite.nativeSize.y, 1.0f));
             const ImVec2 size(std::max(1.0f, sprite.nativeSize.x * scale),
                               std::max(1.0f, sprite.nativeSize.y * scale));
-            ImGui::Image(static_cast<ImTextureID>(sprite.texture->GetID()),
-                         size, ImVec2(sprite.uv.u0, sprite.uv.v1),
-                         ImVec2(sprite.uv.u1, sprite.uv.v0));
+            ImGui::Image(ImGuiTextureBridge::From(sprite.texture->Handle()),
+                         size, ImVec2(sprite.uv.u0, sprite.uv.v0),
+                         ImVec2(sprite.uv.u1, sprite.uv.v1));
         } else {
             ImGui::TextDisabled("The current slice cannot be resolved.");
         }

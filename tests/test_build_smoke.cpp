@@ -3,26 +3,32 @@
 #include "Core/PackageLayout.h"
 #include "Core/SmokeReport.h"
 #include "SmokeTestSupport.h"
+#include "ShaderPackageTestSupport.h"
 
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
-TEST_CASE("build package requires executable config scene assets and shaders") {
+TEST_CASE("build package requires executable config scene assets and MSL bundle") {
     test_support::TempDirectory temp{"build-smoke"};
     const fs::path root = temp.Path();
 
     fs::create_directories(root / "Scenes");
     fs::create_directories(root / "Assets");
     test_support::WriteText(root / "SmokeGame", "runtime");
-    test_support::WriteText(root / "game.json", "{}");
     test_support::WriteText(root / "Scenes/main.json", "{}");
+    const std::string shaderHash =
+        test_support::WriteMinimalMslShaderBundle(root);
+    test_support::WriteText(
+        root / "game.json",
+        test_support::MinimalPackageGameConfig(shaderHash).dump(2));
+    fs::remove_all(root / "ShaderBundle");
 
     std::string error;
     CHECK_FALSE(PackageLayout::Validate(root, "SmokeGame", error));
-    CHECK(error.find("Shaders") != std::string::npos);
+    CHECK(error.find("ShaderBundle") != std::string::npos);
 
-    test_support::WriteText(root / "Shaders/sprite.vert", "shader");
+    test_support::WriteMinimalMslShaderBundle(root);
 
     // asset_catalog.json and placeholder resource are now required
     CHECK_FALSE(PackageLayout::Validate(root, "SmokeGame", error));
@@ -42,6 +48,27 @@ TEST_CASE("smoke report round trips through json") {
     written.scenePath = "Scenes/main.json";
     written.objectCount = 1;
     written.frames = 3;
+    written.graphicsApi = "sdlgpu";
+    written.graphicsDriver = "metal";
+    written.osVersion = "macOS 26.5.1";
+    written.architecture = "arm64";
+    written.swapchainFormat = "BGRA8";
+    written.outputTextureFormat = "SRGBA8";
+    written.shaderArtifactFormat = "msl";
+    written.shaderManifestSha256 = std::string(64, 'a');
+    written.gpuRenderPasses = 4;
+    written.gpuUploadBytes = 4096;
+    written.gpuValidationEnabled = true;
+    written.gpuValidationErrors = 0;
+    written.finalPixelProbeValid = true;
+    written.finalPixelR = 12;
+    written.finalPixelG = 34;
+    written.finalPixelB = 56;
+    written.finalPixelA = 255;
+    written.benchmarkWarmupFrames = 120;
+    written.benchmarkMeasuredFrames = 600;
+    written.benchmarkCpuP50Ms = 1.25;
+    written.benchmarkCpuP95Ms = 2.5;
     written.assetsResolved = true;
     written.assetCatalogLoaded = true;
     written.assetCatalogRecords = 2;
@@ -103,6 +130,17 @@ TEST_CASE("smoke report round trips through json") {
     CHECK(loaded.status == "ok");
     CHECK(loaded.objectCount == 1);
     CHECK(loaded.frames == 3);
+    CHECK(loaded.graphicsApi == "sdlgpu");
+    CHECK(loaded.graphicsDriver == "metal");
+    CHECK(loaded.shaderManifestSha256 == std::string(64, 'a'));
+    CHECK(loaded.gpuRenderPasses == 4);
+    CHECK(loaded.gpuUploadBytes == 4096);
+    CHECK(loaded.gpuValidationEnabled);
+    CHECK(loaded.gpuValidationErrors == 0);
+    CHECK(loaded.finalPixelProbeValid);
+    CHECK(loaded.finalPixelA == 255);
+    CHECK(loaded.benchmarkMeasuredFrames == 600);
+    CHECK(loaded.benchmarkCpuP95Ms == doctest::Approx(2.5));
     CHECK(loaded.assetsResolved);
     CHECK(loaded.assetCatalogLoaded);
     CHECK(loaded.assetCatalogRecords == 2);

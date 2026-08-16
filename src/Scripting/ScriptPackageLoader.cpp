@@ -18,7 +18,7 @@ bool ScriptPackageLoader::Load(const GameConfig& config, bool smokeEnabled, cons
         outError = "Unsupported script API version: expected " +
             std::to_string(molga::ScriptApiVersion) + ", got " +
             std::to_string(config.scripts.apiVersion) +
-            ". Recompile scripts for Script API v2.";
+            ". Recompile scripts for Script API v3; older native packages are rejected.";
         Log::Error("ScriptPackageLoader", outError);
         return false;
     }

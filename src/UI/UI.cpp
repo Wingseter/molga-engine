@@ -246,8 +246,7 @@ void UIManager::Render(Renderer* renderer, Shader* shader, float screenWidth, fl
     // Set up orthographic projection for UI (screen coordinates)
     mat4x4_ortho(uiProjection, 0.0f, screenWidth, screenHeight, 0.0f, -1.0f, 1.0f);
 
-    shader->Use();
-    shader->SetMat4("projection", (float*)uiProjection);
+    renderer->SetProjection(0.0f, screenWidth, screenHeight, 0.0f);
 
     // Reset model matrix for UI
     mat4x4 identity;

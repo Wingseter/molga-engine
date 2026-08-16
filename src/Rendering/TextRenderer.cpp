@@ -5,7 +5,6 @@
 #include "Sprite.h"
 #include "Rendering/RenderQueue.h"
 #include "Rendering/Utf8.h"
-#include <glad/glad.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -208,8 +207,7 @@ static const unsigned char BUILTIN_FONT_DATA[] = {
 namespace {
 
 bool CanCreateBuiltinTexture() {
-    return glad_glGenTextures != nullptr && glad_glBindTexture != nullptr &&
-           glad_glTexParameteri != nullptr && glad_glTexImage2D != nullptr;
+    return molga::GraphicsDevice::Current() != nullptr;
 }
 
 } // namespace
@@ -294,9 +292,9 @@ void TextRenderer::GenerateBuiltinFont() {
         characters[c] = info;
     }
 
-    // Unit tests and import validation run without a GL context. Character
-    // metrics remain usable there; editor/runtime initialization creates the
-    // actual fallback atlas after GLAD has loaded the texture entry points.
+    // Unit tests and import validation can run without a graphics device.
+    // Metrics remain usable there; editor/runtime initialization creates the
+    // actual fallback atlas after SDL_GPU is ready.
     if (CanCreateBuiltinTexture()) {
         fontTexture = std::make_unique<Texture>(texWidth, texHeight, textureData, 4);
     }
@@ -536,7 +534,12 @@ void TextRenderer::CollectText(molga::RenderQueue& queue, const TextDrawParams& 
                     command.sortKey.sortingLayer = params.sortingLayer;
                     command.sortKey.sortingOrder = params.sortingOrder;
                     command.sortKey.depthOrYSort = params.depthOrYSort;
-                    command.batchKey.texture = glyph.texture;
+                    command.batchKey.shaderName = "batch";
+                    if (glyph.texture && glyph.texture->IsValid()) {
+                        command.batchKey.texture = glyph.texture->Handle();
+                        command.batchKey.textureSampler = glyph.texture->Sampler();
+                        command.batchKey.textureStableId = glyph.texture->StableId();
+                    }
                     command.batchKey.isBatchable = true;
                     command.isBatchableSprite = true;
                     // stb bitmaps and atlas CPU pages use a top-to-bottom row
@@ -569,7 +572,12 @@ void TextRenderer::CollectText(molga::RenderQueue& queue, const TextDrawParams& 
                     command.sortKey.sortingLayer = params.sortingLayer;
                     command.sortKey.sortingOrder = params.sortingOrder;
                     command.sortKey.depthOrYSort = params.depthOrYSort;
-                    command.batchKey.texture = fontTexture.get();
+                    command.batchKey.shaderName = "batch";
+                    if (fontTexture && fontTexture->IsValid()) {
+                        command.batchKey.texture = fontTexture->Handle();
+                        command.batchKey.textureSampler = fontTexture->Sampler();
+                        command.batchKey.textureStableId = fontTexture->StableId();
+                    }
                     command.batchKey.isBatchable = true;
                     command.isBatchableSprite = true;
                     SetVertex(command.vertices[0], x, y, glyph.u0, glyph.v0, params.color);

@@ -49,17 +49,20 @@ void RenderSystem2D::Render(RenderQueue& queue, Renderer* renderer, Camera2D* ca
         }
         renderer->Stats().submittedCommands++;
 
-        if (cmd.geometry && cmd.batchKey.isBatchable) {
-            batcher_.DrawGeometry(*cmd.geometry, cmd.batchKey);
-        } else if (cmd.isBatchableSprite) {
-            batcher_.DrawSprite(cmd.vertices, cmd.batchKey);
-        } else {
-            // Flush dynamic batch before drawing non-batchable sprites
-            batcher_.Flush();
-
-            if (cmd.fallbackRender) {
-                cmd.fallbackRender(renderer);
+        if (cmd.geometry) {
+            if (cmd.geometryIndices) {
+                batcher_.DrawIndexedGeometry(*cmd.geometry,
+                                             *cmd.geometryIndices,
+                                             cmd.batchKey);
+                continue;
             }
+            if (!cmd.batchKey.isBatchable) batcher_.Flush();
+            batcher_.DrawGeometry(*cmd.geometry, cmd.batchKey);
+            if (!cmd.batchKey.isBatchable) batcher_.Flush();
+        } else if (cmd.isBatchableSprite) {
+            if (!cmd.batchKey.isBatchable) batcher_.Flush();
+            batcher_.DrawSprite(cmd.vertices, cmd.batchKey);
+            if (!cmd.batchKey.isBatchable) batcher_.Flush();
         }
     }
 

@@ -28,9 +28,8 @@ struct PixelRect {
     int height = 0;
 };
 
-// Pure presentation math shared by rendering and pointer mapping. Rectangles
-// use top-left framebuffer coordinates; the OpenGL presenter performs the
-// bottom-left conversion only at the blit boundary.
+// Pure presentation math shared by rendering and pointer mapping. Every
+// rectangle uses the public top-left coordinate convention.
 struct OutputPresentationLayout {
     static OutputPresentationLayout Calculate(GameOutputScaleMode mode,
                                                PixelSize logicalSize,

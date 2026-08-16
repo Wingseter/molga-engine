@@ -86,14 +86,41 @@ molga_add_test(test_game_view         test_game_view.cpp)
 molga_add_test(test_camera_output_layout test_camera_output_layout.cpp)
 molga_add_test(test_post_process      test_post_process.cpp)
 molga_add_test(test_lighting_2d       test_lighting_2d.cpp)
-molga_add_test(test_framebuffer_gl    test_framebuffer_gl.cpp)
-target_link_libraries(test_framebuffer_gl PRIVATE glad)
-target_compile_definitions(test_framebuffer_gl PRIVATE
-    MOLGA_TEST_SHADER_DIR="${CMAKE_SOURCE_DIR}/src/Shaders")
-set_tests_properties(test_framebuffer_gl PROPERTIES LABELS "gpu;opengl")
+molga_add_test(test_rendering_sdlgpu  test_rendering_sdlgpu.cpp)
+target_compile_definitions(test_rendering_sdlgpu PRIVATE
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+if(MOLGA_MARROW_SUPPORT)
+    target_compile_definitions(test_rendering_sdlgpu PRIVATE
+        MOLGA_MARROW_FIXTURE_DIR="${MOLGA_MARROW_DIR}/assets/fixtures")
+endif()
+set_tests_properties(test_rendering_sdlgpu PROPERTIES
+    LABELS "gpu;sdlgpu;pixel")
+molga_add_test(test_imgui_sdlgpu test_imgui_sdlgpu.cpp)
+target_sources(test_imgui_sdlgpu PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/ImGuiLayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/ImGuiTextureBridge.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/FontManager.cpp)
+target_link_libraries(test_imgui_sdlgpu PRIVATE imgui)
+set_tests_properties(test_imgui_sdlgpu PROPERTIES
+    LABELS "smoke;gpu;sdlgpu;imgui"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    RUN_SERIAL TRUE
+    TIMEOUT 60)
 molga_add_test(test_path_service       test_path_service.cpp)
 molga_add_test(test_shader_material   test_shader_material.cpp)
-set_tests_properties(test_shader_material PROPERTIES LABELS "gpu;opengl")
+target_compile_definitions(test_shader_material PRIVATE
+    MOLGA_TEST_SHADER_BUNDLE="${CMAKE_BINARY_DIR}/ShaderBundle")
+set_tests_properties(test_shader_material PROPERTIES LABELS "unit;shader-bundle")
+add_test(
+    NAME test_shader_bundle_tool
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSHADERC=$<TARGET_FILE:molga_shaderc>"
+        "-DFULL_BUNDLE=${CMAKE_BINARY_DIR}/ShaderBundle"
+        "-DWORK_ROOT=${CMAKE_BINARY_DIR}/shader-bundle-tool-test"
+        "-DSOURCE_SHADERS=${CMAKE_SOURCE_DIR}/src/Shaders"
+        -P "${CMAKE_SOURCE_DIR}/tests/test_shader_bundle_tool.cmake")
+set_tests_properties(test_shader_bundle_tool PROPERTIES
+    LABELS "unit;shader-bundle")
 molga_add_test(test_game_builder      test_game_builder.cpp)
 molga_add_test(test_package_finalizer test_package_finalizer.cpp)
 
@@ -133,7 +160,7 @@ set_tests_properties(test_input_migrator PROPERTIES LABELS "unit;migration")
 molga_add_test(test_platform_sdl      test_platform_sdl.cpp)
 target_link_libraries(test_platform_sdl PRIVATE SDL3::SDL3)
 set_tests_properties(test_platform_sdl PROPERTIES
-    LABELS "platform;opengl")
+    LABELS "platform;sdl3")
 molga_add_test(test_gpu_sdl           test_gpu_sdl.cpp)
 set_tests_properties(test_gpu_sdl PROPERTIES
     LABELS "platform;gpu;sdlgpu")
@@ -151,6 +178,7 @@ target_sources(test_build_manager PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/EditorConsoleSink.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/EditorTaskService.cpp
+    ${CMAKE_SOURCE_DIR}/src/Platform/Process.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/EditorState.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/WindowManager.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/Windows/ConsoleWindow.cpp

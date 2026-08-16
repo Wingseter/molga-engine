@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EditorWindow.h"
-#include "Rendering/Framebuffer.h"
+#include "Rendering/RenderTarget.h"
 #include "Rendering/Camera2D.h"
 #include "Editor/ViewportMath.h"
 #include "Editor/Gizmos/TransformGizmo.h"
@@ -53,8 +53,8 @@ private:
     Shader*     spriteShader_ = nullptr;
     std::vector<std::shared_ptr<GameObject>>* gameObjects_ = nullptr;
 
-    // 오프스크린 FBO
-    Framebuffer fbo_;
+    // Scene View 전용 오프스크린 타깃
+    molga::RenderTarget sceneTarget_;
     molga::PostProcessPipeline postProcessPipeline_;
     molga::LightingPipeline2D lightingPipeline_;
     molga::EditorPreferences preferences_;
@@ -66,9 +66,7 @@ private:
     std::unique_ptr<Camera2D> editorCamera_;
 
     // 그리드 셰이더
-    std::unique_ptr<Shader> gridShader_;
-    unsigned int gridVAO_ = 0;
-    unsigned int gridVBO_ = 0;
+    Shader* gridShader_ = nullptr;
     bool gridShaderLoaded_ = false;
 
     // 뷰포트 크기 추적
@@ -98,7 +96,6 @@ private:
 
     // 초기화
     void InitGridShader();
-    void InitGridQuad();
 
     // 씬 렌더
     void RenderSceneToFBO(float vpW, float vpH);

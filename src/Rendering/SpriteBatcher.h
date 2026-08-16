@@ -24,6 +24,9 @@ public:
                const LightingRenderContext2D* lightingContext = nullptr);
     void DrawSprite(const std::array<Vertex2D, 4>& vertices, const BatchKey& key);
     void DrawGeometry(const std::vector<Vertex2D>& vertices, const BatchKey& key);
+    void DrawIndexedGeometry(const std::vector<Vertex2D>& vertices,
+                             const std::vector<std::uint32_t>& indices,
+                             const BatchKey& key);
     static size_t RequiredBatchCount(size_t quadCount) {
         return quadCount == 0 ? 0 : (quadCount + MAX_SPRITES - 1) / MAX_SPRITES;
     }
@@ -31,10 +34,6 @@ public:
     void End();
 
 private:
-    unsigned int VAO = 0;
-    unsigned int VBO = 0;
-    unsigned int EBO = 0;
-
     Renderer* renderer_ = nullptr;
     const LightingRenderContext2D* lightingContext_ = nullptr;
     BatchKey activeKey_;

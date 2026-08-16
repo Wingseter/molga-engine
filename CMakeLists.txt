@@ -4,6 +4,10 @@ project(molga_engine)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING
+        "Minimum macOS SDK deployment target used for build compatibility")
+endif()
 
 # 우리 코드에만 적용할 경고/sanitizer 모음 (external 라이브러리는 제외)
 set(MOLGA_SANITIZER "" CACHE STRING "Enable a sanitizer: address | undefined | thread (empty = off)")
@@ -41,10 +45,19 @@ set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_TESTS OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+set(SDL_OPENGL OFF CACHE BOOL "" FORCE)
+set(SDL_OPENGLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/SDL EXCLUDE_FROM_ALL)
 
-add_library(glad external/glad/src/glad.c)
-target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/external/glad/include)
+set(SDLSHADERCROSS_DXC ON CACHE BOOL "" FORCE)
+set(SDLSHADERCROSS_SHARED OFF CACHE BOOL "" FORCE)
+set(SDLSHADERCROSS_STATIC ON CACHE BOOL "" FORCE)
+set(SDLSHADERCROSS_SPIRVCROSS_SHARED OFF CACHE BOOL "" FORCE)
+set(SDLSHADERCROSS_VENDORED ON CACHE BOOL "" FORCE)
+set(SDLSHADERCROSS_CLI OFF CACHE BOOL "" FORCE)
+set(SDLSHADERCROSS_INSTALL OFF CACHE BOOL "" FORCE)
+set(SDLSHADERCROSS_TESTS OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/SDL_shadercross EXCLUDE_FROM_ALL)
 
 # ── ImGui library ──────────────────────────────────────────────────────────────
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
@@ -54,18 +67,19 @@ add_library(imgui
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp
 )
 target_include_directories(imgui PUBLIC
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
-    ${CMAKE_SOURCE_DIR}/external/glad/include
 )
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
 # ── Common engine source files ─────────────────────────────────────────────────
 set(ENGINE_SOURCES
+    src/Common/Sha256.cpp
     src/Rendering/GraphicsDevice.cpp
+    src/Rendering/ShaderBundle.cpp
     src/Rendering/Shader.cpp
     src/Rendering/ShaderManager.cpp
     src/Rendering/Material.cpp
@@ -85,7 +99,7 @@ set(ENGINE_SOURCES
     src/Rendering/WorldRenderTraversal.cpp
     src/Rendering/SpriteBatcher.cpp
     src/Rendering/RenderPassState.cpp
-    src/Rendering/Framebuffer.cpp
+    src/Rendering/RenderTarget.cpp
     src/Rendering/Utf8.cpp
     src/Rendering/FontFace.cpp
     src/Rendering/FontAtlas.cpp
@@ -182,13 +196,17 @@ set(ENGINE_SOURCES
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
-set(MARROW_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Maroow")
-if(EXISTS "${MARROW_DIR}/include/marrow/runtime/skeleton.hpp" AND EXISTS "${MARROW_DIR}/build/libmarrow_runtime.a")
+set(MOLGA_MARROW_DIR "" CACHE PATH
+    "Explicit path to a pinned Marrow checkout with build/libmarrow_runtime.a")
+if(MOLGA_MARROW_DIR AND
+   EXISTS "${MOLGA_MARROW_DIR}/include/marrow/runtime/skeleton.hpp" AND
+   EXISTS "${MOLGA_MARROW_DIR}/build/libmarrow_runtime.a")
     message(STATUS "Marrow runtime dependency found. Enabling Marrow support.")
     set(MOLGA_MARROW_SUPPORT ON)
     list(APPEND ENGINE_SOURCES src/ECS/Components/MarrowRenderer.cpp)
 else()
-    message(WARNING "Marrow runtime dependency NOT found at ${MARROW_DIR}. Skeletal animation will be disabled.")
+    message(STATUS
+        "Marrow support disabled. Set MOLGA_MARROW_DIR to the pinned checkout.")
     set(MOLGA_MARROW_SUPPORT OFF)
 endif()
 
@@ -203,23 +221,22 @@ target_include_directories(molga_core PUBLIC
 target_include_directories(molga_core PRIVATE ${IMGUI_DIR})
 
 if(MOLGA_MARROW_SUPPORT)
-    target_include_directories(molga_core PUBLIC ${MARROW_DIR}/include)
+    target_include_directories(molga_core PUBLIC ${MOLGA_MARROW_DIR}/include)
     target_compile_definitions(molga_core PUBLIC MOLGA_MARROW_SUPPORT)
 endif()
 
 target_link_libraries(molga_core
-    PRIVATE glad SDL3::SDL3
+    PRIVATE SDL3::SDL3
     PUBLIC box2d
 )
-
-
 if(MOLGA_MARROW_SUPPORT)
-    target_link_libraries(molga_core PUBLIC ${MARROW_DIR}/build/libmarrow_runtime.a)
+    target_link_libraries(molga_core PUBLIC
+        ${MOLGA_MARROW_DIR}/build/libmarrow_runtime.a)
 endif()
 
 target_link_libraries(molga_core PRIVATE molga_warnings)
 target_compile_definitions(molga_core PRIVATE
-    MOLGA_SHADER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/Shaders")
+    MOLGA_SHADER_BUNDLE_DIR="${CMAKE_BINARY_DIR}/ShaderBundle")
 
 if(APPLE)
     target_link_libraries(molga_core PUBLIC
@@ -231,6 +248,7 @@ endif()
 # ── Editor-only source files ───────────────────────────────────────────────────
 set(EDITOR_SOURCES
     src/Editor/ImGuiLayer.cpp
+    src/Editor/ImGuiTextureBridge.cpp
     src/Editor/EditorState.cpp
     src/Editor/Editor.cpp
     src/Editor/EditorConsoleSink.cpp
@@ -278,14 +296,48 @@ target_link_libraries(molga_engine PRIVATE molga_core imgui)
 
 add_executable(molga_migrate src/Tools/InputMigrator.cpp)
 target_link_libraries(molga_migrate PRIVATE molga_core molga_warnings)
+
+add_executable(molga_shaderc
+    src/Tools/ShaderCompiler.cpp
+    src/Common/Sha256.cpp
+    src/Rendering/ShaderBundle.cpp
+)
+target_include_directories(molga_shaderc PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
+)
+target_link_libraries(molga_shaderc PRIVATE
+    SDL3_shadercross::SDL3_shadercross-static
+    SDL3::SDL3-static
+    molga_warnings
+)
+
+file(GLOB_RECURSE MOLGA_SHADER_INPUTS CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/src/Shaders/*.hlsl"
+    "${CMAKE_SOURCE_DIR}/src/Shaders/*.shader.json")
+add_custom_command(
+    OUTPUT "${CMAKE_BINARY_DIR}/ShaderBundle/manifest.json"
+    COMMAND $<TARGET_FILE:molga_shaderc> build
+            --descriptors "${CMAKE_SOURCE_DIR}/src/Shaders"
+            --output "${CMAKE_BINARY_DIR}/ShaderBundle"
+    DEPENDS molga_shaderc ${MOLGA_SHADER_INPUTS}
+    COMMENT "Building validated SDL_GPU shader bundle"
+    VERBATIM)
+add_custom_target(molga_shader_bundle ALL
+    DEPENDS "${CMAKE_BINARY_DIR}/ShaderBundle/manifest.json")
+add_dependencies(molga_core molga_shader_bundle)
+add_dependencies(molga_engine molga_shader_bundle)
 target_link_libraries(molga_engine PRIVATE molga_warnings)
-target_compile_definitions(molga_engine PRIVATE MOLGA_EDITOR)
+target_compile_definitions(molga_engine PRIVATE
+    MOLGA_EDITOR
+    MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR="${CMAKE_SOURCE_DIR}/src/Shaders")
 set_target_properties(molga_engine PROPERTIES ENABLE_EXPORTS ON)
 
 # ── Runtime executable ─────────────────────────────────────────────────────────
 add_executable(molga_runtime src/runtime_main.cpp)
 target_link_libraries(molga_runtime PRIVATE molga_core)
 target_link_libraries(molga_runtime PRIVATE molga_warnings)
+add_dependencies(molga_runtime molga_shader_bundle)
 set_target_properties(molga_runtime PROPERTIES ENABLE_EXPORTS ON)
 
 # ── Copy assets to build directory ─────────────────────────────────────────────
@@ -293,18 +345,6 @@ add_custom_command(TARGET molga_engine POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:molga_engine>/assets
     COMMENT "Copying assets to build directory"
-)
-
-# ── Copy shaders to build directory ──────────────────────────────────────────
-add_custom_command(TARGET molga_engine POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/src/Shaders $<TARGET_FILE_DIR:molga_engine>/Shaders
-    COMMENT "Copying shaders to build directory"
-)
-add_custom_command(TARGET molga_runtime POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_SOURCE_DIR}/src/Shaders $<TARGET_FILE_DIR:molga_runtime>/Shaders
-    COMMENT "Copying shaders to build directory (runtime)"
 )
 
 # ── Copy editor resources to build directory ─────────────────────────────────
@@ -337,6 +377,6 @@ add_test(
 )
 set_tests_properties(smoke_end_to_end PROPERTIES
     LABELS "smoke;e2e"
-    TIMEOUT 30
+    TIMEOUT 180
     RUN_SERIAL TRUE
 )

@@ -197,23 +197,23 @@ int main(int argc, char* argv[]) {
 
     // Initialize resources (local to main)
     auto renderer = std::make_unique<Renderer>();
-    renderer->Init();
+    std::string rendererError;
+    if (!renderer->Init(&rendererError)) {
+        std::cerr << "Renderer initialization failed: " << rendererError << '\n';
+        ImGuiLayer::Shutdown();
+        EngineShutdown(host);
+        return -1;
+    }
     molga::RenderSystem2D::Get().Init();
-    auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
-    auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
-    Shader* shader = ShaderManager::Get().Load("default", vertPath, fragPath);
-
-    auto batchVertPath = PathService::Get().EngineResource("Shaders/batch.vert").string();
-    auto batchFragPath = PathService::Get().EngineResource("Shaders/batch.frag").string();
-    ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
-    ShaderManager::Get().Load(
-        "batch_lit",
-        PathService::Get().EngineResource("Shaders/batch_lit.vert").string(),
-        PathService::Get().EngineResource("Shaders/batch_lit.frag").string());
-    ShaderManager::Get().Load(
-        "shadow_mask_2d",
-        PathService::Get().EngineResource("Shaders/shadow_mask_2d.vert").string(),
-        PathService::Get().EngineResource("Shaders/shadow_mask_2d.frag").string());
+    Shader* shader = ShaderManager::Get().Get("default");
+    if (!shader) {
+        std::cerr << "Renderer shader bundle has no default entry\n";
+        molga::RenderSystem2D::Get().Shutdown();
+        renderer.reset();
+        ImGuiLayer::Shutdown();
+        EngineShutdown(host);
+        return -1;
+    }
     SceneDocument sceneDoc;
 
     // Initialize Text Renderer
@@ -277,13 +277,28 @@ int main(int argc, char* argv[]) {
     // Project selection loop (if no project loaded yet)
     while (!host->ShouldClose() && !projectLoaded) {
         host->PollEvents();
+        if (host->ShouldClose()) break;
+
+        molga::BeginFrameResult acquired = host->BeginFrame();
+        if (acquired.status == molga::FrameAcquireStatus::Unavailable) continue;
+        if (acquired.status == molga::FrameAcquireStatus::Fatal ||
+            !renderer->BeginFrame(std::move(acquired.frame), &rendererError)) {
+            std::cerr << "GPU frame acquisition failed: "
+                      << (acquired.error.empty() ? rendererError : acquired.error)
+                      << '\n';
+            host->RequestClose();
+            break;
+        }
 
         // Clear first, then draw ImGui
         renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
 
         ImGuiLayer::BeginFrame();
         projectWindow.OnGUI();
-        ImGuiLayer::EndFrame();
+        if (!ImGuiLayer::EndFrame(*renderer, &rendererError)) {
+            std::cerr << "Editor frame submission failed: " << rendererError << '\n';
+            host->RequestClose();
+        }
 
         // Check if project was selected
         if (projectWindow.HasProjectSelected()) {
@@ -291,7 +306,6 @@ int main(int argc, char* argv[]) {
             std::cout << "[Main] Project selected: " << projectWindow.GetSelectedProjectPath() << std::endl;
         }
 
-        host->SwapBuffers();
     }
 
     if (projectLoaded && Project::Get().IsOpen()) {
@@ -387,6 +401,17 @@ int main(int argc, char* argv[]) {
             // so they continue while the editor is paused or in edit mode.
             Audio::Update(dt);
 
+            molga::BeginFrameResult acquired = host->BeginFrame();
+            if (acquired.status == molga::FrameAcquireStatus::Unavailable) continue;
+            if (acquired.status == molga::FrameAcquireStatus::Fatal ||
+                !renderer->BeginFrame(std::move(acquired.frame), &rendererError)) {
+                std::cerr << "GPU frame acquisition failed: "
+                          << (acquired.error.empty() ? rendererError : acquired.error)
+                          << '\n';
+                host->RequestClose();
+                break;
+            }
+
             // Game output is rendered exclusively by GameViewWindow. The
             // editor backbuffer only hosts ImGui and remains camera-independent.
             renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
@@ -397,7 +422,11 @@ int main(int argc, char* argv[]) {
                 ImGuiLayer::BeginFrame();
                 Editor::Get().Update(dt);
                 Editor::Get().RenderGUI();
-                ImGuiLayer::EndFrame();
+                if (!ImGuiLayer::EndFrame(*renderer, &rendererError)) {
+                    std::cerr << "Editor frame submission failed: "
+                              << rendererError << '\n';
+                    host->RequestClose();
+                }
             }
 
             EventBus::ProcessQueue();
@@ -421,8 +450,6 @@ int main(int argc, char* argv[]) {
             }
 
             Editor::Get().PumpScriptReload(editorState.IsEditMode());
-
-            host->SwapBuffers();
 
             // 한 프레임의 스코프·카운터를 굳혀 ring buffer에 넣는다.
             molga::FrameCounters frameCounters = Editor::Get().TakeFrameCounters();

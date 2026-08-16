@@ -97,6 +97,7 @@ TEST_CASE("BuildProfile migrates schema v1 to Native schema v2") {
 
 #include "Core/BuildPlan.h"
 #include "Core/PackageLayout.h"
+#include "ShaderPackageTestSupport.h"
 #include <filesystem>
 #include <fstream>
 
@@ -150,27 +151,34 @@ TEST_CASE("BuildPlanBuilder rejects escaping scene paths") {
 
 TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
     fs::path tmpDir = fs::temp_directory_path() / "molga_custom_pkg_layout_test";
+    fs::remove_all(tmpDir);
     fs::create_directories(tmpDir);
 
     std::string exeName = PackageLayout::ExecutableNameFor("TestCustomGame");
     { std::ofstream(tmpDir / exeName); }
     fs::create_directories(tmpDir / "Assets");
-    fs::create_directories(tmpDir / "Shaders");
     { std::ofstream(tmpDir / "asset_catalog.json") << "{\"schemaVersion\":1,\"records\":[]}"; }
     fs::create_directories(tmpDir / "Resources");
     { std::ofstream(tmpDir / "Resources/missing_texture.png") << "placeholder"; }
+    const std::string shaderManifestSha256 =
+        test_support::WriteMinimalMslShaderBundle(tmpDir);
+    auto config = test_support::MinimalPackageGameConfig(
+        shaderManifestSha256);
+    config["mainScene"] = "Scenes/levels/start.json";
+    config["scenes"] = {"Scenes/levels/start.json", "Scenes/other.json"};
+    config["startupSceneId"] = "Scenes/levels/start.json";
+    config["sceneCatalog"] = {
+        {{"id", "Scenes/levels/start.json"},
+         {"packagePath", "Scenes/levels/start.json"}},
+        {{"id", "Levels/other.json"},
+         {"packagePath", "Scenes/other.json"}},
+    };
+    const auto writeConfig = [&]() {
+        std::ofstream(tmpDir / "game.json") << config.dump(2) << '\n';
+    };
 
     // Case 1: Custom mainScene and scenes listed in game.json
-    {
-        std::ofstream f(tmpDir / "game.json");
-        f << R"({
-            "mainScene": "Scenes/levels/start.json",
-            "scenes": [
-                "Scenes/levels/start.json",
-                "Scenes/other.json"
-            ]
-        })";
-    }
+    writeConfig();
 
     std::string error;
     // Should fail because Scenes/levels/start.json does not exist yet
@@ -189,39 +197,24 @@ TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
     CHECK(error.empty());
 
     // New catalog contract is validated alongside the retained legacy fields.
-    {
-        std::ofstream f(tmpDir / "game.json");
-        f << R"({
-            "mainScene": "Scenes/levels/start.json",
-            "scenes": ["Scenes/levels/start.json", "Scenes/other.json"],
-            "startupSceneId": "Scenes/levels/start.json",
-            "sceneCatalog": [
-                {"id":"Scenes/levels/start.json","packagePath":"Scenes/levels/start.json"},
-                {"id":"Levels/other.json","packagePath":"Scenes/other.json"}
-            ]
-        })";
-    }
+    writeConfig();
     valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
     CHECK(valid);
 
-    {
-        std::ofstream f(tmpDir / "game.json");
-        f << R"({
-            "mainScene": "Scenes/levels/start.json",
-            "startupSceneId": "Scenes/not-registered.json",
-            "sceneCatalog": [
-                {"id":"Scenes/levels/start.json","packagePath":"Scenes/levels/start.json"}
-            ]
-        })";
-    }
+    config["startupSceneId"] = "Scenes/not-registered.json";
+    config["sceneCatalog"] = {{{"id", "Scenes/levels/start.json"},
+                                {"packagePath", "Scenes/levels/start.json"}}};
+    writeConfig();
     valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
     CHECK_FALSE(valid);
     CHECK(error.find("startupSceneId") != std::string::npos);
 
-    {
-        std::ofstream f(tmpDir / "game.json");
-        f << R"({"mainScene":"../outside.json"})";
-    }
+    config["mainScene"] = "../outside.json";
+    config["startupSceneId"] = "../outside.json";
+    config["scenes"] = {"../outside.json"};
+    config["sceneCatalog"] = {{{"id", "../outside.json"},
+                                {"packagePath", "../outside.json"}}};
+    writeConfig();
     valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
     CHECK_FALSE(valid);
     CHECK(error.find("package root") != std::string::npos);

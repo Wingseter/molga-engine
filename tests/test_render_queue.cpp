@@ -47,24 +47,28 @@ TEST_CASE("RenderQueue sort is deterministic and stable") {
 }
 
 TEST_CASE("BatchKey equivalence and grouping compatibility") {
-    // Check compatibility comparison
+    // Batch grouping uses stable shader/texture identities rather than native
+    // pointers or transient resource slots.
     BatchKey k1;
-    k1.shader = reinterpret_cast<Shader*>(0x1);
-    k1.texture = reinterpret_cast<Texture*>(0x2);
+    k1.shaderName = "sprite";
+    k1.shaderRevision = 7;
+    k1.textureStableId = 42;
     k1.blendMode = BlendMode::Alpha;
     k1.isBatchable = true;
 
     BatchKey k2;
-    k2.shader = reinterpret_cast<Shader*>(0x1);
-    k2.texture = reinterpret_cast<Texture*>(0x2);
+    k2.shaderName = "sprite";
+    k2.shaderRevision = 7;
+    k2.textureStableId = 42;
     k2.blendMode = BlendMode::Alpha;
     k2.isBatchable = true;
 
     CHECK(k1 == k2);
 
     BatchKey k3;
-    k3.shader = reinterpret_cast<Shader*>(0x3); // different shader
-    k3.texture = reinterpret_cast<Texture*>(0x2);
+    k3.shaderName = "text";
+    k3.shaderRevision = 7;
+    k3.textureStableId = 42;
     k3.blendMode = BlendMode::Alpha;
     k3.isBatchable = true;
 

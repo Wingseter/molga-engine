@@ -8,7 +8,7 @@
 
 REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Rendering/Renderer.h"
-#include <glad/glad.h>
+#include "../../Rendering/RenderSystem2D.h"
 #include "../../Rendering/Shader.h"
 #include "../../Rendering/Camera2D.h"
 #include "../../Rendering/Sprite.h"
@@ -20,6 +20,7 @@ REGISTER_COMPONENT(SpriteRenderer)
 #include "Rendering/WorldRenderTraversal.h"
 #ifdef MOLGA_EDITOR
 #include "../../Editor/Project.h"
+#include "../../Editor/ImGuiTextureBridge.h"
 #endif
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -348,33 +349,10 @@ std::optional<AABB> SpriteRenderer::GetWorldBounds() {
 }
 
 void SpriteRenderer::RenderSprite(Renderer* renderer) {
-    if (!gameObject || !enabled) return;
-
-    Transform* transform = gameObject->GetComponent<Transform>();
-    if (!transform) return;
-
-    VisualSprite visual = GetVisualSprite();
-    material.Apply(renderer);
-    Sprite sprite;
-    ConfigureSprite(sprite, *transform,
-                    sizeMode == SizeMode::Native && visual.nativeSize.x > 0.0f &&
-                            visual.nativeSize.y > 0.0f
-                        ? visual.nativeSize : Vector2{width, height},
-                    visual.pivot, sizeMode == SizeMode::Native,
-                    visual.uv, flipX, flipY);
-    sprite.SetColor(color.r * material.tint.r, color.g * material.tint.g, color.b * material.tint.b, color.a * material.tint.a);
-
-    if (material.mainTexture) {
-        sprite.SetTexture(material.mainTexture);
-    } else if (visual.texture) {
-        sprite.SetTexture(visual.texture);
-    }
-
-    renderer->DrawSprite(&sprite);
-
-    // Restore standard alpha blending
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    if (!renderer) return;
+    molga::RenderQueue queue;
+    CollectRender(queue);
+    molga::RenderSystem2D::Get().Render(queue, renderer, nullptr);
 }
 
 void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
@@ -391,13 +369,19 @@ void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
 
     // Batch key setup
     cmd.batchKey = material.GetBatchKey();
-    if (!cmd.batchKey.texture) {
-        cmd.batchKey.texture = visual.texture;
+    if (!cmd.batchKey.texture && visual.texture && visual.texture->IsValid()) {
+        cmd.batchKey.texture = visual.texture->Handle();
+        cmd.batchKey.textureSampler = visual.texture->Sampler();
+        cmd.batchKey.textureStableId = visual.texture->StableId();
     }
     if (lightingMode_ == SpriteLightingMode2D::Lit) {
         if (cmd.batchKey.isBatchable) {
             cmd.batchKey.lit = true;
-            cmd.batchKey.normalTexture = GetNormalTexture();
+            if (Texture* normal = GetNormalTexture()) {
+                cmd.batchKey.normalTexture = normal->Handle();
+                cmd.batchKey.normalSampler = normal->Sampler();
+                cmd.batchKey.normalTextureStableId = normal->StableId();
+            }
             cmd.batchKey.normalStrength = normalStrength_;
             cmd.batchKey.receiverLayer = static_cast<std::uint32_t>(
                 molga::NormalizeWorldRenderLayer(gameObject->GetLayer()));
@@ -410,7 +394,7 @@ void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
         }
     }
 
-    if (cmd.batchKey.isBatchable) {
+    {
         cmd.isBatchableSprite = true;
 
         Sprite sprite;
@@ -433,30 +417,25 @@ void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
         // Setup vertices (TL, TR, BR, BL)
         TransformVertex(model, 0.0f, 1.0f, cmd.vertices[0].x, cmd.vertices[0].y);
         cmd.vertices[0].u = sprite.uv[0];
-        cmd.vertices[0].v = sprite.uv[3];
+        cmd.vertices[0].v = sprite.uv[1];
         cmd.vertices[0].r = r; cmd.vertices[0].g = g; cmd.vertices[0].b = b; cmd.vertices[0].a = a;
 
         TransformVertex(model, 1.0f, 1.0f, cmd.vertices[1].x, cmd.vertices[1].y);
         cmd.vertices[1].u = sprite.uv[2];
-        cmd.vertices[1].v = sprite.uv[3];
+        cmd.vertices[1].v = sprite.uv[1];
         cmd.vertices[1].r = r; cmd.vertices[1].g = g; cmd.vertices[1].b = b; cmd.vertices[1].a = a;
 
         TransformVertex(model, 1.0f, 0.0f, cmd.vertices[2].x, cmd.vertices[2].y);
         cmd.vertices[2].u = sprite.uv[2];
-        cmd.vertices[2].v = sprite.uv[1];
+        cmd.vertices[2].v = sprite.uv[3];
         cmd.vertices[2].r = r; cmd.vertices[2].g = g; cmd.vertices[2].b = b; cmd.vertices[2].a = a;
 
         TransformVertex(model, 0.0f, 0.0f, cmd.vertices[3].x, cmd.vertices[3].y);
         cmd.vertices[3].u = sprite.uv[0];
-        cmd.vertices[3].v = sprite.uv[1];
+        cmd.vertices[3].v = sprite.uv[3];
         cmd.vertices[3].r = r; cmd.vertices[3].g = g; cmd.vertices[3].b = b; cmd.vertices[3].a = a;
 
         cmd.worldBounds = CalculateSpriteBounds(sprite);
-    } else {
-        cmd.isBatchableSprite = false;
-        cmd.fallbackRender = [this](Renderer* r) {
-            this->RenderSprite(r);
-        };
     }
 
     queue.Submit(cmd);
@@ -667,7 +646,7 @@ void SpriteRenderer::OnInspectorGUI() {
         float previewSize = 64.0f;
         float aspect = static_cast<float>(texture->GetWidth()) / static_cast<float>(texture->GetHeight());
         ImVec2 size = aspect > 1.0f ? ImVec2(previewSize, previewSize / aspect) : ImVec2(previewSize * aspect, previewSize);
-        ImGui::Image(static_cast<ImTextureID>(texture->GetID()), size);
+        ImGui::Image(ImGuiTextureBridge::From(texture->Handle()), size);
     } else if (!texturePath.empty()) {
         ImGui::TextColored(ImVec4(0.8f, 0.5f, 0.3f, 1.0f), "Not loaded");
     }

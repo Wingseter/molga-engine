@@ -6,12 +6,12 @@
 #include "Core/SpriteResolver.h"
 #include "Rendering/RenderQueue.h"
 #include "Rendering/Renderer.h"
+#include "Rendering/RenderSystem2D.h"
 #include "Rendering/ShaderManager.h"
 #include "Rendering/Sprite.h"
 
 #include <algorithm>
 #include <cmath>
-#include <glad/glad.h>
 
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
@@ -245,41 +245,9 @@ void ParticleSystem::EnsureResolvedSprites() {
 
 void ParticleSystem::RenderSprite(Renderer* renderer) {
     if (!renderer || !gameObject || !enabled) return;
-    EnsureResolvedSprites();
-    if (useAdditiveBlending) glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-
-    const bool textured = !config.sprites.empty();
-    const auto& particles = emitter.GetParticles();
-    for (const Particle& particle : particles) {
-        if (!particle.active || particle.size <= 0.0f) continue;
-        const molga::ResolvedSprite* resolved = nullptr;
-        if (textured) {
-            const std::size_t frame = emitter.FrameIndexForParticle(
-                particle, config.sprites.size());
-            if (frame >= resolvedSprites_.size() || !resolvedSprites_[frame].valid) continue;
-            resolved = &resolvedSprites_[frame];
-        }
-
-        const float offsetX = config.simulationSpace == ParticleSimulationSpace::Local
-            ? emitter.x : 0.0f;
-        const float offsetY = config.simulationSpace == ParticleSimulationSpace::Local
-            ? emitter.y : 0.0f;
-        const Vector2 pivot = resolved ? resolved->pivot : Vector2{0.5f, 0.5f};
-        Sprite sprite;
-        sprite.SetPosition(particle.x + offsetX - pivot.x * particle.size,
-                           particle.y + offsetY - pivot.y * particle.size);
-        sprite.SetSize(particle.size, particle.size);
-        sprite.SetColor(particle.r, particle.g, particle.b, particle.a);
-        sprite.SetRotation(particle.rotation * 180.0f / Constants::PI);
-        if (resolved) {
-            sprite.SetTexture(resolved->texture);
-            sprite.SetUV(resolved->uv.u0, resolved->uv.v0,
-                         resolved->uv.u1, resolved->uv.v1);
-        }
-        renderer->DrawSprite(&sprite);
-    }
-
-    if (useAdditiveBlending) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    molga::RenderQueue queue;
+    SubmitEmitterGeometry(emitter, queue);
+    molga::RenderSystem2D::Get().Render(queue, renderer, nullptr);
 }
 
 void ParticleSystem::SubmitEmitterGeometry(const ParticleEmitter& target,
@@ -298,8 +266,15 @@ void ParticleSystem::SubmitEmitterGeometry(const ParticleEmitter& target,
         if (!batch.geometry || batch.geometry->empty()) continue;
         molga::RenderCommand command;
         command.sortKey = componentSortKey;
-        command.batchKey.shader = ShaderManager::Get().Get("batch");
-        command.batchKey.texture = batch.texture;
+        command.batchKey.shaderName = "batch";
+        if (Shader* shader = ShaderManager::Get().Get("batch")) {
+            command.batchKey.shaderRevision = shader->Revision();
+        }
+        if (batch.texture && batch.texture->IsValid()) {
+            command.batchKey.texture = batch.texture->Handle();
+            command.batchKey.textureSampler = batch.texture->Sampler();
+            command.batchKey.textureStableId = batch.texture->StableId();
+        }
         command.batchKey.blendMode = GetBlendMode();
         command.batchKey.isBatchable = true;
         command.geometry = batch.geometry;

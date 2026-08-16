@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <array>
-#include <glad/glad.h>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -35,9 +34,7 @@ int NormalizePixelSize(int pixelSize) {
 }
 
 bool CanCreateTextures() {
-    return glad_glGenTextures != nullptr && glad_glBindTexture != nullptr &&
-           glad_glTexParameteri != nullptr && glad_glTexImage2D != nullptr &&
-           glad_glTexSubImage2D != nullptr;
+    return GraphicsDevice::Current() != nullptr;
 }
 
 struct AtlasPage {

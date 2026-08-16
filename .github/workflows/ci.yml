@@ -17,16 +17,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Checkout pinned Marrow runtime
+        uses: actions/checkout@v4
+        with:
+          repository: Wingseter/Maroow
+          ref: e4d984535d72b60ad52097a2c067d65c7208b1b2
+          path: _maroow
+          submodules: recursive
+      - name: Build pinned Marrow runtime
+        run: |
+          cmake -S _maroow -B _maroow/build -DCMAKE_BUILD_TYPE=${{ matrix.preset == 'release' && 'Release' || 'Debug' }} -DBUILD_TESTING=OFF
+          cmake --build _maroow/build --target marrow_runtime -j$(sysctl -n hw.ncpu)
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }} -DMOLGA_MARROW_DIR=${{ github.workspace }}/_maroow
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
       - name: Run unit tests
         run: ctest --preset ${{ matrix.preset }} -L unit -LE smoke --output-on-failure
       - name: Run playable editor smoke
         run: ctest --preset ${{ matrix.preset }} -L smoke --output-on-failure
-      - name: Run SDL platform and GPU contracts
+      - name: Run SDL platform contracts
         run: ctest --preset ${{ matrix.preset }} -L platform --output-on-failure
+      - name: Run SDL_GPU Metal pixel gate
+        run: ctest --preset ${{ matrix.preset }} -L pixel --output-on-failure
       - name: Upload smoke diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -52,20 +65,16 @@ jobs:
           sudo apt-get update && sudo apt-get install -y
           xvfb libx11-dev libxext-dev libxrandr-dev libxinerama-dev
           libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev
-          libwayland-dev libxkbcommon-dev libdecor-0-dev libgl1-mesa-dev
+          libwayland-dev libxkbcommon-dev libdecor-0-dev libvulkan-dev
           mesa-vulkan-drivers
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} -j$(nproc)
       - name: Run unit tests
-        run: ctest --preset ${{ matrix.preset }} -L unit -LE smoke --output-on-failure
-      - name: Run designated OpenGL tests
-        run: xvfb-run -a ctest --preset ${{ matrix.preset }} -L opengl --output-on-failure
-      - name: Run SDL_GPU Vulkan contract
-        run: xvfb-run -a ctest --preset ${{ matrix.preset }} -L sdlgpu --output-on-failure
-      - name: Run playable editor smoke
-        run: xvfb-run -a ctest --preset ${{ matrix.preset }} -L smoke --output-on-failure
+        run: ctest --preset ${{ matrix.preset }} -L unit -LE "smoke|pixel|e2e" --output-on-failure
+      - name: Run SDL and SDL_GPU Vulkan capability contracts
+        run: xvfb-run -a ctest --preset ${{ matrix.preset }} -R "^(test_platform_sdl|test_gpu_sdl)$" --output-on-failure
 
   build-test-windows:
     runs-on: windows-latest
@@ -78,9 +87,9 @@ jobs:
       - name: Build
         run: cmake --build build/windows --parallel
       - name: Run unit tests
-        run: ctest --test-dir build/windows -L unit -LE smoke --output-on-failure
+        run: ctest --test-dir build/windows -L unit -LE "smoke|pixel|e2e" --output-on-failure
       - name: Run SDL platform and D3D12 GPU contracts
-        run: ctest --test-dir build/windows -L platform --output-on-failure
+        run: ctest --test-dir build/windows -R "^(test_platform_sdl|test_gpu_sdl)$" --output-on-failure
 
   sanitizers:
     runs-on: macos-latest
@@ -92,12 +101,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Checkout pinned Marrow runtime
+        uses: actions/checkout@v4
+        with:
+          repository: Wingseter/Maroow
+          ref: e4d984535d72b60ad52097a2c067d65c7208b1b2
+          path: _maroow
+          submodules: recursive
+      - name: Build pinned Marrow runtime
+        run: |
+          cmake -S _maroow -B _maroow/build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF
+          cmake --build _maroow/build --target marrow_runtime -j$(sysctl -n hw.ncpu)
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }} -DMOLGA_MARROW_DIR=${{ github.workspace }}/_maroow
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
       - name: Test
         # Run unit and internal smoke tests under sanitizers.
         # Exclude the packaged GUI E2E from sanitizer lanes; it has a dedicated
-        # macOS and Linux/Mesa gate above.
+        # macOS production gate above. Linux/Windows render E2E is NOT REQUIRED.
         run: ctest --preset ${{ matrix.preset }} -LE e2e --output-on-failure

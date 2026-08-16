@@ -30,6 +30,7 @@
 #include "../../Common/linmath.h"
 #include "../../Core/PathService.h"
 #include "Editor/Editor.h"
+#include "Editor/ImGuiTextureBridge.h"
 #include "Editor/Commands/ObjectCommands.h"
 #include "Editor/Commands/ComponentCommands.h"
 #include "Editor/Commands/SceneSnapshots.h"
@@ -42,8 +43,8 @@
 #include <cstring>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <glad/glad.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -100,10 +101,7 @@ SceneViewWindow::SceneViewWindow()
     if (!warning.empty()) Log::Warn("EditorPreferences", warning);
 }
 
-SceneViewWindow::~SceneViewWindow() {
-    if (gridVAO_) { glDeleteVertexArrays(1, &gridVAO_); gridVAO_ = 0; }
-    if (gridVBO_) { glDeleteBuffers(1, &gridVBO_); gridVBO_ = 0; }
-}
+SceneViewWindow::~SceneViewWindow() = default;
 
 void SceneViewWindow::SetSceneResources(
     Renderer* renderer,
@@ -114,49 +112,18 @@ void SceneViewWindow::SetSceneResources(
     spriteShader_ = spriteShader;
     gameObjects_  = objects;
 
-    // 그리드 셰이더는 GL 컨텍스트가 있을 때 지연 초기화
     InitGridShader();
-    InitGridQuad();
 }
 
 // ── 초기화 ────────────────────────────────────────────────────────────────────
 
 void SceneViewWindow::InitGridShader() {
     if (gridShaderLoaded_) return;
-
-    auto vertPath = PathService::Get().EngineResource("Shaders/grid.vert").string();
-    auto fragPath = PathService::Get().EngineResource("Shaders/grid.frag").string();
-
-    try {
-        gridShader_ = std::make_unique<Shader>(vertPath.c_str(), fragPath.c_str());
-        gridShaderLoaded_ = true;
-    } catch (...) {
+    gridShader_ = ShaderManager::Get().Get("grid");
+    gridShaderLoaded_ = gridShader_ && gridShader_->IsValid();
+    if (!gridShaderLoaded_) {
         Log::Error("SceneView", "Failed to load grid shader");
-        gridShaderLoaded_ = false;
     }
-}
-
-void SceneViewWindow::InitGridQuad() {
-    if (gridVAO_) return;
-
-    // NDC 풀스크린 쿼드 (-1 ~ 1)
-    float verts[] = {
-        -1.f, -1.f,
-         1.f, -1.f,
-         1.f,  1.f,
-        -1.f, -1.f,
-         1.f,  1.f,
-        -1.f,  1.f,
-    };
-
-    glGenVertexArrays(1, &gridVAO_);
-    glGenBuffers(1, &gridVBO_);
-    glBindVertexArray(gridVAO_);
-    glBindBuffer(GL_ARRAY_BUFFER, gridVBO_);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glBindVertexArray(0);
 }
 
 // ── OnGUI ─────────────────────────────────────────────────────────────────────
@@ -181,22 +148,22 @@ void SceneViewWindow::OnGUI() {
     // float 소수점 흔들림 방지: int로 캐스팅 후 비교
     int ivpW = static_cast<int>(vpW);
     int ivpH = static_cast<int>(vpH);
-    if (ivpW != fbo_.Width() || ivpH != fbo_.Height()) {
+    if (ivpW != sceneTarget_.Width() || ivpH != sceneTarget_.Height()) {
         vpWidth_  = vpW;
         vpHeight_ = vpH;
-        fbo_.Resize(ivpW, ivpH);
+        sceneTarget_.Resize(ivpW, ivpH);
         editorCamera_->SetScreenSize(vpW, vpH);
         Editor::Get().RenderStats().fboResizes++;
     }
 
     // ── FBO가 아직 미초기화면 생성 ───────────────────────────────────────────
-    if (!fbo_.IsValid()) {
-        fbo_.Init(static_cast<int>(vpW), static_cast<int>(vpH));
+    if (!sceneTarget_.IsValid()) {
+        sceneTarget_.Init(static_cast<int>(vpW), static_cast<int>(vpH));
         Editor::Get().RenderStats().fboResizes++;
     }
 
     // ── 씬을 FBO에 렌더 ──────────────────────────────────────────────────────
-    if (fbo_.IsValid() && renderer_) {
+    if (sceneTarget_.IsValid() && renderer_) {
         RenderSceneToFBO(vpW, vpH);
     }
 
@@ -204,10 +171,9 @@ void SceneViewWindow::OnGUI() {
     ImVec2 panelPos = ImGui::GetCursorScreenPos();
     bool sceneImageHovered = false;
 
-    if (fbo_.IsValid()) {
-        ImTextureID texId = (ImTextureID)(uintptr_t)fbo_.ColorTexture();
-        // GL 텍스처는 좌하단 원점이므로 UV Y를 뒤집어야 한다
-        ImGui::Image(texId, ImVec2(vpW, vpH), ImVec2(0, 1), ImVec2(1, 0));
+    if (sceneTarget_.IsValid()) {
+        ImGui::Image(ImGuiTextureBridge::From(sceneTarget_.ColorView().texture),
+                     ImVec2(vpW, vpH), ImVec2(0, 0), ImVec2(1, 1));
         sceneImageHovered = ImGui::IsItemHovered();
         if (ImGui::BeginDragDropTarget()) {
             const ImGuiPayload* p = ImGui::AcceptDragDropPayload("ASSET_GUID");
@@ -457,20 +423,38 @@ void SceneViewWindow::RenderSceneToFBO(float vpW, float vpH) {
     }
 
     const molga::PixelSize size{static_cast<int>(vpW), static_cast<int>(vpH)};
+    const auto renderBaseTo = [&](molga::RenderTarget& target) {
+        std::string error;
+        if (!renderer_->BeginTarget(
+                target, {0.18f, 0.18f, 0.22f, 1.0f},
+                molga::LoadAction::Clear, &error)) {
+            return false;
+        }
+        DrawSceneBase();
+        return renderer_->EndTarget(&error);
+    };
     if (profile) {
         std::string error;
         if (postProcessPipeline_.Prepare(size, *profile, &error)) {
-            {
-                ScopedFramebufferBinding binding(postProcessPipeline_.SceneTarget());
-                DrawSceneBase();
-            }
+            renderBaseTo(postProcessPipeline_.SceneTarget());
+            molga::ColorAttachmentDescriptor destination;
+            destination.view = sceneTarget_.ColorView();
+            destination.loadAction = molga::LoadAction::Clear;
+            destination.storeAction = molga::StoreAction::Store;
+            destination.clearColor = {0.18f, 0.18f, 0.22f, 1.0f};
             const molga::PostProcessExecutionResult execution =
-                postProcessPipeline_.Execute(*profile, fbo_.Id(), size);
+                postProcessPipeline_.Execute(
+                    *profile, *renderer_, destination,
+                    molga::TextureFormat::SRGBA8, size,
+                    {0, 0, size.width, size.height});
             if (execution.success) {
                 renderer_->Stats().postProcessPasses += execution.passes;
                 Editor::Get().RenderStats().postProcessPasses += execution.passes;
-                ScopedFramebufferBinding binding(fbo_);
-                DrawUI(vpW, vpH);
+                if (renderer_->BeginTarget(
+                        sceneTarget_, {}, molga::LoadAction::Load, &error)) {
+                    DrawUI(vpW, vpH);
+                    renderer_->EndTarget(&error);
+                }
                 return;
             }
             error = execution.error;
@@ -482,19 +466,16 @@ void SceneViewWindow::RenderSceneToFBO(float vpW, float vpH) {
         }
     }
 
-    ScopedFramebufferBinding binding(fbo_);
-    DrawSceneBase();
-    DrawUI(vpW, vpH);
+    std::string error;
+    if (renderer_->BeginTarget(sceneTarget_, {0.18f, 0.18f, 0.22f, 1.0f},
+                               molga::LoadAction::Clear, &error)) {
+        DrawSceneBase();
+        DrawUI(vpW, vpH);
+        renderer_->EndTarget(&error);
+    }
 }
 
 void SceneViewWindow::DrawSceneBase() {
-    glClearColor(0.18f, 0.18f, 0.22f, 1.f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    // 알파 블렌딩 활성화
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
     // 그리드 먼저 그리기
     DrawGrid();
 
@@ -518,7 +499,7 @@ void SceneViewWindow::SavePreferences() {
 }
 
 void SceneViewWindow::DrawGrid() {
-    if (!gridShaderLoaded_ || !gridShader_ || !gridVAO_) return;
+    if (!gridShaderLoaded_ || !gridShader_ || !renderer_) return;
 
     // 투영·뷰 행렬 역행렬 계산
     mat4x4 proj, view, projView, invProjView;
@@ -540,16 +521,29 @@ void SceneViewWindow::DrawGrid() {
     else if (zoom < 0.5f)  spacing = 128.f;
     else if (zoom > 4.f)   spacing = 32.f;
 
-    gridShader_->Use();
-    gridShader_->SetMat4("invProjView", (float*)invProjView);
-    gridShader_->SetFloat("gridSpacing", spacing);
-    gridShader_->SetVec4("gridColor", 0.4f, 0.4f, 0.5f, 0.5f);
-    gridShader_->SetVec4("originColor", 0.8f, 0.8f, 0.8f, 1.0f);
-    gridShader_->SetFloat("lineWidth", 1.0f);
-
-    glBindVertexArray(gridVAO_);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    glBindVertexArray(0);
+    struct alignas(16) GridFragmentConstants {
+        float gridColor[4];
+        float originColor[4];
+        float gridSpacing;
+        float lineWidth;
+        float padding[2];
+    } fragment{{0.4f, 0.4f, 0.5f, 0.5f},
+               {0.8f, 0.8f, 0.8f, 1.0f}, spacing, 1.0f, {0.0f, 0.0f}};
+    static constexpr std::array<float, 12> vertices{
+        -1.0f, -1.0f, 1.0f, -1.0f, 1.0f, 1.0f,
+        -1.0f, -1.0f, 1.0f, 1.0f, -1.0f, 1.0f};
+    molga::DrawPacket packet;
+    packet.shader = gridShader_;
+    packet.blend = molga::BlendState::Alpha;
+    packet.vertexStride = sizeof(float) * 2U;
+    packet.vertices.resize(sizeof(vertices));
+    std::memcpy(packet.vertices.data(), vertices.data(), sizeof(vertices));
+    packet.vertexUniforms.resize(sizeof(invProjView));
+    std::memcpy(packet.vertexUniforms.data(), invProjView,
+                sizeof(invProjView));
+    packet.fragmentUniforms.resize(sizeof(fragment));
+    std::memcpy(packet.fragmentUniforms.data(), &fragment, sizeof(fragment));
+    renderer_->Submit(packet);
 }
 
 void SceneViewWindow::DrawSprites() {
@@ -610,7 +604,7 @@ void SceneViewWindow::DrawSprites() {
         queue.HasLitReceivers()) {
         Shader* litShader = ShaderManager::Get().Get("batch_lit");
         const molga::PixelSize size{
-            std::max(1, fbo_.Width()), std::max(1, fbo_.Height())};
+            std::max(1, sceneTarget_.Width()), std::max(1, sceneTarget_.Height())};
         if (!litShader || !litShader->IsValid()) {
             queue.ForceUnlit();
             if (lightingWarnings_.insert("shader").second) {
@@ -651,7 +645,8 @@ void SceneViewWindow::DrawSprites() {
             renderer_->Stats().selectedLightCount +=
                 static_cast<int>(frame.lights.size());
             molga::LightingPipelinePrepareResult2D prepared;
-            if (lightingPipeline_.Prepare(frame, *activeCamera, prepared) &&
+            if (lightingPipeline_.Prepare(
+                    frame, *activeCamera, *renderer_, prepared) &&
                 prepared.ready) {
                 lightingContext = lightingPipeline_.ContextForTarget(
                     size, {0, 0, size.width, size.height});

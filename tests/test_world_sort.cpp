@@ -201,13 +201,16 @@ TEST_CASE("Sprite Particle and Marrow use one resolved component Y key") {
     marrowObject->AddComponent<Transform>()->SetPosition(0.0f, 40.0f);
     auto* marrow = marrowObject->AddComponent<MarrowRenderer>();
     AuthorYAxisSort(*marrow);
+    // An unresolved Marrow asset must not publish the legacy fallback draw.
     molga::RenderQueue marrowQueue;
     marrow->CollectRender(marrowQueue);
-    REQUIRE(marrowQueue.GetCommands().size() == 1U);
-    CHECK(marrowQueue.GetCommands()[0].sortKey.sortingLayer == 1);
-    CHECK(marrowQueue.GetCommands()[0].sortKey.sortingOrder == -4);
-    CHECK(marrowQueue.GetCommands()[0].sortKey.depthOrYSort ==
-          doctest::Approx(43.5f));
+    CHECK(marrowQueue.GetCommands().empty());
+    const molga::SortKey marrowKey = molga::MakeWorldSortKey(
+        marrow->GetWorldSortSettings(),
+        marrowObject->GetComponent<Transform>()->GetWorldPosition().y);
+    CHECK(marrowKey.sortingLayer == 1);
+    CHECK(marrowKey.sortingOrder == -4);
+    CHECK(marrowKey.depthOrYSort == doctest::Approx(43.5f));
 }
 
 TEST_CASE("Tilemap sorting keeps base layer index and per-layer offset") {

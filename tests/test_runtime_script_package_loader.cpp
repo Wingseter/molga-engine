@@ -12,6 +12,13 @@ namespace {
 nlohmann::json ValidGameConfig() {
     return {
         {"schemaVersion", GameConfig::CurrentSchemaVersion},
+        {"graphics", {
+            {"api", "sdlgpu"},
+            {"driver", "metal"},
+            {"shaderFormat", "msl"},
+            {"shaderManifest", "ShaderBundle/manifest.json"},
+            {"shaderManifestSha256", std::string(64, '0')},
+        }},
         {"inputActions", {
             {"schemaVersion", Input::ActionSchemaVersion},
             {"actions", nlohmann::json::array()}
@@ -21,7 +28,7 @@ nlohmann::json ValidGameConfig() {
 
 } // namespace
 
-TEST_CASE("GameConfig parses schema v3 without script manifest") {
+TEST_CASE("GameConfig parses schema v4 without script manifest") {
     auto document = ValidGameConfig();
     document.update({
         {"gameName", "My Awesome Game"},
@@ -49,7 +56,7 @@ TEST_CASE("GameConfig parses schema v3 without script manifest") {
     CHECK(config.startupSceneId == "scenes/level1.json");
 }
 
-TEST_CASE("GameConfig parses schema v3 output mode and resizable setting") {
+TEST_CASE("GameConfig parses schema v4 output mode and resizable setting") {
     auto document = ValidGameConfig();
     document.update({
         {"gameName", "Pixel Game"},
@@ -72,7 +79,7 @@ TEST_CASE("GameConfig parses schema v3 output mode and resizable setting") {
     CHECK_FALSE(LoadGameConfigFromString(invalidOutputMode.dump(), config));
 
     auto oldSchema = ValidGameConfig();
-    oldSchema["schemaVersion"] = 2;
+    oldSchema["schemaVersion"] = 3;
     CHECK_FALSE(LoadGameConfigFromString(oldSchema.dump(), config));
 
     auto missingInputSchema = ValidGameConfig();

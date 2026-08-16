@@ -1,8 +1,12 @@
 #include "GameConfig.h"
+#include "Common/Sha256.h"
 #include "Core/ProjectSettings.h"
 #include "Systems/Input.h"
 #include <fstream>
 #include <iostream>
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
 
 namespace {
 
@@ -15,6 +19,30 @@ bool ParseGameConfigJson(const nlohmann::json& j, GameConfig& config) {
     config.schemaVersion = GameConfig::CurrentSchemaVersion;
     config.outputScaleMode = molga::GameOutputScaleMode::Native;
     config.resizable = true;
+    if (!j.contains("graphics") || !j["graphics"].is_object()) return false;
+    const auto& graphics = j["graphics"];
+    config.graphics.api = graphics.value("api", std::string{});
+    config.graphics.driver = graphics.value("driver", std::string{});
+    config.graphics.shaderFormat =
+        graphics.value("shaderFormat", std::string{});
+    config.graphics.shaderManifest =
+        graphics.value("shaderManifest", std::string{});
+    config.graphics.shaderManifestSha256 =
+        graphics.value("shaderManifestSha256", std::string{});
+    const auto isDigest = [](const std::string& value) {
+        return value.size() == 64U && std::all_of(
+            value.begin(), value.end(), [](unsigned char character) {
+                return std::isdigit(character) ||
+                       (character >= 'a' && character <= 'f');
+            });
+    };
+    if (config.graphics.api != "sdlgpu" ||
+        config.graphics.driver != "metal" ||
+        config.graphics.shaderFormat != "msl" ||
+        config.graphics.shaderManifest != "ShaderBundle/manifest.json" ||
+        !isDigest(config.graphics.shaderManifestSha256)) {
+        return false;
+    }
     if (j.contains("gameName")) config.gameName = j["gameName"].get<std::string>();
     if (j.contains("companyName")) config.companyName = j["companyName"].get<std::string>();
     if (j.contains("mainScene")) config.mainScene = j["mainScene"].get<std::string>();
@@ -112,7 +140,18 @@ bool LoadGameConfig(const std::string& path, GameConfig& config) {
         nlohmann::json j;
         file >> j;
 
-        return ParseGameConfigJson(j, config);
+        if (!ParseGameConfigJson(j, config)) return false;
+        const std::filesystem::path manifest =
+            std::filesystem::path(path).parent_path() /
+            config.graphics.shaderManifest;
+        std::string error;
+        const std::string digest = molga::Sha256File(manifest, &error);
+        if (digest.empty() || digest != config.graphics.shaderManifestSha256) {
+            std::cerr << "Shader manifest verification failed: "
+                      << (error.empty() ? "SHA-256 mismatch" : error) << std::endl;
+            return false;
+        }
+        return true;
     } catch (const std::exception& e) {
         std::cerr << "Error parsing game config: " << e.what() << std::endl;
         return false;

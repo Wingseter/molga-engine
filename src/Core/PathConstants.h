@@ -14,12 +14,7 @@ namespace Paths {
     namespace Build {
         constexpr const char* ASSETS = "Assets";
         constexpr const char* SCENES = "Scenes";
-        constexpr const char* SHADERS = "Shaders";
-    }
-    namespace Engine {
-        constexpr const char* SHADER_VERT = "Shaders/default.vert";
-        constexpr const char* SHADER_FRAG = "Shaders/default.frag";
-        constexpr const char* SHADER_SRC_DIR = "src/Shaders";
+        constexpr const char* SHADER_BUNDLE = "ShaderBundle";
     }
     namespace Config {
         constexpr const char* DIR = ".molga";

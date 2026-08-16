@@ -1,6 +1,9 @@
 #pragma once
 
+#include <string>
+
 class EngineHost;
+class Renderer;
 
 class ImGuiLayer {
 public:
@@ -8,7 +11,7 @@ public:
     static void Shutdown();
 
     static void BeginFrame();
-    static void EndFrame();
+    static bool EndFrame(Renderer& renderer, std::string* errorOut = nullptr);
 
     static void SetDarkTheme();
     static void SetModernTheme();

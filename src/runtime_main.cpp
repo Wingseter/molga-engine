@@ -55,11 +55,89 @@
 #include "Rendering/Utf8.h"
 #include <nlohmann/json.hpp>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <optional>
+#include <vector>
+
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#include <sys/resource.h>
+#include <sys/sysctl.h>
+#elif defined(__linux__)
+#include <sys/utsname.h>
+#endif
 
 
 namespace {
+
+constexpr int kBenchmarkWarmupFrames = 120;
+constexpr int kBenchmarkMeasuredFrames = 600;
+
+std::string RuntimeArchitecture() {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    return "x86_64";
+#else
+    return "unknown";
+#endif
+}
+
+std::string RuntimeOsVersion() {
+#if defined(__APPLE__)
+    std::string result = "macOS";
+    char version[128]{};
+    std::size_t size = sizeof(version);
+    if (sysctlbyname("kern.osproductversion", version, &size, nullptr, 0) == 0 &&
+        size > 1U) {
+        result += " ";
+        result += version;
+    }
+#elif defined(__linux__)
+    std::string result = "Linux";
+    utsname name{};
+    if (uname(&name) == 0) {
+        result += " ";
+        result += name.release;
+    }
+#elif defined(_WIN32)
+    std::string result = "Windows";
+#else
+    std::string result = "unknown";
+#endif
+    return result;
+}
+
+std::uint64_t ResidentMemoryBytes() {
+#if defined(__APPLE__)
+    mach_task_basic_info_data_t info{};
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                  reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS) {
+        return static_cast<std::uint64_t>(info.resident_size);
+    }
+#endif
+    return 0;
+}
+
+std::uint64_t PeakMemoryBytes() {
+#if defined(__APPLE__)
+    rusage usage{};
+    if (getrusage(RUSAGE_SELF, &usage) == 0) {
+        return static_cast<std::uint64_t>(usage.ru_maxrss);
+    }
+#endif
+    return 0;
+}
+
+double Percentile(std::vector<double> values, double percentile) {
+    if (values.empty()) return 0.0;
+    std::sort(values.begin(), values.end());
+    const std::size_t index = static_cast<std::size_t>(
+        percentile * static_cast<double>(values.size() - 1U));
+    return values[index];
+}
 
 bool BuildRuntimeSceneCatalog(const GameConfig& config,
                               const std::filesystem::path& packageRoot,
@@ -362,7 +440,7 @@ KoreanTitleProbe ProbeKoreanTitle(World& world) {
     bool allQuadsUseAtlasTextures = !proofQueue.GetCommands().empty();
     for (const auto& command : proofQueue.GetCommands()) {
         allQuadsUseAtlasTextures = allQuadsUseAtlasTextures &&
-                                   command.batchKey.texture != nullptr &&
+                                   static_cast<bool>(command.batchKey.texture) &&
                                    command.batchKey.isBatchable;
     }
     const int atlasPixelSize = std::max(
@@ -406,12 +484,15 @@ SlopeTrialResult RunSlopeTrial(World& world,
     terrainCollider.SetFriction(terrainFriction);
     playerCollider.SetFriction(playerFriction);
 
-    // First teleport well clear of the slope and tick once so an earlier trial's
-    // contacts cannot influence this trial. The next teleport uses the exact same
-    // position and velocity for the authored-material and zero-friction controls.
+    // Box2D mixes material coefficients when a contact is created. Recreate the
+    // player's shape so a broad-phase contact retained from the prior trial
+    // cannot keep that trial's friction coefficient.
+    playerCollider.SetEnabled(false);
     playerTransform.SetWorldPosition(startPosition + outwardNormal * 160.0f);
     playerTransform.SetWorldRotation(slopeRotation);
     playerBody.SetVelocity(Vector2::Zero());
+    world.FixedStep(kFixedStep);
+    playerCollider.SetEnabled(true);
     world.FixedStep(kFixedStep);
 
     playerTransform.SetWorldPosition(startPosition);
@@ -525,6 +606,13 @@ PackagedPhysicsProbe ProbePackagedStagePhysics(World& world) {
     result.frictionResponseObserved = authoredFriction.contactObserved &&
         zeroFriction.contactObserved &&
         authoredFriction.tangentialSpeed + 10.0f < zeroFriction.tangentialSpeed;
+    if (!result.frictionResponseObserved) {
+        std::cerr << "[RuntimeSmoke] friction probe failed: zero(contact="
+                  << zeroFriction.contactObserved << ", tangent="
+                  << zeroFriction.tangentialSpeed << "), authored(contact="
+                  << authoredFriction.contactObserved << ", tangent="
+                  << authoredFriction.tangentialSpeed << ")\n";
+    }
 
     terrainCollider->SetFriction(authoredTerrainFriction);
     terrainCollider->SetRestitution(authoredTerrainRestitution);
@@ -582,7 +670,7 @@ int main(int argc, char* argv[]) {
 
     // Validate required package directories
     const auto exeDir = PathService::Get().ExecutableDir();
-    for (const auto& required : { "Assets", "Scenes", "Shaders" }) {
+    for (const auto& required : { "Assets", "Scenes", "ShaderBundle" }) {
         if (!std::filesystem::exists(exeDir / required)) {
             std::cerr << "Missing package directory: " << (exeDir / required) << std::endl;
             if (smoke->enabled) {
@@ -603,28 +691,27 @@ int main(int argc, char* argv[]) {
     wc.fullscreen = config.fullscreen;
     wc.resizable = config.resizable;
     wc.visible = !smoke->enabled;
+    wc.graphicsValidation = smoke->enabled;
     auto host = EngineInit(wc);
     if (!host) return -1;
 
     // Initialize renderer
     auto renderer = std::make_unique<Renderer>();
-    renderer->Init();
+    std::string rendererError;
+    if (!renderer->Init(&rendererError)) {
+        std::cerr << "Renderer initialization failed: " << rendererError << '\n';
+        EngineShutdown(host);
+        return -1;
+    }
     molga::RenderSystem2D::Get().Init();
-    auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
-    auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
-    Shader* shader = ShaderManager::Get().Load("default", vertPath, fragPath);
-
-    auto batchVertPath = PathService::Get().EngineResource("Shaders/batch.vert").string();
-    auto batchFragPath = PathService::Get().EngineResource("Shaders/batch.frag").string();
-    ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
-    ShaderManager::Get().Load(
-        "batch_lit",
-        PathService::Get().EngineResource("Shaders/batch_lit.vert").string(),
-        PathService::Get().EngineResource("Shaders/batch_lit.frag").string());
-    ShaderManager::Get().Load(
-        "shadow_mask_2d",
-        PathService::Get().EngineResource("Shaders/shadow_mask_2d.vert").string(),
-        PathService::Get().EngineResource("Shaders/shadow_mask_2d.frag").string());
+    Shader* shader = ShaderManager::Get().Get("default");
+    if (!shader) {
+        std::cerr << "Renderer shader bundle has no default entry\n";
+        molga::RenderSystem2D::Get().Shutdown();
+        renderer.reset();
+        EngineShutdown(host);
+        return -1;
+    }
     SceneRuntime sceneRuntime(std::move(sceneCatalog));
 
     // Initialize scripting
@@ -698,6 +785,11 @@ int main(int argc, char* argv[]) {
         ProbeKoreanTitle(sceneRuntime.ActiveWorld());
 
     int renderedFrames = 0;
+    std::vector<double> benchmarkCpuMilliseconds;
+    benchmarkCpuMilliseconds.reserve(kBenchmarkMeasuredFrames);
+    molga::RenderStats benchmarkBaseStats{};
+    molga::FrameTelemetry benchmarkGpuTelemetry{};
+    bool benchmarkBaseCaptured = false;
     int successfulSceneTransitions = 0;
     int uiDrivenSceneTransitions = 0;
     std::size_t smokeUIActionIndex = 0;
@@ -715,6 +807,12 @@ int main(int argc, char* argv[]) {
     molga::GameOutputResult lastGameOutputResult;
     // Main game loop
     while (!host->ShouldClose()) {
+        const auto frameCpuStart = std::chrono::steady_clock::now();
+        if (smoke->enabled && renderedFrames == kBenchmarkWarmupFrames &&
+            !benchmarkBaseCaptured) {
+            benchmarkBaseStats = renderer->Stats();
+            benchmarkBaseCaptured = true;
+        }
         host->PollEvents();
         if (host->ShouldClose()) break;
         Time::Update();
@@ -884,15 +982,38 @@ int main(int argc, char* argv[]) {
         world.FlushDeferred(dt);
         Audio::Update(dt);
 
+        bool frameAvailable = false;
+        molga::BeginFrameResult acquired = host->BeginFrame();
+        if (acquired.status == molga::FrameAcquireStatus::Fatal) {
+            std::cerr << "GPU frame acquisition failed: " << acquired.error << '\n';
+            host->RequestClose();
+            break;
+        }
+        if (acquired.status == molga::FrameAcquireStatus::Acquired) {
+            frameAvailable = renderer->BeginFrame(
+                std::move(acquired.frame), &rendererError);
+            if (!frameAvailable) {
+                std::cerr << "GPU frame setup failed: " << rendererError << '\n';
+                host->RequestClose();
+                break;
+            }
+        }
+
         {
             MOLGA_PROFILE_SCOPE("GameOutput.Render", molga::ProfileCategory::Rendering);
-            if (framebufferSize.IsValid()) {
+            if (frameAvailable && framebufferSize.IsValid()) {
                 lastGameOutputResult = gameOutputRenderer->Render(
                     world.Objects(),
                     {framebufferSize, configuredLogicalSize,
                      config.outputScaleMode},
                     *renderer, shader);
             }
+        }
+
+        if (frameAvailable && !renderer->SubmitFrame(&rendererError)) {
+            std::cerr << "GPU frame submission failed: " << rendererError << '\n';
+            host->RequestClose();
+            break;
         }
 
         EventBus::ProcessQueue();
@@ -917,11 +1038,22 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        host->SwapBuffers();
-
         // ESC to quit
         if (Input::GetKeyDown(Input::KeyCode::Escape)) {
             host->RequestClose();
+        }
+
+        if (smoke->enabled && renderedFrames >= kBenchmarkWarmupFrames &&
+            static_cast<int>(benchmarkCpuMilliseconds.size()) <
+                kBenchmarkMeasuredFrames) {
+            const auto elapsed = std::chrono::steady_clock::now() - frameCpuStart;
+            benchmarkCpuMilliseconds.push_back(
+                std::chrono::duration<double, std::milli>(elapsed).count());
+            const auto& telemetry = renderer->LastFrameTelemetry();
+            benchmarkGpuTelemetry.copyPasses += telemetry.copyPasses;
+            benchmarkGpuTelemetry.renderPasses += telemetry.renderPasses;
+            benchmarkGpuTelemetry.drawCalls += telemetry.drawCalls;
+            benchmarkGpuTelemetry.uploadBytes += telemetry.uploadBytes;
         }
 
         ++renderedFrames;
@@ -987,6 +1119,63 @@ int main(int argc, char* argv[]) {
         report.scenePath = sceneRuntime.CurrentScenePath();
         report.objectCount = world.Objects().size();
         report.frames = renderedFrames;
+        const auto& deviceInfo = host->Graphics().Info();
+        report.graphicsApi = deviceInfo.api;
+        report.graphicsDriver = deviceInfo.driver;
+        report.osVersion = RuntimeOsVersion();
+        report.architecture = RuntimeArchitecture();
+        report.swapchainFormat = molga::TextureFormatName(
+            deviceInfo.swapchainFormat);
+        report.shaderArtifactFormat = config.graphics.shaderFormat;
+        report.shaderManifestSha256 =
+            ShaderManager::Get().ManifestSha256();
+        const auto& gpuTelemetry = renderer->LastFrameTelemetry();
+        report.gpuCopyPasses = gpuTelemetry.copyPasses;
+        report.gpuRenderPasses = gpuTelemetry.renderPasses;
+        report.gpuDrawCalls = gpuTelemetry.drawCalls;
+        report.gpuUploadBytes = gpuTelemetry.uploadBytes;
+        report.gpuValidationEnabled = deviceInfo.validationEnabled;
+        molga::TextureDescriptor outputDescriptor;
+        const molga::TextureView outputView =
+            gameOutputRenderer->LogicalColorView();
+        if (host->Graphics().Describe(outputView.texture, outputDescriptor)) {
+            report.outputTextureFormat =
+                molga::TextureFormatName(outputDescriptor.format);
+            const molga::PixelSize outputSize =
+                gameOutputRenderer->LogicalFramebufferSize();
+            std::vector<std::uint8_t> pixel;
+            std::string pixelError;
+            if (outputSize.IsValid() && host->Graphics().ReadbackRGBA8(
+                    outputView,
+                    {static_cast<std::uint32_t>(outputSize.width / 2),
+                     static_cast<std::uint32_t>(outputSize.height / 2), 1, 1},
+                    pixel, pixelError) && pixel.size() == 4U) {
+                report.finalPixelProbeValid = true;
+                report.finalPixelR = pixel[0];
+                report.finalPixelG = pixel[1];
+                report.finalPixelB = pixel[2];
+                report.finalPixelA = pixel[3];
+            }
+        }
+        report.benchmarkWarmupFrames = std::min(
+            renderedFrames, kBenchmarkWarmupFrames);
+        report.benchmarkMeasuredFrames = static_cast<int>(
+            benchmarkCpuMilliseconds.size());
+        report.benchmarkCpuP50Ms = Percentile(
+            benchmarkCpuMilliseconds, 0.50);
+        report.benchmarkCpuP95Ms = Percentile(
+            benchmarkCpuMilliseconds, 0.95);
+        if (benchmarkBaseCaptured) {
+            const auto& finalStats = renderer->Stats();
+            report.benchmarkDrawCalls =
+                finalStats.drawCalls - benchmarkBaseStats.drawCalls;
+            report.benchmarkBatches =
+                finalStats.batches - benchmarkBaseStats.batches;
+        }
+        report.benchmarkRenderPasses = benchmarkGpuTelemetry.renderPasses;
+        report.benchmarkUploadBytes = benchmarkGpuTelemetry.uploadBytes;
+        report.residentMemoryBytes = ResidentMemoryBytes();
+        report.peakMemoryBytes = PeakMemoryBytes();
         report.assetsResolved = assetSummary.ok();
         report.assetCatalogLoaded = assetCatalogLoaded;
         report.assetCatalogRecords = assetCatalogRecords;
@@ -1061,6 +1250,10 @@ int main(int argc, char* argv[]) {
             report.verticesUploadedBytes = stats.verticesUploadedBytes;
             report.queueSortNanos = stats.queueSortNanos;
         }
+        std::string gpuIdleError;
+        const bool gpuIdle = host->Graphics().WaitIdle(&gpuIdleError);
+        report.gpuValidationErrors =
+            host->Graphics().ValidationErrorCount();
         const bool smokeOk = report.assetsResolved && report.assetCatalogLoaded &&
                              report.scenePath == "Scenes/stage2.json" &&
                              report.spriteAssetsResolved > 0 &&
@@ -1089,6 +1282,14 @@ int main(int argc, char* argv[]) {
                              report.shadowCasterDrawCount == 1 &&
                              report.lightingPasses > 0 &&
                              report.shadowPasses > 0 &&
+                             report.graphicsApi == "sdlgpu" &&
+                             report.graphicsDriver == "metal" &&
+                             report.shaderArtifactFormat == "msl" &&
+                             report.shaderManifestSha256 ==
+                                 config.graphics.shaderManifestSha256 &&
+                             gpuIdle && report.gpuValidationEnabled &&
+                             report.gpuValidationErrors == 0 &&
+                             report.finalPixelProbeValid &&
                              transitionsOk;
         report.status = smokeOk ? "ok" : "error";
         if (smokeOk) {
@@ -1098,6 +1299,9 @@ int main(int argc, char* argv[]) {
             report.message = "Runtime smoke contract failed. Scripts: " + scriptStatus +
                              ", UserScriptComponents: " +
                              std::to_string(scriptComponentCount);
+            if (!gpuIdle) {
+                report.message += ", GPU idle error: " + gpuIdleError;
+            }
         }
         report.Save(smoke->reportPath);
         exitCode = smokeOk ? 0 : 4;

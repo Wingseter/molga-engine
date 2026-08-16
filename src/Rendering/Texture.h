@@ -1,39 +1,52 @@
 #pragma once
 
 #include "Core/TextureImportSettings.h"
+#include "Rendering/GraphicsDevice.h"
+
+#include <cstdint>
 #include <string>
 
 class Texture {
 public:
-    Texture(const char* imagePath);
+    explicit Texture(const char* imagePath);
     Texture(const char* imagePath, const molga::TextureImportSettings& settings);
     Texture(int width, int height, unsigned char* data, int channels = 4);
     ~Texture();
 
-    void Bind(unsigned int slot = 0) const;
-    void Unbind() const;
+    Texture(const Texture&) = delete;
+    Texture& operator=(const Texture&) = delete;
 
-    // Updates a rectangular region without replacing the Texture object/GL
-    // handle. Dynamic font atlases rely on pointer stability for batching.
+    // Updates a rectangular region without replacing the Texture object.
+    // Dynamic font atlases rely on this pointer identity remaining stable.
     bool UpdateSubData(int x, int y, int updateWidth, int updateHeight,
                        const unsigned char* data, int updateChannels = 4);
-    bool Reload(const char* imagePath, const molga::TextureImportSettings& settings,
+    bool Reload(const char* imagePath,
+                const molga::TextureImportSettings& settings,
                 std::string* errorOut = nullptr);
 
-    int GetWidth() const { return width; }
-    int GetHeight() const { return height; }
-    unsigned int GetID() const { return textureID; }
-    bool IsValid() const { return textureID != 0 && width > 0 && height > 0; }
-    const molga::TextureImportSettings& GetImportSettings() const { return settings_; }
+    int GetWidth() const { return width_; }
+    int GetHeight() const { return height_; }
+    bool IsValid() const;
+    const molga::TextureImportSettings& GetImportSettings() const {
+        return settings_;
+    }
+    molga::TextureHandle Handle() const { return texture_; }
+    molga::SamplerHandle Sampler() const { return sampler_; }
+    std::uint64_t StableId() const { return stableId_; }
 
 private:
-    bool CreateFromData(int w, int h, const unsigned char* data, int ch,
+    bool CreateFromData(int width, int height, const unsigned char* data,
+                        int channels,
                         const molga::TextureImportSettings& settings,
                         std::string* errorOut = nullptr);
+    void Release();
 
-    unsigned int textureID;
-    int width;
-    int height;
-    int channels;
-    molga::TextureImportSettings settings_ = molga::TextureImportSettings::LegacyDefaults();
+    molga::TextureHandle texture_;
+    molga::SamplerHandle sampler_;
+    int width_ = 0;
+    int height_ = 0;
+    int channels_ = 0;
+    std::uint64_t stableId_ = 0;
+    molga::TextureImportSettings settings_ =
+        molga::TextureImportSettings::LegacyDefaults();
 };

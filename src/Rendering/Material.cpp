@@ -1,72 +1,14 @@
 #include "Material.h"
-#include "Renderer.h"
 #include "Shader.h"
 #include "ShaderManager.h"
 #include "Texture.h"
 #include "../Core/TextureManager.h"
 #include "../Core/PathService.h"
 #include "Core/AssetDatabase.h"
-#include <glad/glad.h>
+#include <cstring>
 #include <iostream>
 
 using json = nlohmann::json;
-
-void Material::Apply(Renderer* renderer) {
-    Shader* shader = ShaderManager::Get().Get(shaderName);
-    if (!shader) {
-        shader = ShaderManager::Get().Get("default");
-    }
-    if (!shader) return;
-
-    renderer->SetShader(shader);
-
-    // Set 'uColor' uniform
-    shader->SetVec4("uColor", tint.r, tint.g, tint.b, tint.a);
-
-    // Bind mainTexture to slot 0 if not null
-    if (mainTexture) {
-        shader->SetBool("useTexture", true);
-        shader->SetInt("uTexture", 0);
-        mainTexture->Bind(0);
-    }
-
-    // Apply GL blending
-    switch (blendMode) {
-        case BlendMode::Opaque:
-            glDisable(GL_BLEND);
-            break;
-        case BlendMode::Alpha:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            break;
-        case BlendMode::Additive:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            break;
-        case BlendMode::Multiply:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_DST_COLOR, GL_ZERO);
-            break;
-    }
-
-    // Upload custom properties
-    int textureSlot = 1;
-    for (const auto& [name, prop] : properties) {
-        if (prop.type == MaterialProperty::Type::Float) {
-            shader->SetFloat(name.c_str(), prop.floatVal);
-        } else if (prop.type == MaterialProperty::Type::Vec4) {
-            shader->SetVec4(name.c_str(), prop.vec4Val.x, prop.vec4Val.y, prop.vec4Val.z, prop.vec4Val.w);
-        } else if (prop.type == MaterialProperty::Type::Texture) {
-            if (prop.texture) {
-                prop.texture->Bind(textureSlot);
-                shader->SetInt(name.c_str(), textureSlot);
-                textureSlot++;
-            } else {
-                shader->SetInt(name.c_str(), 0);
-            }
-        }
-    }
-}
 
 void Material::ResolveAssets() {
     if (!mainTexture) {
@@ -169,45 +111,95 @@ Shader* Material::ResolveShader() const {
 
 molga::BatchKey Material::GetBatchKey() const {
     molga::BatchKey key;
-    key.texture = mainTexture;
     key.blendMode = blendMode;
+    Shader* shader = nullptr;
+    const bool builtInBatch = shaderName == "default" || shaderName == "batch";
+    if (builtInBatch) shader = ShaderManager::Get().Get("batch");
+    else shader = ResolveShader();
+    if (!shader) return key;
 
-    const bool canUseSpriteBatchShader =
-        (shaderName == "default" || shaderName == "batch") && properties.empty();
-    if (canUseSpriteBatchShader) {
-        key.shader = ShaderManager::Get().Get("batch");
-        key.isBatchable = key.shader != nullptr;
-        return key;
+    key.shaderName = shader->Name();
+    key.shaderRevision = shader->Revision();
+    key.isBatchable = builtInBatch && properties.empty();
+    if (mainTexture && mainTexture->IsValid()) {
+        key.texture = mainTexture->Handle();
+        key.textureSampler = mainTexture->Sampler();
+        key.textureStableId = mainTexture->StableId();
     }
 
-    key.shader = ResolveShader();
-    key.isBatchable = false;
+    auto mix = [](std::uint64_t& hash, const void* bytes, std::size_t size) {
+        const auto* data = static_cast<const std::uint8_t*>(bytes);
+        for (std::size_t index = 0; index < size; ++index) {
+            hash ^= data[index];
+            hash *= 1099511628211ULL;
+        }
+    };
+    std::uint64_t materialHash = 1469598103934665603ULL;
+    mix(materialHash, &key.shaderRevision, sizeof(key.shaderRevision));
+    mix(materialHash, &blendMode, sizeof(blendMode));
+
+    if (shader->ParameterBlockSize() > 0U) {
+        auto block = std::make_shared<std::vector<std::uint8_t>>(
+            shader->ParameterBlockSize(), 0U);
+        for (const auto& parameter : shader->Parameters()) {
+            const auto found = properties.find(parameter.name);
+            if (found != properties.end() &&
+                parameter.type == "Float" &&
+                found->second.type == MaterialProperty::Type::Float) {
+                std::memcpy(block->data() + parameter.offset,
+                            &found->second.floatVal, sizeof(float));
+            } else if (found != properties.end() &&
+                       parameter.type == "Vec4" &&
+                       found->second.type == MaterialProperty::Type::Vec4) {
+                const float values[4]{found->second.vec4Val.x,
+                                      found->second.vec4Val.y,
+                                      found->second.vec4Val.z,
+                                      found->second.vec4Val.w};
+                std::memcpy(block->data() + parameter.offset, values,
+                            sizeof(values));
+            } else if (parameter.type == "Vec4" &&
+                       (parameter.name == "uColor" ||
+                        parameter.name == "tint")) {
+                const float values[4]{tint.r, tint.g, tint.b, tint.a};
+                std::memcpy(block->data() + parameter.offset, values,
+                            sizeof(values));
+            }
+        }
+        mix(materialHash, block->data(), block->size());
+        key.materialParameters = std::move(block);
+    }
+
+    if (!shader->BundleEntry().textures.empty() && !builtInBatch) {
+        auto bindings = std::make_shared<
+            std::vector<molga::BatchKey::ExtraTexture>>();
+        bindings->reserve(shader->BundleEntry().textures.size());
+        for (const auto& declared : shader->BundleEntry().textures) {
+            Texture* texture = nullptr;
+            if (declared.name == "uTexture") {
+                texture = mainTexture;
+            } else {
+                const auto found = properties.find(declared.name);
+                if (found != properties.end() &&
+                    found->second.type == MaterialProperty::Type::Texture) {
+                    texture = found->second.texture;
+                }
+            }
+            molga::BatchKey::ExtraTexture binding;
+            binding.vertexStage = declared.stage == "vertex";
+            binding.slot = declared.slot;
+            if (texture && texture->IsValid()) {
+                binding.texture = texture->Handle();
+                binding.sampler = texture->Sampler();
+                binding.stableId = texture->StableId();
+            }
+            mix(materialHash, &binding.vertexStage,
+                sizeof(binding.vertexStage));
+            mix(materialHash, &binding.slot, sizeof(binding.slot));
+            mix(materialHash, &binding.stableId, sizeof(binding.stableId));
+            bindings->push_back(binding);
+        }
+        key.materialTextures = std::move(bindings);
+    }
+    key.materialId = materialHash;
     return key;
 }
-
-void Material::ApplyForBatchStart(Renderer* renderer) {
-    Shader* shader = ResolveShader();
-    if (!shader) return;
-
-    renderer->SetShader(shader);
-
-    // Apply GL blending
-    switch (blendMode) {
-        case BlendMode::Opaque:
-            glDisable(GL_BLEND);
-            break;
-        case BlendMode::Alpha:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            break;
-        case BlendMode::Additive:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            break;
-        case BlendMode::Multiply:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_DST_COLOR, GL_ZERO);
-            break;
-    }
-}
-

@@ -21,9 +21,9 @@ void SetMessage(std::string* output, const std::string& message) {
 }
 
 bool IsSaneResolution(PixelSize size) {
-    // GL performs the authoritative device-limit validation. This protects the
+    // The graphics device performs authoritative limit validation. This protects
     // preference parser from pathological allocation requests without assuming
-    // a particular GPU's GL_MAX_TEXTURE_SIZE.
+    // a particular GPU driver's texture-size limit.
     return size.width > 0 && size.height > 0 &&
            size.width <= 65536 && size.height <= 65536;
 }

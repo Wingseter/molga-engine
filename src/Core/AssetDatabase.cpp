@@ -392,7 +392,9 @@ void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
     }
 }
 
-bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
+bool AssetDatabase::SaveCatalog(
+    const std::filesystem::path& path,
+    const std::string& excludedSourcePrefix) const {
     try {
         nlohmann::json j;
         j["schemaVersion"] = 2;
@@ -412,6 +414,11 @@ bool AssetDatabase::SaveCatalog(const std::filesystem::path& path) const {
         nlohmann::json recordsJson = nlohmann::json::array();
         for (const AssetRecord* record : ordered) {
             const AssetRecord& rec = *record;
+            if (!excludedSourcePrefix.empty() &&
+                rec.sourcePath.compare(0, excludedSourcePrefix.size(),
+                                       excludedSourcePrefix) == 0) {
+                continue;
+            }
             nlohmann::json r;
             r["guid"] = rec.guid;
             r["sourcePath"] = rec.sourcePath;

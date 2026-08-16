@@ -5,7 +5,9 @@
 #include "../Core/PackageLayout.h"
 #include "../Core/PackageFinalizer.h"
 #include "../Core/GameConfig.h"
+#include "../Common/Sha256.h"
 #include "../Core/ProjectSettings.h"
+#include "../Platform/Process.h"
 #include "../Systems/Input.h"
 #include "Project.h"
 #include "Editor/Profiling/ProfilerReportSink.h"
@@ -25,6 +27,63 @@
 #include "../Core/AssetDependencyValidator.h"
 
 namespace fs = std::filesystem;
+
+#ifndef MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR
+#define MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR "src/Shaders"
+#endif
+
+static std::string ShellQuote(const fs::path& path) {
+    const std::string value = path.string();
+#ifdef _WIN32
+    std::string quoted = "\"";
+    for (const char character : value) {
+        if (character == '"') quoted += '\\';
+        quoted += character;
+    }
+    return quoted + "\"";
+#else
+    std::string quoted = "'";
+    for (const char character : value) {
+        if (character == '\'') quoted += "'\\''";
+        else quoted += character;
+    }
+    return quoted + "'";
+#endif
+}
+
+static fs::path ShaderCompilerPath() {
+    fs::path path = PathService::Get().ExecutableDir() / "molga_shaderc";
+#ifdef _WIN32
+    path += ".exe";
+#endif
+    return path;
+}
+
+static bool ContainsShaderDescriptors(const fs::path& root) {
+    std::error_code error;
+    if (!fs::is_directory(root, error)) return false;
+    for (fs::recursive_directory_iterator iterator(root, error), end;
+         !error && iterator != end; iterator.increment(error)) {
+        if (iterator->is_regular_file(error) &&
+            iterator->path().extension() == ".json" &&
+            iterator->path().filename().string().size() > 12U &&
+            iterator->path().filename().string().compare(
+                iterator->path().filename().string().size() - 12U, 12U,
+                ".shader.json") == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool RunShaderTool(const std::string& command, std::string& output) {
+    molga::SystemProcessRunner runner;
+    output.clear();
+    const auto result = runner.Run(
+        command, PathService::Get().ExecutableDir().string(),
+        [&](const std::string& line) { output += line; }, [] { return false; });
+    return !result.cancelled && result.exitCode == 0;
+}
 
 static fs::path ResolveProjectPath(const fs::path& projectRoot, const std::string& stored) {
     fs::path p(stored);
@@ -299,7 +358,9 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         if (Project::Get().IsOpen()) {
             manifest.requiredFiles.push_back(Project::Get().GetAssetsPath());
         }
-        manifest.requiredFiles.push_back(PathService::Get().EngineResource("Shaders").string());
+        manifest.requiredFiles.push_back(
+            fs::path(MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR).string());
+        manifest.requiredFiles.push_back(ShaderCompilerPath().string());
         manifest.requiredFiles.push_back((PathService::Get().ExecutableDir() / "molga_runtime").string());
         for (const auto& entry : plan.sceneEntries) {
             manifest.requiredFiles.push_back(entry.sourceAbsolutePath);
@@ -520,6 +581,15 @@ bool GameBuilder::CopyAssets(const std::string& outputPath) {
         fs::path dest = fs::path(outputPath) / Paths::Build::ASSETS;
         fs::create_directories(dest);
         fs::copy(src, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        // Shader sources/descriptors are build-time authoring inputs. Only the
+        // validated MSL bundle crosses the macOS package boundary.
+        std::error_code shaderCleanupError;
+        fs::remove_all(dest / "Shaders", shaderCleanupError);
+        if (shaderCleanupError) {
+            lastError = "Failed to remove shader authoring inputs: " +
+                        shaderCleanupError.message();
+            return false;
+        }
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to copy assets: " + std::string(e.what());
@@ -529,14 +599,55 @@ bool GameBuilder::CopyAssets(const std::string& outputPath) {
 
 bool GameBuilder::CopyShaders(const std::string& outputPath) {
     try {
-        fs::path src = PathService::Get().EngineResource("Shaders");
-        if (!fs::exists(src)) {
-            lastError = "Engine Shaders folder not found next to the editor: " + src.string();
+        const fs::path compiler = ShaderCompilerPath();
+        const fs::path engineDescriptors = MOLGA_ENGINE_SHADER_DESCRIPTOR_DIR;
+        if (!fs::is_regular_file(compiler)) {
+            lastError = "Shader compiler not found next to the editor: " +
+                        compiler.string();
             return false;
         }
-        fs::path dest = fs::path(outputPath) / Paths::Build::SHADERS;
-        fs::create_directories(dest);
-        fs::copy(src, dest, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
+        if (!ContainsShaderDescriptors(engineDescriptors)) {
+            lastError = "Engine shader descriptors not found: " +
+                        engineDescriptors.string();
+            return false;
+        }
+
+        const fs::path packageRoot = outputPath;
+        const fs::path fullBundle = packageRoot / ".ShaderBundle.full";
+        const fs::path packagedBundle =
+            packageRoot / Paths::Build::SHADER_BUNDLE;
+        std::string buildCommand = ShellQuote(compiler) + " build --descriptors " +
+            ShellQuote(engineDescriptors);
+        if (Project::Get().IsOpen()) {
+            const fs::path projectShaders =
+                fs::path(Project::Get().GetAssetsPath()) / "Shaders";
+            if (ContainsShaderDescriptors(projectShaders)) {
+                buildCommand += " --descriptors " + ShellQuote(projectShaders);
+            }
+        }
+        buildCommand += " --output " + ShellQuote(fullBundle);
+
+        std::string toolOutput;
+        if (!RunShaderTool(buildCommand, toolOutput)) {
+            lastError = "Shader bundle build failed:\n" + toolOutput;
+            return false;
+        }
+        const std::string packageCommand = ShellQuote(compiler) +
+            " package-msl --bundle " + ShellQuote(fullBundle) +
+            " --output " + ShellQuote(packagedBundle);
+        if (!RunShaderTool(packageCommand, toolOutput)) {
+            lastError = "MSL shader packaging failed:\n" + toolOutput;
+            std::error_code cleanupError;
+            fs::remove_all(fullBundle, cleanupError);
+            return false;
+        }
+        std::error_code cleanupError;
+        fs::remove_all(fullBundle, cleanupError);
+        if (cleanupError) {
+            lastError = "Could not remove intermediate shader bundle: " +
+                        cleanupError.message();
+            return false;
+        }
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to copy shaders: " + std::string(e.what());
@@ -576,6 +687,23 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildP
             settings.profile.window.outputScaleMode);
         config["developmentBuild"] = settings.profile.developmentBuild;
         config["projectSettings"] = ProjectSettings::Get().Serialize();
+
+        const fs::path shaderManifest = fs::path(outputPath) /
+            Paths::Build::SHADER_BUNDLE / "manifest.json";
+        std::string hashError;
+        const std::string shaderManifestSha256 =
+            molga::Sha256File(shaderManifest, &hashError);
+        if (shaderManifestSha256.empty()) {
+            lastError = "Failed to hash packaged shader manifest: " + hashError;
+            return false;
+        }
+        config["graphics"] = {
+            {"api", "sdlgpu"},
+            {"driver", "metal"},
+            {"shaderFormat", "msl"},
+            {"shaderManifest", "ShaderBundle/manifest.json"},
+            {"shaderManifestSha256", shaderManifestSha256},
+        };
 
         config["inputActions"] = Input::SerializeActions();
 
@@ -682,7 +810,8 @@ bool GameBuilder::EmitAssetCatalog(const std::string& outputPath) {
         }
 
         fs::path catalogPath = fs::path(outputPath) / "asset_catalog.json";
-        if (!molga::AssetDatabase::Get().SaveCatalog(catalogPath)) {
+        if (!molga::AssetDatabase::Get().SaveCatalog(
+                catalogPath, "Assets/Shaders/")) {
             lastError = "Failed to write asset_catalog.json";
             return false;
         }

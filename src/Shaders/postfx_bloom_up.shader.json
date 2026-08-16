@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "name": "postfx_bloom_up",
+  "source": "postfx_bloom_up.hlsl",
+  "vertex": {
+    "entry": "VSMain",
+    "layout": {
+      "stride": 8,
+      "attributes": [
+        { "location": 0, "format": "Float2", "offset": 0 }
+      ]
+    }
+  },
+  "fragment": { "entry": "PSMain" },
+  "parameters": [],
+  "textures": [
+    { "name": "uHigh", "stage": "fragment", "dimension": "2D" },
+    { "name": "uLow", "stage": "fragment", "dimension": "2D" }
+  ]
+}

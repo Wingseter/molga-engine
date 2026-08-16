@@ -3,6 +3,8 @@
 #include "Core/PathConstants.h"
 #include "Core/PathService.h"
 #include "Editor/Profiling/ProfilerReportSink.h"
+#include "Scripting/ScriptApi.h"
+#include "ShaderPackageTestSupport.h"
 #include "doctest.h"
 #include <filesystem>
 #include <fstream>
@@ -47,7 +49,7 @@ TEST_CASE("BuildManifest passes when every required file exists") {
 TEST_CASE("Package constants use runtime package casing") {
     CHECK(std::string(Paths::Build::ASSETS) == "Assets");
     CHECK(std::string(Paths::Build::SCENES) == "Scenes");
-    CHECK(std::string(Paths::Build::SHADERS) == "Shaders");
+    CHECK(std::string(Paths::Build::SHADER_BUNDLE) == "ShaderBundle");
 }
 
 TEST_CASE("PackageLayout executable name is platform aware") {
@@ -65,11 +67,13 @@ TEST_CASE("PackageLayout script manifest validation") {
     std::string exeName = PackageLayout::ExecutableNameFor("TestGame");
     
     { std::ofstream(tmpDir / exeName); }
-    { std::ofstream(tmpDir / "game.json") << "{}"; }
     fs::create_directories(tmpDir / "Scenes");
     { std::ofstream(tmpDir / "Scenes/main.json"); }
     fs::create_directories(tmpDir / "Assets");
-    fs::create_directories(tmpDir / "Shaders");
+    const std::string shaderHash =
+        test_support::WriteMinimalMslShaderBundle(tmpDir);
+    const auto baseConfig = test_support::MinimalPackageGameConfig(shaderHash);
+    { std::ofstream(tmpDir / "game.json") << baseConfig.dump(2); }
     { std::ofstream(tmpDir / "asset_catalog.json") << "{\"schemaVersion\":1,\"records\":[]}"; }
     fs::create_directories(tmpDir / "Resources");
     { std::ofstream(tmpDir / "Resources/missing_texture.png") << "placeholder"; }
@@ -80,13 +84,36 @@ TEST_CASE("PackageLayout script manifest validation") {
     CHECK(error.empty());
 
     {
+        std::ofstream(tmpDir / "ShaderBundle/artifacts/forbidden.spv")
+            << "forbidden";
+        CHECK_FALSE(PackageLayout::Validate(tmpDir, "TestGame", error));
+        CHECK(error.find("forbidden non-MSL") != std::string::npos);
+        fs::remove(tmpDir / "ShaderBundle/artifacts/forbidden.spv");
+    }
+    {
+        std::ofstream(tmpDir / "ShaderBundle/artifacts/test.fragment.msl",
+                      std::ios::app) << "tampered";
+        CHECK_FALSE(PackageLayout::Validate(tmpDir, "TestGame", error));
+        CHECK(error.find("SHA-256 mismatch") != std::string::npos);
+        CHECK(test_support::WriteMinimalMslShaderBundle(tmpDir) == shaderHash);
+    }
+    {
+        std::ofstream(tmpDir / "ShaderBundle/manifest.json", std::ios::app)
+            << ' ';
+        CHECK_FALSE(PackageLayout::Validate(tmpDir, "TestGame", error));
+        CHECK(error.find("manifest SHA-256 mismatch") != std::string::npos);
+        CHECK(test_support::WriteMinimalMslShaderBundle(tmpDir) == shaderHash);
+    }
+
+    {
         std::ofstream f(tmpDir / "game.json");
-        f << R"({
-            "scripts": {
-                "enabled": false,
-                "library": "Scripts/libUserScripts.dylib"
-            }
-        })";
+        auto config = baseConfig;
+        config["scripts"] = {
+            {"enabled", false},
+            {"library", "Scripts/libUserScripts.dylib"},
+            {"apiVersion", molga::ScriptApiVersion},
+        };
+        f << config.dump(2);
     }
     valid = PackageLayout::Validate(tmpDir, "TestGame", error);
     CHECK(valid);
@@ -94,12 +121,13 @@ TEST_CASE("PackageLayout script manifest validation") {
 
     {
         std::ofstream f(tmpDir / "game.json");
-        f << R"({
-            "scripts": {
-                "enabled": true,
-                "library": "Scripts/libUserScripts.dylib"
-            }
-        })";
+        auto config = baseConfig;
+        config["scripts"] = {
+            {"enabled", true},
+            {"library", "Scripts/libUserScripts.dylib"},
+            {"apiVersion", molga::ScriptApiVersion},
+        };
+        f << config.dump(2);
     }
     valid = PackageLayout::Validate(tmpDir, "TestGame", error);
     CHECK_FALSE(valid);

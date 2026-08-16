@@ -1,11 +1,10 @@
 #include "MarrowRenderer.h"
-#include <glad/glad.h>
 #include "../GameObject.h"
 #include "../ComponentFactory.h"
 #include "Transform.h"
 #include "../../Rendering/Renderer.h"
-#include "../../Rendering/Shader.h"
 #include "../../Rendering/Texture.h"
+#include "../../Rendering/RenderSystem2D.h"
 #include "../../Core/TextureManager.h"
 #include "../../Core/PathService.h"
 #include "../../Common/Log.h"
@@ -18,9 +17,11 @@
 #endif
 
 #include <cmath>
+#include <array>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 
 REGISTER_COMPONENT(MarrowRenderer)
 
@@ -56,7 +57,6 @@ void MarrowRenderer::OnInspectorGUI() {
 
 // Full integration when Marrow is available
 MarrowRenderer::~MarrowRenderer() {
-    CleanGLBuffers();
 }
 
 void MarrowRenderer::PlayAnimation(const std::string& animName, bool loop, int track) {
@@ -92,185 +92,10 @@ void MarrowRenderer::Update(float dt) {
 }
 
 void MarrowRenderer::RenderSprite(Renderer* renderer) {
-    if (!gameObject || !enabled || !skeleton || !texture) return;
-
-    Transform* transform = gameObject->GetComponent<Transform>();
-    if (!transform) return;
-
-    Shader* activeShader = renderer->GetCurrentShader();
-    if (!activeShader) return;
-
-#ifdef MOLGA_EDITOR
-    // 1. In Edit mode (stopped), manually update animation ticks so that preview previews in editor viewport.
-    if (EditorState::Get().IsEditMode()) {
-        float editorDt = ImGui::GetIO().DeltaTime;
-        Update(editorDt);
-    }
-#endif
-
-    // 2. Bind texture atlas to unit 0
-    texture->Bind(0);
-
-    // 3. Set identity model matrix (we calculate world space coords on CPU)
-    float identity[16] = {
-        1.0f, 0.0f, 0.0f, 0.0f,
-        0.0f, 1.0f, 0.0f, 0.0f,
-        0.0f, 0.0f, 1.0f, 0.0f,
-        0.0f, 0.0f, 0.0f, 1.0f
-    };
-    activeShader->SetMat4("model", identity);
-    activeShader->SetVec4("uUV", 0.0f, 0.0f, 1.0f, 1.0f);
-    activeShader->SetBool("useTexture", true);
-    activeShader->SetInt("uTexture", 0);
-
-    // Get GameObject's world transform for CPU vertex projection
-    Vector2 worldPos = transform->GetWorldPosition();
-    Vector2 worldScale = transform->GetWorldScale();
-    float worldRotDeg = transform->GetWorldRotation();
-    float worldRotRad = worldRotDeg * (3.14159265f / 180.0f);
-    float cosRot = std::cos(worldRotRad);
-    float sinRot = std::sin(worldRotRad);
-
-    // Setup or bind VAO
-    if (VAO == 0) {
-        SetupGLBuffers();
-    }
-    glBindVertexArray(VAO);
-
-    // 4. Batch construction: collect vertices/indices and state transitions
-    struct RenderBatch {
-        marrow::runtime::BlendMode blendMode;
-        float colorTint[4];
-        std::size_t startIndex;
-        std::size_t indexCount;
-    };
-
-    std::vector<RenderBatch> batches;
-    vboData.clear();
-    indices.clear();
-
-    const auto& drawOrder = skeleton->draw_order();
-    const auto& slotStates = skeleton->slot_states();
-
-    for (std::size_t slotIndex : drawOrder) {
-        // Evaluate the active attachment pose for the slot
-        auto poseOpt = skeleton->evaluate_current_mesh_attachment(slotIndex);
-        if (!poseOpt.has_value()) continue;
-
-        const auto& pose = poseOpt.value();
-        if (pose.vertices.empty() || pose.triangles.empty()) continue;
-
-        // Resolve blend mode
-        marrow::runtime::BlendMode blendMode = marrow::runtime::BlendMode::Normal;
-        if (slotIndex < skeletonData->slots().size()) {
-            blendMode = skeletonData->slots()[slotIndex].blend_mode;
-        }
-
-        // Compute slot tint color combined with global component tint color
-        const auto& slotState = slotStates[slotIndex];
-        float r = static_cast<float>(slotState.color.r) * color.r;
-        float g = static_cast<float>(slotState.color.g) * color.g;
-        float b = static_cast<float>(slotState.color.b) * color.b;
-        float a = static_cast<float>(slotState.color.a) * color.a;
-
-        // Determine if we need to split the batch (if blend mode or color tint differs)
-        bool startNewBatch = false;
-        if (batches.empty()) {
-            startNewBatch = true;
-        } else {
-            const auto& lastBatch = batches.back();
-            if (lastBatch.blendMode != blendMode ||
-                lastBatch.colorTint[0] != r || lastBatch.colorTint[1] != g ||
-                lastBatch.colorTint[2] != b || lastBatch.colorTint[3] != a) {
-                startNewBatch = true;
-            }
-        }
-
-        std::size_t vertexOffset = vboData.size() / 4;
-
-        if (startNewBatch) {
-            RenderBatch batch;
-            batch.blendMode = blendMode;
-            batch.colorTint[0] = r;
-            batch.colorTint[1] = g;
-            batch.colorTint[2] = b;
-            batch.colorTint[3] = a;
-            batch.startIndex = indices.size();
-            batch.indexCount = 0;
-            batches.push_back(batch);
-        }
-
-        // Push vertices projected on CPU
-        vboData.reserve(vboData.size() + pose.vertices.size() * 4);
-        for (std::size_t i = 0; i < pose.vertices.size(); ++i) {
-            float vx = static_cast<float>(pose.vertices[i].x);
-            float vy = static_cast<float>(pose.vertices[i].y);
-
-            // Translate local attachment coordinate to world coordinate
-            float rx = vx * cosRot - vy * sinRot;
-            float ry = vx * sinRot + vy * cosRot;
-            float px = rx * worldScale.x + worldPos.x;
-            float py = ry * worldScale.y + worldPos.y;
-
-            float u = static_cast<float>(pose.uvs[i * 2]);
-            float v = static_cast<float>(pose.uvs[i * 2 + 1]);
-
-            vboData.push_back(px);
-            vboData.push_back(py);
-            vboData.push_back(u);
-            vboData.push_back(v);
-        }
-
-        // Push triangles indices offset
-        indices.reserve(indices.size() + pose.triangles.size());
-        for (std::size_t idx : pose.triangles) {
-            indices.push_back(static_cast<unsigned int>(idx + vertexOffset));
-            batches.back().indexCount++;
-        }
-    }
-
-    if (indices.empty()) {
-        glBindVertexArray(0);
-        return;
-    }
-
-    // 5. Single GPU Buffer Upload (Batching optimization)
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, vboData.size() * sizeof(float), vboData.data(), GL_DYNAMIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_DYNAMIC_DRAW);
-
-    // 6. Draw each batch by applying GL state and draw call
-    for (const auto& batch : batches) {
-        // Apply Slot Blend Mode
-        glEnable(GL_BLEND);
-        if (batch.blendMode == marrow::runtime::BlendMode::Additive) {
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        } else if (batch.blendMode == marrow::runtime::BlendMode::Multiply) {
-            glBlendFunc(GL_DST_COLOR, GL_ONE_MINUS_SRC_ALPHA);
-        } else if (batch.blendMode == marrow::runtime::BlendMode::Screen) {
-            glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR);
-        } else {
-            // Normal
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        }
-
-        // Set combined color tint uniform
-        activeShader->SetVec4("uColor", batch.colorTint[0], batch.colorTint[1], batch.colorTint[2], batch.colorTint[3]);
-
-        // Draw indexed triangles for the batch
-        glDrawElements(
-            GL_TRIANGLES,
-            static_cast<GLsizei>(batch.indexCount),
-            GL_UNSIGNED_INT,
-            (void*)(batch.startIndex * sizeof(unsigned int))
-        );
-    }
-
-    // Restore default Blend Function
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glBindVertexArray(0);
+    if (!renderer) return;
+    molga::RenderQueue queue;
+    CollectRender(queue);
+    molga::RenderSystem2D::Get().Render(queue, renderer, nullptr);
 }
 
 void MarrowRenderer::ResolveAssets(bool forceReload) {
@@ -338,44 +163,6 @@ void MarrowRenderer::ResolveAssets(bool forceReload) {
 }
 
 void MarrowRenderer::OnDestroy() {
-    CleanGLBuffers();
-}
-
-void MarrowRenderer::SetupGLBuffers() {
-    CleanGLBuffers();
-
-    glGenVertexArrays(1, &VAO);
-    glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
-
-    glBindVertexArray(VAO);
-
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    // Attribute 0: Position (x, y)
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-
-    // Attribute 1: UV coordinates (u, v)
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-}
-
-void MarrowRenderer::CleanGLBuffers() {
-    if (VAO != 0) {
-        glDeleteVertexArrays(1, &VAO);
-        VAO = 0;
-    }
-    if (VBO != 0) {
-        glDeleteBuffers(1, &VBO);
-        VBO = 0;
-    }
-    if (EBO != 0) {
-        glDeleteBuffers(1, &EBO);
-        EBO = 0;
-    }
 }
 
 void MarrowRenderer::Serialize(nlohmann::json& j) const {
@@ -504,16 +291,140 @@ void MarrowRenderer::OnInspectorGUI() {
 
 void MarrowRenderer::CollectRender(molga::RenderQueue& queue) {
     if (!gameObject || !enabled) return;
-
-    molga::RenderCommand cmd;
+#ifdef MOLGA_MARROW_SUPPORT
+    if (!skeleton || !skeletonData || !texture || !texture->IsValid()) return;
+    Transform* transform = gameObject->GetComponent<Transform>();
+    if (!transform) return;
+#ifdef MOLGA_EDITOR
+    if (EditorState::Get().IsEditMode()) Update(ImGui::GetIO().DeltaTime);
+#endif
     float worldY = 0.0f;
-    if (const Transform* transform = gameObject->GetComponent<Transform>()) {
-        worldY = transform->GetWorldPosition().y;
+    worldY = transform->GetWorldPosition().y;
+    const molga::SortKey sortKey =
+        molga::MakeWorldSortKey(GetWorldSortSettings(), worldY);
+    const Vector2 worldPosition = transform->GetWorldPosition();
+    const Vector2 worldScale = transform->GetWorldScale();
+    const float radians = transform->GetWorldRotation() * 3.14159265f / 180.0f;
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    const auto& slotStates = skeleton->slot_states();
+    const auto& slots = skeletonData->slots();
+    const auto boneWorldTransforms = skeleton->bone_world_transforms();
+    for (std::size_t slotIndex : skeleton->draw_order()) {
+        if (slotIndex >= slotStates.size() || slotIndex >= slots.size()) continue;
+        const auto& slot = slotStates[slotIndex];
+        const Color tint{static_cast<float>(slot.color.r) * color.r,
+                         static_cast<float>(slot.color.g) * color.g,
+                         static_cast<float>(slot.color.b) * color.b,
+                         static_cast<float>(slot.color.a) * color.a};
+        auto vertices = std::make_shared<std::vector<molga::Vertex2D>>();
+        auto indices = std::make_shared<std::vector<std::uint32_t>>();
+        float minX = std::numeric_limits<float>::max();
+        float minY = std::numeric_limits<float>::max();
+        float maxX = std::numeric_limits<float>::lowest();
+        float maxY = std::numeric_limits<float>::lowest();
+        const auto appendVertex = [&](double skeletonX, double skeletonY,
+                                      double u, double v) {
+            const float scaledX = static_cast<float>(skeletonX) * worldScale.x;
+            const float scaledY = static_cast<float>(skeletonY) * worldScale.y;
+            const float x = scaledX * cosine - scaledY * sine + worldPosition.x;
+            const float y = scaledX * sine + scaledY * cosine + worldPosition.y;
+            vertices->push_back({x, y, static_cast<float>(u),
+                                 static_cast<float>(v), tint.r, tint.g,
+                                 tint.b, tint.a});
+            minX = std::min(minX, x); minY = std::min(minY, y);
+            maxX = std::max(maxX, x); maxY = std::max(maxY, y);
+        };
+
+        const auto pose = skeleton->evaluate_current_mesh_attachment(slotIndex);
+        if (pose && !pose->vertices.empty() && !pose->triangles.empty() &&
+            pose->uvs.size() == pose->vertices.size() * 2U) {
+            vertices->reserve(pose->vertices.size());
+            for (std::size_t index = 0; index < pose->vertices.size(); ++index) {
+                appendVertex(pose->vertices[index].x, pose->vertices[index].y,
+                             pose->uvs[index * 2U],
+                             pose->uvs[index * 2U + 1U]);
+            }
+            indices->reserve(pose->triangles.size());
+            for (std::size_t index : pose->triangles) {
+                if (index >= vertices->size()) {
+                    indices->clear();
+                    break;
+                }
+                indices->push_back(static_cast<std::uint32_t>(index));
+            }
+        } else {
+            const marrow::runtime::AttachmentData* attachment =
+                skeleton->current_attachment(slotIndex);
+            const std::string_view regionName =
+                skeleton->current_region_name(slotIndex);
+            const marrow::runtime::AtlasRegion* region =
+                atlasData->find_region_for_attachment(regionName);
+            const auto& slotData = slots[slotIndex];
+            if (!attachment || attachment->kind !=
+                    marrow::runtime::AttachmentKind::Region ||
+                !region || slotData.bone_index >= boneWorldTransforms.size() ||
+                atlasData->info().width <= 0.0 ||
+                atlasData->info().height <= 0.0) {
+                continue;
+            }
+            const auto bone = boneWorldTransforms[slotData.bone_index];
+            const std::array<std::array<double, 2>, 4> corners{{
+                {{-region->origin_x, -region->origin_y}},
+                {{region->width - region->origin_x, -region->origin_y}},
+                {{region->width - region->origin_x,
+                  region->height - region->origin_y}},
+                {{-region->origin_x, region->height - region->origin_y}},
+            }};
+            const std::array<std::array<double, 2>, 4> uvs{{
+                {{region->x / atlasData->info().width,
+                  region->y / atlasData->info().height}},
+                {{(region->x + region->width) / atlasData->info().width,
+                  region->y / atlasData->info().height}},
+                {{(region->x + region->width) / atlasData->info().width,
+                  (region->y + region->height) / atlasData->info().height}},
+                {{region->x / atlasData->info().width,
+                  (region->y + region->height) / atlasData->info().height}},
+            }};
+            vertices->reserve(4U);
+            for (std::size_t index = 0; index < corners.size(); ++index) {
+                const double x = bone.a * corners[index][0] +
+                                 bone.b * corners[index][1] + bone.world_x;
+                const double y = bone.c * corners[index][0] +
+                                 bone.d * corners[index][1] + bone.world_y;
+                appendVertex(x, y, uvs[index][0], uvs[index][1]);
+            }
+            indices->assign({0U, 2U, 3U, 0U, 1U, 2U});
+        }
+        if (vertices->empty() || indices->empty() ||
+            indices->size() % 3U != 0U) continue;
+
+        BlendMode blend = BlendMode::Alpha;
+        if (slotIndex < slots.size()) {
+            switch (slots[slotIndex].blend_mode) {
+                case marrow::runtime::BlendMode::Additive:
+                    blend = BlendMode::Additive; break;
+                case marrow::runtime::BlendMode::Multiply:
+                    blend = BlendMode::Multiply; break;
+                case marrow::runtime::BlendMode::Screen:
+                    blend = BlendMode::Screen; break;
+                default: break;
+            }
+        }
+        molga::RenderCommand command;
+        command.sortKey = sortKey;
+        command.batchKey.shaderName = "batch";
+        command.batchKey.texture = texture->Handle();
+        command.batchKey.textureSampler = texture->Sampler();
+        command.batchKey.textureStableId = texture->StableId();
+        command.batchKey.blendMode = blend;
+        command.batchKey.isBatchable = false;
+        command.geometry = std::move(vertices);
+        command.geometryIndices = std::move(indices);
+        command.worldBounds = AABB{minX, minY, maxX - minX, maxY - minY};
+        queue.Submit(command);
     }
-    cmd.sortKey = molga::MakeWorldSortKey(GetWorldSortSettings(), worldY);
-    cmd.batchKey.isBatchable = false;
-    cmd.fallbackRender = [this](Renderer* r) {
-        this->RenderSprite(r);
-    };
-    queue.Submit(cmd);
+#else
+    (void)queue;
+#endif
 }

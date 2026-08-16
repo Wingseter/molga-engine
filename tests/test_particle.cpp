@@ -368,9 +368,9 @@ TEST_CASE("Particle geometry uses slice UVs and groups quads by texture") {
     const auto& vertices = *firstBatch->geometry;
     REQUIRE(vertices.size() == 4U);
     CHECK(vertices[0].u == doctest::Approx(0.10f));
-    CHECK(vertices[0].v == doctest::Approx(0.40f));
+    CHECK(vertices[0].v == doctest::Approx(0.20f));
     CHECK(vertices[1].u == doctest::Approx(0.30f));
-    CHECK(vertices[2].v == doctest::Approx(0.20f));
+    CHECK(vertices[2].v == doctest::Approx(0.40f));
 }
 
 TEST_CASE("Particle frame modes select start random and over-life frames deterministically") {

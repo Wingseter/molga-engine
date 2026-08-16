@@ -456,12 +456,12 @@ std::vector<ParticleGeometryBatch> ParticleEmitter::BuildGeometry(
         auto& vertices = *found->vertices;
         const std::size_t offset = vertices.size();
         vertices.resize(offset + 4U);
-        SetVertex(vertices[offset], topLeft.x, topLeft.y, uv.u0, uv.v1, particle);
-        SetVertex(vertices[offset + 1U], topRight.x, topRight.y, uv.u1, uv.v1, particle);
+        SetVertex(vertices[offset], topLeft.x, topLeft.y, uv.u0, uv.v0, particle);
+        SetVertex(vertices[offset + 1U], topRight.x, topRight.y, uv.u1, uv.v0, particle);
         SetVertex(vertices[offset + 2U], bottomRight.x, bottomRight.y,
-                  uv.u1, uv.v0, particle);
+                  uv.u1, uv.v1, particle);
         SetVertex(vertices[offset + 3U], bottomLeft.x, bottomLeft.y,
-                  uv.u0, uv.v0, particle);
+                  uv.u0, uv.v1, particle);
 
         for (const Vector2 point : {topLeft, topRight, bottomRight, bottomLeft}) {
             found->minX = std::min(found->minX, point.x);

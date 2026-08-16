@@ -7,11 +7,12 @@ class Texture;
 class SpriteSheet;
 class Shader;
 class Camera2D;
+class Renderer;
 
 class Tilemap {
 public:
     Tilemap(int width, int height, int tileSize);
-    ~Tilemap();
+    ~Tilemap() = default;
 
     void SetTile(int x, int y, int tileId);
     int GetTile(int x, int y) const;
@@ -19,7 +20,8 @@ public:
     void SetSpriteSheet(SpriteSheet* sheet);
     void SetCollisionTile(int tileId, bool solid);
 
-    void Render(Shader* shader, Camera2D* camera = nullptr);
+    void Render(Renderer* renderer, Shader* shader,
+                Camera2D* camera = nullptr);
 
     // Collision
     bool IsSolid(int x, int y) const;
@@ -44,6 +46,4 @@ private:
     std::vector<bool> solidTiles;
     SpriteSheet* spriteSheet;
 
-    unsigned int VAO, VBO;
-    void SetupBuffers();
 };

@@ -115,7 +115,7 @@ bool BuildPlanBuilder::Build(
     planOut.startupSceneId = startupSceneId;
 
     // 4. Set required directories
-    planOut.requiredDirectories = {"Assets", "Scenes", "Shaders"};
+    planOut.requiredDirectories = {"Assets", "Scenes", "ShaderBundle"};
 
     // 5. Script library (optional)
     if (!userScriptLibPath.empty()) {

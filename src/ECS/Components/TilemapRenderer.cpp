@@ -33,10 +33,10 @@ bool Near(float a, float b, float epsilon = 0.0001f) {
 void AppendQuad(std::vector<molga::Vertex2D>& vertices,
                 float left, float top, float right, float bottom,
                 const Frame& uv, float alpha) {
-    vertices.push_back({left,  top,    uv.u0, uv.v1, 1.0f, 1.0f, 1.0f, alpha});
-    vertices.push_back({right, top,    uv.u1, uv.v1, 1.0f, 1.0f, 1.0f, alpha});
-    vertices.push_back({right, bottom, uv.u1, uv.v0, 1.0f, 1.0f, 1.0f, alpha});
-    vertices.push_back({left,  bottom, uv.u0, uv.v0, 1.0f, 1.0f, 1.0f, alpha});
+    vertices.push_back({left,  top,    uv.u0, uv.v0, 1.0f, 1.0f, 1.0f, alpha});
+    vertices.push_back({right, top,    uv.u1, uv.v0, 1.0f, 1.0f, 1.0f, alpha});
+    vertices.push_back({right, bottom, uv.u1, uv.v1, 1.0f, 1.0f, 1.0f, alpha});
+    vertices.push_back({left,  bottom, uv.u0, uv.v1, 1.0f, 1.0f, 1.0f, alpha});
 }
 
 } // namespace
@@ -690,12 +690,19 @@ void TilemapRenderer::CollectRender(molga::RenderQueue& queue) {
                     sortSettings.sortingOrder = molga::ComposeWorldSortingOrder(
                         sortingOrder, layerOrder, layer.sortingOffset);
                     command.sortKey = molga::MakeWorldSortKey(sortSettings);
-                    command.batchKey.texture = group.texture;
+                    command.batchKey.shaderName = "batch";
+                    if (group.texture && group.texture->IsValid()) {
+                        command.batchKey.texture = group.texture->Handle();
+                        command.batchKey.textureSampler = group.texture->Sampler();
+                        command.batchKey.textureStableId = group.texture->StableId();
+                    }
                     command.batchKey.blendMode = BlendMode::Alpha;
                     command.batchKey.isBatchable = true;
                     if (lightingMode_ == SpriteLightingMode2D::Lit) {
                         command.batchKey.lit = true;
-                        command.batchKey.normalTexture = nullptr;
+                        command.batchKey.normalTexture = {};
+                        command.batchKey.normalSampler = {};
+                        command.batchKey.normalTextureStableId = 0;
                         command.batchKey.normalStrength = 1.0f;
                         command.batchKey.receiverLayer =
                             static_cast<std::uint32_t>(

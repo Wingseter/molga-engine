@@ -3,6 +3,7 @@
 #include "Common/Log.h"
 #include "Editor/Editor.h"
 #include "Editor/EditorConstants.h"
+#include "Editor/ImGuiTextureBridge.h"
 #include "Editor/Project.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/Renderer.h"
@@ -164,7 +165,7 @@ void GameViewWindow::OnGUI() {
         lastAttemptedOutput_ = requested;
         if (!requested.IsValid()) {
             outputError_ = "Invalid output resolution";
-        } else if (fbo_.Resize(requested.width, requested.height)) {
+        } else if (outputTarget_.Resize(requested.width, requested.height)) {
             activeOutput_ = requested;
             outputError_.clear();
         } else {
@@ -173,11 +174,10 @@ void GameViewWindow::OnGUI() {
     }
 
     logicalOutput_ = RequestedLogicalSize();
-    if (fbo_.IsValid() && renderer_ && spriteShader_ && gameObjects_) {
-        ScopedFramebufferBinding binding(fbo_);
+    if (outputTarget_.IsValid() && renderer_ && spriteShader_ && gameObjects_) {
         const molga::GameOutputResult result = outputRenderer_.Render(
             *gameObjects_,
-            {activeOutput_, logicalOutput_, RequestedScaleMode()},
+            {activeOutput_, logicalOutput_, RequestedScaleMode(), &outputTarget_},
             *renderer_, spriteShader_);
         presentation_ = result.presentation;
         hasOutputCamera_ = result.cameraLayout.HasRenderableCamera();
@@ -232,7 +232,7 @@ void GameViewWindow::OnGUI() {
     ImGui::SetCursorPos(ImVec2(contentStart.x + layout_.imageRect.x,
                                contentStart.y + layout_.imageRect.y));
     imageScreenOrigin_ = ImGui::GetCursorScreenPos();
-    imageValid_ = fbo_.IsValid() && layout_.imageRect.width > 0.0f &&
+    imageValid_ = outputTarget_.IsValid() && layout_.imageRect.width > 0.0f &&
                   layout_.imageRect.height > 0.0f;
     platformViewportId_ = platformViewport ? platformViewport->ID : 0;
     if (platformWindow != inputSourceWindow_) {
@@ -243,9 +243,9 @@ void GameViewWindow::OnGUI() {
     if (!inputFocused_) Input::DiscardPendingScroll(inputSourceWindow_);
 
     if (imageValid_) {
-        ImGui::Image(static_cast<ImTextureID>(fbo_.ColorTexture()),
+        ImGui::Image(ImGuiTextureBridge::From(outputTarget_.ColorView().texture),
                      ImVec2(layout_.imageRect.width, layout_.imageRect.height),
-                     ImVec2(0, 1), ImVec2(1, 0));
+                     ImVec2(0, 0), ImVec2(1, 1));
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
             Input::DiscardPendingScroll(inputSourceWindow_);
             inputFocused_ = true;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <string>
 
@@ -11,6 +12,35 @@ struct SmokeReport {
     std::string message;
     std::size_t objectCount = 0;
     int frames = 0;
+    std::string graphicsApi;
+    std::string graphicsDriver;
+    std::string osVersion;
+    std::string architecture;
+    std::string swapchainFormat;
+    std::string outputTextureFormat;
+    std::string shaderArtifactFormat;
+    std::string shaderManifestSha256;
+    std::uint32_t gpuCopyPasses = 0;
+    std::uint32_t gpuRenderPasses = 0;
+    std::uint32_t gpuDrawCalls = 0;
+    std::uint64_t gpuUploadBytes = 0;
+    bool gpuValidationEnabled = false;
+    std::uint32_t gpuValidationErrors = 0;
+    bool finalPixelProbeValid = false;
+    int finalPixelR = 0;
+    int finalPixelG = 0;
+    int finalPixelB = 0;
+    int finalPixelA = 0;
+    int benchmarkWarmupFrames = 0;
+    int benchmarkMeasuredFrames = 0;
+    double benchmarkCpuP50Ms = 0.0;
+    double benchmarkCpuP95Ms = 0.0;
+    int benchmarkDrawCalls = 0;
+    int benchmarkBatches = 0;
+    std::uint32_t benchmarkRenderPasses = 0;
+    std::uint64_t benchmarkUploadBytes = 0;
+    std::uint64_t residentMemoryBytes = 0;
+    std::uint64_t peakMemoryBytes = 0;
     bool assetsResolved = false;
     bool assetCatalogLoaded = false;
     int assetCatalogRecords = 0;

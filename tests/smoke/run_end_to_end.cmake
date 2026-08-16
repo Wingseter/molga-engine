@@ -86,17 +86,13 @@ foreach(required_path
     "${PACKAGE_ROOT}/Assets/Audio/music_loop.mp3"
     "${PACKAGE_ROOT}/Assets/Audio/jump_sfx.mp3"
     "${PACKAGE_ROOT}/Assets/PostProcessing/runtime.postfx"
-    "${PACKAGE_ROOT}/Shaders/postfx_fullscreen.vert"
-    "${PACKAGE_ROOT}/Shaders/postfx_bloom_down.frag"
-    "${PACKAGE_ROOT}/Shaders/postfx_bloom_up.frag"
-    "${PACKAGE_ROOT}/Shaders/postfx_bloom_composite.frag"
-    "${PACKAGE_ROOT}/Shaders/postfx_color_adjust.frag"
-    "${PACKAGE_ROOT}/Shaders/postfx_vignette.frag"
-    "${PACKAGE_ROOT}/Shaders/postfx_resolve.frag"
-    "${PACKAGE_ROOT}/Shaders/batch_lit.vert"
-    "${PACKAGE_ROOT}/Shaders/batch_lit.frag"
-    "${PACKAGE_ROOT}/Shaders/shadow_mask_2d.vert"
-    "${PACKAGE_ROOT}/Shaders/shadow_mask_2d.frag"
+    "${PACKAGE_ROOT}/ShaderBundle/manifest.json"
+    "${PACKAGE_ROOT}/ShaderBundle/artifacts/batch.vertex.msl"
+    "${PACKAGE_ROOT}/ShaderBundle/artifacts/batch.fragment.msl"
+    "${PACKAGE_ROOT}/ShaderBundle/artifacts/batch_lit.vertex.msl"
+    "${PACKAGE_ROOT}/ShaderBundle/artifacts/batch_lit.fragment.msl"
+    "${PACKAGE_ROOT}/ShaderBundle/artifacts/shadow_mask_2d.vertex.msl"
+    "${PACKAGE_ROOT}/ShaderBundle/artifacts/shadow_mask_2d.fragment.msl"
     "${PACKAGE_ROOT}/asset_catalog.json"
     "${PACKAGE_ROOT}/Resources/missing_texture.png"
 )
@@ -104,6 +100,21 @@ foreach(required_path
         message(FATAL_ERROR "Missing package output: ${required_path}")
     endif()
 endforeach()
+
+file(GLOB_RECURSE forbidden_shader_payloads
+    "${PACKAGE_ROOT}/ShaderBundle/*.hlsl"
+    "${PACKAGE_ROOT}/ShaderBundle/*.spv"
+    "${PACKAGE_ROOT}/ShaderBundle/*.dxil"
+    "${PACKAGE_ROOT}/ShaderBundle/*.vert"
+    "${PACKAGE_ROOT}/ShaderBundle/*.frag")
+if(forbidden_shader_payloads)
+    message(FATAL_ERROR
+        "macOS package contains forbidden shader payloads: ${forbidden_shader_payloads}")
+endif()
+if(EXISTS "${PACKAGE_ROOT}/molga_shaderc" OR
+   EXISTS "${PACKAGE_ROOT}/molga_shaderc.exe")
+    message(FATAL_ERROR "macOS package must not contain molga_shaderc")
+endif()
 
 # These are all public scene/prefab serialization envelopes produced by the
 # editor component contract; keep the fixture reproducible without a private
@@ -437,7 +448,11 @@ endif()
 
 file(READ "${PACKAGE_ROOT}/game.json" game_config)
 set(EXPECTED_CONFIGS
-    [["schemaVersion": 3]]
+    [["schemaVersion": 4]]
+    [["api": "sdlgpu"]]
+    [["driver": "metal"]]
+    [["shaderFormat": "msl"]]
+    [["shaderManifest": "ShaderBundle/manifest.json"]]
     [["gameName": "SmokeGame"]]
     [["productVersion": "0.1.0"]]
     [["developmentBuild": true]]
@@ -494,11 +509,11 @@ endif()
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -E env ${SMOKE_STORAGE_ENV}
         "${GAME_EXECUTABLE}"
-        --smoke --frames 8 --report "${RUNTIME_REPORT}"
+        --smoke --frames 720 --report "${RUNTIME_REPORT}"
     RESULT_VARIABLE runtime_result
     OUTPUT_VARIABLE runtime_stdout
     ERROR_VARIABLE runtime_stderr
-    TIMEOUT 20
+    TIMEOUT 120
 )
 if(NOT runtime_result EQUAL 0)
     message(FATAL_ERROR
@@ -554,7 +569,17 @@ set(EXPECTED_REPORTS
     [["status": "ok"]]
     [["scenePath": "Scenes/stage2.json"]]
     [["objectCount": 3]]
-    [["frames": 8]]
+    [["frames": 720]]
+    [["graphicsApi": "sdlgpu"]]
+    [["graphicsDriver": "metal"]]
+    [["architecture": "arm64"]]
+    [["outputTextureFormat": "SRGBA8"]]
+    [["shaderArtifactFormat": "msl"]]
+    [["gpuValidationEnabled": true]]
+    [["gpuValidationErrors": 0]]
+    [["finalPixelProbeValid": true]]
+    [["benchmarkWarmupFrames": 120]]
+    [["benchmarkMeasuredFrames": 600]]
     [["assetsResolved": true]]
     [["assetCatalogLoaded": true]]
     [["spriteAssetsResolved": 2]]

@@ -24,6 +24,35 @@ bool SmokeReport::Save(const std::filesystem::path& path) const {
         {"message", message},
         {"objectCount", objectCount},
         {"frames", frames},
+        {"graphicsApi", graphicsApi},
+        {"graphicsDriver", graphicsDriver},
+        {"osVersion", osVersion},
+        {"architecture", architecture},
+        {"swapchainFormat", swapchainFormat},
+        {"outputTextureFormat", outputTextureFormat},
+        {"shaderArtifactFormat", shaderArtifactFormat},
+        {"shaderManifestSha256", shaderManifestSha256},
+        {"gpuCopyPasses", gpuCopyPasses},
+        {"gpuRenderPasses", gpuRenderPasses},
+        {"gpuDrawCalls", gpuDrawCalls},
+        {"gpuUploadBytes", gpuUploadBytes},
+        {"gpuValidationEnabled", gpuValidationEnabled},
+        {"gpuValidationErrors", gpuValidationErrors},
+        {"finalPixelProbeValid", finalPixelProbeValid},
+        {"finalPixelR", finalPixelR},
+        {"finalPixelG", finalPixelG},
+        {"finalPixelB", finalPixelB},
+        {"finalPixelA", finalPixelA},
+        {"benchmarkWarmupFrames", benchmarkWarmupFrames},
+        {"benchmarkMeasuredFrames", benchmarkMeasuredFrames},
+        {"benchmarkCpuP50Ms", benchmarkCpuP50Ms},
+        {"benchmarkCpuP95Ms", benchmarkCpuP95Ms},
+        {"benchmarkDrawCalls", benchmarkDrawCalls},
+        {"benchmarkBatches", benchmarkBatches},
+        {"benchmarkRenderPasses", benchmarkRenderPasses},
+        {"benchmarkUploadBytes", benchmarkUploadBytes},
+        {"residentMemoryBytes", residentMemoryBytes},
+        {"peakMemoryBytes", peakMemoryBytes},
         {"assetsResolved", assetsResolved},
         {"assetCatalogLoaded", assetCatalogLoaded},
         {"assetCatalogRecords", assetCatalogRecords},
@@ -96,6 +125,35 @@ bool SmokeReport::Load(const std::filesystem::path& path, SmokeReport& out) {
         out.message = json.value("message", "");
         out.objectCount = json.value("objectCount", 0U);
         out.frames = json.value("frames", 0);
+        out.graphicsApi = json.value("graphicsApi", "");
+        out.graphicsDriver = json.value("graphicsDriver", "");
+        out.osVersion = json.value("osVersion", "");
+        out.architecture = json.value("architecture", "");
+        out.swapchainFormat = json.value("swapchainFormat", "");
+        out.outputTextureFormat = json.value("outputTextureFormat", "");
+        out.shaderArtifactFormat = json.value("shaderArtifactFormat", "");
+        out.shaderManifestSha256 = json.value("shaderManifestSha256", "");
+        out.gpuCopyPasses = json.value("gpuCopyPasses", 0U);
+        out.gpuRenderPasses = json.value("gpuRenderPasses", 0U);
+        out.gpuDrawCalls = json.value("gpuDrawCalls", 0U);
+        out.gpuUploadBytes = json.value("gpuUploadBytes", 0ULL);
+        out.gpuValidationEnabled = json.value("gpuValidationEnabled", false);
+        out.gpuValidationErrors = json.value("gpuValidationErrors", 0U);
+        out.finalPixelProbeValid = json.value("finalPixelProbeValid", false);
+        out.finalPixelR = json.value("finalPixelR", 0);
+        out.finalPixelG = json.value("finalPixelG", 0);
+        out.finalPixelB = json.value("finalPixelB", 0);
+        out.finalPixelA = json.value("finalPixelA", 0);
+        out.benchmarkWarmupFrames = json.value("benchmarkWarmupFrames", 0);
+        out.benchmarkMeasuredFrames = json.value("benchmarkMeasuredFrames", 0);
+        out.benchmarkCpuP50Ms = json.value("benchmarkCpuP50Ms", 0.0);
+        out.benchmarkCpuP95Ms = json.value("benchmarkCpuP95Ms", 0.0);
+        out.benchmarkDrawCalls = json.value("benchmarkDrawCalls", 0);
+        out.benchmarkBatches = json.value("benchmarkBatches", 0);
+        out.benchmarkRenderPasses = json.value("benchmarkRenderPasses", 0U);
+        out.benchmarkUploadBytes = json.value("benchmarkUploadBytes", 0ULL);
+        out.residentMemoryBytes = json.value("residentMemoryBytes", 0ULL);
+        out.peakMemoryBytes = json.value("peakMemoryBytes", 0ULL);
         out.assetsResolved = json.value("assetsResolved", false);
         out.assetCatalogLoaded = json.value("assetCatalogLoaded", false);
         out.assetCatalogRecords = json.value("assetCatalogRecords", 0);

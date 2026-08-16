@@ -41,7 +41,8 @@ public:
     std::string GuidForAbsolutePath(const std::filesystem::path& absolutePath) const;
 
     // 카탈로그 저장 / 로드 / 비우기 (런타임 및 빌드 용)
-    bool SaveCatalog(const std::filesystem::path& path) const;
+    bool SaveCatalog(const std::filesystem::path& path,
+                     const std::string& excludedSourcePrefix = {}) const;
     bool LoadCatalog(const std::filesystem::path& path, const std::filesystem::path& packageRoot);
     void Clear();
 

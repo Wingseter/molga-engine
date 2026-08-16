@@ -8,7 +8,6 @@
 #include "Rendering/RenderQueue.h"
 
 class Texture;
-class Renderer;
 class Shader;
 
 struct MaterialProperty {
@@ -35,9 +34,6 @@ public:
 
     Shader* ResolveShader() const;
     molga::BatchKey GetBatchKey() const;
-    void ApplyForBatchStart(Renderer* renderer);
-
-    void Apply(Renderer* renderer);
     void ResolveAssets();
 
     void Serialize(nlohmann::json& j) const;
