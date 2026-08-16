@@ -5,6 +5,8 @@
 #include "Editor/Properties/EditorPropertyDescriptor.h"
 #include "doctest.h"
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <memory>
 
 namespace {
@@ -29,6 +31,12 @@ TEST_CASE("Camera: Properties and defaults") {
     Camera cam;
     CHECK(cam.GetOrthoSize() == doctest::Approx(300.0f));
     CHECK(cam.IsMain() == false);
+    CHECK(cam.GetOutputRole() == CameraOutputRole::Disabled);
+    CHECK(cam.GetViewport() == CameraViewport{});
+    CHECK(cam.GetCullingMask() == 0xFFFFFFFFu);
+    CHECK_FALSE(cam.IsLightingEnabled());
+    CHECK(cam.GetAmbientColor() == Color::White());
+    CHECK(cam.GetAmbientIntensity() == doctest::Approx(0.2f));
     CHECK(cam.GetDepth() == 0);
     CHECK(cam.GetSmoothing() == doctest::Approx(5.0f));
     CHECK(cam.GetFollowTarget() == nullptr);
@@ -100,6 +108,11 @@ TEST_CASE("Camera: Serialization and Deserialization Roundtrip") {
     original.SetBackgroundColor(Color(0.5f, 0.6f, 0.7f, 0.8f));
     original.SetDepth(2);
     original.SetMain(true);
+    REQUIRE(original.SetViewport({0.1f, 0.2f, 0.3f, 0.4f}));
+    original.SetCullingMask(0x80000005u);
+    original.SetLightingEnabled(true);
+    REQUIRE(original.SetAmbientColor(Color(0.2f, 0.3f, 0.4f, 0.5f)));
+    REQUIRE(original.SetAmbientIntensity(1.25f));
     original.SetTargetId(42);
     original.SetSmoothing(10.0f);
     original.SetPixelPerfect(true);
@@ -118,12 +131,120 @@ TEST_CASE("Camera: Serialization and Deserialization Roundtrip") {
     CHECK(copy.GetBackgroundColor().a == doctest::Approx(0.8f));
     CHECK(copy.GetDepth() == 2);
     CHECK(copy.IsMain() == true);
+    CHECK(copy.GetOutputRole() == CameraOutputRole::Primary);
+    CHECK(copy.GetViewport().x == doctest::Approx(0.1f));
+    CHECK(copy.GetViewport().y == doctest::Approx(0.2f));
+    CHECK(copy.GetViewport().width == doctest::Approx(0.3f));
+    CHECK(copy.GetViewport().height == doctest::Approx(0.4f));
+    CHECK(copy.GetCullingMask() == 0x80000005u);
+    CHECK(copy.IsLightingEnabled());
+    CHECK(copy.GetAmbientColor() == Color(0.2f, 0.3f, 0.4f, 0.5f));
+    CHECK(copy.GetAmbientIntensity() == doctest::Approx(1.25f));
     CHECK(copy.GetTargetId() == 42);
     CHECK(copy.GetSmoothing() == doctest::Approx(10.0f));
     CHECK(copy.IsPixelPerfect());
     CHECK(copy.GetPixelZoom() == 3);
     CHECK(j["pixelPerfect"] == true);
     CHECK(j["pixelZoom"] == 3);
+    CHECK(j["outputRole"] == "Primary");
+    CHECK(j["viewport"]["x"].get<float>() == doctest::Approx(0.1f));
+    CHECK(j["cullingMask"].get<std::uint32_t>() == 0x80000005u);
+    CHECK(j["lightingEnabled"] == true);
+    CHECK(j["ambientIntensity"].get<float>() == doctest::Approx(1.25f));
+    CHECK_FALSE(j.contains("isMain"));
+}
+
+TEST_CASE("Camera: legacy lighting defaults canonicalize and invalid ambient edits retain state") {
+    const nlohmann::json canonical =
+        Camera::CanonicalizeSerializedData(nlohmann::json::object());
+    CHECK(canonical["lightingEnabled"] == false);
+    CHECK(canonical["ambientColor"] ==
+          nlohmann::json::array({1.0f, 1.0f, 1.0f, 1.0f}));
+    CHECK(canonical["ambientIntensity"].get<float>() ==
+          doctest::Approx(0.2f));
+
+    Camera camera;
+    REQUIRE(camera.SetAmbientIntensity(2.0f));
+    CHECK_FALSE(camera.SetAmbientIntensity(-1.0f));
+    CHECK_FALSE(camera.SetAmbientIntensity(
+        std::numeric_limits<float>::infinity()));
+    CHECK(camera.GetAmbientIntensity() == doctest::Approx(2.0f));
+    CHECK_FALSE(camera.SetAmbientColor({
+        1.0f, std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0f}));
+    CHECK(camera.GetAmbientColor() == Color::White());
+}
+
+TEST_CASE("Camera: output roles preserve the IsMain compatibility surface") {
+    Camera camera;
+    camera.SetOutputRole(CameraOutputRole::Secondary);
+    CHECK(camera.GetOutputRole() == CameraOutputRole::Secondary);
+    CHECK_FALSE(camera.IsMain());
+
+    camera.SetMain(true);
+    CHECK(camera.GetOutputRole() == CameraOutputRole::Primary);
+    CHECK(camera.IsMain());
+
+    camera.SetMain(false);
+    CHECK(camera.GetOutputRole() == CameraOutputRole::Disabled);
+    CHECK_FALSE(camera.IsMain());
+
+    camera.SetOutputRole(static_cast<CameraOutputRole>(99));
+    CHECK(camera.GetOutputRole() == CameraOutputRole::Disabled);
+}
+
+TEST_CASE("Camera: viewport rejects invalid runtime edits and repairs serialized damage") {
+    Camera camera;
+    const CameraViewport authored{0.25f, 0.1f, 0.5f, 0.75f};
+    REQUIRE(camera.SetViewport(authored));
+
+    CHECK_FALSE(camera.SetViewport({-0.1f, 0.0f, 0.5f, 0.5f}));
+    CHECK(camera.GetViewport() == authored);
+    CHECK_FALSE(camera.SetViewport({0.0f, 0.0f, 0.0f, 0.5f}));
+    CHECK(camera.GetViewport() == authored);
+    CHECK_FALSE(camera.SetViewport({0.75f, 0.0f, 0.5f, 0.5f}));
+    CHECK(camera.GetViewport() == authored);
+    CHECK_FALSE(camera.SetViewport({
+        std::numeric_limits<float>::infinity(), 0.0f, 0.5f, 0.5f}));
+    CHECK(camera.GetViewport() == authored);
+
+    camera.SetCullingMask(7u);
+    camera.Deserialize({
+        {"outputRole", "Secondary"},
+        {"viewport", {{"x", 0.2f}, {"y", 0.2f},
+                      {"width", 0.9f}, {"height", 0.5f}}},
+        {"cullingMask", -1},
+    });
+    CHECK(camera.GetOutputRole() == CameraOutputRole::Secondary);
+    CHECK(camera.GetViewport() == CameraViewport{});
+    CHECK(camera.GetCullingMask() == 0xFFFFFFFFu);
+
+    camera.Deserialize({
+        {"viewport", {{"x", 0.0f}, {"y", 0.0f}, {"width", 0.5f}}},
+    });
+    CHECK(camera.GetViewport() == CameraViewport{});
+}
+
+TEST_CASE("Camera: legacy isMain migrates only when outputRole is absent") {
+    Camera legacyMain;
+    legacyMain.Deserialize({{"isMain", true}});
+    CHECK(legacyMain.GetOutputRole() == CameraOutputRole::Primary);
+    CHECK(legacyMain.IsMain());
+
+    Camera legacyDisabled;
+    legacyDisabled.Deserialize({{"isMain", false}});
+    CHECK(legacyDisabled.GetOutputRole() == CameraOutputRole::Disabled);
+
+    Camera modernWins;
+    modernWins.Deserialize({
+        {"outputRole", "Secondary"}, {"isMain", true},
+    });
+    CHECK(modernWins.GetOutputRole() == CameraOutputRole::Secondary);
+    CHECK_FALSE(modernWins.IsMain());
+
+    nlohmann::json canonical;
+    modernWins.Serialize(canonical);
+    CHECK(canonical["outputRole"] == "Secondary");
+    CHECK_FALSE(canonical.contains("isMain"));
 }
 
 TEST_CASE("Camera: Legacy projection data defaults pixel-perfect fields and clamps zoom") {

@@ -4,6 +4,7 @@
 #include "../ComponentFactory.h"
 #include "Core/AssetDatabase.h"
 #include "Core/SpriteResolver.h"
+#include "Core/TextureImportSettings.h"
 
 REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Rendering/Renderer.h"
@@ -16,6 +17,7 @@ REGISTER_COMPONENT(SpriteRenderer)
 #include "../../Core/PathService.h"
 #include "../../Common/Log.h"
 #include "Rendering/RenderQueue.h"
+#include "Rendering/WorldRenderTraversal.h"
 #ifdef MOLGA_EDITOR
 #include "../../Editor/Project.h"
 #endif
@@ -23,14 +25,125 @@ REGISTER_COMPONENT(SpriteRenderer)
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <unordered_set>
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
 #endif
 
 using json = nlohmann::json;
 
+namespace {
+
+void WarnInvalidNormalOnce(const std::string& guid,
+                           const std::string& failure) {
+    static std::unordered_set<std::string> warned;
+    const std::string key = guid + '\n' + failure;
+    if (!warned.insert(key).second) return;
+    Log::Warn("SpriteRenderer",
+        "Normal map '" + guid + "' is invalid (" + failure +
+        "); using a flat normal");
+}
+
+} // namespace
+
 void SpriteRenderer::SetTexture(Texture* tex) {
     texture = tex;
+}
+
+void SpriteRenderer::SetLightingMode(SpriteLightingMode2D mode) {
+    lightingMode_ = mode == SpriteLightingMode2D::Lit
+        ? SpriteLightingMode2D::Lit : SpriteLightingMode2D::Unlit;
+    if (lightingMode_ == SpriteLightingMode2D::Lit) {
+        normalResolveAttempted_ = false;
+    }
+}
+
+void SpriteRenderer::SetNormalMapGuid(const std::string& guid) {
+    if (normalMapGuid_ == guid) return;
+    normalMapGuid_ = guid;
+    InvalidateNormalResolution();
+}
+
+bool SpriteRenderer::SetNormalStrength(float strength) {
+    if (!std::isfinite(strength)) return false;
+    normalStrength_ = std::clamp(strength, 0.0f, 2.0f);
+    return true;
+}
+
+void SpriteRenderer::InvalidateNormalResolution() {
+    normalTexture_ = nullptr;
+    normalResolveAttempted_ = false;
+    normalWarningEmitted_ = false;
+}
+
+void SpriteRenderer::EnsureNormalResolution() {
+    if (lightingMode_ != SpriteLightingMode2D::Lit) return;
+    normalResolveAttempted_ = true;
+    if (normalMapGuid_.empty()) {
+        normalTexture_ = nullptr;
+        WarnInvalidNormalOnce(
+            normalMapGuid_, "missing normalMapGuid reference");
+        normalWarningEmitted_ = true;
+        return;
+    }
+
+    molga::AssetDatabase& database = molga::AssetDatabase::Get();
+    const molga::AssetRecord* record = database.Find(normalMapGuid_);
+    std::string failure;
+    if (!record) {
+        failure = "missing asset";
+    } else if (record->importer != "TextureImporter") {
+        failure = "wrong importer";
+    } else if (record->importFailed) {
+        failure = "import failed";
+    } else {
+        const molga::TextureImportSettings settings =
+            molga::DeserializeTextureImportSettings(record->settings, true);
+        if (settings.usage != molga::TextureUsage::NormalMap) {
+            failure = "texture usage is not NormalMap";
+        } else if (record->textureWidth <= 0 || record->textureHeight <= 0) {
+            failure = "invalid texture dimensions";
+        } else if (!normalTexture_) {
+            const std::filesystem::path source =
+                database.AbsoluteSourcePath(normalMapGuid_);
+            if (source.empty()) {
+                failure = "missing source";
+            } else {
+                normalTexture_ = TextureManager::Get().LoadWithSettings(
+                    source.string(), settings, "SpriteRenderer.NormalMap");
+                if (!normalTexture_) failure = "texture load failed";
+            }
+        }
+    }
+
+    if (!failure.empty()) {
+        normalTexture_ = nullptr;
+        WarnInvalidNormalOnce(normalMapGuid_, failure);
+        normalWarningEmitted_ = true;
+    }
+}
+
+bool SpriteRenderer::HasUsableNormalTexture() {
+    if (lightingMode_ != SpriteLightingMode2D::Lit) return false;
+    EnsureNormalResolution();
+    if (!normalTexture_) return false;
+
+    const VisualSprite visual = GetVisualSprite();
+    Texture* effectiveDiffuse =
+        material.mainTexture ? material.mainTexture : visual.texture;
+    if (!effectiveDiffuse ||
+        effectiveDiffuse->GetWidth() != normalTexture_->GetWidth() ||
+        effectiveDiffuse->GetHeight() != normalTexture_->GetHeight()) {
+        WarnInvalidNormalOnce(
+            normalMapGuid_, "size does not match the effective diffuse texture");
+        normalWarningEmitted_ = true;
+        return false;
+    }
+    return true;
+}
+
+Texture* SpriteRenderer::GetNormalTexture() {
+    return HasUsableNormalTexture() ? normalTexture_ : nullptr;
 }
 
 void SpriteRenderer::SetTexturePath(const std::string& path) {
@@ -281,6 +394,21 @@ void SpriteRenderer::CollectRender(molga::RenderQueue& queue) {
     if (!cmd.batchKey.texture) {
         cmd.batchKey.texture = visual.texture;
     }
+    if (lightingMode_ == SpriteLightingMode2D::Lit) {
+        if (cmd.batchKey.isBatchable) {
+            cmd.batchKey.lit = true;
+            cmd.batchKey.normalTexture = GetNormalTexture();
+            cmd.batchKey.normalStrength = normalStrength_;
+            cmd.batchKey.receiverLayer = static_cast<std::uint32_t>(
+                molga::NormalizeWorldRenderLayer(gameObject->GetLayer()));
+        } else if (!litCustomMaterialWarningEmitted_) {
+            Log::Warn(
+                "SpriteRenderer",
+                "Lit mode is not supported by custom material shaders; "
+                "rendering this SpriteRenderer Unlit");
+            litCustomMaterialWarningEmitted_ = true;
+        }
+    }
 
     if (cmd.batchKey.isBatchable) {
         cmd.isBatchableSprite = true;
@@ -344,13 +472,48 @@ void SpriteRenderer::Serialize(nlohmann::json& j) const {
     j["textureGuid"] = authoredSprite.textureGuid;
     j["spriteRef"] = molga::SerializeSpriteRef(authoredSprite);
     j["sizeMode"] = sizeMode == SizeMode::Native ? "Native" : "Custom";
+    j["lightingMode"] = SpriteLightingMode2DName(lightingMode_);
+    j["normalMapGuid"] = normalMapGuid_;
+    j["normalStrength"] = normalStrength_;
 
     nlohmann::json matJson;
     material.Serialize(matJson);
     j["material"] = matJson;
 }
 
+nlohmann::json SpriteRenderer::CanonicalizeSerializedData(
+    const nlohmann::json& serialized) {
+    nlohmann::json canonical = serialized.is_object()
+        ? serialized : nlohmann::json::object();
+    const auto mode = canonical.find("lightingMode");
+    canonical["lightingMode"] =
+        mode != canonical.end() && mode->is_string() &&
+                mode->get<std::string>() == "Lit"
+            ? "Lit" : "Unlit";
+    if (!canonical.contains("normalMapGuid") ||
+        !canonical["normalMapGuid"].is_string()) {
+        canonical["normalMapGuid"] = "";
+    }
+    float strength = 1.0f;
+    const auto authoredStrength = canonical.find("normalStrength");
+    if (authoredStrength != canonical.end() && authoredStrength->is_number()) {
+        try {
+            const float value = authoredStrength->get<float>();
+            if (std::isfinite(value)) strength = std::clamp(value, 0.0f, 2.0f);
+        } catch (...) {
+        }
+    }
+    canonical["normalStrength"] = strength;
+    return canonical;
+}
+
 void SpriteRenderer::Deserialize(const nlohmann::json& j) {
+    const nlohmann::json canonical = CanonicalizeSerializedData(j);
+    lightingMode_ = SpriteLightingMode2DFromString(
+        canonical["lightingMode"].get<std::string>());
+    normalMapGuid_ = canonical["normalMapGuid"].get<std::string>();
+    normalStrength_ = canonical["normalStrength"].get<float>();
+    InvalidateNormalResolution();
     ClearRuntimeSpriteOverride();
     const molga::WorldSortSettings2D worldSort =
         molga::DeserializeWorldSortSettings(j);
@@ -405,6 +568,7 @@ void SpriteRenderer::Deserialize(const nlohmann::json& j) {
 void SpriteRenderer::ResolveAssets() {
     authoredResolveAttempted = false;
     runtimeResolveAttempted = false;
+    normalResolveAttempted_ = false;
     EnsureSpriteResolution();
     if (!texture) {
         std::filesystem::path src;
@@ -430,6 +594,7 @@ void SpriteRenderer::ResolveAssets() {
                                             !material.mainTexturePath.empty();
     material.ResolveAssets();
     if (!hasAuthoredMaterialTexture) material.mainTexture = nullptr;
+    EnsureNormalResolution();
 }
 
 void SpriteRenderer::OnInspectorGUI() {

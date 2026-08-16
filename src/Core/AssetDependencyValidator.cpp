@@ -1,6 +1,7 @@
 #include "Core/AssetDependencyValidator.h"
 
 #include "Core/AssetDatabase.h"
+#include "Core/TextureImportSettings.h"
 
 #include <fstream>
 #include <functional>
@@ -12,7 +13,11 @@
 namespace molga {
 namespace {
 
-using ExpectedReference = std::pair<std::string, std::string>;
+struct ExpectedReference {
+    std::string guid;
+    std::string importer;
+    bool requiresNormalMap = false;
+};
 
 std::string ExpectedForDependency(const std::string& ownerImporter) {
     if (ownerImporter == "AnimatorControllerImporter") return "AnimationClipImporter";
@@ -37,6 +42,26 @@ void CollectDocumentReferences(const nlohmann::json& document,
         if (type != value.end() && type->is_string()) {
             localType = type->get<std::string>();
         }
+
+        // Prefab instance overrides encode component properties as
+        // {component, key, value}, so the referenced GUID is not stored under a
+        // literal normalMapGuid JSON key. Treat it exactly like authored
+        // SpriteRenderer data for package dependency validation.
+        const auto overrideComponent = value.find("component");
+        const auto overrideKey = value.find("key");
+        const auto overrideValue = value.find("value");
+        if (overrideComponent != value.end() &&
+            overrideComponent->is_string() &&
+            overrideComponent->get<std::string>() == "SpriteRenderer" &&
+            overrideKey != value.end() && overrideKey->is_string() &&
+            overrideKey->get<std::string>() == "normalMapGuid" &&
+            overrideValue != value.end() && overrideValue->is_string()) {
+            const std::string guid = overrideValue->get<std::string>();
+            if (!guid.empty()) {
+                out.push_back({guid, "TextureImporter", true});
+            }
+        }
+
         for (auto it = value.begin(); it != value.end(); ++it) {
             if (!it.value().is_string()) {
                 visit(it.value(), localType);
@@ -44,8 +69,12 @@ void CollectDocumentReferences(const nlohmann::json& document,
             }
             const std::string guid = it.value().get<std::string>();
             std::string expected;
+            bool requiresNormalMap = false;
             if (it.key() == "textureGuid" || it.key() == "fontTextureGuid") {
                 expected = "TextureImporter";
+            } else if (it.key() == "normalMapGuid") {
+                expected = "TextureImporter";
+                requiresNormalMap = true;
             } else if (it.key() == "fontGuid") {
                 expected = "FontImporter";
             } else if (it.key() == "controllerGuid") {
@@ -59,8 +88,12 @@ void CollectDocumentReferences(const nlohmann::json& document,
             } else if (it.key() == "clipGuid") {
                 expected = localType == "AudioSource" ? "AudioImporter"
                                                        : "AnimationClipImporter";
+            } else if (it.key() == "postProcessProfileGuid") {
+                expected = "PostProcessProfileImporter";
             }
-            if (!expected.empty() && !guid.empty()) out.emplace_back(guid, expected);
+            if (!expected.empty() && !guid.empty()) {
+                out.push_back({guid, expected, requiresNormalMap});
+            }
         }
     };
     visit(document, {});
@@ -71,7 +104,8 @@ public:
     explicit ValidationContext(const AssetDatabase& database) : database_(database) {}
 
     void Visit(const std::string& guid, const std::string& expected,
-               const std::string& owner) {
+               const std::string& owner,
+               bool requiresNormalMap = false) {
         const AssetRecord* record = database_.Find(guid);
         if (!record) {
             const std::string message = expected == "FontImporter"
@@ -100,6 +134,17 @@ public:
                 "asset import failed for '" + guid + "': " + record->importError);
             return;
         }
+        if (requiresNormalMap) {
+            const TextureImportSettings settings =
+                DeserializeTextureImportSettings(record->settings, true);
+            if (settings.usage != TextureUsage::NormalMap) {
+                Add(DependencyIssueCode::UsageMismatch, owner, guid, expected,
+                    record->importer,
+                    "texture usage mismatch for '" + guid +
+                    "': normalMapGuid requires NormalMap usage");
+                return;
+            }
+        }
 
         if (visited_.count(guid) != 0) return;
         active_.insert(guid);
@@ -113,8 +158,9 @@ public:
                 file >> document;
                 std::vector<ExpectedReference> references;
                 CollectDocumentReferences(document, references);
-                for (const auto& [child, childExpected] : references) {
-                    Visit(child, childExpected, record->sourcePath);
+                for (const ExpectedReference& reference : references) {
+                    Visit(reference.guid, reference.importer, record->sourcePath,
+                          reference.requiresNormalMap);
                 }
             } catch (const std::exception& error) {
                 Add(DependencyIssueCode::InvalidDocument, owner, guid, expected,
@@ -140,8 +186,9 @@ public:
             file >> document;
             std::vector<ExpectedReference> references;
             CollectDocumentReferences(document, references);
-            for (const auto& [guid, expected] : references) {
-                Visit(guid, expected, path.generic_string());
+            for (const ExpectedReference& reference : references) {
+                Visit(reference.guid, reference.importer, path.generic_string(),
+                      reference.requiresNormalMap);
             }
         } catch (const std::exception& error) {
             Add(DependencyIssueCode::InvalidDocument, path.generic_string(), {}, {}, {},

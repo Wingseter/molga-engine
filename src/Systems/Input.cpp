@@ -33,6 +33,13 @@ float Input::lastMouseY = 0.0f;
 float Input::mouseDeltaX = 0.0f;
 float Input::mouseDeltaY = 0.0f;
 
+bool Input::cameraPointerValid = false;
+unsigned int Input::pointerCameraObjectId = 0;
+float Input::cameraPointerX = 0.0f;
+float Input::cameraPointerY = 0.0f;
+float Input::worldPointerX = 0.0f;
+float Input::worldPointerY = 0.0f;
+
 float Input::scrollX = 0.0f;
 float Input::scrollY = 0.0f;
 
@@ -96,6 +103,10 @@ void Input::Init(GLFWwindow* win) {
     std::memset(currentGamepadButtons, false, sizeof(currentGamepadButtons));
     std::memset(previousGamepadButtons, false, sizeof(previousGamepadButtons));
     std::memset(currentGamepadAxes, 0, sizeof(currentGamepadAxes));
+    cameraPointerValid = false;
+    pointerCameraObjectId = 0;
+    cameraPointerX = cameraPointerY = 0.0f;
+    worldPointerX = worldPointerY = 0.0f;
 
     if (window) {
         double mx, my;
@@ -221,6 +232,18 @@ void Input::ApplySnapshot(const InputSnapshot& snapshot) {
     mouseDeltaY = snapshot.pointerValid ? mouseY - lastMouseY : 0.0f;
     lastMouseX = mouseX;
     lastMouseY = mouseY;
+    cameraPointerValid = snapshot.pointerValid && snapshot.cameraPointerValid;
+    if (cameraPointerValid) {
+        pointerCameraObjectId = snapshot.pointerCameraObjectId;
+        cameraPointerX = snapshot.cameraPointerX;
+        cameraPointerY = snapshot.cameraPointerY;
+        worldPointerX = snapshot.worldPointerX;
+        worldPointerY = snapshot.worldPointerY;
+    } else {
+        pointerCameraObjectId = 0;
+        cameraPointerX = cameraPointerY = 0.0f;
+        worldPointerX = worldPointerY = 0.0f;
+    }
     scrollX = snapshot.scrollX;
     scrollY = snapshot.scrollY;
     UpdateActions();
@@ -336,6 +359,15 @@ float Input::GetMouseX() { return mouseX; }
 float Input::GetMouseY() { return mouseY; }
 float Input::GetMouseDeltaX() { return mouseDeltaX; }
 float Input::GetMouseDeltaY() { return mouseDeltaY; }
+
+bool Input::HasCameraPointer() { return cameraPointerValid; }
+unsigned int Input::GetPointerCameraObjectId() {
+    return pointerCameraObjectId;
+}
+float Input::GetCameraPointerX() { return cameraPointerX; }
+float Input::GetCameraPointerY() { return cameraPointerY; }
+float Input::GetWorldPointerX() { return worldPointerX; }
+float Input::GetWorldPointerY() { return worldPointerY; }
 
 // Scroll
 float Input::GetScrollX() { return scrollX; }

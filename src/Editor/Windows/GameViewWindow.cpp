@@ -1,6 +1,7 @@
 #include "Editor/Windows/GameViewWindow.h"
 
 #include "Common/Log.h"
+#include "Editor/Editor.h"
 #include "Editor/EditorConstants.h"
 #include "Editor/Project.h"
 #include "Rendering/GameOutputRenderer.h"
@@ -59,10 +60,15 @@ molga::GameOutputScaleMode GameViewWindow::RequestedScaleMode() const {
 }
 
 void GameViewWindow::SavePreferences() {
+    molga::EditorPreferences latest;
+    std::string ignored;
+    latest.Load(preferencePath_, &ignored);
+    latest.gameView = preferences_.gameView;
     std::string error;
-    if (!preferences_.SaveAtomic(preferencePath_, &error) && !error.empty()) {
+    if (!latest.SaveAtomic(preferencePath_, &error) && !error.empty()) {
         Log::Warn("EditorPreferences", error);
     }
+    preferences_.sceneView = latest.sceneView;
 }
 
 void GameViewWindow::DrawToolbar() {
@@ -165,7 +171,19 @@ void GameViewWindow::OnGUI() {
             {activeOutput_, logicalOutput_, RequestedScaleMode()},
             *renderer_, spriteShader_);
         presentation_ = result.presentation;
-        hasMainCamera_ = result.mainCamera != nullptr;
+        hasOutputCamera_ = result.cameraLayout.HasRenderableCamera();
+        auto& renderStats = Editor::Get().RenderStats();
+        renderStats.outputCameraPasses += static_cast<int>(std::count_if(
+            result.cameraResults.begin(), result.cameraResults.end(),
+            [](const molga::CameraOutputResult& camera) {
+                return camera.rendered;
+            }));
+        renderStats.postProcessPasses += result.postProcessPasses;
+        renderStats.lightingPasses += result.lightingPasses;
+        renderStats.shadowPasses += result.shadowPasses;
+        renderStats.selectedLightCount += result.selectedLightCount;
+        renderStats.shadowedLightCount += result.shadowedLightCount;
+        renderStats.shadowCasterDrawCount += result.shadowCasterDrawCount;
         if (result.allocationFailed) {
             outputError_ =
                 "Logical output framebuffer allocation failed; showing last output";
@@ -175,7 +193,7 @@ void GameViewWindow::OnGUI() {
     } else {
         presentation_ = molga::OutputPresentationLayout::Calculate(
             RequestedScaleMode(), logicalOutput_, activeOutput_);
-        hasMainCamera_ = false;
+        hasOutputCamera_ = false;
     }
 
     ImGui::BeginChild("##GameOutputArea", ImVec2(0, 0), false,
@@ -247,7 +265,7 @@ void GameViewWindow::OnGUI() {
 
     const char* overlay = nullptr;
     if (!outputError_.empty()) overlay = outputError_.c_str();
-    else if (!hasMainCamera_) overlay = "No active Main Camera";
+    else if (!hasOutputCamera_) overlay = "No active Output Camera";
     if (overlay) {
         ImDrawList* draw = ImGui::GetWindowDrawList();
         const ImVec2 textSize = ImGui::CalcTextSize(overlay);
@@ -323,6 +341,20 @@ void GameViewWindow::ProcessPlayInput() {
 
     InputSnapshot snapshot = Input::CaptureSnapshot(
         nativeWindow, mappedX, mappedY, logicalPixel.has_value());
+    const molga::CameraOutputLayout cameraLayout =
+        molga::CameraOutputLayout::Build(
+            *gameObjects_, inputPresentation.logicalSize);
+    if (logicalPixel) {
+        const auto cameraPointer = cameraLayout.LogicalToTopmost(*logicalPixel);
+        if (cameraPointer) {
+            snapshot.cameraPointerValid = true;
+            snapshot.pointerCameraObjectId = cameraPointer->cameraObjectId;
+            snapshot.cameraPointerX = cameraPointer->cameraX;
+            snapshot.cameraPointerY = cameraPointer->cameraY;
+            snapshot.worldPointerX = cameraPointer->worldX;
+            snapshot.worldPointerY = cameraPointer->worldY;
+        }
+    }
     Input::ApplySnapshot(snapshot);
 
     const bool rawDown =

@@ -4,11 +4,13 @@
 #include "Core/ProjectSettings.h"
 #include "ECS/Component.h"
 #include "ECS/GameObject.h"
+#include "ECS/Components/Camera.h"
 #include "Scripting/Script.h"
 #include "Scripting/ScriptField.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <nlohmann/json.hpp>
 
 namespace molga {
@@ -37,10 +39,14 @@ std::string AssetTypeFor(const std::string& componentType, const std::string& ke
     // texture property and only fail later during ResolveAssets().
     if (key == "textureGuid") return "TextureImporter";
     if (key == "mainTextureGuid") return "TextureImporter";
+    if (componentType == "SpriteRenderer" && key == "normalMapGuid")
+        return "TextureImporter";
     if (key == "fontGuid") return "FontImporter";
     if (key == "tileSetGuid") return "TileSetImporter";
     if (key == "controllerGuid") return "AnimatorControllerImporter";
     if (key == "prefabGuid") return "PrefabImporter";
+    if (componentType == "Camera" && key == "postProcessProfileGuid")
+        return "PostProcessProfileImporter";
     if (componentType == "AudioSource" && key == "clipGuid") return "AudioImporter";
     return {};
 }
@@ -101,10 +107,22 @@ void ApplyKnownMetadata(const std::string& componentType, const std::string& gro
     descriptor.assetType = AssetTypeFor(componentType, key);
     if (!descriptor.assetType.empty()) {
         descriptor.type = EditorPropertyType::AssetGuid;
+        if (componentType == "SpriteRenderer" && key == "normalMapGuid")
+            descriptor.assetUsage = "NormalMap";
         return;
     }
 
-    if (componentType == "Rigidbody2D" && key == "bodyType") {
+    if (componentType == "Camera" && group.empty() && key == "outputRole") {
+        SetEnumMetadata(descriptor, {"Disabled", "Primary", "Secondary"},
+                        {std::string{"Disabled"}, std::string{"Primary"},
+                         std::string{"Secondary"}});
+    } else if (componentType == "Camera" && group.empty() &&
+               key == "cullingMask") {
+        descriptor.type = EditorPropertyType::LayerMask;
+        descriptor.label = "Culling Mask";
+    } else if (componentType == "Camera" && group == "viewport") {
+        descriptor.label = "Viewport " + Humanize(key);
+    } else if (componentType == "Rigidbody2D" && key == "bodyType") {
         SetEnumMetadata(descriptor, {"Static", "Kinematic", "Dynamic"},
                         {std::int64_t{0}, std::int64_t{1}, std::int64_t{2}});
     } else if (componentType == "TextRenderer2D" && key == "alignment") {
@@ -119,6 +137,19 @@ void ApplyKnownMetadata(const std::string& componentType, const std::string& gro
     } else if (componentType == "SpriteRenderer" && key == "sizeMode") {
         SetEnumMetadata(descriptor, {"Custom", "Native"},
                         {std::string{"Custom"}, std::string{"Native"}});
+    } else if ((componentType == "SpriteRenderer" ||
+                componentType == "TilemapRenderer") &&
+               group.empty() && key == "lightingMode") {
+        SetEnumMetadata(descriptor, {"Unlit", "Lit"},
+                        {std::string{"Unlit"}, std::string{"Lit"}});
+    } else if (componentType == "ShadowOccluder2D" && group.empty() &&
+               key == "shape") {
+        SetEnumMetadata(descriptor, {"Box", "Polygon"},
+                        {std::string{"Box"}, std::string{"Polygon"}});
+    } else if (componentType == "PointLight2D" && group.empty() &&
+               key == "affectMask") {
+        descriptor.type = EditorPropertyType::LayerMask;
+        descriptor.label = "Affect Mask";
     } else if (componentType == "AudioSource" && key == "outputBus") {
         SetEnumMetadata(descriptor, {"Master", "Music", "SFX", "Voice", "UI"},
                         {std::string{"Master"}, std::string{"Music"},
@@ -139,6 +170,88 @@ void ApplyKnownMetadata(const std::string& componentType, const std::string& gro
                         {std::int64_t{0}, std::int64_t{1}, std::int64_t{2},
                          std::int64_t{3}});
     }
+}
+
+void ApplyCameraAccessors(const std::string& group, const std::string& key,
+                          EditorPropertyDescriptor& descriptor) {
+    if (group.empty() && key == "outputRole") {
+        descriptor.getter = [](Component& component) -> EditorPropertyValue {
+            const auto* camera = dynamic_cast<const Camera*>(&component);
+            if (!camera) return std::string{"Disabled"};
+            switch (camera->GetOutputRole()) {
+                case CameraOutputRole::Primary: return std::string{"Primary"};
+                case CameraOutputRole::Secondary: return std::string{"Secondary"};
+                case CameraOutputRole::Disabled:
+                default: return std::string{"Disabled"};
+            }
+        };
+        descriptor.setter = [](Component& component,
+                               const EditorPropertyValue& value) {
+            auto* camera = dynamic_cast<Camera*>(&component);
+            const auto* role = std::get_if<std::string>(&value);
+            if (!camera || !role) return false;
+            if (*role == "Primary") {
+                camera->SetOutputRole(CameraOutputRole::Primary);
+            } else if (*role == "Secondary") {
+                camera->SetOutputRole(CameraOutputRole::Secondary);
+            } else if (*role == "Disabled") {
+                camera->SetOutputRole(CameraOutputRole::Disabled);
+            } else {
+                return false;
+            }
+            return true;
+        };
+        return;
+    }
+
+    if (group.empty() && key == "cullingMask") {
+        descriptor.getter = [](Component& component) -> EditorPropertyValue {
+            const auto* camera = dynamic_cast<const Camera*>(&component);
+            return static_cast<std::int64_t>(
+                camera ? camera->GetCullingMask() : 0u);
+        };
+        descriptor.setter = [](Component& component,
+                               const EditorPropertyValue& value) {
+            auto* camera = dynamic_cast<Camera*>(&component);
+            const auto* mask = std::get_if<std::int64_t>(&value);
+            if (!camera || !mask || *mask < 0 ||
+                static_cast<std::uint64_t>(*mask) >
+                    std::numeric_limits<std::uint32_t>::max()) {
+                return false;
+            }
+            camera->SetCullingMask(static_cast<std::uint32_t>(*mask));
+            return true;
+        };
+        return;
+    }
+
+    if (group != "viewport" ||
+        (key != "x" && key != "y" && key != "width" && key != "height")) {
+        return;
+    }
+
+    descriptor.getter = [key](Component& component) -> EditorPropertyValue {
+        const auto* camera = dynamic_cast<const Camera*>(&component);
+        if (!camera) return 0.0;
+        const CameraViewport& viewport = camera->GetViewport();
+        if (key == "x") return static_cast<double>(viewport.x);
+        if (key == "y") return static_cast<double>(viewport.y);
+        if (key == "width") return static_cast<double>(viewport.width);
+        return static_cast<double>(viewport.height);
+    };
+    descriptor.setter = [key](Component& component,
+                              const EditorPropertyValue& value) {
+        auto* camera = dynamic_cast<Camera*>(&component);
+        const auto* number = std::get_if<double>(&value);
+        if (!camera || !number || !std::isfinite(*number)) return false;
+        CameraViewport viewport = camera->GetViewport();
+        const float authored = static_cast<float>(*number);
+        if (key == "x") viewport.x = authored;
+        else if (key == "y") viewport.y = authored;
+        else if (key == "width") viewport.width = authored;
+        else viewport.height = authored;
+        return camera->SetViewport(viewport);
+    };
 }
 
 EditorPropertyValue JsonToValue(const nlohmann::json& value) {
@@ -258,6 +371,9 @@ EditorPropertyDescriptor JsonDescriptor(const std::string& componentType,
                                                const EditorPropertyValue& value) {
         return SetJsonPath(component, group, key, channel, value);
     };
+    if (componentType == "Camera") {
+        ApplyCameraAccessors(group, key, descriptor);
+    }
     if (descriptor.type == EditorPropertyType::AssetGuid) {
         descriptor.afterChange = [](Component& component) { component.ResolveAssets(); };
     }
@@ -418,7 +534,8 @@ bool DescriptorShapeMatches(const EditorPropertyDescriptor& descriptor,
     if (candidate.key != descriptor.key ||
         candidate.type != descriptor.type ||
         candidate.channel != descriptor.channel ||
-        candidate.assetType != descriptor.assetType) {
+        candidate.assetType != descriptor.assetType ||
+        candidate.assetUsage != descriptor.assetUsage) {
         return false;
     }
     return IsDynamicSortingLayerDescriptor(descriptor) ||
@@ -458,6 +575,20 @@ void IntersectEditorProperties(
         MergeDynamicSortingLayerOptions(*descriptor, *candidate);
         ++descriptor;
     }
+}
+
+int CameraDescriptorOrder(const std::string& key) {
+    if (key == "enabled") return 0;
+    if (key == "outputRole") return 1;
+    if (key == "viewport.x") return 2;
+    if (key == "viewport.y") return 3;
+    if (key == "viewport.width") return 4;
+    if (key == "viewport.height") return 5;
+    if (key == "cullingMask") return 6;
+    if (key == "lightingEnabled") return 7;
+    if (key.rfind("ambientColor.", 0) == 0) return 8;
+    if (key == "ambientIntensity") return 9;
+    return 100;
 }
 
 } // namespace
@@ -508,6 +639,28 @@ std::vector<EditorPropertyDescriptor> DescribeEditorProperties(Component& compon
         result.erase(std::remove_if(result.begin(), result.end(),
             [inactiveProjection](const EditorPropertyDescriptor& descriptor) {
                 return descriptor.key == inactiveProjection;
+            }), result.end());
+        std::stable_sort(result.begin(), result.end(),
+            [](const EditorPropertyDescriptor& lhs,
+               const EditorPropertyDescriptor& rhs) {
+                return CameraDescriptorOrder(lhs.key) <
+                       CameraDescriptorOrder(rhs.key);
+        });
+    }
+    if (component.GetTypeName() == "SpriteRenderer" &&
+        snapshot.value("lightingMode", std::string{"Unlit"}) != "Lit") {
+        result.erase(std::remove_if(result.begin(), result.end(),
+            [](const EditorPropertyDescriptor& descriptor) {
+                return descriptor.key == "normalMapGuid" ||
+                       descriptor.key == "normalStrength";
+            }), result.end());
+    }
+    if (component.GetTypeName() == "ShadowOccluder2D" &&
+        snapshot.value("shape", std::string{"Box"}) == "Polygon") {
+        result.erase(std::remove_if(result.begin(), result.end(),
+            [](const EditorPropertyDescriptor& descriptor) {
+                return descriptor.key.rfind("offset.", 0) == 0 ||
+                       descriptor.key.rfind("size.", 0) == 0;
             }), result.end());
     }
     if (IsWorldRendererComponent(component.GetTypeName()) &&
@@ -604,13 +757,28 @@ bool IsEditorPropertyValueValid(const EditorPropertyDescriptor& descriptor,
                std::find(descriptor.enumValues.begin(), descriptor.enumValues.end(), value) !=
                    descriptor.enumValues.end();
     }
+    if (descriptor.type == EditorPropertyType::LayerMask) {
+        const auto* mask = std::get_if<std::int64_t>(&value);
+        return mask && *mask >= 0 &&
+               static_cast<std::uint64_t>(*mask) <=
+                   std::numeric_limits<std::uint32_t>::max();
+    }
     if (descriptor.type != EditorPropertyType::AssetGuid) return true;
     const auto* guid = std::get_if<std::string>(&value);
     if (!guid) return false;
     if (guid->empty()) return true;
     if (descriptor.assetType.empty()) return false;
     const AssetRecord* record = AssetDatabase::Get().Find(*guid);
-    return record && !record->importFailed && record->importer == descriptor.assetType;
+    if (!record || record->importFailed ||
+        record->importer != descriptor.assetType) {
+        return false;
+    }
+    if (!descriptor.assetUsage.empty() &&
+        record->settings.value("usage", std::string{"Color"}) !=
+            descriptor.assetUsage) {
+        return false;
+    }
+    return true;
 }
 
 std::size_t ApplyEditorPropertyValue(const EditorPropertyDescriptor& descriptor,
@@ -673,7 +841,8 @@ bool ShouldCommitEditorPropertyImmediately(EditorPropertyType type,
                                            bool itemActive,
                                            bool ownsActiveGesture) {
     if (!changed) return false;
-    if (type == EditorPropertyType::Bool) return true;
+    if (type == EditorPropertyType::Bool || type == EditorPropertyType::LayerMask)
+        return true;
     if (ownsActiveGesture) return false;
     // Asset drops and popup choices can mutate an input while ImGui reports
     // neither activation nor an active item. They have no later deactivation

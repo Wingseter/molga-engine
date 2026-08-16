@@ -20,6 +20,7 @@ const std::unordered_map<std::string, UIRegistry::FileTypeInfo> UIRegistry::s_fi
     { ".animclip", { Icons::FileCode, EditorTheme::FileColor::JSON } },
     { ".animator", { Icons::Sitemap,  EditorTheme::FileColor::JSON } },
     { ".tileset",  { Icons::Image,    EditorTheme::FileColor::IMAGE } },
+    { ".postfx",   { Icons::Cog,      EditorTheme::FileColor::JSON } },
 };
 
 const std::unordered_map<std::string, UIRegistry::ComponentTypeInfo> UIRegistry::s_componentTypes = {
@@ -35,6 +36,8 @@ const std::unordered_map<std::string, UIRegistry::ComponentTypeInfo> UIRegistry:
     { "TilemapRenderer",{ Icons::Image     } },
     { "ParticleSystem", { Icons::Circle    } },
     { "Camera",         { Icons::Camera    } },
+    { "PointLight2D",   { Icons::Lightbulb } },
+    { "ShadowOccluder2D", { Icons::Square  } },
     { "UICanvas",       { Icons::Square    } },
     { "RectTransform",  { Icons::ArrowsAlt } },
     { "UIImage",        { Icons::Image     } },

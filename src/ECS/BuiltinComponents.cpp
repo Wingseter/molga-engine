@@ -9,9 +9,11 @@
 #include "Components/Camera.h"
 #include "Components/CircleCollider2D.h"
 #include "Components/ParticleSystem.h"
+#include "Components/PointLight2D.h"
 #include "Components/PrefabInstance.h"
 #include "Components/Rigidbody2D.h"
 #include "Components/SpriteRenderer.h"
+#include "Components/ShadowOccluder2D.h"
 #include "Components/TextRenderer2D.h"
 #include "Components/TilemapRenderer.h"
 #include "Components/Transform.h"
@@ -33,6 +35,8 @@ void RegisterBuiltinComponents() {
     factory.Register<TilemapRenderer>(TilemapRenderer::StaticTypeName());
     factory.Register<TextRenderer2D>(TextRenderer2D::StaticTypeName());
     factory.Register<ParticleSystem>(ParticleSystem::StaticTypeName());
+    factory.Register<PointLight2D>(PointLight2D::StaticTypeName());
+    factory.Register<ShadowOccluder2D>(ShadowOccluder2D::StaticTypeName());
     factory.Register<BoxCollider2D>(BoxCollider2D::StaticTypeName());
     factory.Register<CircleCollider2D>(CircleCollider2D::StaticTypeName());
     factory.Register<Rigidbody2D>(Rigidbody2D::StaticTypeName());

@@ -1,12 +1,16 @@
 #include "Core/SceneSerializer.h"
 #include "Core/World.h"
 #include "ECS/GameObject.h"
+#include "ECS/BuiltinComponents.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/BoxCollider2D.h"
+#include "ECS/Components/Camera.h"
 #include "Scripting/Script.h"
 #include "Scripting/ScriptManager.h"
 #include "doctest.h"
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -108,6 +112,58 @@ TEST_CASE("SceneSerializer: serialize and deserialize single GameObject") {
     CHECK(rbc->GetOffset().x == doctest::Approx(5.0f));
     CHECK(rbc->GetOffset().y == doctest::Approx(10.0f));
     CHECK(rbc->IsTrigger() == true);
+}
+
+TEST_CASE("SceneSerializer: legacy Camera isMain loads and saves canonical output fields") {
+    RegisterBuiltinComponents();
+    const nlohmann::json legacyScene{
+        {"version", "1.0"},
+        {"name", "Legacy Camera"},
+        {"gameObjects", nlohmann::json::array({
+            {
+                {"name", "Legacy Main"}, {"id", 7001u},
+                {"tag", "Untagged"}, {"layer", 0}, {"active", true},
+                {"parentId", -1},
+                {"components", nlohmann::json::array({
+                    {
+                        {"type", "Camera"}, {"enabled", true},
+                        {"isMain", true}, {"depth", 4},
+                        {"postProcessEnabled", true},
+                        {"postProcessProfileGuid", "legacy-profile"},
+                    },
+                })},
+            },
+        })},
+    };
+
+    std::vector<std::shared_ptr<GameObject>> loaded;
+    REQUIRE(SceneSerializer::DeserializeScene(legacyScene, loaded));
+    REQUIRE(loaded.size() == 1u);
+    Camera* camera = loaded.front()->GetComponent<Camera>();
+    REQUIRE(camera != nullptr);
+    CHECK(camera->GetOutputRole() == CameraOutputRole::Primary);
+    CHECK(camera->GetViewport() == CameraViewport{});
+    CHECK(camera->GetCullingMask() == 0xFFFFFFFFu);
+    CHECK(camera->IsPostProcessEnabled());
+    CHECK(camera->GetPostProcessProfileGuid() == "legacy-profile");
+
+    const nlohmann::json saved =
+        SceneSerializer::SerializeScene(loaded, "Canonical Camera");
+    REQUIRE(saved["gameObjects"].size() == 1u);
+    const auto& components = saved["gameObjects"][0]["components"];
+    const auto found = std::find_if(
+        components.begin(), components.end(), [](const nlohmann::json& component) {
+            return component.value("type", "") == "Camera";
+    });
+    REQUIRE(found != components.end());
+    CHECK((*found)["outputRole"] == "Primary");
+    const nlohmann::json fullViewport{
+        {"x", 0.0f}, {"y", 0.0f}, {"width", 1.0f}, {"height", 1.0f}};
+    CHECK((*found)["viewport"] == fullViewport);
+    CHECK((*found)["cullingMask"].get<std::uint32_t>() == 0xFFFFFFFFu);
+    CHECK_FALSE(found->contains("isMain"));
+    CHECK((*found)["postProcessEnabled"] == true);
+    CHECK((*found)["postProcessProfileGuid"] == "legacy-profile");
 }
 
 // ── Scene save/load round-trip ───────────────────────────────────────────────

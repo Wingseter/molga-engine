@@ -2,6 +2,7 @@
 
 #include "EditorWindow.h"
 #include "Core/TileSetAsset.h"
+#include "Rendering/PostProcessProfile2D.h"
 #include "Editor/Commands/ComponentCommands.h"
 
 #include <cstdint>
@@ -45,6 +46,11 @@ private:
     std::string tileSetEditError_;
     bool tileSetEditLoaded_ = false;
     bool tileSetEditDirty_ = false;
+    molga::PostProcessProfile2D postFxEdit_;
+    std::string postFxEditGuid_;
+    std::string postFxEditError_;
+    bool postFxEditLoaded_ = false;
+    bool postFxEditDirty_ = false;
 
     // Keep only value identities across frames. Components may be removed or
     // replaced synchronously by undo/redo, script reload, or inspector code.

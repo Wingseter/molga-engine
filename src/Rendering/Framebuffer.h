@@ -2,12 +2,36 @@
 
 #include <glad/glad.h>
 
+enum class FramebufferColorFormat {
+    SRGBA8,
+    RGBA16F,
+};
+
+enum class FramebufferTextureFilter {
+    Nearest,
+    Linear,
+};
+
+struct FramebufferSpecification {
+    FramebufferColorFormat colorFormat = FramebufferColorFormat::SRGBA8;
+    bool depthStencil = true;
+    FramebufferTextureFilter filter = FramebufferTextureFilter::Linear;
+
+    bool operator==(const FramebufferSpecification& other) const {
+        return colorFormat == other.colorFormat &&
+               depthStencil == other.depthStencil && filter == other.filter;
+    }
+    bool operator!=(const FramebufferSpecification& other) const {
+        return !(*this == other);
+    }
+};
+
 // 오프스크린 렌더링을 위한 OpenGL Framebuffer Object (FBO).
 // 컬러 어태치먼트(텍스처)를 하나 유지하며 동적으로 리사이즈할 수 있다.
 // ImGui::Image()에 ColorTexture()를 전달해 패널에 출력한다.
 class Framebuffer {
 public:
-    Framebuffer();
+    explicit Framebuffer(FramebufferSpecification specification = {});
     ~Framebuffer();
 
     // 비복사
@@ -16,11 +40,13 @@ public:
 
     // FBO 초기화 (w×h 크기의 컬러 텍스처 생성)
     bool Init(int width, int height);
+    bool Init(int width, int height, FramebufferSpecification specification);
 
     // 현재 크기와 다를 때 FBO·텍스처를 재생성
     // Returns false without disturbing the last valid allocation when the
     // requested size is invalid, exceeds GL limits, or allocation fails.
     bool Resize(int width, int height);
+    bool Resize(int width, int height, FramebufferSpecification specification);
 
     // 이 FBO를 현재 렌더 타깃으로 바인드
     void Bind();
@@ -38,6 +64,7 @@ public:
     int Height() const { return height_; }
 
     bool IsValid() const { return fbo_ != 0; }
+    const FramebufferSpecification& Specification() const { return specification_; }
 
 private:
     void Cleanup();
@@ -47,6 +74,7 @@ private:
     GLuint rbo_          = 0;  // 깊이/스텐실 렌더버퍼 (선택적)
     int    width_        = 0;
     int    height_       = 0;
+    FramebufferSpecification specification_{};
 
     struct SavedBindingState {
         GLint drawFramebuffer = 0;

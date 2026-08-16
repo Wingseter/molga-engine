@@ -48,6 +48,7 @@ private:
     void StartCreateAnimationClip();
     void StartCreateAnimatorController();
     void StartCreateTileSet();
+    void StartCreatePostProcessProfile();
     void FinishCreate();   // 이름 입력 확정
     void CancelCreate();   // 취소
 
@@ -91,7 +92,8 @@ private:
         Scene,
         AnimationClip,
         AnimatorController,
-        TileSet
+        TileSet,
+        PostProcessProfile
     };
     CreateMode createMode = CreateMode::None;
     char createNameBuffer[256] = "";

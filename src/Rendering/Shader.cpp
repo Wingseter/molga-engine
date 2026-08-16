@@ -15,7 +15,7 @@ Shader::Shader(const char* vertexPath, const char* fragmentPath)
     glAttachShader(programID, vertexShader);
     glAttachShader(programID, fragmentShader);
     glLinkProgram(programID);
-    CheckCompileErrors(programID, "PROGRAM");
+    valid_ = CheckCompileErrors(programID, "PROGRAM");
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
@@ -78,6 +78,7 @@ bool Shader::Reload() {
 
     glDeleteProgram(programID);
     programID = newProgramID;
+    valid_ = true;
     uniformCache.clear();
 
     return true;
@@ -95,6 +96,10 @@ GLint Shader::GetUniformLocation(const char* name) const {
 
 void Shader::SetInt(const char* name, int value) const {
     glUniform1i(GetUniformLocation(name), value);
+}
+
+void Shader::SetUInt(const char* name, unsigned int value) const {
+    glUniform1ui(GetUniformLocation(name), value);
 }
 
 void Shader::SetFloat(const char* name, float value) const {

@@ -136,6 +136,14 @@ void ProfilerWindow::DrawSelectedFrame() {
         ImGui::Text("Queue sort: %.3f ms", MsOf(f->render.queueSortNanos));
         ImGui::Text("Texture binds: %d", f->render.textureBinds);
         ImGui::Text("Shader switches: %d", f->render.shaderSwitches);
+        ImGui::Text("Output camera passes: %d", f->render.outputCameraPasses);
+        ImGui::Text("Post-process passes: %d", f->render.postProcessPasses);
+        ImGui::Text("Lighting passes: %d", f->render.lightingPasses);
+        ImGui::Text("Shadow passes: %d", f->render.shadowPasses);
+        ImGui::Text("Selected lights: %d", f->render.selectedLightCount);
+        ImGui::Text("Shadowed lights: %d", f->render.shadowedLightCount);
+        ImGui::Text("Shadow caster draws: %d",
+                    f->render.shadowCasterDrawCount);
         ImGui::Text("FBO resizes: %d", f->render.fboResizes);
     }
     if (ImGui::CollapsingHeader("Counters", ImGuiTreeNodeFlags_DefaultOpen)) {

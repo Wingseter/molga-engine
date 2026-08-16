@@ -72,6 +72,7 @@ foreach(required_path
     "${PACKAGE_ROOT}/Scenes/stage1.json"
     "${PACKAGE_ROOT}/Scenes/stage2.json"
     "${PACKAGE_ROOT}/Assets/Textures/smoke.ppm"
+    "${PACKAGE_ROOT}/Assets/Textures/smoke_normal.ppm"
     "${PACKAGE_ROOT}/Assets/Textures/p1_character.ppm"
     "${PACKAGE_ROOT}/Assets/Fonts/NotoSansKR-Regular.ttf"
     "${PACKAGE_ROOT}/Assets/Fonts/OFL.txt"
@@ -84,6 +85,18 @@ foreach(required_path
     "${PACKAGE_ROOT}/Assets/Audio/music_intro.mp3"
     "${PACKAGE_ROOT}/Assets/Audio/music_loop.mp3"
     "${PACKAGE_ROOT}/Assets/Audio/jump_sfx.mp3"
+    "${PACKAGE_ROOT}/Assets/PostProcessing/runtime.postfx"
+    "${PACKAGE_ROOT}/Shaders/postfx_fullscreen.vert"
+    "${PACKAGE_ROOT}/Shaders/postfx_bloom_down.frag"
+    "${PACKAGE_ROOT}/Shaders/postfx_bloom_up.frag"
+    "${PACKAGE_ROOT}/Shaders/postfx_bloom_composite.frag"
+    "${PACKAGE_ROOT}/Shaders/postfx_color_adjust.frag"
+    "${PACKAGE_ROOT}/Shaders/postfx_vignette.frag"
+    "${PACKAGE_ROOT}/Shaders/postfx_resolve.frag"
+    "${PACKAGE_ROOT}/Shaders/batch_lit.vert"
+    "${PACKAGE_ROOT}/Shaders/batch_lit.frag"
+    "${PACKAGE_ROOT}/Shaders/shadow_mask_2d.vert"
+    "${PACKAGE_ROOT}/Shaders/shadow_mask_2d.frag"
     "${PACKAGE_ROOT}/asset_catalog.json"
     "${PACKAGE_ROOT}/Resources/missing_texture.png"
 )
@@ -166,9 +179,9 @@ if(NOT catalog_schema EQUAL 2)
     message(FATAL_ERROR "P1 smoke package requires asset catalog schema v2")
 endif()
 string(JSON catalog_record_count LENGTH "${asset_catalog}" records)
-if(catalog_record_count LESS 13)
+if(catalog_record_count LESS 14)
     message(FATAL_ERROR
-        "P1 smoke catalog has only ${catalog_record_count} records; expected at least 13")
+        "P2 smoke catalog has only ${catalog_record_count} records; expected at least 14")
 endif()
 
 assert_catalog_record("44444444444444444444444444444444" "TextureImporter")
@@ -180,6 +193,34 @@ assert_catalog_record("99999999999999999999999999999999" "TileSetImporter")
 assert_catalog_record("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "AudioImporter")
 assert_catalog_record("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" "AudioImporter")
 assert_catalog_record("cccccccccccccccccccccccccccccccc" "AudioImporter")
+assert_catalog_record("dddddddddddddddddddddddddddddddd"
+    "PostProcessProfileImporter")
+assert_catalog_record("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    "TextureImporter")
+
+find_catalog_record_index("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" normal_index)
+string(JSON normal_usage GET
+    "${asset_catalog}" records ${normal_index} settings usage)
+string(JSON normal_color_space GET
+    "${asset_catalog}" records ${normal_index} settings colorSpace)
+string(JSON normal_width GET
+    "${asset_catalog}" records ${normal_index} width)
+string(JSON normal_height GET
+    "${asset_catalog}" records ${normal_index} height)
+if(NOT normal_usage STREQUAL "NormalMap" OR
+   NOT normal_color_space STREQUAL "LegacyLinear" OR
+   NOT normal_width EQUAL 1 OR NOT normal_height EQUAL 1)
+    message(FATAL_ERROR "Packaged smoke normal map contract is incomplete")
+endif()
+
+find_catalog_record_index("dddddddddddddddddddddddddddddddd" postfx_index)
+string(JSON postfx_effect_count GET
+    "${asset_catalog}" records ${postfx_index} metadata effectCount)
+string(JSON postfx_active_count GET
+    "${asset_catalog}" records ${postfx_index} metadata activeEffectCount)
+if(NOT postfx_effect_count EQUAL 3 OR NOT postfx_active_count EQUAL 3)
+    message(FATAL_ERROR "Packaged post-process profile metadata is incomplete")
+endif()
 
 assert_catalog_dependency("55555555555555555555555555555555"
     "44444444444444444444444444444444")
@@ -339,6 +380,17 @@ foreach(expected_stage2_contract
     [["restitution": 0.85]]
     [["text": "스테이지 2 클리어"]]
     [["Title": "한글 타이틀"]]
+    [["outputRole": "Primary"]]
+    [["outputRole": "Secondary"]]
+    [["cullingMask": 32]]
+    [["cullingMask": 1]]
+    [["lightingEnabled": true]]
+    [["lightingMode": "Lit"]]
+    [["normalMapGuid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"]]
+    [["type": "PointLight2D"]]
+    [["castsShadows": true]]
+    [["type": "ShadowOccluder2D"]]
+    [["shape": "Polygon"]]
 )
     string(FIND "${packaged_stage2_scene}" "${expected_stage2_contract}" position)
     if(position EQUAL -1)
@@ -528,6 +580,20 @@ set(EXPECTED_REPORTS
     [["scriptDrivenPrefsSaved": true]]
     [["scriptDrivenSlotSaved": true]]
     [["scriptDrivenPersistence": true]]
+    [["postProcessed": true]]
+    [["postProcessFallback": false]]
+    [["postProcessProfileGuid": "dddddddddddddddddddddddddddddddd"]]
+    [["selectedCameraCount": 2]]
+    [["renderedCameraCount": 2]]
+    [["postProcessedCameraCount": 1]]
+    [["postProcessFallbackCameraCount": 0]]
+    [["lightingAppliedCameraCount": 1]]
+    [["lightingFallbackCameraCount": 0]]
+    [["shadowFallbackCameraCount": 0]]
+    [["selectedLightCount": 1]]
+    [["shadowedLightCount": 1]]
+    [["shadowCasterDrawCount": 1]]
+    [["outputCameraPasses": 2]]
 )
 if(DEFINED DUMMY_LIB AND EXISTS "${DUMMY_LIB}")
     list(APPEND EXPECTED_REPORTS "Scripts: loaded")
@@ -544,3 +610,13 @@ foreach(expected ${EXPECTED_REPORTS})
             "Runtime report is missing ${expected}\n${runtime_report}")
     endif()
 endforeach()
+
+string(JSON runtime_postfx_passes GET "${runtime_report}" postProcessPasses)
+if(runtime_postfx_passes LESS 1)
+    message(FATAL_ERROR "Runtime did not execute a post-process frame")
+endif()
+string(JSON runtime_lighting_passes GET "${runtime_report}" lightingPasses)
+string(JSON runtime_shadow_passes GET "${runtime_report}" shadowPasses)
+if(runtime_lighting_passes LESS 1 OR runtime_shadow_passes LESS 1)
+    message(FATAL_ERROR "Runtime did not execute lighting and shadow passes")
+endif()

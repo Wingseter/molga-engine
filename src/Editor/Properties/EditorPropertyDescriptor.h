@@ -18,6 +18,7 @@ enum class EditorPropertyType {
     Float,
     String,
     Enum,
+    LayerMask,
     AssetGuid,
 };
 
@@ -34,6 +35,8 @@ struct EditorPropertyDescriptor {
     std::vector<std::string> enumLabels;
     std::vector<EditorPropertyValue> enumValues;
     std::string assetType;
+    // Optional TextureImporter usage constraint (for example "NormalMap").
+    std::string assetUsage;
 
     std::function<EditorPropertyValue(Component&)> getter;
     std::function<bool(Component&, const EditorPropertyValue&)> setter;

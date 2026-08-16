@@ -20,7 +20,8 @@ void RenderSystem2D::Shutdown() {
     }
 }
 
-void RenderSystem2D::Render(RenderQueue& queue, Renderer* renderer, Camera2D* camera) {
+void RenderSystem2D::Render(RenderQueue& queue, Renderer* renderer, Camera2D* camera,
+                            const LightingRenderContext2D* lightingContext) {
     if (!renderer) return;
     
     // Ensure initialized
@@ -36,7 +37,7 @@ void RenderSystem2D::Render(RenderQueue& queue, Renderer* renderer, Camera2D* ca
     renderer->Stats().queueSortNanos += (end - start);
 
     // 2. Render commands
-    batcher_.Begin(renderer);
+    batcher_.Begin(renderer, lightingContext);
 
     const std::optional<AABB> cameraBounds = camera
         ? std::optional<AABB>(camera->GetViewBounds()) : std::nullopt;

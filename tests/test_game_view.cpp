@@ -230,6 +230,8 @@ TEST_CASE("EditorPreferences round trips and recovers from corruption") {
     saved.gameView.selectedPreset = ResolutionPreset::Custom;
     saved.gameView.displayMode = GameViewDisplayMode::PixelPerfect100;
     saved.gameView.customResolution = {777, 333};
+    saved.sceneView.fxEnabled = true;
+    saved.sceneView.litEnabled = false;
     std::string error;
     REQUIRE(saved.SaveAtomic(path, &error));
     CHECK(error.empty());
@@ -241,6 +243,35 @@ TEST_CASE("EditorPreferences round trips and recovers from corruption") {
     CHECK(loaded.gameView.selectedPreset == ResolutionPreset::Custom);
     CHECK(loaded.gameView.displayMode == GameViewDisplayMode::PixelPerfect100);
     CHECK((loaded.gameView.customResolution == PixelSize{777, 333}));
+    CHECK(loaded.sceneView.fxEnabled);
+    CHECK_FALSE(loaded.sceneView.litEnabled);
+
+    {
+        std::ofstream legacy(path, std::ios::trunc);
+        legacy << nlohmann::json{
+            {"schemaVersion", 1},
+            {"gameView", {
+                {"preset", "custom"}, {"displayMode", "100"},
+                {"customWidth", 777}, {"customHeight", 333}}}
+        }.dump(2);
+    }
+    REQUIRE(loaded.Load(path, &warning));
+    CHECK_FALSE(loaded.sceneView.fxEnabled);
+    CHECK(loaded.sceneView.litEnabled);
+
+    {
+        std::ofstream previous(path, std::ios::trunc);
+        previous << nlohmann::json{
+            {"schemaVersion", 2},
+            {"gameView", {
+                {"preset", "custom"}, {"displayMode", "100"},
+                {"customWidth", 777}, {"customHeight", 333}}},
+            {"sceneView", {{"fxEnabled", true}}}
+        }.dump(2);
+    }
+    REQUIRE(loaded.Load(path, &warning));
+    CHECK(loaded.sceneView.fxEnabled);
+    CHECK(loaded.sceneView.litEnabled);
 
     {
         std::ofstream corrupt(path, std::ios::trunc);
@@ -251,6 +282,7 @@ TEST_CASE("EditorPreferences round trips and recovers from corruption") {
     CHECK(loaded.gameView.selectedPreset == ResolutionPreset::BuildResolution);
     CHECK(loaded.gameView.displayMode == GameViewDisplayMode::Fit);
     CHECK((loaded.gameView.customResolution == PixelSize{1280, 720}));
+    CHECK(loaded.sceneView.litEnabled);
 
     std::error_code ignored;
     fs::remove_all(directory, ignored);

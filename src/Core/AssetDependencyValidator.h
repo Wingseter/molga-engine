@@ -11,6 +11,7 @@ class AssetDatabase;
 enum class DependencyIssueCode {
     Missing,
     TypeMismatch,
+    UsageMismatch,
     ImportFailed,
     Cycle,
     InvalidDocument

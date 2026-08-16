@@ -204,6 +204,7 @@ static int AssetTypeIndex(const std::string& ext) {
     if (ext == ".ttf" || ext == ".otf")                    return 6; // Font
     if (ext == ".animclip" || ext == ".animator")          return 7; // Animation
     if (ext == ".tileset")                                 return 8; // TileSet
+    if (ext == ".postfx")                                  return 9; // Post FX
     return 0; // All or Other
 }
 
@@ -221,7 +222,7 @@ void ProjectBrowserWindow::DrawFileGrid() {
     ImGui::SameLine();
     const char* kFilters[] = {
         "All", "Texture", "Audio", "Prefab", "Script", "Scene", "Font",
-        "Animation", "TileSet"
+        "Animation", "TileSet", "Post Process"
     };
     ImGui::SetNextItemWidth(120);
     ImGui::Combo("##typeFilter", &typeFilter_, kFilters, IM_ARRAYSIZE(kFilters));
@@ -420,6 +421,10 @@ void ProjectBrowserWindow::DrawContextMenu() {
                 ImGui::CloseCurrentPopup();
                 StartCreateTileSet();
             }
+            if (ImGui::MenuItem("Post Process Profile")) {
+                ImGui::CloseCurrentPopup();
+                StartCreatePostProcessProfile();
+            }
             ImGui::EndMenu();
         }
         ImGui::Separator();
@@ -518,6 +523,8 @@ void ProjectBrowserWindow::DrawCreateInlineInput() {
         case CreateMode::AnimationClip: label = "New Animation Clip Name:"; break;
         case CreateMode::AnimatorController: label = "New Animator Controller Name:"; break;
         case CreateMode::TileSet: label = "New Tile Set Name:"; break;
+        case CreateMode::PostProcessProfile:
+            label = "New Post Process Profile Name:"; break;
         default: break;
     }
 
@@ -587,6 +594,14 @@ void ProjectBrowserWindow::StartCreateAnimatorController() {
 void ProjectBrowserWindow::StartCreateTileSet() {
     createMode = CreateMode::TileSet;
     strncpy(createNameBuffer, "NewTileSet", sizeof(createNameBuffer) - 1);
+    createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
+    createFocusNextFrame = true;
+}
+
+void ProjectBrowserWindow::StartCreatePostProcessProfile() {
+    createMode = CreateMode::PostProcessProfile;
+    strncpy(createNameBuffer, "NewPostProcessProfile",
+            sizeof(createNameBuffer) - 1);
     createNameBuffer[sizeof(createNameBuffer) - 1] = '\0';
     createFocusNextFrame = true;
 }
@@ -691,15 +706,19 @@ void ProjectBrowserWindow::FinishCreate() {
         }
         case CreateMode::AnimationClip:
         case CreateMode::AnimatorController:
-        case CreateMode::TileSet: {
+        case CreateMode::TileSet:
+        case CreateMode::PostProcessProfile: {
             const char* extension = createMode == CreateMode::AnimationClip ? ".animclip" :
                                     createMode == CreateMode::AnimatorController ? ".animator" :
-                                    ".tileset";
+                                    createMode == CreateMode::TileSet ? ".tileset" :
+                                    ".postfx";
             const char* contents = createMode == CreateMode::AnimationClip ?
                 "{\n  \"schemaVersion\": 1,\n  \"textureGuid\": \"\",\n  \"loop\": true,\n  \"frames\": []\n}\n" :
                 createMode == CreateMode::AnimatorController ?
                 "{\n  \"schemaVersion\": 1,\n  \"parameters\": [],\n  \"states\": [],\n  \"defaultStateId\": \"\",\n  \"transitions\": []\n}\n" :
-                "{\n  \"schemaVersion\": 1,\n  \"cellSize\": [32, 32],\n  \"tiles\": [],\n  \"terrainRules\": []\n}\n";
+                createMode == CreateMode::TileSet ?
+                "{\n  \"schemaVersion\": 1,\n  \"cellSize\": [32, 32],\n  \"tiles\": [],\n  \"terrainRules\": []\n}\n" :
+                "{\n  \"schemaVersion\": 1,\n  \"effects\": []\n}\n";
             fs::path assetPath = fs::path(currentPath) / (name + extension);
             if (fs::exists(assetPath)) {
                 Log::Warn("ProjectBrowser", "Asset already exists: " + assetPath.filename().string());

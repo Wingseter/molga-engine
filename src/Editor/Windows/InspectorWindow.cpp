@@ -13,6 +13,8 @@
 #include "../../ECS/Components/AudioSource.h"
 #include "../../ECS/Components/AudioListener.h"
 #include "../../ECS/Components/Camera.h"
+#include "../../ECS/Components/PointLight2D.h"
+#include "../../ECS/Components/ShadowOccluder2D.h"
 #include "../../ECS/Components/TextRenderer2D.h"
 #include "../../ECS/Components/RectTransform.h"
 #include "../../Scripting/ScriptManager.h"
@@ -32,6 +34,7 @@
 #include "../Commands/ComponentCommands.h"
 #include "../Properties/EditorPropertyDescriptor.h"
 #include "../Commands/ProjectFileCommands.h"
+#include "Rendering/PostProcessProfileResolver.h"
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <cstring>
@@ -40,7 +43,9 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <type_traits>
 
 namespace {
 
@@ -62,6 +67,19 @@ Component* FindComponentType(GameObject* object, const std::string& typeName) {
         if (component && component->GetTypeName() == typeName) return component;
     }
     return nullptr;
+}
+
+bool IsLightingProperty(const std::string& componentType,
+                        const std::string& key) {
+    if (componentType == "Camera") {
+        return key == "lightingEnabled" || key == "ambientIntensity" ||
+               key.rfind("ambientColor.", 0) == 0;
+    }
+    if (componentType == "SpriteRenderer") {
+        return key == "lightingMode" || key == "normalMapGuid" ||
+               key == "normalStrength";
+    }
+    return componentType == "TilemapRenderer" && key == "lightingMode";
 }
 
 std::string ReadFileText(const std::filesystem::path& path) {
@@ -174,6 +192,8 @@ bool CreateTileSetAndConvert(TilemapRenderer& tilemap, std::string& errorOut) {
 bool DrawEditorPropertyValue(const molga::EditorPropertyDescriptor& descriptor,
                              const molga::EditorPropertyValue& current,
                              molga::EditorPropertyValue& edited);
+bool DrawCameraViewportPresets(CameraViewport& selected);
+void DrawCameraOutputWarnings(const std::vector<Camera*>& inspected);
 
 } // namespace
 
@@ -182,6 +202,12 @@ InspectorWindow::InspectorWindow()
 }
 
 void InspectorWindow::SetTarget(GameObject* object) {
+    if (!postFxEditGuid_.empty())
+        molga::PostProcessProfileResolver::Get().ClearTransientOverride(postFxEditGuid_);
+    postFxEditLoaded_ = false;
+    postFxEditDirty_ = false;
+    postFxEditGuid_.clear();
+    postFxEditError_.clear();
     CommitMultiEdit();
     target = object;
     targetId_ = object ? object->GetID() : 0u;
@@ -191,6 +217,12 @@ void InspectorWindow::SetTarget(GameObject* object) {
 }
 
 void InspectorWindow::SetTargets(const std::vector<GameObject*>& objects) {
+    if (!postFxEditGuid_.empty())
+        molga::PostProcessProfileResolver::Get().ClearTransientOverride(postFxEditGuid_);
+    postFxEditLoaded_ = false;
+    postFxEditDirty_ = false;
+    postFxEditGuid_.clear();
+    postFxEditError_.clear();
     CommitMultiEdit();
     targetIds_.clear();
     for (GameObject* object : objects) {
@@ -205,6 +237,7 @@ void InspectorWindow::SetTargets(const std::vector<GameObject*>& objects) {
 }
 
 void InspectorWindow::SetAssetTarget(const std::string& path) {
+    const std::string previousPostFxGuid = postFxEditGuid_;
     CommitMultiEdit();
     target = nullptr;
     targetId_ = 0;
@@ -221,11 +254,29 @@ void InspectorWindow::SetAssetTarget(const std::string& path) {
         tileSetEditError_.clear();
         tileSetEditGuid_ = assetGuid_;
     }
+    if (previousPostFxGuid != assetGuid_) {
+        if (!previousPostFxGuid.empty()) {
+            molga::PostProcessProfileResolver::Get().ClearTransientOverride(
+                previousPostFxGuid);
+        }
+        postFxEditLoaded_ = false;
+        postFxEditDirty_ = false;
+        postFxEditError_.clear();
+        postFxEditGuid_ = assetGuid_;
+    }
 }
 
 void InspectorWindow::ClearAssetTarget() {
+    if (!postFxEditGuid_.empty()) {
+        molga::PostProcessProfileResolver::Get().ClearTransientOverride(
+            postFxEditGuid_);
+    }
     assetPath_.clear();
     assetGuid_.clear();
+    postFxEditLoaded_ = false;
+    postFxEditDirty_ = false;
+    postFxEditGuid_.clear();
+    postFxEditError_.clear();
 }
 
 void InspectorWindow::ClearActiveEdit() {
@@ -359,8 +410,14 @@ void InspectorWindow::DrawMultiInspector() {
 
             const auto descriptors =
                 molga::CommonEditorProperties(identities, resolve);
+            bool lightingHeaderShown = false;
             for (const auto& descriptor : descriptors) {
                 if (!descriptor.getter || !descriptor.setter) continue;
+                if (!lightingHeaderShown &&
+                    IsLightingProperty(type, descriptor.key)) {
+                    ImGui::SeparatorText("Lighting");
+                    lightingHeaderShown = true;
+                }
                 ImGui::PushID(descriptor.key.c_str());
                 const bool mixed =
                     molga::HasMixedEditorPropertyValue(
@@ -392,7 +449,9 @@ void InspectorWindow::DrawMultiInspector() {
                 const bool activated = ImGui::IsItemActivated();
                 const bool itemActive = ImGui::IsItemActive();
                 const bool finished = ImGui::IsItemDeactivatedAfterEdit();
-                if (activated && descriptor.type != molga::EditorPropertyType::Bool) {
+                if (activated &&
+                    descriptor.type != molga::EditorPropertyType::Bool &&
+                    descriptor.type != molga::EditorPropertyType::LayerMask) {
                     activeMultiEditKey_ = descriptor.key;
                     activeMultiComponentType_ = type;
                     activeMultiBaselines_ = rowBaselines;
@@ -413,6 +472,28 @@ void InspectorWindow::DrawMultiInspector() {
                     CommitMultiEdit();
                 }
                 ImGui::PopID();
+            }
+            if (type == "Camera") {
+                CameraViewport preset;
+                if (DrawCameraViewportPresets(preset)) {
+                    const auto presetBaselines = captureBaselines(identities);
+                    if (presetBaselines.size() == identities.size()) {
+                        for (const auto& identity : identities) {
+                            if (auto* camera =
+                                    dynamic_cast<Camera*>(resolve(identity))) {
+                                camera->SetViewport(preset);
+                            }
+                        }
+                        commitApplied(presetBaselines);
+                    }
+                }
+                std::vector<Camera*> cameras;
+                cameras.reserve(identities.size());
+                for (const auto& identity : identities) {
+                    if (auto* camera = dynamic_cast<Camera*>(resolve(identity)))
+                        cameras.push_back(camera);
+                }
+                DrawCameraOutputWarnings(cameras);
             }
             ImGui::TreePop();
         }
@@ -842,6 +923,20 @@ void InspectorWindow::OnGUI() {
                 );
             }
         }
+        if (ImGui::MenuItem((std::string(Icons::Lightbulb) + " Point Light 2D").c_str())) {
+            if (!target->HasComponent<PointLight2D>()) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(
+                        target->GetID(), "PointLight2D"));
+            }
+        }
+        if (ImGui::MenuItem((std::string(Icons::Square) + " Shadow Occluder 2D").c_str())) {
+            if (!target->HasComponent<ShadowOccluder2D>()) {
+                Editor::Get().GetCommandHistory().Execute(
+                    std::make_unique<molga::ComponentAddCommand>(
+                        target->GetID(), "ShadowOccluder2D"));
+            }
+        }
         if (ImGui::MenuItem((std::string(Icons::ListUl) + " Text Renderer 2D").c_str())) {
             if (!target->HasComponent<TextRenderer2D>()) {
                 Editor::Get().GetCommandHistory().Execute(
@@ -962,6 +1057,9 @@ void InspectorWindow::DrawAssetInspector() {
         history.Undo();
         tileSetEditLoaded_ = false;
         tileSetEditDirty_ = false;
+        molga::PostProcessProfileResolver::Get().ClearTransientOverride(assetGuid_);
+        postFxEditLoaded_ = false;
+        postFxEditDirty_ = false;
     }
     if (!canUndo) ImGui::EndDisabled();
     ImGui::SameLine();
@@ -971,8 +1069,178 @@ void InspectorWindow::DrawAssetInspector() {
         history.Redo();
         tileSetEditLoaded_ = false;
         tileSetEditDirty_ = false;
+        molga::PostProcessProfileResolver::Get().ClearTransientOverride(assetGuid_);
+        postFxEditLoaded_ = false;
+        postFxEditDirty_ = false;
     }
     if (!canRedo) ImGui::EndDisabled();
+
+    // Reimport and asset history commands may replace the map value. Never
+    // carry the pre-command pointer into the importer-specific inspector.
+    record = molga::AssetDatabase::Get().Find(assetGuid_);
+    if (!record) {
+        ImGui::TextDisabled("Asset is no longer indexed");
+        return;
+    }
+
+    if (record->importer == "PostProcessProfileImporter") {
+        auto& resolver = molga::PostProcessProfileResolver::Get();
+        if (!postFxEditLoaded_ || postFxEditGuid_ != assetGuid_) {
+            if (!postFxEditGuid_.empty() && postFxEditGuid_ != assetGuid_)
+                resolver.ClearTransientOverride(postFxEditGuid_);
+            postFxEditGuid_ = assetGuid_;
+            postFxEditLoaded_ = molga::PostProcessProfile2D::LoadFromFile(
+                assetPath_, postFxEdit_, &postFxEditError_);
+            postFxEditDirty_ = false;
+        }
+        if (!postFxEditLoaded_) {
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f), "%s",
+                               postFxEditError_.empty()
+                                   ? "Could not load post-process profile"
+                                   : postFxEditError_.c_str());
+            return;
+        }
+
+        bool changed = false;
+        for (std::size_t index = 0; index < postFxEdit_.effects.size();) {
+            auto& effect = postFxEdit_.effects[index];
+            ImGui::PushID(static_cast<int>(index));
+            ImGui::SeparatorText(molga::PostProcessEffectTypeName(effect.type));
+            std::visit([&](auto& settings) {
+                changed |= ImGui::Checkbox("Enabled", &settings.enabled);
+                using Settings = std::decay_t<decltype(settings)>;
+                if constexpr (std::is_same_v<Settings, molga::BloomSettings2D>) {
+                    changed |= ImGui::SliderFloat("Threshold", &settings.threshold,
+                                                  0.0f, 16.0f);
+                    changed |= ImGui::SliderFloat("Soft Knee", &settings.softKnee,
+                                                  0.0f, 1.0f);
+                    changed |= ImGui::SliderFloat("Intensity", &settings.intensity,
+                                                  0.0f, 10.0f);
+                    changed |= ImGui::SliderFloat("Scatter", &settings.scatter,
+                                                  0.0f, 1.0f);
+                } else if constexpr (std::is_same_v<Settings,
+                                                    molga::ColorAdjustSettings2D>) {
+                    changed |= ImGui::SliderFloat("Exposure EV", &settings.exposureEV,
+                                                  -8.0f, 8.0f);
+                    changed |= ImGui::SliderFloat("Contrast", &settings.contrast,
+                                                  -1.0f, 1.0f);
+                    changed |= ImGui::SliderFloat("Saturation", &settings.saturation,
+                                                  0.0f, 2.0f);
+                    changed |= ImGui::DragFloat3("Tint", settings.tint, 0.01f,
+                                                0.0f, 4.0f);
+                } else {
+                    changed |= ImGui::SliderFloat("Intensity", &settings.intensity,
+                                                  0.0f, 1.0f);
+                    changed |= ImGui::SliderFloat("Smoothness", &settings.smoothness,
+                                                  0.01f, 1.0f);
+                    changed |= ImGui::ColorEdit3("Color", settings.color);
+                }
+            }, effect.settings);
+
+            bool remove = ImGui::Button("Remove");
+            ImGui::SameLine();
+            const bool first = index == 0;
+            if (first) ImGui::BeginDisabled();
+            const bool moveUp = ImGui::Button("Up");
+            if (first) ImGui::EndDisabled();
+            ImGui::SameLine();
+            const bool last = index + 1 == postFxEdit_.effects.size();
+            if (last) ImGui::BeginDisabled();
+            const bool moveDown = ImGui::Button("Down");
+            if (last) ImGui::EndDisabled();
+            ImGui::PopID();
+
+            if (remove) {
+                postFxEdit_.effects.erase(postFxEdit_.effects.begin() +
+                    static_cast<std::ptrdiff_t>(index));
+                changed = true;
+                continue;
+            }
+            if (moveUp && index > 0) {
+                std::swap(postFxEdit_.effects[index - 1],
+                          postFxEdit_.effects[index]);
+                changed = true;
+            } else if (moveDown && index + 1 < postFxEdit_.effects.size()) {
+                std::swap(postFxEdit_.effects[index],
+                          postFxEdit_.effects[index + 1]);
+                changed = true;
+            }
+            ++index;
+        }
+
+        const auto hasType = [&](molga::PostProcessEffectType2D type) {
+            return std::any_of(postFxEdit_.effects.begin(), postFxEdit_.effects.end(),
+                [type](const auto& effect) { return effect.type == type; });
+        };
+        ImGui::SeparatorText("Add Effect");
+        const auto addEffect = [&](const char* label,
+                                   molga::PostProcessEffectType2D type) {
+            const bool exists = hasType(type);
+            if (exists) ImGui::BeginDisabled();
+            const bool add = ImGui::Button(label);
+            if (exists) ImGui::EndDisabled();
+            if (!add) return false;
+            molga::PostProcessEffect2D effect;
+            effect.type = type;
+            switch (type) {
+                case molga::PostProcessEffectType2D::Bloom:
+                    effect.settings = molga::BloomSettings2D{}; break;
+                case molga::PostProcessEffectType2D::ColorAdjust:
+                    effect.settings = molga::ColorAdjustSettings2D{}; break;
+                case molga::PostProcessEffectType2D::Vignette:
+                    effect.settings = molga::VignetteSettings2D{}; break;
+            }
+            postFxEdit_.effects.push_back(std::move(effect));
+            return true;
+        };
+        changed |= addEffect("Bloom", molga::PostProcessEffectType2D::Bloom);
+        ImGui::SameLine();
+        changed |= addEffect("Color Adjust",
+                             molga::PostProcessEffectType2D::ColorAdjust);
+        ImGui::SameLine();
+        changed |= addEffect("Vignette", molga::PostProcessEffectType2D::Vignette);
+
+        if (changed) {
+            postFxEditDirty_ = true;
+            resolver.SetTransientOverride(assetGuid_, postFxEdit_, &postFxEditError_);
+        }
+        if (postFxEditDirty_) {
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                               "Unsaved post-process changes (previewing)");
+        }
+        if (!postFxEditError_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.2f, 1.0f), "%s",
+                               postFxEditError_.c_str());
+        }
+        const bool canSaveProfile = postFxEditDirty_;
+        if (!canSaveProfile) ImGui::BeginDisabled();
+        if (ImGui::Button("Save Profile")) {
+            molga::PostProcessProfile2D validated;
+            const nlohmann::json document = postFxEdit_.Serialize();
+            if (molga::PostProcessProfile2D::Deserialize(
+                    document, validated, &postFxEditError_)) {
+                const std::string before = readText(assetPath_);
+                const std::string after = document.dump(2) + '\n';
+                if (before != after) {
+                    Editor::Get().GetAssetCommandHistory().Execute(
+                        std::make_unique<molga::AssetContentCommand>(
+                            assetPath_, before, after, assetGuid_));
+                }
+                resolver.ClearTransientOverride(assetGuid_);
+                postFxEditDirty_ = false;
+                postFxEditLoaded_ = false;
+            }
+        }
+        if (!canSaveProfile) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Revert Profile")) {
+            resolver.ClearTransientOverride(assetGuid_);
+            postFxEditLoaded_ = molga::PostProcessProfile2D::LoadFromFile(
+                assetPath_, postFxEdit_, &postFxEditError_);
+            postFxEditDirty_ = false;
+        }
+        return;
+    }
 
     if (record->importer == "TileSetImporter") {
         if (!tileSetEditLoaded_ || tileSetEditGuid_ != assetGuid_) {
@@ -1143,6 +1411,15 @@ void InspectorWindow::DrawAssetInspector() {
     molga::TextureImportSettings settings =
         molga::DeserializeTextureImportSettings(meta.settings, true);
     bool changed = false;
+    int usage = settings.usage == molga::TextureUsage::Color ? 0 : 1;
+    const char* usages[] = {"Color", "Normal Map"};
+    if (ImGui::Combo("Usage", &usage, usages, 2)) {
+        settings.usage = usage == 0 ? molga::TextureUsage::Color
+                                    : molga::TextureUsage::NormalMap;
+        if (settings.usage == molga::TextureUsage::NormalMap)
+            settings.colorSpace = molga::TextureColorSpace::LegacyLinear;
+        changed = true;
+    }
     int filter = settings.filter == molga::TextureFilterMode::Nearest ? 0 : 1;
     const char* filters[] = {"Nearest", "Linear"};
     if (ImGui::Combo("Filter", &filter, filters, 2)) {
@@ -1166,10 +1443,16 @@ void InspectorWindow::DrawAssetInspector() {
     changed |= ImGui::Checkbox("Mipmaps", &settings.mipmaps);
     int colorSpace = settings.colorSpace == molga::TextureColorSpace::LegacyLinear ? 0 : 1;
     const char* spaces[] = {"Legacy Linear", "sRGB"};
+    const bool normalMap = settings.usage == molga::TextureUsage::NormalMap;
+    if (normalMap) ImGui::BeginDisabled();
     if (ImGui::Combo("Color Space", &colorSpace, spaces, 2)) {
         settings.colorSpace = colorSpace == 0 ? molga::TextureColorSpace::LegacyLinear
                                                : molga::TextureColorSpace::SRGB;
         changed = true;
+    }
+    if (normalMap) {
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("Normal maps are always imported as linear data.");
     }
     changed |= ImGui::DragFloat("Pixels Per Unit", &settings.pixelsPerUnit,
                                 0.1f, 0.001f, 100000.0f);
@@ -1292,11 +1575,81 @@ bool DrawEditorPropertyValue(const molga::EditorPropertyDescriptor& descriptor,
             edited = descriptor.enumValues[static_cast<std::size_t>(selected)];
             return true;
         }
+        case molga::EditorPropertyType::LayerMask: {
+            const std::int64_t authored = std::get<std::int64_t>(current);
+            std::uint32_t mask = static_cast<std::uint32_t>(authored);
+            std::string preview;
+            if (mask == 0u) {
+                preview = "Nothing";
+            } else if (mask == 0xFFFFFFFFu) {
+                preview = "All";
+            } else {
+                int selectedLayers = 0;
+                std::string onlyLayer;
+                for (int layer = 0; layer < 32; ++layer) {
+                    if ((mask & (std::uint32_t{1} << layer)) == 0u) continue;
+                    ++selectedLayers;
+                    const std::string name = ProjectSettings::Get().GetLayerName(layer);
+                    onlyLayer = name.empty() ? "Layer " + std::to_string(layer) : name;
+                }
+                preview = selectedLayers == 1
+                    ? onlyLayer : std::to_string(selectedLayers) + " Layers";
+            }
+
+            bool changed = false;
+            if (ImGui::BeginCombo(descriptor.label.c_str(), preview.c_str())) {
+                if (ImGui::Selectable("All", mask == 0xFFFFFFFFu)) {
+                    mask = 0xFFFFFFFFu;
+                    changed = true;
+                }
+                if (ImGui::Selectable("Nothing", mask == 0u)) {
+                    mask = 0u;
+                    changed = true;
+                }
+                ImGui::Separator();
+                for (int layer = 0; layer < 32; ++layer) {
+                    ImGui::PushID(layer);
+                    const std::uint32_t bit = std::uint32_t{1} << layer;
+                    bool included = (mask & bit) != 0u;
+                    const std::string configured =
+                        ProjectSettings::Get().GetLayerName(layer);
+                    const std::string label = std::to_string(layer) + ": " +
+                        (configured.empty() ? "(Unnamed)" : configured);
+                    if (ImGui::Checkbox(label.c_str(), &included)) {
+                        if (included) mask |= bit;
+                        else mask &= ~bit;
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndCombo();
+            }
+            edited = static_cast<std::int64_t>(mask);
+            return changed;
+        }
         case molga::EditorPropertyType::String:
         case molga::EditorPropertyType::AssetGuid: {
             char buffer[512]{};
             const std::string& value = std::get<std::string>(current);
             std::strncpy(buffer, value.c_str(), sizeof(buffer) - 1);
+            if (descriptor.type == molga::EditorPropertyType::AssetGuid &&
+                !descriptor.assetType.empty()) {
+                const molga::AssetRecord* record = value.empty()
+                    ? nullptr : molga::AssetDatabase::Get().Find(value);
+                if (!value.empty() && (!record || record->importFailed ||
+                                       record->importer != descriptor.assetType ||
+                                       (!descriptor.assetUsage.empty() &&
+                                        record->settings.value(
+                                            "usage", std::string{"Color"}) !=
+                                            descriptor.assetUsage))) {
+                    const char* reason = !record ? "missing GUID" :
+                        record->importFailed ? "asset import failed" :
+                        record->importer != descriptor.assetType
+                            ? "asset type mismatch" : "texture usage mismatch";
+                    ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f),
+                                       "Warning: %s (reference preserved)", reason);
+                }
+            }
             bool changed = ImGui::InputText(descriptor.label.c_str(), buffer,
                                             sizeof(buffer));
             edited = std::string(buffer);
@@ -1304,14 +1657,133 @@ bool DrawEditorPropertyValue(const molga::EditorPropertyDescriptor& descriptor,
                 !descriptor.assetType.empty()) {
                 std::string dropped;
                 if (AcceptAssetGuidDrop(descriptor.assetType.c_str(), dropped)) {
-                    edited = std::move(dropped);
-                    changed = true;
+                    molga::EditorPropertyValue candidate = dropped;
+                    if (molga::IsEditorPropertyValueValid(descriptor, candidate)) {
+                        edited = std::move(dropped);
+                        changed = true;
+                    }
                 }
             }
             return changed && molga::IsEditorPropertyValueValid(descriptor, edited);
         }
     }
     return false;
+}
+
+bool DrawCameraViewportPresets(CameraViewport& selected) {
+    struct Preset {
+        const char* label;
+        CameraViewport viewport;
+    };
+    static constexpr Preset presets[] = {
+        {"Full", {0.0f, 0.0f, 1.0f, 1.0f}},
+        {"Left", {0.0f, 0.0f, 0.5f, 1.0f}},
+        {"Right", {0.5f, 0.0f, 0.5f, 1.0f}},
+        {"Top", {0.0f, 0.0f, 1.0f, 0.5f}},
+        {"Bottom", {0.0f, 0.5f, 1.0f, 0.5f}},
+        {"PIP", {0.70f, 0.05f, 0.25f, 0.25f}},
+    };
+
+    ImGui::SeparatorText("Viewport Presets");
+    for (std::size_t index = 0; index < std::size(presets); ++index) {
+        if (index != 0) ImGui::SameLine();
+        if (ImGui::Button(presets[index].label)) {
+            selected = presets[index].viewport;
+            return true;
+        }
+    }
+    return false;
+}
+
+molga::PixelSize CameraInspectorLogicalSize() {
+    if (Project::Get().IsOpen()) {
+        const auto& window = Project::Get().GetBuildProfile().window;
+        if (window.width > 0 && window.height > 0)
+            return {window.width, window.height};
+    }
+    return {800, 600};
+}
+
+bool CameraViewportRoundsAway(const CameraViewport& viewport,
+                              molga::PixelSize logicalSize) {
+    if (!logicalSize.IsValid()) return false;
+    const int left = static_cast<int>(std::floor(
+        static_cast<double>(viewport.x) * logicalSize.width));
+    const int right = static_cast<int>(std::floor(
+        static_cast<double>(viewport.x + viewport.width) * logicalSize.width));
+    const int top = static_cast<int>(std::floor(
+        static_cast<double>(viewport.y) * logicalSize.height));
+    const int bottom = static_cast<int>(std::floor(
+        static_cast<double>(viewport.y + viewport.height) * logicalSize.height));
+    return right <= left || bottom <= top;
+}
+
+void DrawCameraOutputWarnings(const std::vector<Camera*>& inspected) {
+    std::size_t primaryCount = 0;
+    std::size_t secondaryCount = 0;
+    if (const auto* objects = Editor::Get().GetGameObjects()) {
+        for (const auto& object : *objects) {
+            if (!object || !object->IsActive()) continue;
+            Camera* camera = object->GetComponent<Camera>();
+            if (!camera || !camera->IsEnabled() ||
+                camera->GetOutputRole() == CameraOutputRole::Disabled) {
+                continue;
+            }
+            if (camera->GetOutputRole() == CameraOutputRole::Primary) {
+                ++primaryCount;
+            } else {
+                ++secondaryCount;
+            }
+        }
+    }
+    const std::size_t participantCount = secondaryCount +
+        (primaryCount > 0u ? 1u : 0u);
+
+    const ImVec4 warningColor(1.0f, 0.65f, 0.2f, 1.0f);
+    if (primaryCount > 1u) {
+        ImGui::TextColored(warningColor,
+            "Warning: %zu Primary cameras; only the highest-depth Primary outputs.",
+            primaryCount);
+    }
+    if (participantCount > 8u) {
+        ImGui::TextColored(warningColor,
+            "Warning: %zu output cameras; lower-priority cameras above the 8-camera limit are excluded.",
+            participantCount);
+    }
+
+    const molga::PixelSize logicalSize = CameraInspectorLogicalSize();
+    std::size_t subpixelCount = 0;
+    std::size_t invalidProfileCount = 0;
+    for (const Camera* camera : inspected) {
+        if (!camera) continue;
+        if (camera->GetOutputRole() != CameraOutputRole::Disabled &&
+            CameraViewportRoundsAway(camera->GetViewport(), logicalSize)) {
+            ++subpixelCount;
+        }
+        if (!camera->IsPostProcessEnabled()) continue;
+        const std::string& guid = camera->GetPostProcessProfileGuid();
+        if (guid.empty()) {
+            ++invalidProfileCount;
+            continue;
+        }
+        const molga::PostProcessProfileResolveResult resolved =
+            molga::PostProcessProfileResolver::Get().Resolve(guid);
+        if (resolved.status != molga::PostProcessProfileResolveStatus::Resolved &&
+            resolved.status !=
+                molga::PostProcessProfileResolveStatus::TransientPreview) {
+            ++invalidProfileCount;
+        }
+    }
+    if (subpixelCount > 0u) {
+        ImGui::TextColored(warningColor,
+            "Warning: %zu viewport(s) collapse below one logical pixel at %dx%d and will be skipped.",
+            subpixelCount, logicalSize.width, logicalSize.height);
+    }
+    if (invalidProfileCount > 0u) {
+        ImGui::TextColored(warningColor,
+            "Warning: %zu enabled PostFX profile(s) are missing or invalid.",
+            invalidProfileCount);
+    }
 }
 
 bool AcceptAssetGuidDrop(const char* expectedImporter, std::string& outGuid) {
@@ -1336,6 +1808,55 @@ bool AcceptAssetGuidDrop(const char* expectedImporter, std::string& outGuid) {
 // controls. Scalar values are intentionally absent: those are rendered by the
 // shared EditorPropertyDescriptor path above for both single and multi edit.
 void DrawComponentStructureEditors(Component* component) {
+    if (auto* camera = dynamic_cast<Camera*>(component)) {
+        CameraViewport viewport;
+        if (DrawCameraViewportPresets(viewport)) camera->SetViewport(viewport);
+        DrawCameraOutputWarnings({camera});
+        return;
+    }
+
+    if (auto* occluder = dynamic_cast<ShadowOccluder2D*>(component)) {
+        ImGui::SeparatorText("Occluder Shape");
+        if (!occluder->IsShapeValid()) {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.35f, 0.2f, 1.0f),
+                "The serialized polygon is invalid and is excluded at runtime.");
+            if (ImGui::Button("Recover 100 x 100 Box"))
+                occluder->ResetToDefaultBox();
+            return;
+        }
+
+        if (occluder->GetShape() == ShadowOccluderShape2D::Polygon) {
+            std::vector<Vector2> edited = occluder->GetVertices();
+            bool changed = false;
+            for (std::size_t index = 0; index < edited.size(); ++index) {
+                ImGui::PushID(static_cast<int>(index));
+                float vertex[2] = {edited[index].x, edited[index].y};
+                if (ImGui::DragFloat2("Vertex", vertex, 0.5f)) {
+                    edited[index] = {vertex[0], vertex[1]};
+                    changed = true;
+                }
+                ImGui::PopID();
+            }
+            if (changed && !occluder->SetPolygon(edited)) {
+                ImGui::TextColored(
+                    ImVec4(1.0f, 0.65f, 0.15f, 1.0f),
+                    "Polygon must remain finite, strict convex, CCW-normalizable, and non-zero.");
+            }
+            if (ImGui::Button("Triangle Preset")) {
+                occluder->SetPolygon({
+                    {0.0f, -50.0f}, {50.0f, 50.0f}, {-50.0f, 50.0f}});
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Rectangle Preset")) {
+                occluder->SetPolygon({
+                    {-50.0f, -50.0f}, {50.0f, -50.0f},
+                    {50.0f, 50.0f}, {-50.0f, 50.0f}});
+            }
+        }
+        return;
+    }
+
     if (auto* sprite = dynamic_cast<SpriteRenderer*>(component)) {
         const molga::SpriteRef& reference = sprite->GetAuthoredSpriteRef();
         const Vector2 size = sprite->GetSize();
@@ -1345,6 +1866,17 @@ void DrawComponentStructureEditors(Component* component) {
             ? "(whole texture)" : reference.sliceId.c_str());
         ImGui::TextDisabled("Resolved %.2f x %.2f, pivot %.2f %.2f",
                             size.x, size.y, pivot.x, pivot.y);
+        const bool usesUnsupportedCustomMaterial =
+            (sprite->material.shaderName != "default" &&
+             sprite->material.shaderName != "batch") ||
+            !sprite->material.properties.empty();
+        if (sprite->GetLightingMode() == SpriteLightingMode2D::Lit &&
+            usesUnsupportedCustomMaterial) {
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.65f, 0.15f, 1.0f),
+                "Lit mode does not support custom material shaders; "
+                "this Sprite renders Unlit.");
+        }
         return;
     }
 
@@ -1786,9 +2318,15 @@ void InspectorWindow::DrawComponent(Component* component) {
         // widgets or separate undo gestures for one value.
         const auto descriptors = molga::DescribeEditorProperties(*component);
         bool componentAlive = true;
+        bool lightingHeaderShown = false;
         for (const auto& descriptor : descriptors) {
             if (descriptor.key == "enabled" || !descriptor.getter || !descriptor.setter)
                 continue;
+            if (!lightingHeaderShown &&
+                IsLightingProperty(typeName, descriptor.key)) {
+                ImGui::SeparatorText("Lighting");
+                lightingHeaderShown = true;
+            }
             ImGui::PushID(descriptor.key.c_str());
             const molga::EditorPropertyValue current = descriptor.getter(*component);
             molga::EditorPropertyValue edited = current;

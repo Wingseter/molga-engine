@@ -123,6 +123,7 @@ TEST_CASE("AssetMeta atomic failure leaves the last sidecar intact") {
 TEST_CASE("Texture settings tolerate malformed values and preserve unknown fields") {
     const nlohmann::json input = {
         {"filter", 42},
+        {"usage", 42},
         {"mipmaps", "not-a-bool"},
         {"pixelsPerUnit", -5.0},
         {"defaultPivot", {"bad", 2.0}},
@@ -137,6 +138,7 @@ TEST_CASE("Texture settings tolerate malformed values and preserve unknown field
     molga::TextureImportSettings settings;
     CHECK_NOTHROW(settings = molga::DeserializeTextureImportSettings(input, true));
     CHECK(settings.filter == molga::TextureFilterMode::Linear);
+    CHECK(settings.usage == molga::TextureUsage::Color);
     CHECK(settings.mipmaps == false);
     CHECK(settings.pixelsPerUnit == doctest::Approx(1.0f));
     CHECK(settings.defaultPivot.x == doctest::Approx(0.5f));
@@ -149,6 +151,29 @@ TEST_CASE("Texture settings tolerate malformed values and preserve unknown field
     const nlohmann::json output = molga::SerializeTextureImportSettings(settings);
     CHECK(output["futureSamplerOption"] == input["futureSamplerOption"]);
     CHECK(output["slices"][0]["futureSliceFlag"] == "keep");
+}
+
+TEST_CASE("NormalMap texture usage forces linear while missing usage remains Color") {
+    const molga::TextureImportSettings legacy =
+        molga::DeserializeTextureImportSettings(
+            {{"colorSpace", "SRGB"}}, true);
+    CHECK(legacy.usage == molga::TextureUsage::Color);
+    CHECK(legacy.colorSpace == molga::TextureColorSpace::SRGB);
+
+    molga::TextureImportSettings normal;
+    normal.usage = molga::TextureUsage::NormalMap;
+    normal.colorSpace = molga::TextureColorSpace::SRGB;
+    normal.preserved["futureNormalOption"] = 3;
+    const nlohmann::json serialized =
+        molga::SerializeTextureImportSettings(normal);
+    CHECK(serialized["usage"] == "NormalMap");
+    CHECK(serialized["colorSpace"] == "LegacyLinear");
+    CHECK(serialized["futureNormalOption"] == 3);
+
+    const molga::TextureImportSettings restored =
+        molga::DeserializeTextureImportSettings(serialized);
+    CHECK(restored.usage == molga::TextureUsage::NormalMap);
+    CHECK(restored.colorSpace == molga::TextureColorSpace::LegacyLinear);
 }
 
 TEST_CASE("Grid re-slicing keeps IDs names and pivots for unchanged pixel rectangles") {

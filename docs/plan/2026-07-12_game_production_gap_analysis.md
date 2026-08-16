@@ -1,7 +1,9 @@
-# 게임 제작 관점 갭 분석 — Unity/Godot 대비 (최초 2026-07-12, 상태 갱신 2026-07-17)
+# 게임 제작 관점 갭 분석 — Unity/Godot 대비 (최초 2026-07-12, 상태 갱신 2026-07-25)
 
 > 최초 분석 기준: `finetune` 브랜치 `bf1bb74`.
-> 구현 재검증 기준: P0 기능 커밋 `804479f`와 2026-07-16 P1, 2026-07-17 P2 작업 트리. 코드와 테스트를 직접 대조했다.
+> 구현 재검증 기준: P0 기능 커밋 `804479f`와 2026-07-16 P1, 2026-07-17 P2,
+> 2026-07-18 Post-processing MVP, 2026-07-21 멀티 카메라 출력,
+> 2026-07-25 2D 라이팅 MVP 작업 트리. 코드와 테스트를 직접 대조했다.
 > 관점: "이 엔진으로 실제 2D 게임 한 편을 만들어 출시할 수 있는가?"
 > 기존 문서와의 관계: `2026-06-06_project_gap_analysis.md`의 P0와
 > `user_experience/01_commercial_engine_gap_analysis.md`의 UX-1~5는 대부분 해결된 상태다.
@@ -11,11 +13,12 @@
 
 ## 0. 구현 현황 요약
 
-| 우선순위 | 원래 범위 | 2026-07-17 상태 | 판정 |
+| 우선순위 | 원래 범위 | 2026-07-25 상태 | 판정 |
 |---|---|---|---|
 | P0 | 씬 전환, 물리, 한글 텍스트, ECS UI, 저장 | **5/5 최소선 완료** | 기존 게임 제작 차단 조건 해소 |
 | P1 | Animator, 텍스처 설정, 타일맵 저작, 파티클 텍스처, 오디오 버스 | **5/5 완료** | 캐릭터 스테이지 저작·패키징 경로 성립 |
 | P2 선택 묶음 | Script 예외 격리, Game View, 멀티 오브젝트 편집 | **3/3 완료** | 제작 안정성과 반복 편집 경로 성립 |
+| P2 표현력 후속 | Pixel Perfect, Y-sort, 소팅 레이어, Post-processing MVP, 멀티 카메라 출력, 2D 라이팅 MVP | **6/6 완료** | 픽셀 출력·소팅·화면 효과·분할/PIP·Camera별 조명 합성 경로 성립 |
 | 그 밖의 P2~P3 | 표현력, 디버깅, 배포 | 일부 기반만 존재 | 상용 엔진 대비 큰 격차 유지 |
 
 P0가 목표로 삼은 "타이틀 화면 + 스테이지 2개 + 한글 UI + 물리 + 저장"의 기술 경로는 성립한다.
@@ -27,20 +30,32 @@ P1에서는 [캐릭터 스테이지 저작 파이프라인](2026-07-16_game_prod
 Animator FSM, 3-layer terrain tilemap, textured particle, Music/SFX bus와 crossfade가 동일한 GUID catalog와 패키징
 경로를 사용하며, 독립 런타임 E2E에서 함께 검증된다.
 
-P2에서는 [제작 안정성과 편집 생산성 묶음](2026-07-17_game_production_p2_plan.md)의 세 항목만 완료했다.
+P2에서는 [제작 안정성과 편집 생산성 묶음](2026-07-17_game_production_p2_plan.md)의 세 항목과
+[Post-processing MVP](2026-07-18_game_production_p2_post_processing_plan.md),
+[멀티 카메라 출력](2026-07-21_game_production_p2_multi_camera_output_plan.md),
+[2D 라이팅 MVP](2026-07-25_game_production_p2_2d_lighting_plan.md)를 완료했다.
+Pixel Perfect Camera, Y-sort와 소팅 레이어도 표현력 후속 구현선에 포함된다.
 Script 예외는 인스턴스 단위로 격리되고, Game View와 Scene View가 분리됐으며, ordered multi-selection부터
 공통 속성 batch Undo와 멀티 Transform까지 이어진다. 아래에 남긴 다른 P2~P3 후보는 완료 처리하지 않는다.
 
 ### 검증 기준
 
-- 2026-07-17 P2 최종 검증: Debug/Release/ASan/UBSan 각각 전체 build와 CTest **74/74 통과**.
-- 네 preset 모두 `editor_smoke`와 패키징 `smoke_end_to_end`를 통과했다. 패키지 fault probe는 예외 callback 진입,
+- 2026-07-25 2D 라이팅 최종 검증: Debug/Release/ASan/UBSan 각각 전체 build와
+  CTest **78/78 통과**. 네 preset의 editor/runtime/build smoke와 패키지 E2E가
+  통과했고, report에서 lit Camera 1, lighting/shadow fallback 0, selected/shadowed
+  light 1, caster draw 1과 양수 pass count를 확인했다.
+- 2026-07-21 멀티 카메라 최종 검증: Debug/Release/ASan/UBSan 각각 전체 build와 CTest **77/77 통과**.
+- 네 preset 모두 `editor_smoke`, `runtime_smoke`와 패키징 `smoke_end_to_end`를 통과했다. 패키지 runtime report에서
+  선택 2, 렌더 2, PostFX 1, fallback 0과 output camera pass 2를 확인했다.
+- 현재 label은 unit 72, gl 2, smoke 4(그중 e2e 1)이며 ASan/UBSan에서도 전체 suite가 통과했다.
+- 역사적 기준선인 2026-07-17 P2 최종 검증은 Debug/Release/ASan/UBSan 각각 전체 build와 CTest **74/74 통과**였다.
+  당시 label은 unit 68, gl 2, smoke 4(그중 e2e 1)였고, 패키지 fault probe는 예외 callback 진입,
   fault 시 `OnDisable`, 접촉 상대 Script의 계속 실행을 확인했다.
-- label은 unit 68, gl 2, smoke 4(그중 e2e 1)로 분리했고 ASan/UBSan에서도 전체 suite가 통과했다.
-- P0 기준선은 P2 suite 안에서 scene/runtime/physics/font/UI/storage 회귀로 계속 검증된다.
+- P0 기준선은 현재 suite 안에서 scene/runtime/physics/font/UI/storage 회귀로 계속 검증된다.
 - 핵심 회귀 테스트: `tests/test_scene_runtime.cpp`, `tests/test_physics.cpp`, `tests/test_physics_query.cpp`,
   `tests/test_font.cpp`, `tests/test_ui.cpp`, `tests/test_storage.cpp`, `tests/test_script_invocation_boundary.cpp`,
-  `tests/test_game_view.cpp`, `tests/test_editor_property_descriptor.cpp`, `tests/smoke/run_end_to_end.cmake`.
+  `tests/test_game_view.cpp`, `tests/test_camera_output_layout.cpp`, `tests/test_framebuffer_gl.cpp`,
+  `tests/test_editor_property_descriptor.cpp`, `tests/smoke/run_end_to_end.cmake`.
 
 ### 이미 갖춰진 에디터 기반
 
@@ -52,7 +67,7 @@ Script 예외는 인스턴스 단위로 격리되고, Game View와 Scene View가
 - Unity 스타일 스크립트 생명주기, 인스턴스 예외 격리, 필드 리플렉션, 비동기 컴파일, last-good 핫리로드와 필드 보존 (`src/Scripting/`)
 - 콘솔, 프로파일러, 렌더 큐와 스프라이트 배칭
 - 별도 Game View와 ordered multi-selection/공통 속성 batch Undo
-- staging→검증→원자적 스왑 패키징, 유저 스크립트 동봉, 헤드리스 smoke, CTest 74개
+- staging→검증→원자적 스왑 패키징, 유저 스크립트 동봉, 헤드리스 smoke, CTest 78개
 
 ---
 
@@ -169,9 +184,9 @@ Script 예외는 인스턴스 단위로 격리되고, Game View와 Scene View가
 
 | 영역 | Molga 현재 | Unity | Godot |
 |---|---|---|---|
-| 2D 라이팅/노멀맵/그림자 | 없음 (셰이더가 texture*color 뿐) | URP 2D Lights | 2D Light/Occluder 기본 |
-| 포스트 프로세싱 | 없음 (Scene/Game FBO는 편집·출력용이며 post chain 없음) | Volume/URP | WorldEnvironment |
-| 멀티 카메라 | `GameOutputRenderer`가 활성 Main 카메라 중 depth가 가장 높은 1개만 렌더 | 다중 카메라+스택 | Viewport 다중 |
+| 2D 라이팅/노멀맵/그림자 | **완료 (MVP)** — Camera별 opt-in Ambient/PointLight2D, Sprite normal map·Tilemap flat normal, convex hard shadow, 결정적 8/4/64 예산과 PostFX·전역 UI 통합 | URP 2D Lights | 2D Light/Occluder 기본 |
+| 포스트 프로세싱 | **완료 (MVP)** — Camera opt-in `.postfx`, ordered Bloom/Color Adjust/Vignette, HDR world·UI 분리, Scene View FX preview와 패키지 runtime | Volume/URP | WorldEnvironment |
+| 멀티 카메라 | **완료 (MVP)** — 최대 8개 출력 카메라, normalized viewport·depth 합성, 독립 layer mask·PostFX, 전역 UI 1회와 IntegerFit 출력 | 다중 카메라+스택 | Viewport 다중 |
 | 픽셀 퍼펙트/레터박스 | **완료** — opt-in Pixel Perfect Camera와 IntegerFit 논리 FBO, nearest 정수배 출력, bars/crop 입력 매핑 | Pixel Perfect Camera | 프로젝트 설정 스케일 모드 |
 | Y-sort | **완료** — Sprite/Text/Particle emitter/Marrow 컴포넌트 Y-sort, Tilemap은 고정 layer/order 유지 | Transparency Sort Axis | Y-sort 토글 |
 | 소팅 레이어 | **완료** — ProjectSettings 순서를 월드 렌더 제출·Inspector·Scene Picker에 연결 | O | O (CanvasLayer/z-index) |
@@ -191,9 +206,9 @@ Script 예외는 인스턴스 단위로 격리되고, Game View와 Scene View가
 - **멀티 오브젝트 편집 — 완료.** ordered unique 선택/primary/range/lock, 공통 Component와 축별 mixed 속성,
   typed asset·단순 Script field batch Undo, root-most delete/duplicate, 중심 pivot의 멀티 Move/Rotate/Scale을 제공한다.
   **잔여 갭:** box selection, 멀티 구조 편집, 배열·tile cell·curve 편집, Play 변경 영구 반영.
-- **별도 Game View — 완료.** Edit/Play의 Main Camera+UI를 공통 출력 경로로 렌더하고, 고정 해상도 preset,
+- **별도 Game View — 완료.** Edit/Play의 출력 카메라 합성+전역 UI를 공통 출력 경로로 렌더하고, 고정 해상도 preset,
   Fit/100%, HiDPI 매핑, 분리 창 focus 입력과 사용자 preference를 제공한다. Scene View는 editor camera로 분리됐다.
-  **잔여 갭:** pixel-perfect camera, 다중 카메라 합성, post-processing.
+  **잔여 갭:** RenderTexture/사용자 target, 투명 camera stack/clear mode, 카메라 귀속 UI.
 
 ## 5. 배포 격차 (P2~P3)
 
@@ -215,11 +230,14 @@ P2 suite가 선택된 제작 안정성·편집 생산성 묶음을 검증했다.
 1. 장르에 맞춰 P0 후속선 보강 — Joint/CCD, UI layout·navigation, 폰트 fallback·wrap,
    additive/async 씬, 저장 migration 중 실제 게임에 필요한 것부터 선택
 2. **완료:** Script 예외 격리, 별도 Game View, 멀티 오브젝트 편집으로 제작 안정성과 반복 속도 개선 (4)
-3. 라이팅/포스트/멀티카메라와 pixel-perfect 출력 등 표현력 보강 (3)
+3. **완료:** pixel-perfect 출력, Post-processing MVP, 멀티 카메라 합성과 2D 라이팅/노멀맵/hard shadow MVP (3)
 4. Windows/Linux CI, archive/integrity, 해상도 API 등 배포선 강화 (5)
 5. 필요할 때 P1 후속 범위인 animation graph/blend, 8-way terrain, GPU particle, DSP mixer를 선택적으로 확장
 
 현재 엔진은 더 이상 "씬 흐름·물리·텍스트·UI가 비어 있는 상태"가 아니다. 작은 2D 게임의 런타임 기반은
 갖췄고 캐릭터 스테이지의 핵심 콘텐츠를 저작·패키징하는 경로도 성립한다. P2의 선택된 제작 안정성 묶음도
-완료됐다. 남은 큰 격차는 **고급 표현력, 디버깅·스크립팅 편의, 플랫폼별 배포 검증**이며, P1/P2 비목표는
+완료됐고 Post-processing MVP와 멀티 카메라 출력까지 패키지 런타임의 공통 경로에서 검증된다.
+Camera별 2D 라이팅, normal map과 hard shadow도 같은 출력·PostFX·전역 UI 경로에서 검증된다.
+남은 큰 격차는 **고급 표현력,
+디버깅·스크립팅 편의, 플랫폼별 배포 검증**이며, P1/P2 비목표는
 게임 요구가 생길 때 후속 마일스톤으로 다룬다.

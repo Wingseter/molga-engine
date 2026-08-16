@@ -71,6 +71,9 @@ nlohmann::json SceneSerializer::SerializeScene(
                 auto updatedMods = PrefabUtil::GenerateModifications(obj.get(), prefabJson, prefabInst->GetIdRemap());
                 prefabInst->SetModifications(updatedMods);
             }
+            const nlohmann::json normalizedMods =
+                PrefabUtil::NormalizeModifications(prefabInst->GetModifications());
+            prefabInst->SetModifications(normalizedMods);
 
             json strippedJson;
             json piData;
@@ -78,7 +81,7 @@ nlohmann::json SceneSerializer::SerializeScene(
             piData["rootId"] = obj->GetID();
             piData["parentId"] = obj->GetParent()
                 ? static_cast<int>(obj->GetParent()->GetID()) : -1;
-            piData["modifications"] = prefabInst->GetModifications();
+            piData["modifications"] = normalizedMods;
             
             strippedJson["prefabInstance"] = piData;
             objectsArray.push_back(strippedJson);
@@ -144,7 +147,8 @@ bool SceneSerializer::DeserializeScene(
             std::string guid = piData.value("guid", "");
             unsigned int rootId = piData.value("rootId", 0u);
             int parentId = piData.value("parentId", -1);
-            nlohmann::json modifications = piData.value("modifications", json::array());
+            nlohmann::json modifications = PrefabUtil::NormalizeModifications(
+                piData.value("modifications", json::array()));
 
             std::unordered_map<unsigned int, unsigned int> idRemap;
             std::vector<std::shared_ptr<GameObject>> instantiatedObjects;
@@ -358,6 +362,7 @@ nlohmann::json SceneSerializer::SerializeSubtree(const GameObject* root) {
                     nlohmann::json mods = (!prefabJson.is_null())
                         ? PrefabUtil::GenerateModifications(obj, prefabJson, pi->GetIdRemap())
                         : pi->GetModifications();
+                    mods = PrefabUtil::NormalizeModifications(mods);
 
                     json piData;
                     piData["guid"] = pi->GetPrefabGuid();
@@ -461,7 +466,8 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
             std::string nestedGuid = piData.value("guid", "");
             unsigned int localRootId = piData.value("rootId", 0u);
             int localParentId = piData.value("parentId", -1);
-            nlohmann::json mods = piData.value("modifications", json::array());
+            nlohmann::json mods = PrefabUtil::NormalizeModifications(
+                piData.value("modifications", json::array()));
 
             std::unordered_map<unsigned int, unsigned int> nestedRemap;
             size_t before = outObjects.size();

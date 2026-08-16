@@ -37,12 +37,29 @@ struct SmokeReport {
     bool scriptDrivenPrefsSaved = false;
     bool scriptDrivenSlotSaved = false;
     bool scriptDrivenPersistence = false;
+    bool postProcessed = false;
+    bool postProcessFallback = false;
+    int postProcessPasses = 0;
+    std::string postProcessProfileGuid;
+    int selectedCameraCount = 0;
+    int renderedCameraCount = 0;
+    int postProcessedCameraCount = 0;
+    int postProcessFallbackCameraCount = 0;
+    int lightingAppliedCameraCount = 0;
+    int lightingFallbackCameraCount = 0;
+    int shadowFallbackCameraCount = 0;
+    int selectedLightCount = 0;
+    int shadowedLightCount = 0;
+    int shadowCasterDrawCount = 0;
+    int lightingPasses = 0;
+    int shadowPasses = 0;
 
     // Render Stats
     int drawCalls = 0;
     int batches = 0;
     int textureBinds = 0;
     int shaderSwitches = 0;
+    int outputCameraPasses = 0;
     int submittedSprites = 0;
     int submittedCommands = 0;
     int batchFlushes = 0;

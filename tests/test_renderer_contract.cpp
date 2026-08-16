@@ -50,7 +50,11 @@ TEST_CASE("Renderer counts draw calls and shader switches between resets") {
     molga::RenderStats before = r.Stats();
     CHECK(before.drawCalls == 0);
     CHECK(before.shaderSwitches == 0);
+    CHECK(before.postProcessPasses == 0);
+    CHECK(before.outputCameraPasses == 0);
     r.ResetStats();
     CHECK(r.Stats().drawCalls == 0);
     CHECK(r.Stats().shaderSwitches == 0);
+    CHECK(r.Stats().postProcessPasses == 0);
+    CHECK(r.Stats().outputCameraPasses == 0);
 }

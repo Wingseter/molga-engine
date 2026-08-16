@@ -3,6 +3,7 @@
 #include "../Component.h"
 #include "../../Common/Types.h"
 #include "../../Rendering/Material.h"
+#include "../../Rendering/LightingTypes2D.h"
 #include "../../Rendering/SpriteRef.h"
 #include "../../Rendering/WorldSort2D.h"
 #include <optional>
@@ -46,6 +47,20 @@ public:
     const molga::SpriteRef& GetEffectiveSpriteRef() const {
         return hasRuntimeSpriteOverride ? runtimeSpriteOverride : authoredSprite;
     }
+
+    SpriteLightingMode2D GetLightingMode() const { return lightingMode_; }
+    void SetLightingMode(SpriteLightingMode2D mode);
+
+    const std::string& GetNormalMapGuid() const { return normalMapGuid_; }
+    void SetNormalMapGuid(const std::string& guid);
+
+    float GetNormalStrength() const { return normalStrength_; }
+    bool SetNormalStrength(float strength);
+
+    // Returns nullptr for missing, failed, wrong-usage, or wrong-size normal
+    // textures. Size validation follows the effective Animator sprite.
+    Texture* GetNormalTexture();
+    bool HasUsableNormalTexture();
 
     // Color/Tint
     void SetColor(const Color& c) { color = c; }
@@ -97,6 +112,9 @@ public:
     void Deserialize(const nlohmann::json& j) override;
     void ResolveAssets() override;
 
+    static nlohmann::json CanonicalizeSerializedData(
+        const nlohmann::json& serialized);
+
     // Editor GUI
     void OnInspectorGUI() override;
 
@@ -111,7 +129,9 @@ private:
 
     void InvalidateAuthoredResolution();
     void InvalidateRuntimeResolution();
+    void InvalidateNormalResolution();
     void EnsureSpriteResolution();
+    void EnsureNormalResolution();
     VisualSprite GetVisualSprite();
 
     Texture* texture = nullptr;
@@ -123,6 +143,13 @@ private:
     bool hasRuntimeSpriteOverride = false;
     bool authoredResolveAttempted = false;
     bool runtimeResolveAttempted = false;
+    SpriteLightingMode2D lightingMode_ = SpriteLightingMode2D::Unlit;
+    std::string normalMapGuid_;
+    float normalStrength_ = 1.0f;
+    Texture* normalTexture_ = nullptr;
+    bool normalResolveAttempted_ = false;
+    bool normalWarningEmitted_ = false;
+    bool litCustomMaterialWarningEmitted_ = false;
     Color color = Color::White();
 
     float width = 32.0f;

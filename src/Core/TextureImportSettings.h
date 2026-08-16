@@ -15,6 +15,7 @@ namespace molga {
 enum class TextureFilterMode { Nearest, Linear };
 enum class TextureWrapMode { Clamp, Repeat, MirroredRepeat };
 enum class TextureColorSpace { LegacyLinear, SRGB };
+enum class TextureUsage { Color, NormalMap };
 enum class SpriteImportMode { Single, Multiple };
 
 struct SpriteSlice {
@@ -38,6 +39,7 @@ struct TextureImportSettings {
     TextureWrapMode wrapV = TextureWrapMode::Clamp;
     bool mipmaps = false;
     TextureColorSpace colorSpace = TextureColorSpace::SRGB;
+    TextureUsage usage = TextureUsage::Color;
     float pixelsPerUnit = 1.0f;
     SpriteImportMode spriteMode = SpriteImportMode::Single;
     Vector2 defaultPivot{0.5f, 0.5f};
@@ -55,6 +57,9 @@ struct TextureImportSettings {
     }
 
     void Sanitize() {
+        if (usage == TextureUsage::NormalMap) {
+            colorSpace = TextureColorSpace::LegacyLinear;
+        }
         if (!std::isfinite(pixelsPerUnit) || pixelsPerUnit <= 0.0f) pixelsPerUnit = 1.0f;
         if (!std::isfinite(defaultPivot.x)) defaultPivot.x = 0.5f;
         if (!std::isfinite(defaultPivot.y)) defaultPivot.y = 0.5f;
@@ -81,6 +86,9 @@ inline const char* ToString(TextureWrapMode value) {
 inline const char* ToString(TextureColorSpace value) {
     return value == TextureColorSpace::SRGB ? "SRGB" : "LegacyLinear";
 }
+inline const char* ToString(TextureUsage value) {
+    return value == TextureUsage::NormalMap ? "NormalMap" : "Color";
+}
 inline const char* ToString(SpriteImportMode value) {
     return value == SpriteImportMode::Multiple ? "Multiple" : "Single";
 }
@@ -95,6 +103,7 @@ inline nlohmann::json SerializeTextureImportSettings(const TextureImportSettings
     result["wrapV"] = ToString(sanitized.wrapV);
     result["mipmaps"] = sanitized.mipmaps;
     result["colorSpace"] = ToString(sanitized.colorSpace);
+    result["usage"] = ToString(sanitized.usage);
     result["pixelsPerUnit"] = sanitized.pixelsPerUnit;
     result["spriteMode"] = ToString(sanitized.spriteMode);
     result["defaultPivot"] = {sanitized.defaultPivot.x, sanitized.defaultPivot.y};
@@ -184,6 +193,8 @@ inline TextureImportSettings DeserializeTextureImportSettings(
     settings.mipmaps = boolValue("mipmaps", settings.mipmaps);
     settings.colorSpace = stringValue("colorSpace", ToString(settings.colorSpace)) == "SRGB"
         ? TextureColorSpace::SRGB : TextureColorSpace::LegacyLinear;
+    settings.usage = stringValue("usage", ToString(settings.usage)) == "NormalMap"
+        ? TextureUsage::NormalMap : TextureUsage::Color;
     settings.pixelsPerUnit = floatValue("pixelsPerUnit", settings.pixelsPerUnit);
     settings.spriteMode = stringValue("spriteMode", ToString(settings.spriteMode)) == "Multiple"
         ? SpriteImportMode::Multiple : SpriteImportMode::Single;

@@ -58,7 +58,7 @@ private:
     molga::OutputPresentationLayout presentation_{};
     molga::GameViewLayout layout_{};
     std::string outputError_;
-    bool hasMainCamera_ = false;
+    bool hasOutputCamera_ = false;
 
     ImVec2 imageScreenOrigin_{0.0f, 0.0f};
     ImGuiID platformViewportId_ = 0;

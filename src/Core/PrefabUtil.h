@@ -10,6 +10,12 @@ class GameObject;
 
 class PrefabUtil {
 public:
+    // Converts migration-only override keys to their canonical component
+    // schema. Malformed/unrecognized entries are preserved for forward
+    // compatibility, but legacy Camera.isMain never survives a valid mapping.
+    static nlohmann::json NormalizeModifications(
+        const nlohmann::json& modifications);
+
     // Applies a list of modifications (overrides) to the instantiated hierarchy
     static void ApplyModifications(
         GameObject* instanceRoot,

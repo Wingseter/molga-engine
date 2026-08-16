@@ -211,6 +211,14 @@ int main(int argc, char* argv[]) {
     auto batchVertPath = PathService::Get().EngineResource("Shaders/batch.vert").string();
     auto batchFragPath = PathService::Get().EngineResource("Shaders/batch.frag").string();
     ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
+    ShaderManager::Get().Load(
+        "batch_lit",
+        PathService::Get().EngineResource("Shaders/batch_lit.vert").string(),
+        PathService::Get().EngineResource("Shaders/batch_lit.frag").string());
+    ShaderManager::Get().Load(
+        "shadow_mask_2d",
+        PathService::Get().EngineResource("Shaders/shadow_mask_2d.vert").string(),
+        PathService::Get().EngineResource("Shaders/shadow_mask_2d.frag").string());
     SceneDocument sceneDoc;
 
     // Initialize Text Renderer

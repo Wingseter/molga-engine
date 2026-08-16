@@ -3,6 +3,7 @@
 #include "Core/Importers/AudioImporter.h"
 #include "Core/Importers/FontImporter.h"
 #include "Core/Importers/PrefabImporter.h"
+#include "Core/Importers/PostProcessProfileImporter.h"
 #include "Core/Importers/TextureImporter.h"
 
 #include <algorithm>
@@ -163,6 +164,7 @@ void ImporterRegistry::RegisterBuiltins() {
     Register(std::make_shared<AudioImporter>());
     Register(std::make_shared<PrefabImporter>());
     Register(std::make_shared<FontImporter>());
+    Register(std::make_shared<PostProcessProfileImporter>());
     Register(std::make_shared<StructuredJsonImporter>(
         "AnimationClipImporter", 1, std::vector<std::string>{".animclip"},
         std::vector<std::string>{"textureGuid"}));

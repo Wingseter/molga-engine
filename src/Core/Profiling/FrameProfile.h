@@ -37,6 +37,13 @@ struct RenderStats {
     int textureBinds = 0;
     int shaderSwitches = 0;
     int fboResizes = 0;
+    int outputCameraPasses = 0;
+    int postProcessPasses = 0;
+    int lightingPasses = 0;
+    int shadowPasses = 0;
+    int selectedLightCount = 0;
+    int shadowedLightCount = 0;
+    int shadowCasterDrawCount = 0;
 
     int submittedSprites = 0;
     int submittedCommands = 0;

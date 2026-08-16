@@ -47,17 +47,18 @@ bool Texture::CreateFromData(int w, int h, const unsigned char* data, int ch,
 
     GLenum format = GL_RGBA;
     GLenum internalFormat = GL_RGBA;
+    const bool useSrgb =
+        settings.usage == molga::TextureUsage::Color &&
+        settings.colorSpace == molga::TextureColorSpace::SRGB;
     if (ch == 1) {
         format = GL_RED;
         internalFormat = GL_RED;
     } else if (ch == 3) {
         format = GL_RGB;
-        internalFormat = settings.colorSpace == molga::TextureColorSpace::SRGB
-            ? GL_SRGB8 : GL_RGB8;
+        internalFormat = useSrgb ? GL_SRGB8 : GL_RGB8;
     } else if (ch == 4) {
         format = GL_RGBA;
-        internalFormat = settings.colorSpace == molga::TextureColorSpace::SRGB
-            ? GL_SRGB8_ALPHA8 : GL_RGBA8;
+        internalFormat = useSrgb ? GL_SRGB8_ALPHA8 : GL_RGBA8;
     }
 
     unsigned int candidate = 0;

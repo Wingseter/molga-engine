@@ -127,6 +127,7 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
     rec.importer = meta.importer;
     rec.importerVersion = meta.importerVersion;
     rec.settings = meta.settings;
+    rec.hash = ComputeFileHash(absPath);
 
     ImportResult res = RunImporter(meta.importer, absPath.string(), meta.settings);
     rec.importFailed = !res.success;

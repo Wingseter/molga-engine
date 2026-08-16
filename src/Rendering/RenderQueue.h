@@ -5,6 +5,7 @@
 #include <array>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include "../Common/linmath.h"
@@ -51,20 +52,32 @@ struct SortKey {
 struct BatchKey {
     Shader* shader = nullptr;
     Texture* texture = nullptr;
+    Texture* normalTexture = nullptr;
     BlendMode blendMode = BlendMode::Alpha;
     bool isBatchable = true;
+    bool lit = false;
+    std::uint32_t receiverLayer = 0;
+    float normalStrength = 1.0f;
 
     bool operator<(const BatchKey& other) const {
         if (isBatchable != other.isBatchable) return isBatchable < other.isBatchable;
+        if (lit != other.lit) return lit < other.lit;
         if (shader != other.shader) return shader < other.shader;
         if (texture != other.texture) return texture < other.texture;
+        if (normalTexture != other.normalTexture) return normalTexture < other.normalTexture;
+        if (receiverLayer != other.receiverLayer) return receiverLayer < other.receiverLayer;
+        if (normalStrength != other.normalStrength) return normalStrength < other.normalStrength;
         return blendMode < other.blendMode;
     }
 
     bool operator==(const BatchKey& other) const {
         return isBatchable == other.isBatchable &&
+               lit == other.lit &&
                shader == other.shader &&
                texture == other.texture &&
+               normalTexture == other.normalTexture &&
+               receiverLayer == other.receiverLayer &&
+               normalStrength == other.normalStrength &&
                blendMode == other.blendMode;
     }
 
@@ -121,6 +134,18 @@ public:
     }
     
     const std::vector<RenderCommand>& GetCommands() const { return commands_; }
+    bool HasLitReceivers() const {
+        return std::any_of(commands_.begin(), commands_.end(),
+            [](const RenderCommand& command) { return command.batchKey.lit; });
+    }
+    void ForceUnlit() {
+        for (auto& command : commands_) {
+            command.batchKey.lit = false;
+            command.batchKey.normalTexture = nullptr;
+            command.batchKey.receiverLayer = 0;
+            command.batchKey.normalStrength = 1.0f;
+        }
+    }
     void SetViewBounds(const AABB& bounds) { viewBounds_ = bounds; }
     void ClearViewBounds() { viewBounds_.reset(); }
     const std::optional<AABB>& GetViewBounds() const { return viewBounds_; }

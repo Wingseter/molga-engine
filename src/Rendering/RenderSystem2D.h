@@ -8,6 +8,8 @@ class Camera2D;
 
 namespace molga {
 
+struct LightingRenderContext2D;
+
 class RenderSystem2D {
 public:
     static RenderSystem2D& Get() {
@@ -18,7 +20,8 @@ public:
     void Init();
     void Shutdown();
 
-    void Render(RenderQueue& queue, Renderer* renderer, Camera2D* camera);
+    void Render(RenderQueue& queue, Renderer* renderer, Camera2D* camera,
+                const LightingRenderContext2D* lightingContext = nullptr);
 
 private:
     RenderSystem2D() = default;

@@ -14,6 +14,7 @@
 #include "Rendering/Renderer.h"
 #include "Rendering/RenderSystem2D.h"
 #include "Rendering/GameOutputRenderer.h"
+#include "Rendering/CameraOutputLayout.h"
 #include "Core/Profiling/ProfileScope.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
@@ -621,6 +622,14 @@ int main(int argc, char* argv[]) {
     auto batchVertPath = PathService::Get().EngineResource("Shaders/batch.vert").string();
     auto batchFragPath = PathService::Get().EngineResource("Shaders/batch.frag").string();
     ShaderManager::Get().Load("batch", batchVertPath, batchFragPath);
+    ShaderManager::Get().Load(
+        "batch_lit",
+        PathService::Get().EngineResource("Shaders/batch_lit.vert").string(),
+        PathService::Get().EngineResource("Shaders/batch_lit.frag").string());
+    ShaderManager::Get().Load(
+        "shadow_mask_2d",
+        PathService::Get().EngineResource("Shaders/shadow_mask_2d.vert").string(),
+        PathService::Get().EngineResource("Shaders/shadow_mask_2d.frag").string());
     SceneRuntime sceneRuntime(std::move(sceneCatalog));
 
     // Initialize scripting
@@ -708,6 +717,7 @@ int main(int argc, char* argv[]) {
     bool scriptDrivenSlotSaved = false;
     bool rawMouseWasDown = false;
     auto gameOutputRenderer = std::make_unique<molga::GameOutputRenderer>();
+    molga::GameOutputResult lastGameOutputResult;
     // Main game loop
     while (!glfwWindowShouldClose(window)) {
         Time::Update();
@@ -732,7 +742,10 @@ int main(int argc, char* argv[]) {
         double windowPointerX = 0.0;
         double windowPointerY = 0.0;
         glfwGetCursorPos(window, &windowPointerX, &windowPointerY);
-        const bool canMapWindowPointer = windowWidth > 0 && windowHeight > 0 &&
+        const bool windowFocused =
+            glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE;
+        const bool canMapWindowPointer = windowFocused && windowWidth > 0 &&
+                                         windowHeight > 0 &&
                                          framebufferSize.IsValid();
         const float framebufferPointerX = canMapWindowPointer
             ? static_cast<float>(windowPointerX) *
@@ -752,8 +765,25 @@ int main(int argc, char* argv[]) {
             ? static_cast<float>(logicalPointer->x) : 0.0f;
         const float mappedMouseY = logicalPointer
             ? static_cast<float>(logicalPointer->y) : 0.0f;
-        Input::ApplySnapshot(Input::CaptureSnapshot(
-            window, mappedMouseX, mappedMouseY, logicalPointer.has_value()));
+        InputSnapshot inputSnapshot = Input::CaptureSnapshot(
+            window, mappedMouseX, mappedMouseY, logicalPointer.has_value());
+        const molga::CameraOutputLayout cameraLayout =
+            molga::CameraOutputLayout::Build(
+                world.Objects(), presentation.logicalSize);
+        if (logicalPointer) {
+            const auto cameraPointer =
+                cameraLayout.LogicalToTopmost(*logicalPointer);
+            if (cameraPointer) {
+                inputSnapshot.cameraPointerValid = true;
+                inputSnapshot.pointerCameraObjectId =
+                    cameraPointer->cameraObjectId;
+                inputSnapshot.cameraPointerX = cameraPointer->cameraX;
+                inputSnapshot.cameraPointerY = cameraPointer->cameraY;
+                inputSnapshot.worldPointerX = cameraPointer->worldX;
+                inputSnapshot.worldPointerY = cameraPointer->worldY;
+            }
+        }
+        Input::ApplySnapshot(inputSnapshot);
 
         // UI capture follows the physical button edge, independently from the
         // script snapshot's pointer invalidation. Leaving a bar releases UI
@@ -862,7 +892,7 @@ int main(int argc, char* argv[]) {
         {
             MOLGA_PROFILE_SCOPE("GameOutput.Render", molga::ProfileCategory::Rendering);
             if (framebufferSize.IsValid()) {
-                gameOutputRenderer->Render(
+                lastGameOutputResult = gameOutputRenderer->Render(
                     world.Objects(),
                     {framebufferSize, configuredLogicalSize,
                      config.outputScaleMode},
@@ -875,6 +905,7 @@ int main(int argc, char* argv[]) {
         if (sceneRuntime.IsSceneLoadPending()) {
             if (sceneRuntime.CommitPendingLoad()) {
                 Time::ResetFixedAccumulator();
+                Input::ReleaseAll();
                 UISystem::Get().ResetPointerCapture();
                 if (smoke->enabled) {
                     ++successfulSceneTransitions;
@@ -989,6 +1020,39 @@ int main(int argc, char* argv[]) {
         report.scriptDrivenPrefsSaved = scriptDrivenPrefsSaved;
         report.scriptDrivenSlotSaved = scriptDrivenSlotSaved;
         report.scriptDrivenPersistence = scriptDrivenPersistence;
+        report.postProcessed = lastGameOutputResult.postProcessed;
+        report.postProcessFallback = lastGameOutputResult.postProcessFallback;
+        report.postProcessPasses = lastGameOutputResult.postProcessPasses;
+        report.selectedCameraCount = static_cast<int>(
+            lastGameOutputResult.cameraResults.size());
+        for (const molga::CameraOutputResult& cameraResult :
+             lastGameOutputResult.cameraResults) {
+            if (cameraResult.rendered) ++report.renderedCameraCount;
+            if (cameraResult.postProcessed) ++report.postProcessedCameraCount;
+            if (cameraResult.postProcessFallback) {
+                ++report.postProcessFallbackCameraCount;
+            }
+            if (cameraResult.lightingApplied)
+                ++report.lightingAppliedCameraCount;
+            if (cameraResult.lightingFallback)
+                ++report.lightingFallbackCameraCount;
+            if (cameraResult.shadowFallback)
+                ++report.shadowFallbackCameraCount;
+            report.selectedLightCount += cameraResult.selectedLightCount;
+            report.shadowedLightCount += cameraResult.shadowedLightCount;
+            report.shadowCasterDrawCount +=
+                cameraResult.shadowCasterDrawCount;
+            report.lightingPasses += cameraResult.lightingPasses;
+            report.shadowPasses += cameraResult.shadowPasses;
+        }
+        // This is the exact final-frame output pass count. Renderer stats can
+        // aggregate across several smoke frames, so they are not suitable for
+        // the fixture's deterministic camera contract.
+        report.outputCameraPasses = report.renderedCameraCount;
+        if (lastGameOutputResult.mainCamera) {
+            report.postProcessProfileGuid =
+                lastGameOutputResult.mainCamera->GetPostProcessProfileGuid();
+        }
         if (renderer) {
             auto& stats = renderer->Stats();
             report.drawCalls = stats.drawCalls;
@@ -1014,7 +1078,24 @@ int main(int argc, char* argv[]) {
                              report.physicsBodiesLoaded >= 2 &&
                              report.physicsShapesLoaded >= 2 &&
                              packagedPhysicsProbe.ok() &&
-                             report.scriptDrivenPersistence && transitionsOk;
+                             report.scriptDrivenPersistence &&
+                             report.postProcessed &&
+                             !report.postProcessFallback &&
+                             report.postProcessPasses > 0 &&
+                             !report.postProcessProfileGuid.empty() &&
+                             report.selectedCameraCount == 2 &&
+                             report.renderedCameraCount == 2 &&
+                             report.postProcessedCameraCount == 1 &&
+                             report.postProcessFallbackCameraCount == 0 &&
+                             report.lightingAppliedCameraCount == 1 &&
+                             report.lightingFallbackCameraCount == 0 &&
+                             report.shadowFallbackCameraCount == 0 &&
+                             report.selectedLightCount == 1 &&
+                             report.shadowedLightCount == 1 &&
+                             report.shadowCasterDrawCount == 1 &&
+                             report.lightingPasses > 0 &&
+                             report.shadowPasses > 0 &&
+                             transitionsOk;
         report.status = smokeOk ? "ok" : "error";
         if (smokeOk) {
             report.message = "Runtime smoke completed. Scripts: " + scriptStatus + 

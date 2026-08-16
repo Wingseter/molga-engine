@@ -13,11 +13,16 @@ struct GameViewPreferences {
     PixelSize customResolution{1280, 720};
 };
 
+struct SceneViewPreferences {
+    bool fxEnabled = false;
+    bool litEnabled = true;
+};
+
 // User-only editor preferences. This file is deliberately independent of the
 // project/scene document, so saving Game View state can never make either dirty.
 class EditorPreferences {
 public:
-    static constexpr int kSchemaVersion = 1;
+    static constexpr int kSchemaVersion = 3;
 
     static EditorPreferences Defaults();
     static std::filesystem::path DefaultPath();
@@ -29,6 +34,7 @@ public:
                     std::string* errorOut = nullptr) const;
 
     GameViewPreferences gameView;
+    SceneViewPreferences sceneView;
 };
 
 } // namespace molga

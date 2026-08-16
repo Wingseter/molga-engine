@@ -81,6 +81,7 @@ TEST_CASE("Tilemap: Properties and Tile Editing") {
     CHECK(tm->height == 10);
     CHECK(tm->tileSize == 32);
     CHECK(tm->GetSortingOrder() == 0);
+    CHECK(tm->GetLightingMode() == SpriteLightingMode2D::Unlit);
 
     // Set sorting order
     tm->SetSortingOrder(5);
@@ -144,6 +145,7 @@ TEST_CASE("Tilemap: Serialization and Deserialization") {
     tm->tileSize = 16;
     tm->spriteSheetPath = "assets/textures/tiles.png";
     tm->SetSortingOrder(10);
+    tm->SetLightingMode(SpriteLightingMode2D::Lit);
     tm->SetTile(1, 1, 42);
     tm->SetSolid(42, true);
 
@@ -156,6 +158,7 @@ TEST_CASE("Tilemap: Serialization and Deserialization") {
     CHECK(j["tileSize"] == 16);
     CHECK(j["spriteSheetPath"] == "assets/textures/tiles.png");
     CHECK(j["sortingOrder"] == 10);
+    CHECK(j["lightingMode"] == "Lit");
     CHECK(j["tiles"][4] == 42); // (1, 1) in 3x3 grid is index 4
     CHECK(j["solidTiles"][42] == true);
 
@@ -169,9 +172,15 @@ TEST_CASE("Tilemap: Serialization and Deserialization") {
     CHECK(tm2->tileSize == 16);
     CHECK(tm2->spriteSheetPath == "assets/textures/tiles.png");
     CHECK(tm2->GetSortingOrder() == 10);
+    CHECK(tm2->GetLightingMode() == SpriteLightingMode2D::Lit);
     CHECK(tm2->GetTile(1, 1) == 42);
     CHECK(tm2->IsSolid(42) == true);
     CHECK(tm2->IsSolid(0) == false);
+
+    const nlohmann::json legacy =
+        TilemapRenderer::CanonicalizeSerializedData(
+            nlohmann::json::object());
+    CHECK(legacy["lightingMode"] == "Unlit");
 }
 
 TEST_CASE("Tilemap: Physics collision resolution with dynamic colliders") {

@@ -14,6 +14,7 @@ public:
     bool Reload();
 
     void SetInt(const char* name, int value) const;
+    void SetUInt(const char* name, unsigned int value) const;
     void SetFloat(const char* name, float value) const;
     void SetVec2(const char* name, float x, float y) const;
     void SetVec3(const char* name, float x, float y, float z) const;
@@ -22,9 +23,11 @@ public:
     void SetBool(const char* name, bool value) const;
 
     unsigned int GetID() const { return programID; }
+    bool IsValid() const { return valid_; }
 
 private:
-    unsigned int programID;
+    unsigned int programID = 0;
+    bool valid_ = false;
     std::string vertexPath;
     std::string fragmentPath;
     mutable std::unordered_map<std::string, GLint> uniformCache;
@@ -34,4 +37,3 @@ private:
     unsigned int CompileShader(const char* source, GLenum type);
     bool CheckCompileErrors(unsigned int shader, const std::string& type);
 };
-

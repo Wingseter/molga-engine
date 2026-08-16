@@ -3,8 +3,12 @@
 #include "Core/ProjectSettings.h"
 #include "ECS/Component.h"
 #include "ECS/GameObject.h"
+#include "ECS/Components/Camera.h"
+#include "ECS/Components/PointLight2D.h"
 #include "ECS/Components/Rigidbody2D.h"
+#include "ECS/Components/ShadowOccluder2D.h"
 #include "ECS/Components/SpriteRenderer.h"
+#include "ECS/Components/TilemapRenderer.h"
 #include "Scripting/Script.h"
 #include "doctest.h"
 #include <algorithm>
@@ -233,6 +237,8 @@ TEST_CASE("non-active asset and popup changes request an immediate transaction")
         EditorPropertyType::Enum, true, false, false, false));
     CHECK(molga::ShouldCommitEditorPropertyImmediately(
         EditorPropertyType::Bool, true, false, false, false));
+    CHECK(molga::ShouldCommitEditorPropertyImmediately(
+        EditorPropertyType::LayerMask, true, true, true, true));
     CHECK_FALSE(molga::ShouldCommitEditorPropertyImmediately(
         EditorPropertyType::AssetGuid, false, false, false, false));
     CHECK_FALSE(molga::ShouldCommitEditorPropertyImmediately(
@@ -303,6 +309,7 @@ TEST_CASE("enum descriptors carry labels and authored values") {
     const auto& materialTexture = Find(
         spriteDescriptors, "material.mainTextureGuid");
     const auto& materialBlend = Find(spriteDescriptors, "material.blendMode");
+    const auto& lightingMode = Find(spriteDescriptors, "lightingMode");
     CHECK(sizeMode.type == molga::EditorPropertyType::Enum);
     REQUIRE(sizeMode.enumValues.size() == 2);
     CHECK(std::get<std::string>(sizeMode.enumValues[1]) == "Native");
@@ -310,6 +317,107 @@ TEST_CASE("enum descriptors carry labels and authored values") {
     CHECK(materialTexture.assetType == "TextureImporter");
     CHECK(materialBlend.type == molga::EditorPropertyType::Enum);
     CHECK(materialBlend.enumLabels.size() == 4);
+    CHECK(lightingMode.type == molga::EditorPropertyType::Enum);
+    CHECK((lightingMode.enumLabels ==
+           std::vector<std::string>{"Unlit", "Lit"}));
+    CHECK_FALSE(Has(spriteDescriptors, "normalMapGuid"));
+
+    sprite.SetLightingMode(SpriteLightingMode2D::Lit);
+    const auto litSpriteDescriptors =
+        molga::DescribeEditorProperties(sprite);
+    const auto& normalMap = Find(litSpriteDescriptors, "normalMapGuid");
+    CHECK(normalMap.type == molga::EditorPropertyType::AssetGuid);
+    CHECK(normalMap.assetType == "TextureImporter");
+    CHECK(normalMap.assetUsage == "NormalMap");
+    CHECK(Has(litSpriteDescriptors, "normalStrength"));
+
+    TilemapRenderer tilemap;
+    const auto tilemapDescriptors =
+        molga::DescribeEditorProperties(tilemap);
+    const auto& tilemapLighting = Find(tilemapDescriptors, "lightingMode");
+    CHECK(tilemapLighting.type == molga::EditorPropertyType::Enum);
+    CHECK((tilemapLighting.enumLabels ==
+           std::vector<std::string>{"Unlit", "Lit"}));
+
+    PointLight2D light;
+    const auto lightDescriptors =
+        molga::DescribeEditorProperties(light);
+    const auto& affectMask = Find(lightDescriptors, "affectMask");
+    CHECK(affectMask.type == molga::EditorPropertyType::LayerMask);
+    CHECK(affectMask.label == "Affect Mask");
+
+    ShadowOccluder2D occluder;
+    const auto occluderDescriptors =
+        molga::DescribeEditorProperties(occluder);
+    const auto& occluderShape = Find(occluderDescriptors, "shape");
+    CHECK(occluderShape.type == molga::EditorPropertyType::Enum);
+    CHECK((occluderShape.enumLabels ==
+           std::vector<std::string>{"Box", "Polygon"}));
+}
+
+TEST_CASE("Camera output descriptors use typed role viewport and layer mask accessors") {
+    Camera camera;
+    const auto descriptors = molga::DescribeEditorProperties(camera);
+
+    const auto& role = Find(descriptors, "outputRole");
+    CHECK(role.type == molga::EditorPropertyType::Enum);
+    CHECK((role.enumLabels ==
+           std::vector<std::string>{"Disabled", "Primary", "Secondary"}));
+    REQUIRE(role.enumValues.size() == 3);
+    CHECK(std::get<std::string>(role.enumValues[1]) == "Primary");
+
+    const auto& mask = Find(descriptors, "cullingMask");
+    CHECK(mask.type == molga::EditorPropertyType::LayerMask);
+    CHECK(mask.label == "Culling Mask");
+    CHECK(std::get<std::int64_t>(mask.getter(camera)) == 0xFFFFFFFFll);
+
+    const auto& viewportX = Find(descriptors, "viewport.x");
+    const auto& viewportY = Find(descriptors, "viewport.y");
+    const auto& viewportWidth = Find(descriptors, "viewport.width");
+    const auto& viewportHeight = Find(descriptors, "viewport.height");
+    CHECK(viewportX.label == "Viewport X");
+    CHECK(viewportY.label == "Viewport Y");
+    CHECK(viewportWidth.label == "Viewport Width");
+    CHECK(viewportHeight.label == "Viewport Height");
+    const auto descriptorIndex = [&descriptors](const char* key) {
+        return std::distance(descriptors.begin(), std::find_if(
+            descriptors.begin(), descriptors.end(),
+            [key](const auto& descriptor) { return descriptor.key == key; }));
+    };
+    CHECK(descriptorIndex("outputRole") < descriptorIndex("viewport.x"));
+    CHECK(descriptorIndex("viewport.x") < descriptorIndex("viewport.y"));
+    CHECK(descriptorIndex("viewport.y") < descriptorIndex("viewport.width"));
+    CHECK(descriptorIndex("viewport.width") < descriptorIndex("viewport.height"));
+    CHECK(descriptorIndex("viewport.height") < descriptorIndex("cullingMask"));
+    CHECK(descriptorIndex("cullingMask") <
+          descriptorIndex("lightingEnabled"));
+    CHECK(descriptorIndex("lightingEnabled") <
+          descriptorIndex("ambientColor.0"));
+    CHECK(descriptorIndex("ambientColor.3") <
+          descriptorIndex("ambientIntensity"));
+
+    std::vector<Component*> cameras{&camera};
+    CHECK(molga::ApplyEditorPropertyValue(
+              role, cameras, std::string{"Secondary"}) == 1u);
+    CHECK(camera.GetOutputRole() == CameraOutputRole::Secondary);
+    CHECK(molga::ApplyEditorPropertyValue(
+              role, cameras, std::string{"Unknown"}) == 0u);
+    CHECK(camera.GetOutputRole() == CameraOutputRole::Secondary);
+
+    constexpr std::int64_t selectedLayers =
+        (std::int64_t{1} << 31) | (std::int64_t{1} << 5);
+    CHECK(molga::ApplyEditorPropertyValue(mask, cameras, selectedLayers) == 1u);
+    CHECK(camera.GetCullingMask() ==
+          ((std::uint32_t{1} << 31) | (std::uint32_t{1} << 5)));
+    CHECK(molga::ApplyEditorPropertyValue(mask, cameras, std::int64_t{-1}) == 0u);
+    CHECK(molga::ApplyEditorPropertyValue(
+              mask, cameras, std::int64_t{0x100000000ll}) == 0u);
+
+    CHECK(molga::ApplyEditorPropertyValue(viewportWidth, cameras, 0.5) == 1u);
+    CHECK(molga::ApplyEditorPropertyValue(viewportX, cameras, 0.5) == 1u);
+    CHECK((camera.GetViewport() == CameraViewport{0.5f, 0.0f, 0.5f, 1.0f}));
+    CHECK(molga::ApplyEditorPropertyValue(viewportWidth, cameras, 0.75) == 0u);
+    CHECK((camera.GetViewport() == CameraViewport{0.5f, 0.0f, 0.5f, 1.0f}));
 }
 
 TEST_CASE("world sorting descriptors follow project layer order and active sort mode") {

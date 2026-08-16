@@ -5,6 +5,7 @@
 #include "../../Core/TileSetAsset.h"
 #include "../../Rendering/SpriteSheet.h"
 #include "../../Rendering/RenderQueue.h"
+#include "../../Rendering/LightingTypes2D.h"
 #include "../../Rendering/WorldSort2D.h"
 
 #include <cstdint>
@@ -109,6 +110,12 @@ public:
     void SetSortingLayer(const std::string& layer) { sortingLayer_ = layer; }
     const std::string& GetSortingLayer() const { return sortingLayer_; }
 
+    SpriteLightingMode2D GetLightingMode() const { return lightingMode_; }
+    void SetLightingMode(SpriteLightingMode2D mode) {
+        lightingMode_ = mode == SpriteLightingMode2D::Lit
+            ? SpriteLightingMode2D::Lit : SpriteLightingMode2D::Unlit;
+    }
+
     std::vector<AABB> GetCollidingTiles(const AABB& worldBox) const;
     const std::vector<TilemapCollisionRun>& GetCollisionRuns() const;
     std::uint64_t GetCollisionRebuildCount() const { return collisionRebuildCount_; }
@@ -123,6 +130,9 @@ public:
     std::size_t GetLastSubmittedChunkCount() const { return lastSubmittedChunkCount_; }
     std::size_t GetChunkRebuildCount() const { return chunkRebuildCount_; }
 
+    static nlohmann::json CanonicalizeSerializedData(
+        const nlohmann::json& serialized);
+
     // Legacy serialized fields. They remain authoritative until explicit
     // ConvertToLayered() is invoked.
     std::string spriteSheetPath;
@@ -135,6 +145,7 @@ public:
 
 private:
     std::string sortingLayer_ = "Default";
+    SpriteLightingMode2D lightingMode_ = SpriteLightingMode2D::Unlit;
 
     struct GeometryGroup {
         Texture* texture = nullptr;

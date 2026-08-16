@@ -23,7 +23,8 @@ molga_add_test(test_importer          test_importer.cpp)
 target_sources(test_importer PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Core/Importers/TextureImporter.cpp
     ${CMAKE_SOURCE_DIR}/src/Core/Importers/AudioImporter.cpp
-    ${CMAKE_SOURCE_DIR}/src/Core/Importers/PrefabImporter.cpp)
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/PrefabImporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/PostProcessProfileImporter.cpp)
 molga_add_test(test_asset_reference_migration test_asset_reference_migration.cpp)
 molga_add_test(test_asset_reference_scan test_asset_reference_scan.cpp)
 target_sources(test_asset_reference_scan PRIVATE
@@ -82,6 +83,9 @@ molga_add_test(test_world_lifecycle   test_world_lifecycle.cpp)
 molga_add_test(test_prefab            test_prefab.cpp)
 molga_add_test(test_camera            test_camera.cpp)
 molga_add_test(test_game_view         test_game_view.cpp)
+molga_add_test(test_camera_output_layout test_camera_output_layout.cpp)
+molga_add_test(test_post_process      test_post_process.cpp)
+molga_add_test(test_lighting_2d       test_lighting_2d.cpp)
 molga_add_test(test_framebuffer_gl    test_framebuffer_gl.cpp)
 target_compile_definitions(test_framebuffer_gl PRIVATE
     MOLGA_TEST_SHADER_DIR="${CMAKE_SOURCE_DIR}/src/Shaders")

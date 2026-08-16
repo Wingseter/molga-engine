@@ -13,6 +13,9 @@
 #include "ECS/Components/PrefabInstance.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/Animator2D.h"
+#include "ECS/Components/Camera.h"
+#include "ECS/Components/PointLight2D.h"
+#include "ECS/Components/ShadowOccluder2D.h"
 #include "ECS/Components/SpriteRenderer.h"
 #include "ECS/Components/RectTransform.h"
 #include "ECS/Components/UIButton.h"
@@ -402,6 +405,151 @@ TEST_CASE("BatchComponentSnapshotCommand changes every target in one undo step")
     s_gameObjects = nullptr;
 }
 
+TEST_CASE("PointLight2D mixed multi-edit is one undo step and refreshes prefab overrides") {
+    namespace fs = std::filesystem;
+    const fs::path oldAssetRoot = PathService::Get().AssetRoot();
+    const fs::path assetRoot = fs::temp_directory_path() /
+        "molga_point_light_prefab_override_assets";
+    std::error_code error;
+    fs::remove_all(assetRoot, error);
+    fs::create_directories(assetRoot, error);
+    REQUIRE_FALSE(error);
+    PathService::Get().SetAssetRoot(assetRoot);
+    PrefabRegistry::Get().ScanAssets();
+
+    auto first = std::make_shared<GameObject>("First light");
+    first->AddComponent<Transform>();
+    PointLight2D* firstLight = first->AddComponent<PointLight2D>();
+    const unsigned int prefabSourceId = first->GetID();
+    const std::string prefabGuid = "edededededededededededededededed";
+    REQUIRE(PrefabRegistry::Get().SavePrefab(
+        prefabGuid, "point-light.prefab",
+        SceneSerializer::SerializeSubtree(first.get())));
+
+    auto second = std::make_shared<GameObject>("Second light");
+    second->AddComponent<Transform>();
+    PointLight2D* secondLight = second->AddComponent<PointLight2D>();
+    REQUIRE(secondLight->SetIntensity(2.0f));
+
+    PrefabInstance* firstInstance = first->AddComponent<PrefabInstance>();
+    firstInstance->SetPrefabGuid(prefabGuid);
+    firstInstance->SetIdRemap({{prefabSourceId, first->GetID()}});
+    PrefabInstance* secondInstance = second->AddComponent<PrefabInstance>();
+    secondInstance->SetPrefabGuid(prefabGuid);
+    secondInstance->SetIdRemap({{prefabSourceId, second->GetID()}});
+
+    std::vector<std::shared_ptr<GameObject>> gameObjects{first, second};
+    s_gameObjects = &gameObjects;
+    const nlohmann::json firstBefore =
+        molga::CaptureComponentSnapshot(firstLight);
+    const nlohmann::json secondBefore =
+        molga::CaptureComponentSnapshot(secondLight);
+    const std::vector<molga::ComponentSnapshotBaseline> baselines{
+        {first->GetID(), firstLight->GetRuntimeTypeID(),
+         firstLight->GetInstanceID(), "PointLight2D", firstBefore},
+        {second->GetID(), secondLight->GetRuntimeTypeID(),
+         secondLight->GetInstanceID(), "PointLight2D", secondBefore},
+    };
+    const std::vector<molga::EditorComponentIdentity> identities{
+        molga::CaptureEditorComponentIdentity(*firstLight),
+        molga::CaptureEditorComponentIdentity(*secondLight),
+    };
+    const molga::EditorComponentResolver resolve =
+        [](const molga::EditorComponentIdentity& identity) -> Component* {
+            GameObject* object = molga::FindGameObjectById(identity.objectId);
+            if (!object) return nullptr;
+            for (Component* component : object->GetComponents()) {
+                if (component &&
+                    component->GetRuntimeTypeID() == identity.runtimeTypeId &&
+                    component->GetInstanceID() == identity.instanceId &&
+                    component->GetTypeName() == identity.componentType) {
+                    return component;
+                }
+            }
+            return nullptr;
+        };
+
+    const auto descriptors =
+        molga::CommonEditorProperties(identities, resolve);
+    const auto intensityProperty = std::find_if(
+        descriptors.begin(), descriptors.end(), [](const auto& descriptor) {
+            return descriptor.key == "intensity";
+        });
+    REQUIRE(intensityProperty != descriptors.end());
+    CHECK(intensityProperty->type == molga::EditorPropertyType::Float);
+    CHECK(molga::HasMixedEditorPropertyValue(
+        *intensityProperty, identities, resolve));
+    CHECK(molga::ApplyEditorPropertyValue(
+        *intensityProperty, identities, resolve, 4.25) == 2u);
+
+    auto changes = molga::CaptureAppliedComponentChanges(baselines);
+    REQUIRE(changes.size() == 2u);
+    auto& history = Editor::Get().GetCommandHistory();
+    history.Clear();
+    history.Execute(std::make_unique<molga::BatchComponentSnapshotCommand>(
+        std::move(changes), true));
+    CHECK(firstLight->GetIntensity() == doctest::Approx(4.25f));
+    CHECK(secondLight->GetIntensity() == doctest::Approx(4.25f));
+    CHECK_FALSE(firstInstance->GetModifications().empty());
+    CHECK_FALSE(secondInstance->GetModifications().empty());
+
+    history.Undo();
+    CHECK(firstLight->GetIntensity() == doctest::Approx(1.0f));
+    CHECK(secondLight->GetIntensity() == doctest::Approx(2.0f));
+    CHECK(firstInstance->GetModifications().empty());
+    CHECK_FALSE(secondInstance->GetModifications().empty());
+    CHECK_FALSE(history.CanUndo());
+
+    history.Redo();
+    CHECK(firstLight->GetIntensity() == doctest::Approx(4.25f));
+    CHECK(secondLight->GetIntensity() == doctest::Approx(4.25f));
+    CHECK_FALSE(firstInstance->GetModifications().empty());
+    CHECK_FALSE(secondInstance->GetModifications().empty());
+
+    history.Clear();
+    s_gameObjects = nullptr;
+    PathService::Get().SetAssetRoot(oldAssetRoot);
+    fs::remove_all(assetRoot, error);
+}
+
+TEST_CASE("ShadowOccluder2D handle preview commits the whole polygon in one undo step") {
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    auto object = std::make_shared<GameObject>("Polygon occluder");
+    object->AddComponent<Transform>();
+    ShadowOccluder2D* occluder = object->AddComponent<ShadowOccluder2D>();
+    const std::vector<Vector2> beforeVertices{
+        {-10.0f, -10.0f}, {10.0f, -10.0f}, {0.0f, 10.0f}};
+    const std::vector<Vector2> afterVertices{
+        {-14.0f, -8.0f}, {10.0f, -10.0f}, {0.0f, 10.0f}};
+    REQUIRE(occluder->SetPolygon(beforeVertices));
+    gameObjects.push_back(object);
+    s_gameObjects = &gameObjects;
+
+    const nlohmann::json before =
+        molga::CaptureComponentSnapshot(occluder);
+    REQUIRE(occluder->SetPolygon(afterVertices));
+    const nlohmann::json after =
+        molga::CaptureComponentSnapshot(occluder);
+
+    auto& history = Editor::Get().GetCommandHistory();
+    history.Clear();
+    history.Execute(std::make_unique<molga::BatchComponentSnapshotCommand>(
+        std::vector<molga::ComponentSnapshotChange>{
+            {object->GetID(), "ShadowOccluder2D", before, after}},
+        true));
+    CHECK(occluder->GetVertices() == afterVertices);
+
+    history.Undo();
+    CHECK(occluder->GetVertices() == beforeVertices);
+    CHECK_FALSE(history.CanUndo());
+
+    history.Redo();
+    CHECK(occluder->GetVertices() == afterVertices);
+
+    history.Clear();
+    s_gameObjects = nullptr;
+}
+
 TEST_CASE("adopted batch preview does not replay enabled lifecycle callbacks") {
     std::vector<std::shared_ptr<GameObject>> gameObjects;
     s_gameObjects = &gameObjects;
@@ -641,6 +789,153 @@ TEST_CASE("batch component snapshots refresh prefab overrides through persisted 
         }
     }
     CHECK(loadedWithController == 2u);
+
+    history.Clear();
+    s_gameObjects = nullptr;
+    assetDatabase.Clear();
+    PathService::Get().SetAssetRoot(oldAssetRoot);
+    fs::remove_all(assetRoot, error);
+}
+
+TEST_CASE("Camera output properties and viewport preset batch undo and prefab overrides") {
+    namespace fs = std::filesystem;
+    const fs::path oldAssetRoot = PathService::Get().AssetRoot();
+    const fs::path assetRoot = fs::temp_directory_path() /
+        "molga_camera_postfx_prefab_override_assets";
+    std::error_code error;
+    fs::remove_all(assetRoot, error);
+    fs::create_directories(assetRoot, error);
+    REQUIRE_FALSE(error);
+    PathService::Get().SetAssetRoot(assetRoot);
+
+    const fs::path profilePath = assetRoot / "camera.postfx";
+    {
+        std::ofstream profile(profilePath);
+        profile << nlohmann::json{
+            {"schemaVersion", 1}, {"effects", nlohmann::json::array()}
+        }.dump(2);
+    }
+    auto& assetDatabase = molga::AssetDatabase::Get();
+    assetDatabase.Clear();
+    assetDatabase.ScanProject(assetRoot);
+    const std::string profileGuid =
+        assetDatabase.GuidForAbsolutePath(profilePath);
+    REQUIRE_FALSE(profileGuid.empty());
+    const molga::AssetRecord* profileRecord = assetDatabase.Find(profileGuid);
+    REQUIRE(profileRecord != nullptr);
+    CHECK(profileRecord->importer == "PostProcessProfileImporter");
+    CHECK_FALSE(profileRecord->importFailed);
+
+    PrefabRegistry::Get().ScanAssets();
+    auto prefabSource = std::make_shared<GameObject>("Post camera prefab");
+    prefabSource->AddComponent<Transform>();
+    prefabSource->AddComponent<Camera>();
+    const std::string prefabGuid = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+    REQUIRE(PrefabRegistry::Get().SavePrefab(
+        prefabGuid, "post-camera.prefab",
+        SceneSerializer::SerializeSubtree(prefabSource.get())));
+
+    std::vector<std::shared_ptr<GameObject>> gameObjects;
+    s_gameObjects = &gameObjects;
+    std::unordered_map<unsigned int, unsigned int> firstRemap;
+    std::unordered_map<unsigned int, unsigned int> secondRemap;
+    GameObject* first = PrefabRegistry::Get().Instantiate(
+        prefabGuid, gameObjects, firstRemap);
+    GameObject* second = PrefabRegistry::Get().Instantiate(
+        prefabGuid, gameObjects, secondRemap);
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    auto* firstInstance = first->AddComponent<PrefabInstance>();
+    auto* secondInstance = second->AddComponent<PrefabInstance>();
+    firstInstance->SetPrefabGuid(prefabGuid);
+    secondInstance->SetPrefabGuid(prefabGuid);
+    firstInstance->SetIdRemap(firstRemap);
+    secondInstance->SetIdRemap(secondRemap);
+    Camera* firstCamera = first->GetComponent<Camera>();
+    Camera* secondCamera = second->GetComponent<Camera>();
+    REQUIRE(firstCamera != nullptr);
+    REQUIRE(secondCamera != nullptr);
+
+    const nlohmann::json firstBefore =
+        molga::CaptureComponentSnapshot(firstCamera);
+    const nlohmann::json secondBefore =
+        molga::CaptureComponentSnapshot(secondCamera);
+    const std::vector<molga::ComponentSnapshotBaseline> baselines{
+        {first->GetID(), firstCamera->GetRuntimeTypeID(),
+         firstCamera->GetInstanceID(), "Camera", firstBefore},
+        {second->GetID(), secondCamera->GetRuntimeTypeID(),
+         secondCamera->GetInstanceID(), "Camera", secondBefore},
+    };
+    std::vector<Component*> cameras{firstCamera, secondCamera};
+    const auto descriptors = molga::CommonEditorProperties(cameras);
+    const auto profileProperty = std::find_if(
+        descriptors.begin(), descriptors.end(), [](const auto& descriptor) {
+            return descriptor.key == "postProcessProfileGuid";
+        });
+    REQUIRE(profileProperty != descriptors.end());
+    CHECK(profileProperty->type == molga::EditorPropertyType::AssetGuid);
+    CHECK(profileProperty->assetType == "PostProcessProfileImporter");
+    CHECK(molga::HasMixedEditorPropertyValue(*profileProperty, cameras) == false);
+    firstCamera->SetPostProcessProfileGuid(profileGuid);
+    CHECK(molga::HasMixedEditorPropertyValue(*profileProperty, cameras));
+    firstCamera->SetPostProcessProfileGuid({});
+    CHECK(molga::ApplyEditorPropertyValue(
+        *profileProperty, cameras, profileGuid) == 2u);
+    CHECK(firstCamera->GetPostProcessProfileGuid() == profileGuid);
+    CHECK(secondCamera->GetPostProcessProfileGuid() == profileGuid);
+
+    const auto roleProperty = std::find_if(
+        descriptors.begin(), descriptors.end(), [](const auto& descriptor) {
+            return descriptor.key == "outputRole";
+        });
+    const auto maskProperty = std::find_if(
+        descriptors.begin(), descriptors.end(), [](const auto& descriptor) {
+            return descriptor.key == "cullingMask";
+        });
+    REQUIRE(roleProperty != descriptors.end());
+    REQUIRE(maskProperty != descriptors.end());
+    CHECK(roleProperty->type == molga::EditorPropertyType::Enum);
+    CHECK(maskProperty->type == molga::EditorPropertyType::LayerMask);
+    CHECK(molga::ApplyEditorPropertyValue(
+              *roleProperty, cameras, std::string{"Secondary"}) == 2u);
+    constexpr std::int64_t gameplayMask =
+        (std::int64_t{1} << 0) | (std::int64_t{1} << 5);
+    CHECK(molga::ApplyEditorPropertyValue(
+              *maskProperty, cameras, gameplayMask) == 2u);
+    const CameraViewport leftPreset{0.0f, 0.0f, 0.5f, 1.0f};
+    CHECK(firstCamera->SetViewport(leftPreset));
+    CHECK(secondCamera->SetViewport(leftPreset));
+
+    auto changes = molga::CaptureAppliedComponentChanges(baselines);
+    REQUIRE(changes.size() == 2);
+    auto& history = Editor::Get().GetCommandHistory();
+    history.Clear();
+    history.Execute(std::make_unique<molga::BatchComponentSnapshotCommand>(
+        std::move(changes), true));
+    CHECK_FALSE(firstInstance->GetModifications().empty());
+    CHECK_FALSE(secondInstance->GetModifications().empty());
+    history.Undo();
+    CHECK(firstCamera->GetPostProcessProfileGuid().empty());
+    CHECK(secondCamera->GetPostProcessProfileGuid().empty());
+    CHECK(firstCamera->GetOutputRole() == CameraOutputRole::Disabled);
+    CHECK(secondCamera->GetOutputRole() == CameraOutputRole::Disabled);
+    CHECK(firstCamera->GetCullingMask() == 0xFFFFFFFFu);
+    CHECK(secondCamera->GetCullingMask() == 0xFFFFFFFFu);
+    CHECK((firstCamera->GetViewport() == CameraViewport{}));
+    CHECK((secondCamera->GetViewport() == CameraViewport{}));
+    CHECK(firstInstance->GetModifications().empty());
+    CHECK(secondInstance->GetModifications().empty());
+    history.Redo();
+    CHECK(firstCamera->GetPostProcessProfileGuid() == profileGuid);
+    CHECK(secondCamera->GetPostProcessProfileGuid() == profileGuid);
+    CHECK(firstCamera->GetOutputRole() == CameraOutputRole::Secondary);
+    CHECK(secondCamera->GetOutputRole() == CameraOutputRole::Secondary);
+    CHECK(firstCamera->GetCullingMask() == static_cast<std::uint32_t>(gameplayMask));
+    CHECK(secondCamera->GetCullingMask() == static_cast<std::uint32_t>(gameplayMask));
+    CHECK((firstCamera->GetViewport() == leftPreset));
+    CHECK((secondCamera->GetViewport() == leftPreset));
+    CHECK_FALSE(firstInstance->GetModifications().empty());
+    CHECK_FALSE(secondInstance->GetModifications().empty());
 
     history.Clear();
     s_gameObjects = nullptr;

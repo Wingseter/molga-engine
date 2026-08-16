@@ -72,7 +72,10 @@ bool EditorPreferences::Load(const fs::path& path, std::string* warningOut) {
     try {
         nlohmann::json root;
         input >> root;
-        if (!root.is_object() || root.value("schemaVersion", 0) != kSchemaVersion ||
+        const int schemaVersion = root.value("schemaVersion", 0);
+        if (!root.is_object() ||
+            (schemaVersion != 1 && schemaVersion != 2 &&
+             schemaVersion != kSchemaVersion) ||
             !root.contains("gameView") || !root["gameView"].is_object()) {
             SetMessage(warningOut,
                        "Unsupported or incomplete editor preference file; using defaults.");
@@ -98,6 +101,35 @@ bool EditorPreferences::Load(const fs::path& path, std::string* warningOut) {
             ? GameViewDisplayMode::PixelPerfect100
             : GameViewDisplayMode::Fit;
         gameView.customResolution = custom;
+        // Schema v1 had no Scene View section. Its migration contract is an
+        // explicit OFF so opening an old editor never changes scene colors.
+        if (schemaVersion == 1) {
+            sceneView.fxEnabled = false;
+        } else {
+            if (!root.contains("sceneView") || !root["sceneView"].is_object() ||
+                !root["sceneView"].contains("fxEnabled") ||
+                !root["sceneView"]["fxEnabled"].is_boolean()) {
+                *this = Defaults();
+                SetMessage(warningOut,
+                           "Invalid Scene View preferences; using defaults.");
+                return false;
+            }
+            sceneView.fxEnabled = root["sceneView"]["fxEnabled"].get<bool>();
+        }
+        // Lighting preview was added in schema v3. Existing preference files
+        // migrate to the documented default of ON.
+        if (schemaVersion < 3) {
+            sceneView.litEnabled = true;
+        } else {
+            if (!root["sceneView"].contains("litEnabled") ||
+                !root["sceneView"]["litEnabled"].is_boolean()) {
+                *this = Defaults();
+                SetMessage(warningOut,
+                           "Invalid Scene View preferences; using defaults.");
+                return false;
+            }
+            sceneView.litEnabled = root["sceneView"]["litEnabled"].get<bool>();
+        }
         return true;
     } catch (const std::exception& error) {
         *this = Defaults();
@@ -134,6 +166,9 @@ bool EditorPreferences::SaveAtomic(const fs::path& path,
                             ? "fit" : "100"},
         {"customWidth", gameView.customResolution.width},
         {"customHeight", gameView.customResolution.height}};
+    root["sceneView"] = {
+        {"fxEnabled", sceneView.fxEnabled},
+        {"litEnabled", sceneView.litEnabled}};
 
     fs::path temporary = path;
     temporary += ".tmp";

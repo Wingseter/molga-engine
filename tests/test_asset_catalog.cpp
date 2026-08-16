@@ -271,6 +271,7 @@ TEST_CASE("Dependency validator reports missing and type-mismatched scene refere
     fs::remove_all(root);
     fs::create_directories(root / "Assets");
     const std::string textureGuid = "77777777777777777777777777777777";
+    const std::string normalGuid = "76767676767676767676767676767676";
     const std::string controllerGuid = "78787878787878787878787878787878";
     const std::string missingClipGuid = "79797979797979797979797979797979";
     const nlohmann::json catalogJson = {
@@ -279,6 +280,13 @@ TEST_CASE("Dependency validator reports missing and type-mismatched scene refere
             {{"guid", textureGuid}, {"sourcePath", "Assets/hero.png"},
              {"importer", "TextureImporter"}, {"importerVersion", 2},
              {"settings", nlohmann::json::object()},
+             {"dependencies", nlohmann::json::array()},
+             {"metadata", nlohmann::json::object()}, {"importFailed", false},
+             {"width", 1}, {"height", 1}},
+            {{"guid", normalGuid}, {"sourcePath", "Assets/hero_normal.png"},
+             {"importer", "TextureImporter"}, {"importerVersion", 2},
+             {"settings", {{"usage", "NormalMap"},
+                            {"colorSpace", "LegacyLinear"}}},
              {"dependencies", nlohmann::json::array()},
              {"metadata", nlohmann::json::object()}, {"importFailed", false},
              {"width", 1}, {"height", 1}},
@@ -313,6 +321,54 @@ TEST_CASE("Dependency validator reports missing and type-mismatched scene refere
     CHECK(mismatch.issues[0].code == molga::DependencyIssueCode::TypeMismatch);
     CHECK(mismatch.issues[0].expectedImporter == "AnimatorControllerImporter");
     CHECK(mismatch.issues[0].actualImporter == "TextureImporter");
+
+    const fs::path usageScene = root / "normal_usage.scene";
+    { std::ofstream(usageScene) << nlohmann::json({
+        {"type", "SpriteRenderer"}, {"normalMapGuid", textureGuid}
+    }).dump(); }
+    const auto usageMismatch =
+        molga::AssetDependencyValidator::ValidateScenes({usageScene}, db);
+    REQUIRE(usageMismatch.issues.size() == 1);
+    CHECK(usageMismatch.issues[0].code ==
+          molga::DependencyIssueCode::UsageMismatch);
+    CHECK(usageMismatch.issues[0].expectedImporter == "TextureImporter");
+    CHECK(usageMismatch.issues[0].actualImporter == "TextureImporter");
+
+    const fs::path validNormalScene = root / "normal_valid.scene";
+    { std::ofstream(validNormalScene) << nlohmann::json({
+        {"type", "SpriteRenderer"}, {"normalMapGuid", normalGuid}
+    }).dump(); }
+    CHECK(molga::AssetDependencyValidator::ValidateScenes(
+        {validNormalScene}, db).Ok());
+
+    const fs::path overrideUsageScene = root / "normal_override_usage.scene";
+    { std::ofstream(overrideUsageScene) << nlohmann::json({
+        {"modifications", nlohmann::json::array({{
+            {"target", 1},
+            {"component", "SpriteRenderer"},
+            {"key", "normalMapGuid"},
+            {"value", textureGuid}
+        }})}
+    }).dump(); }
+    const auto overrideUsageMismatch =
+        molga::AssetDependencyValidator::ValidateScenes(
+            {overrideUsageScene}, db);
+    REQUIRE(overrideUsageMismatch.issues.size() == 1);
+    CHECK(overrideUsageMismatch.issues[0].code ==
+          molga::DependencyIssueCode::UsageMismatch);
+    CHECK(overrideUsageMismatch.issues[0].guid == textureGuid);
+
+    const fs::path validOverrideScene = root / "normal_override_valid.scene";
+    { std::ofstream(validOverrideScene) << nlohmann::json({
+        {"modifications", nlohmann::json::array({{
+            {"target", 1},
+            {"component", "SpriteRenderer"},
+            {"key", "normalMapGuid"},
+            {"value", normalGuid}
+        }})}
+    }).dump(); }
+    CHECK(molga::AssetDependencyValidator::ValidateScenes(
+        {validOverrideScene}, db).Ok());
 
     const fs::path recursiveScene = root / "recursive.scene";
     { std::ofstream(recursiveScene) << nlohmann::json({

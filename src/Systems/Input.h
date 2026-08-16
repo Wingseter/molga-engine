@@ -16,6 +16,12 @@ struct InputSnapshot {
     float scrollX = 0.0f;
     float scrollY = 0.0f;
     bool pointerValid = false;
+    bool cameraPointerValid = false;
+    unsigned int pointerCameraObjectId = 0;
+    float cameraPointerX = 0.0f;
+    float cameraPointerY = 0.0f;
+    float worldPointerX = 0.0f;
+    float worldPointerY = 0.0f;
 };
 
 class Input {
@@ -78,6 +84,16 @@ public:
     static float GetMouseDeltaX();
     static float GetMouseDeltaY();
 
+    // Camera-relative pointer sampled independently from the legacy logical
+    // output coordinates above. A pointer can remain valid for global UI while
+    // lying outside every output-camera viewport.
+    static bool HasCameraPointer();
+    static unsigned int GetPointerCameraObjectId();
+    static float GetCameraPointerX();
+    static float GetCameraPointerY();
+    static float GetWorldPointerX();
+    static float GetWorldPointerY();
+
     // Mouse scroll
     static float GetScrollX();
     static float GetScrollY();
@@ -126,6 +142,11 @@ private:
     static float mouseX, mouseY;
     static float lastMouseX, lastMouseY;
     static float mouseDeltaX, mouseDeltaY;
+
+    static bool cameraPointerValid;
+    static unsigned int pointerCameraObjectId;
+    static float cameraPointerX, cameraPointerY;
+    static float worldPointerX, worldPointerY;
 
     static float scrollX, scrollY;
 

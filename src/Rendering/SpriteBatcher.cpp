@@ -3,6 +3,7 @@
 #include "Rendering/Shader.h"
 #include "Rendering/ShaderManager.h"
 #include "Rendering/Texture.h"
+#include "Rendering/LightingPipeline2D.h"
 #include <glad/glad.h>
 #include "Core/Profiling/ProfileScope.h"
 
@@ -73,8 +74,10 @@ void SpriteBatcher::Shutdown() {
     }
 }
 
-void SpriteBatcher::Begin(Renderer* renderer) {
+void SpriteBatcher::Begin(Renderer* renderer,
+                          const LightingRenderContext2D* lightingContext) {
     renderer_ = renderer;
+    lightingContext_ = lightingContext;
     vertices_.clear();
     spriteCount_ = 0;
     hasActiveKey_ = false;
@@ -123,7 +126,10 @@ void SpriteBatcher::Flush() {
     MOLGA_PROFILE_SCOPE("SpriteBatcher.Flush", molga::ProfileCategory::Rendering);
 
     // Apply Shader
-    Shader* shader = activeKey_.shader;
+    const bool lit = activeKey_.lit && lightingContext_ &&
+                     lightingContext_->IsUsable();
+    Shader* shader = lit
+        ? ShaderManager::Get().Get("batch_lit") : activeKey_.shader;
     if (!shader) {
         // Every command reaching SpriteBatcher uses the batched vertex format
         // (position/UV/per-vertex color). UI rectangles, text glyphs and
@@ -139,6 +145,31 @@ void SpriteBatcher::Flush() {
             shader->SetInt("uTexture", 0);
             activeKey_.texture->Bind(0);
             renderer_->Stats().textureBinds++;
+        }
+        if (lit) {
+            shader->SetBool("useNormalTexture",
+                            activeKey_.normalTexture != nullptr);
+            shader->SetFloat("uNormalStrength", activeKey_.normalStrength);
+            shader->SetUInt("uReceiverLayer", activeKey_.receiverLayer);
+            if (activeKey_.normalTexture) {
+                shader->SetInt("uNormalTexture", 1);
+                activeKey_.normalTexture->Bind(1);
+                renderer_->Stats().textureBinds++;
+            } else {
+                glActiveTexture(GL_TEXTURE1);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+            if (lightingContext_->shadowTextureArray) {
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(
+                    GL_TEXTURE_2D_ARRAY,
+                    lightingContext_->shadowTextureArray);
+                renderer_->Stats().textureBinds++;
+            } else {
+                glActiveTexture(GL_TEXTURE2);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+            }
+            LightingPipeline2D::BindFrameUniforms(*shader, *lightingContext_);
         }
     }
 
@@ -191,6 +222,7 @@ void SpriteBatcher::Flush() {
 void SpriteBatcher::End() {
     Flush();
     renderer_ = nullptr;
+    lightingContext_ = nullptr;
 }
 
 } // namespace molga

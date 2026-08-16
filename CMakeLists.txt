@@ -60,7 +60,13 @@ set(ENGINE_SOURCES
     src/Rendering/Renderer.cpp
     src/Rendering/RenderSystem2D.cpp
     src/Rendering/GameOutputRenderer.cpp
+    src/Rendering/LightingFrame2D.cpp
+    src/Rendering/LightingPipeline2D.cpp
+    src/Rendering/PostProcessProfile2D.cpp
+    src/Rendering/PostProcessProfileResolver.cpp
+    src/Rendering/PostProcessPipeline.cpp
     src/Rendering/OutputPresentationLayout.cpp
+    src/Rendering/CameraOutputLayout.cpp
     src/Rendering/WorldSort2D.cpp
     src/Rendering/WorldRenderTraversal.cpp
     src/Rendering/SpriteBatcher.cpp
@@ -108,6 +114,8 @@ set(ENGINE_SOURCES
     src/ECS/Components/AudioSource.cpp
     src/ECS/Components/AudioListener.cpp
     src/ECS/Components/Camera.cpp
+    src/ECS/Components/PointLight2D.cpp
+    src/ECS/Components/ShadowOccluder2D.cpp
     src/ECS/Components/PrefabInstance.cpp
     src/Core/SceneSerializer.cpp
     src/Core/PrefabRegistry.cpp
@@ -156,6 +164,7 @@ set(ENGINE_SOURCES
     src/Core/Importers/AudioImporter.cpp
     src/Core/Importers/PrefabImporter.cpp
     src/Core/Importers/FontImporter.cpp
+    src/Core/Importers/PostProcessProfileImporter.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
@@ -192,6 +201,8 @@ if(MOLGA_MARROW_SUPPORT)
 endif()
 
 target_link_libraries(molga_core PRIVATE molga_warnings)
+target_compile_definitions(molga_core PRIVATE
+    MOLGA_SHADER_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/Shaders")
 
 if(APPLE)
     target_link_libraries(molga_core PUBLIC

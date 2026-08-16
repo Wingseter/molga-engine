@@ -2,7 +2,8 @@
 #include "Common/Log.h"
 #include <algorithm>
 
-Framebuffer::Framebuffer() = default;
+Framebuffer::Framebuffer(FramebufferSpecification specification)
+    : specification_(specification) {}
 
 Framebuffer::~Framebuffer() {
     if (saved_.valid) Unbind();
@@ -17,6 +18,11 @@ void Framebuffer::Cleanup() {
 }
 
 bool Framebuffer::Init(int width, int height) {
+    return Init(width, height, specification_);
+}
+
+bool Framebuffer::Init(int width, int height,
+                       FramebufferSpecification specification) {
     if (width <= 0 || height <= 0) return false;
     if (saved_.valid) {
         Log::Error("Framebuffer", "Cannot recreate a framebuffer while it is bound");
@@ -24,10 +30,13 @@ bool Framebuffer::Init(int width, int height) {
     }
 
     GLint maxTextureSize = 0;
-    GLint maxRenderbufferSize = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
-    glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize);
-    const GLint maximum = std::min(maxTextureSize, maxRenderbufferSize);
+    GLint maximum = maxTextureSize;
+    if (specification.depthStencil) {
+        GLint maxRenderbufferSize = 0;
+        glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize);
+        maximum = std::min(maxTextureSize, maxRenderbufferSize);
+    }
     if (maximum <= 0 || width > maximum || height > maximum) {
         Log::Error("Framebuffer", "Rejected framebuffer size " +
             std::to_string(width) + "x" + std::to_string(height) +
@@ -53,21 +62,30 @@ bool Framebuffer::Init(int width, int height) {
     // 컬러 텍스처
     glGenTextures(1, &newColorTexture);
     glBindTexture(GL_TEXTURE_2D, newColorTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, width, height, 0,
-                 GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    const GLint internalFormat = specification.colorFormat ==
+            FramebufferColorFormat::RGBA16F
+        ? GL_RGBA16F : GL_SRGB8_ALPHA8;
+    const GLenum dataType = specification.colorFormat ==
+            FramebufferColorFormat::RGBA16F
+        ? GL_HALF_FLOAT : GL_UNSIGNED_BYTE;
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0,
+                 GL_RGBA, dataType, nullptr);
+    const GLint filter = specification.filter == FramebufferTextureFilter::Nearest
+        ? GL_NEAREST : GL_LINEAR;
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            newColorTexture, 0);
 
-    // 깊이/스텐실 렌더버퍼 (2D에서도 없으면 일부 드라이버에서 completeness 실패)
-    glGenRenderbuffers(1, &newRbo);
-    glBindRenderbuffer(GL_RENDERBUFFER, newRbo);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
-                              GL_RENDERBUFFER, newRbo);
+    if (specification.depthStencil) {
+        glGenRenderbuffers(1, &newRbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, newRbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                  GL_RENDERBUFFER, newRbo);
+    }
 
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER,
@@ -91,6 +109,7 @@ bool Framebuffer::Init(int width, int height) {
     rbo_ = newRbo;
     width_  = width;
     height_ = height;
+    specification_ = specification;
     return true;
 }
 
@@ -98,6 +117,14 @@ bool Framebuffer::Resize(int width, int height) {
     if (width == width_ && height == height_ && IsValid()) return true;
     if (width <= 0 || height <= 0) return false;
     return Init(width, height);
+}
+
+bool Framebuffer::Resize(int width, int height,
+                         FramebufferSpecification specification) {
+    if (width == width_ && height == height_ && IsValid() &&
+        specification == specification_) return true;
+    if (width <= 0 || height <= 0) return false;
+    return Init(width, height, specification);
 }
 
 void Framebuffer::Bind() {
@@ -112,7 +139,10 @@ void Framebuffer::Bind() {
     saved_.valid = true;
 
     glBindFramebuffer(GL_FRAMEBUFFER, fbo_);
-    glEnable(GL_FRAMEBUFFER_SRGB);
+    if (specification_.colorFormat == FramebufferColorFormat::SRGBA8)
+        glEnable(GL_FRAMEBUFFER_SRGB);
+    else
+        glDisable(GL_FRAMEBUFFER_SRGB);
     glDisable(GL_SCISSOR_TEST);
     glViewport(0, 0, width_, height_);
 }

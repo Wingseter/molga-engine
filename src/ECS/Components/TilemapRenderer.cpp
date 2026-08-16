@@ -14,6 +14,7 @@
 #include "../../Rendering/Renderer.h"
 #include "../../Rendering/Sprite.h"
 #include "../../Rendering/Texture.h"
+#include "../../Rendering/WorldRenderTraversal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -692,6 +693,15 @@ void TilemapRenderer::CollectRender(molga::RenderQueue& queue) {
                     command.batchKey.texture = group.texture;
                     command.batchKey.blendMode = BlendMode::Alpha;
                     command.batchKey.isBatchable = true;
+                    if (lightingMode_ == SpriteLightingMode2D::Lit) {
+                        command.batchKey.lit = true;
+                        command.batchKey.normalTexture = nullptr;
+                        command.batchKey.normalStrength = 1.0f;
+                        command.batchKey.receiverLayer =
+                            static_cast<std::uint32_t>(
+                                molga::NormalizeWorldRenderLayer(
+                                    gameObject->GetLayer()));
+                    }
                     command.geometry = group.vertices;
                     command.worldBounds = chunk.bounds;
                     queue.Submit(command);
@@ -813,6 +823,7 @@ void TilemapRenderer::Serialize(nlohmann::json& json) const {
         json["solidTiles"] = solidTiles;
         json["sortingLayer"] = sortingLayer_;
         json["sortingOrder"] = sortingOrder;
+        json["lightingMode"] = SpriteLightingMode2DName(lightingMode_);
         return;
     }
     json["schemaVersion"] = 2;
@@ -823,6 +834,7 @@ void TilemapRenderer::Serialize(nlohmann::json& json) const {
     json["activeLayerId"] = activeLayerId_;
     json["sortingLayer"] = sortingLayer_;
     json["sortingOrder"] = sortingOrder;
+    json["lightingMode"] = SpriteLightingMode2DName(lightingMode_);
     json["layers"] = nlohmann::json::array();
     for (const auto& layer : layers_) {
         json["layers"].push_back({
@@ -834,10 +846,26 @@ void TilemapRenderer::Serialize(nlohmann::json& json) const {
     }
 }
 
+/* static */ nlohmann::json TilemapRenderer::CanonicalizeSerializedData(
+    const nlohmann::json& serialized) {
+    nlohmann::json canonical = serialized.is_object()
+        ? serialized : nlohmann::json::object();
+    const auto mode = canonical.find("lightingMode");
+    canonical["lightingMode"] =
+        mode != canonical.end() && mode->is_string() &&
+                mode->get<std::string>() == "Lit"
+            ? "Lit" : "Unlit";
+    return canonical;
+}
+
 void TilemapRenderer::Deserialize(const nlohmann::json& json) {
     constexpr std::uint64_t MaxStoredCells = 16'777'216ULL;
     try {
         if (!json.is_object()) throw std::runtime_error("tilemap data must be an object");
+        const nlohmann::json canonical = CanonicalizeSerializedData(json);
+        const SpriteLightingMode2D newLightingMode =
+            SpriteLightingMode2DFromString(
+                canonical["lightingMode"].get<std::string>());
         const int schemaVersion = json.value("schemaVersion", 1);
         if (schemaVersion != 1 && schemaVersion != 2) {
             throw std::runtime_error("unsupported TilemapRenderer schemaVersion");
@@ -936,6 +964,7 @@ void TilemapRenderer::Deserialize(const nlohmann::json& json) {
         tileSize = newTileSize;
         sortingLayer_ = newSortingLayer;
         sortingOrder = newSortingOrder;
+        lightingMode_ = newLightingMode;
         layered_ = newLayered;
         spriteSheetPath = std::move(newSpriteSheetPath);
         tiles = std::move(newTiles);

@@ -50,10 +50,27 @@ bool SmokeReport::Save(const std::filesystem::path& path) const {
         {"scriptDrivenPrefsSaved", scriptDrivenPrefsSaved},
         {"scriptDrivenSlotSaved", scriptDrivenSlotSaved},
         {"scriptDrivenPersistence", scriptDrivenPersistence},
+        {"postProcessed", postProcessed},
+        {"postProcessFallback", postProcessFallback},
+        {"postProcessPasses", postProcessPasses},
+        {"postProcessProfileGuid", postProcessProfileGuid},
+        {"selectedCameraCount", selectedCameraCount},
+        {"renderedCameraCount", renderedCameraCount},
+        {"postProcessedCameraCount", postProcessedCameraCount},
+        {"postProcessFallbackCameraCount", postProcessFallbackCameraCount},
+        {"lightingAppliedCameraCount", lightingAppliedCameraCount},
+        {"lightingFallbackCameraCount", lightingFallbackCameraCount},
+        {"shadowFallbackCameraCount", shadowFallbackCameraCount},
+        {"selectedLightCount", selectedLightCount},
+        {"shadowedLightCount", shadowedLightCount},
+        {"shadowCasterDrawCount", shadowCasterDrawCount},
+        {"lightingPasses", lightingPasses},
+        {"shadowPasses", shadowPasses},
         {"drawCalls", drawCalls},
         {"batches", batches},
         {"textureBinds", textureBinds},
         {"shaderSwitches", shaderSwitches},
+        {"outputCameraPasses", outputCameraPasses},
         {"submittedSprites", submittedSprites},
         {"submittedCommands", submittedCommands},
         {"batchFlushes", batchFlushes},
@@ -105,10 +122,31 @@ bool SmokeReport::Load(const std::filesystem::path& path, SmokeReport& out) {
         out.scriptDrivenPrefsSaved = json.value("scriptDrivenPrefsSaved", false);
         out.scriptDrivenSlotSaved = json.value("scriptDrivenSlotSaved", false);
         out.scriptDrivenPersistence = json.value("scriptDrivenPersistence", false);
+        out.postProcessed = json.value("postProcessed", false);
+        out.postProcessFallback = json.value("postProcessFallback", false);
+        out.postProcessPasses = json.value("postProcessPasses", 0);
+        out.postProcessProfileGuid = json.value("postProcessProfileGuid", "");
+        out.selectedCameraCount = json.value("selectedCameraCount", 0);
+        out.renderedCameraCount = json.value("renderedCameraCount", 0);
+        out.postProcessedCameraCount = json.value("postProcessedCameraCount", 0);
+        out.postProcessFallbackCameraCount =
+            json.value("postProcessFallbackCameraCount", 0);
+        out.lightingAppliedCameraCount =
+            json.value("lightingAppliedCameraCount", 0);
+        out.lightingFallbackCameraCount =
+            json.value("lightingFallbackCameraCount", 0);
+        out.shadowFallbackCameraCount =
+            json.value("shadowFallbackCameraCount", 0);
+        out.selectedLightCount = json.value("selectedLightCount", 0);
+        out.shadowedLightCount = json.value("shadowedLightCount", 0);
+        out.shadowCasterDrawCount = json.value("shadowCasterDrawCount", 0);
+        out.lightingPasses = json.value("lightingPasses", 0);
+        out.shadowPasses = json.value("shadowPasses", 0);
         out.drawCalls = json.value("drawCalls", 0);
         out.batches = json.value("batches", 0);
         out.textureBinds = json.value("textureBinds", 0);
         out.shaderSwitches = json.value("shaderSwitches", 0);
+        out.outputCameraPasses = json.value("outputCameraPasses", 0);
         out.submittedSprites = json.value("submittedSprites", 0);
         out.submittedCommands = json.value("submittedCommands", 0);
         out.batchFlushes = json.value("batchFlushes", 0);

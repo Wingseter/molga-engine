@@ -10,8 +10,30 @@ file(MAKE_DIRECTORY
     "${FIXTURE_ROOT}/Assets/Animations"
     "${FIXTURE_ROOT}/Assets/Tilemaps"
     "${FIXTURE_ROOT}/Assets/Audio"
+    "${FIXTURE_ROOT}/Assets/PostProcessing"
     "${FIXTURE_ROOT}/Scenes"
 )
+
+file(WRITE "${FIXTURE_ROOT}/Assets/PostProcessing/runtime.postfx" [=[
+{
+  "schemaVersion": 1,
+  "effects": [
+    {"type": "Bloom", "enabled": true, "threshold": 0.8,
+     "softKnee": 0.5, "intensity": 0.35, "scatter": 0.7},
+    {"type": "ColorAdjust", "enabled": true, "exposureEV": 0.1,
+     "contrast": 0.0, "saturation": 1.0, "tint": [1.0, 1.0, 1.0]},
+    {"type": "Vignette", "enabled": true, "intensity": 0.12,
+     "smoothness": 0.5, "color": [0.0, 0.0, 0.0]}
+  ]
+}
+]=])
+file(WRITE "${FIXTURE_ROOT}/Assets/PostProcessing/runtime.postfx.meta" [=[
+{
+  "guid": "dddddddddddddddddddddddddddddddd",
+  "importer": "PostProcessProfileImporter",
+  "importerVersion": 1
+}
+]=])
 
 file(COPY
     "${CMAKE_CURRENT_LIST_DIR}/../fixtures/fonts/NotoSansKR-Regular.ttf"
@@ -57,6 +79,30 @@ file(WRITE "${FIXTURE_ROOT}/Assets/Textures/smoke.ppm.meta" [=[
   "guid": "11111111111111111111111111111111",
   "importer": "TextureImporter",
   "importerVersion": 1
+}
+]=])
+
+# One authored flat normal texel (+Z) with the exact 1x1 layout of smoke.ppm.
+string(ASCII 128 128 255 SMOKE_NORMAL_RGB)
+file(WRITE "${FIXTURE_ROOT}/Assets/Textures/smoke_normal.ppm"
+    "P6\n1 1\n255\n${SMOKE_NORMAL_RGB}")
+file(WRITE "${FIXTURE_ROOT}/Assets/Textures/smoke_normal.ppm.meta" [=[
+{
+  "guid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "importer": "TextureImporter",
+  "importerVersion": 2,
+  "settings": {
+    "usage": "NormalMap",
+    "filter": "Nearest",
+    "wrapU": "Clamp",
+    "wrapV": "Clamp",
+    "mipmaps": false,
+    "colorSpace": "LegacyLinear",
+    "pixelsPerUnit": 1.0,
+    "spriteMode": "Single",
+    "defaultPivot": [0.5, 0.5],
+    "slices": []
+  }
 }
 ]=])
 
@@ -611,16 +657,43 @@ file(WRITE "${FIXTURE_ROOT}/Scenes/stage2.json" [=[
   "gameObjects": [{
     "name": "BouncySlope",
     "id": 3001,
+    "layer": 5,
     "active": true,
     "parentId": -1,
     "components": [{
       "type": "Transform", "enabled": true,
       "position": [180.0, 235.0], "rotation": -11.0, "scale": [1.0, 1.0]
     }, {
+      "type": "Camera", "enabled": true,
+      "orthoSize": 300.0, "pixelPerfect": false, "pixelZoom": 1,
+      "backgroundColor": [0.12, 0.12, 0.15, 1.0], "depth": 0,
+      "outputRole": "Primary",
+      "viewport": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
+      "cullingMask": 32, "targetId": 0, "smoothing": 5.0,
+      "postProcessEnabled": true,
+      "postProcessProfileGuid": "dddddddddddddddddddddddddddddddd",
+      "lightingEnabled": true,
+      "ambientColor": [1.0, 1.0, 1.0, 1.0],
+      "ambientIntensity": 0.2
+    }, {
       "type": "SpriteRenderer", "enabled": true,
       "textureGuid": "11111111111111111111111111111111",
       "color": [0.75, 0.35, 0.45, 1.0], "size": [300.0, 40.0],
-      "flipX": false, "flipY": false, "sortingOrder": 0
+      "flipX": false, "flipY": false, "sortingOrder": 0,
+      "lightingMode": "Lit",
+      "normalMapGuid": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "normalStrength": 1.0
+    }, {
+      "type": "PointLight2D", "enabled": true,
+      "color": [1.0, 0.85, 0.65, 1.0],
+      "intensity": 1.25, "radius": 240.0, "height": 32.0,
+      "falloff": 2.0, "affectMask": 32,
+      "castsShadows": true, "priority": 10
+    }, {
+      "type": "ShadowOccluder2D", "enabled": true,
+      "shape": "Polygon", "offset": [0.0, 0.0], "size": [100.0, 100.0],
+      "vertices": [[40.0, -30.0], [80.0, -30.0],
+                   [80.0, 30.0], [40.0, 30.0]]
     }, {
       "type": "BoxCollider2D", "enabled": true,
       "offset": [0.0, 0.0], "size": [300.0, 40.0],
@@ -633,7 +706,8 @@ file(WRITE "${FIXTURE_ROOT}/Scenes/stage2.json" [=[
       "type": "FaultIsolationPeerScript", "enabled": true
     }]
   }, {
-    "name": "Stage2Button", "id": 3002, "active": true, "parentId": -1,
+    "name": "Stage2Button", "id": 3002, "layer": 4,
+    "active": true, "parentId": -1,
     "components": [{
       "type": "UICanvas", "enabled": true,
       "referenceResolution": [800.0, 600.0], "matchWidthOrHeight": 0.5, "sortingOrder": 0
@@ -662,10 +736,19 @@ file(WRITE "${FIXTURE_ROOT}/Scenes/stage2.json" [=[
       }
     }]
   }, {
-    "name": "Player", "id": 3003, "active": true, "parentId": -1,
+    "name": "Player", "id": 3003, "layer": 0,
+    "active": true, "parentId": -1,
     "components": [{
       "type": "Transform", "enabled": true,
       "position": [180.0, 105.0], "rotation": 0.0, "scale": [1.0, 1.0]
+    }, {
+      "type": "Camera", "enabled": true,
+      "orthoSize": 300.0, "pixelPerfect": false, "pixelZoom": 1,
+      "backgroundColor": [0.04, 0.08, 0.14, 1.0], "depth": 10,
+      "outputRole": "Secondary",
+      "viewport": {"x": 0.5, "y": 0.0, "width": 0.5, "height": 1.0},
+      "cullingMask": 1, "targetId": 0, "smoothing": 5.0,
+      "postProcessEnabled": false, "postProcessProfileGuid": ""
     }, {
       "type": "SpriteRenderer", "enabled": true,
       "textureGuid": "11111111111111111111111111111111",

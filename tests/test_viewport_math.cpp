@@ -5,6 +5,7 @@ using molga::ViewportCamera;
 using molga::ScreenToWorld;
 using molga::WorldToScreen;
 using molga::PointInAabb;
+using molga::CameraFrustumWorldCorners;
 
 TEST_CASE("ScreenToWorld matches the existing SceneView convention") {
     // SceneViewWindow.cpp:486-501 과 동일한 규약:
@@ -28,4 +29,27 @@ TEST_CASE("PointInAabb respects center+halfsize bounds") {
     CHECK(PointInAabb(10.f, 10.f, /*cx*/10.f, /*cy*/10.f, /*hw*/16.f, /*hh*/16.f));
     CHECK(PointInAabb(25.f, 10.f, 10.f, 10.f, 16.f, 16.f));   // 경계 안 (26까지)
     CHECK_FALSE(PointInAabb(27.f, 10.f, 10.f, 10.f, 16.f, 16.f));
+}
+
+TEST_CASE("Camera frustum corners use immutable viewport zoom and rotation snapshot") {
+    molga::CameraViewSnapshot view;
+    view.x = 10.0f;
+    view.y = 20.0f;
+    view.zoom = 2.0f;
+    view.viewportSize = {100, 60};
+
+    auto corners = CameraFrustumWorldCorners(view);
+    CHECK(corners[0].x == doctest::Approx(35.0f));
+    CHECK(corners[0].y == doctest::Approx(35.0f));
+    CHECK(corners[2].x == doctest::Approx(85.0f));
+    CHECK(corners[2].y == doctest::Approx(65.0f));
+
+    view.rotation = 90.0f;
+    corners = CameraFrustumWorldCorners(view);
+    CHECK(corners[0].x == doctest::Approx(45.0f));
+    CHECK(corners[0].y == doctest::Approx(75.0f));
+    CHECK(corners[1].x == doctest::Approx(45.0f));
+    CHECK(corners[1].y == doctest::Approx(25.0f));
+    CHECK(corners[2].x == doctest::Approx(75.0f));
+    CHECK(corners[2].y == doctest::Approx(25.0f));
 }
