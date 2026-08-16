@@ -1,5 +1,14 @@
 #include "MolgaTime.h"
-#include <GLFW/glfw3.h>
+#include <chrono>
+
+namespace {
+const auto g_timeOrigin = std::chrono::steady_clock::now();
+
+float MonotonicSeconds() {
+    return std::chrono::duration<float>(
+        std::chrono::steady_clock::now() - g_timeOrigin).count();
+}
+} // namespace
 
 float Time::deltaTime = 0.0f;
 float Time::lastTime = 0.0f;
@@ -15,7 +24,7 @@ float Time::fixedDeltaTime = 0.02f;
 float Time::accumulator = 0.0f;
 
 void Time::Init() {
-    lastTime = static_cast<float>(glfwGetTime());
+    lastTime = MonotonicSeconds();
     currentTime = lastTime;
     deltaTime = 0.0f;
     fps = 0.0f;
@@ -26,7 +35,7 @@ void Time::Init() {
 }
 
 void Time::Update() {
-    currentTime = static_cast<float>(glfwGetTime());
+    currentTime = MonotonicSeconds();
     deltaTime = currentTime - lastTime;
 
     // Clamp to prevent spiral of death

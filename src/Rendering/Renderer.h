@@ -1,6 +1,5 @@
 #pragma once
 
-#include <glad/glad.h>
 #include "../Common/linmath.h"
 
 #include "Rendering/RenderPassState.h"

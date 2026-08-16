@@ -4,8 +4,10 @@
 #define EXPORT __attribute__((visibility("default")))
 #endif
 
+#include "Scripting/ScriptApi.h"
+
 extern "C" {
     EXPORT int GetScriptApiVersion() {
-        return 1;
+        return molga::ScriptApiVersion;
     }
 }

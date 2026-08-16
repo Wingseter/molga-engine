@@ -215,7 +215,11 @@ Script 예외는 인스턴스 단위로 격리되고, Game View와 Scene View가
 - 빌드 타깃이 `"host"`만 허용 (`src/Core/BuildPlan.cpp:18-19`) — 크로스 빌드 불가. 모바일/웹(Emscripten)/콘솔 없음. Unity/Godot의 최대 강점 영역.
 - 에셋이 루즈 파일 그대로 복사됨 — 아카이브/압축(LZ4)/무결성 없음.
 - vsync 토글, 런타임 해상도 변경 API 없음 (`game.json`의 width/height/fullscreen 고정뿐).
-- CI가 macOS 중심. Windows/Linux `#ifdef`는 있으나 검증 게이트 없음.
+- SDL3 전환과 함께 macOS/Linux/Windows CI lane, Linux xvfb+Mesa OpenGL/Vulkan,
+  Windows SDL platform/D3D12 capability gate를 구성했다. **잔여 갭:** 이 변경에서
+  로컬 검증한 것은 macOS뿐이며 Linux/Windows runner의 실제 통과 기록과
+  플랫폼별 package 산출물 qualification은 아직 없다. SDL_GPU capability gate는
+  전체 Molga Vulkan/D3D12 renderer 지원을 뜻하지 않는다.
 - 네트워킹/로컬라이제이션 없음 (둘 다 장르에 따라 선택 사항이지만 로드맵 E9와 함께 인지 필요).
 
 ---
@@ -231,7 +235,7 @@ P2 suite가 선택된 제작 안정성·편집 생산성 묶음을 검증했다.
    additive/async 씬, 저장 migration 중 실제 게임에 필요한 것부터 선택
 2. **완료:** Script 예외 격리, 별도 Game View, 멀티 오브젝트 편집으로 제작 안정성과 반복 속도 개선 (4)
 3. **완료:** pixel-perfect 출력, Post-processing MVP, 멀티 카메라 합성과 2D 라이팅/노멀맵/hard shadow MVP (3)
-4. Windows/Linux CI, archive/integrity, 해상도 API 등 배포선 강화 (5)
+4. Windows/Linux CI의 실제 통과 증거, archive/integrity, 해상도 API 등 배포선 강화 (5)
 5. 필요할 때 P1 후속 범위인 animation graph/blend, 8-way terrain, GPU particle, DSP mixer를 선택적으로 확장
 
 현재 엔진은 더 이상 "씬 흐름·물리·텍스트·UI가 비어 있는 상태"가 아니다. 작은 2D 게임의 런타임 기반은

@@ -1,4 +1,5 @@
 #include "ScriptPackageLoader.h"
+#include "Scripting/ScriptApi.h"
 #include "Scripting/ScriptManager.h"
 #include "Core/PathService.h"
 #include "Core/SmokeReport.h"
@@ -11,6 +12,15 @@ bool ScriptPackageLoader::Load(const GameConfig& config, bool smokeEnabled, cons
     if (!config.scripts.enabled) {
         Log::Info("ScriptPackageLoader", "Scripts are disabled in game config.");
         return true;
+    }
+
+    if (config.scripts.apiVersion != molga::ScriptApiVersion) {
+        outError = "Unsupported script API version: expected " +
+            std::to_string(molga::ScriptApiVersion) + ", got " +
+            std::to_string(config.scripts.apiVersion) +
+            ". Recompile scripts for Script API v2.";
+        Log::Error("ScriptPackageLoader", outError);
+        return false;
     }
 
     if (config.scripts.library.empty()) {

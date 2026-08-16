@@ -178,7 +178,7 @@ void Button::Update(float dt) {
     hovered = Contains(mx, my);
 
     wasPressed = pressed;
-    pressed = hovered && Input::GetMouseButton(0);
+    pressed = hovered && Input::GetMouseButton(Input::MouseButton::Left);
 
     // Trigger onClick when released after being pressed
     if (wasPressed && !pressed && hovered && onClick) {

@@ -1,4 +1,5 @@
 #include "ScriptCompiler.h"
+#include "Scripting/ScriptApi.h"
 #include "../Common/Log.h"
 #include "../Editor/Project.h"
 #include <filesystem>
@@ -225,7 +226,7 @@ std::string ScriptCompiler::GenerateScriptExportsContent(const std::vector<Scrip
     ss << "        // Scripts auto-register via REGISTER_SCRIPT macro\n";
     ss << "    }\n";
     ss << "    int GetScriptApiVersion() {\n";
-    ss << "        return 1;\n";
+    ss << "        return " << molga::ScriptApiVersion << ";\n";
     ss << "    }\n";
     ss << "}\n";
 

@@ -1,6 +1,3 @@
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-
 #include <iostream>
 #include <sstream>
 #include <memory>
@@ -49,7 +46,6 @@
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-GLFWwindow* g_window = nullptr;
 static molga::AssetWatcher g_AssetWatcher;
 
 namespace {
@@ -194,11 +190,10 @@ int main(int argc, char* argv[]) {
     wc.title = "Molga Engine";
     wc.width = SCR_WIDTH;
     wc.height = SCR_HEIGHT;
-    GLFWwindow* window = EngineInit(wc);
-    if (!window) return -1;
-    g_window = window;
+    auto host = EngineInit(wc);
+    if (!host) return -1;
 
-    ImGuiLayer::Init(window);
+    ImGuiLayer::Init(*host);
 
     // Initialize resources (local to main)
     auto renderer = std::make_unique<Renderer>();
@@ -280,8 +275,8 @@ int main(int argc, char* argv[]) {
     }
 
     // Project selection loop (if no project loaded yet)
-    while (!glfwWindowShouldClose(window) && !projectLoaded) {
-        glfwPollEvents();
+    while (!host->ShouldClose() && !projectLoaded) {
+        host->PollEvents();
 
         // Clear first, then draw ImGui
         renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
@@ -296,7 +291,7 @@ int main(int argc, char* argv[]) {
             std::cout << "[Main] Project selected: " << projectWindow.GetSelectedProjectPath() << std::endl;
         }
 
-        glfwSwapBuffers(window);
+        host->SwapBuffers();
     }
 
     if (projectLoaded && Project::Get().IsOpen()) {
@@ -327,9 +322,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (!glfwWindowShouldClose(window)) {
+    if (!host->ShouldClose()) {
         // Main editor loop
-        while (!glfwWindowShouldClose(window)) {
+        while (!host->ShouldClose()) {
+            host->PollEvents();
+            if (host->ShouldClose()) break;
             Time::Update();
             if (EditorState::Get().IsEditMode()) Input::Update();
             else if (EditorState::Get().IsPaused()) Input::ReleaseAll();
@@ -368,7 +365,7 @@ int main(int argc, char* argv[]) {
             } else if (editorState.IsPaused()) {
                 title << " [PAUSED]";
             }
-            glfwSetWindowTitle(window, title.str().c_str());
+            host->SetTitle(title.str());
 
             // Play 모드에서만 ActiveWorld(=playWorld)를 시뮬레이션한다.
             if (editorState.IsPlayMode() && sceneDoc.IsPlaying()) {
@@ -425,8 +422,7 @@ int main(int argc, char* argv[]) {
 
             Editor::Get().PumpScriptReload(editorState.IsEditMode());
 
-            glfwSwapBuffers(window);
-            glfwPollEvents();
+            host->SwapBuffers();
 
             // 한 프레임의 스코프·카운터를 굳혀 ring buffer에 넣는다.
             molga::FrameCounters frameCounters = Editor::Get().TakeFrameCounters();
@@ -447,6 +443,6 @@ int main(int argc, char* argv[]) {
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
     renderer.reset();
-    EngineShutdown();
+    EngineShutdown(host);
     return 0;
 }

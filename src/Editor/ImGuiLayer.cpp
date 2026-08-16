@@ -1,20 +1,21 @@
 #include "ImGuiLayer.h"
 #include "FontManager.h"
+#include "Core/Bootstrap.h"
+#include <SDL3/SDL.h>
 #include <glad/glad.h>
-#include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <imgui_impl_glfw.h>
+#include <imgui_impl_sdl3.h>
 #include <imgui_impl_opengl3.h>
 
 bool ImGuiLayer::initialized = false;
-GLFWwindow* ImGuiLayer::currentWindow = nullptr;
+EngineHost* ImGuiLayer::currentHost = nullptr;
 
-void ImGuiLayer::Init(GLFWwindow *window) {
+void ImGuiLayer::Init(EngineHost& host) {
   if (initialized)
     return;
 
-  currentWindow = window;
+  currentHost = &host;
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -36,8 +37,12 @@ void ImGuiLayer::Init(GLFWwindow *window) {
 
   SetModernTheme();
 
-  ImGui_ImplGlfw_InitForOpenGL(window, true);
+  auto* window = static_cast<SDL_Window*>(host.NativeWindowHandle());
+  ImGui_ImplSDL3_InitForOpenGL(window, host.NativeGLContextHandle());
   ImGui_ImplOpenGL3_Init("#version 330");
+  host.SetNativeEventObserver([](const void* event) {
+    ImGui_ImplSDL3_ProcessEvent(static_cast<const SDL_Event*>(event));
+  });
 
   initialized = true;
 }
@@ -47,16 +52,17 @@ void ImGuiLayer::Shutdown() {
     return;
 
   ImGui_ImplOpenGL3_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
+  if (currentHost) currentHost->SetNativeEventObserver({});
+  ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
 
   initialized = false;
-  currentWindow = nullptr;
+  currentHost = nullptr;
 }
 
 void ImGuiLayer::BeginFrame() {
   ImGui_ImplOpenGL3_NewFrame();
-  ImGui_ImplGlfw_NewFrame();
+  ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 }
 
@@ -67,10 +73,13 @@ void ImGuiLayer::EndFrame() {
   // Handle multi-viewport rendering
   ImGuiIO& io = ImGui::GetIO();
   if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-    GLFWwindow* backupContext = glfwGetCurrentContext();
+    SDL_Window* backupWindow = SDL_GL_GetCurrentWindow();
+    SDL_GLContext backupContext = SDL_GL_GetCurrentContext();
     ImGui::UpdatePlatformWindows();
     ImGui::RenderPlatformWindowsDefault();
-    glfwMakeContextCurrent(backupContext);
+    if (backupWindow && backupContext) {
+      SDL_GL_MakeCurrent(backupWindow, backupContext);
+    }
   }
 }
 

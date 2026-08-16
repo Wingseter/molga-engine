@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/TextureImportSettings.h"
-#include <glad/glad.h>
 #include <string>
 
 class Texture {

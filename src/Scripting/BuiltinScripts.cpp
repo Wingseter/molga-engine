@@ -14,8 +14,8 @@ void PlatformerController::FixedUpdate(float) {
         body->GetBodyType() != Rigidbody2D::BodyType::Dynamic) return;
 
     float horizontal = 0.0f;
-    if (Input::GetKey(GLFW_KEY_A) || Input::GetKey(GLFW_KEY_LEFT)) horizontal -= 1.0f;
-    if (Input::GetKey(GLFW_KEY_D) || Input::GetKey(GLFW_KEY_RIGHT)) horizontal += 1.0f;
+    if (Input::GetKey(Input::KeyCode::A) || Input::GetKey(Input::KeyCode::Left)) horizontal -= 1.0f;
+    if (Input::GetKey(Input::KeyCode::D) || Input::GetKey(Input::KeyCode::Right)) horizontal += 1.0f;
 
     Vector2 velocity = body->GetVelocity();
     velocity.x = horizontal * moveSpeed;
@@ -32,9 +32,9 @@ void PlatformerController::FixedUpdate(float) {
         groundLayerMask);
     grounded_ = ground.hit && ground.collider != gameObject;
 
-    const bool jumpPressed = Input::GetKeyDown(GLFW_KEY_SPACE) ||
-                             Input::GetKeyDown(GLFW_KEY_W) ||
-                             Input::GetKeyDown(GLFW_KEY_UP);
+    const bool jumpPressed = Input::GetKeyDown(Input::KeyCode::Space) ||
+                             Input::GetKeyDown(Input::KeyCode::W) ||
+                             Input::GetKeyDown(Input::KeyCode::Up);
     if (grounded_ && jumpPressed) velocity.y = -std::abs(jumpSpeed);
     body->SetVelocity(velocity);
 }

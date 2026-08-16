@@ -9,8 +9,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(MOLGA_SANITIZER "" CACHE STRING "Enable a sanitizer: address | undefined | thread (empty = off)")
 
 add_library(molga_warnings INTERFACE)
-target_compile_options(molga_warnings INTERFACE -Wall -Wextra -Wpedantic)
+if(MSVC)
+    target_compile_options(molga_warnings INTERFACE /W4 /permissive-)
+else()
+    target_compile_options(molga_warnings INTERFACE -Wall -Wextra -Wpedantic)
+endif()
 if(NOT MOLGA_SANITIZER STREQUAL "")
+    if(MSVC)
+        message(FATAL_ERROR "MOLGA_SANITIZER presets require Clang or GCC")
+    endif()
     target_compile_options(molga_warnings INTERFACE
         -fsanitize=${MOLGA_SANITIZER} -fno-omit-frame-pointer -g)
     target_link_options(molga_warnings INTERFACE -fsanitize=${MOLGA_SANITIZER})
@@ -28,7 +35,13 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(box2d)
 
-add_subdirectory(external/glfw)
+set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+set(SDL_STATIC ON CACHE BOOL "" FORCE)
+set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(external/SDL EXCLUDE_FROM_ALL)
 
 add_library(glad external/glad/src/glad.c)
 target_include_directories(glad PUBLIC ${CMAKE_SOURCE_DIR}/external/glad/include)
@@ -40,7 +53,7 @@ add_library(imgui
     ${IMGUI_DIR}/imgui_draw.cpp
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
     ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 target_include_directories(imgui PUBLIC
@@ -48,10 +61,11 @@ target_include_directories(imgui PUBLIC
     ${IMGUI_DIR}/backends
     ${CMAKE_SOURCE_DIR}/external/glad/include
 )
-target_link_libraries(imgui glfw)
+target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
 # ── Common engine source files ─────────────────────────────────────────────────
 set(ENGINE_SOURCES
+    src/Rendering/GraphicsDevice.cpp
     src/Rendering/Shader.cpp
     src/Rendering/ShaderManager.cpp
     src/Rendering/Material.cpp
@@ -193,7 +207,10 @@ if(MOLGA_MARROW_SUPPORT)
     target_compile_definitions(molga_core PUBLIC MOLGA_MARROW_SUPPORT)
 endif()
 
-target_link_libraries(molga_core PUBLIC glad glfw box2d)
+target_link_libraries(molga_core
+    PRIVATE glad SDL3::SDL3
+    PUBLIC box2d
+)
 
 
 if(MOLGA_MARROW_SUPPORT)
@@ -258,6 +275,9 @@ set(EDITOR_SOURCES
 # ── Main editor executable ─────────────────────────────────────────────────────
 add_executable(molga_engine src/main.cpp ${EDITOR_SOURCES})
 target_link_libraries(molga_engine PRIVATE molga_core imgui)
+
+add_executable(molga_migrate src/Tools/InputMigrator.cpp)
+target_link_libraries(molga_migrate PRIVATE molga_core molga_warnings)
 target_link_libraries(molga_engine PRIVATE molga_warnings)
 target_compile_definitions(molga_engine PRIVATE MOLGA_EDITOR)
 set_target_properties(molga_engine PROPERTIES ENABLE_EXPORTS ON)

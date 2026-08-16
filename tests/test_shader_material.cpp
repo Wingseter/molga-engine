@@ -23,8 +23,8 @@ TEST_CASE("Shader and Material subsystem test") {
     // 1. Initialize Headless Engine Context
     WindowConfig config;
     config.visible = false;
-    GLFWwindow* window = EngineInit(config);
-    REQUIRE(window != nullptr);
+    auto host = EngineInit(config);
+    REQUIRE(host != nullptr);
 
     // Prepare temporary files
     std::string vertPath = "test_temp_shader.vert";
@@ -238,5 +238,5 @@ TEST_CASE("Shader and Material subsystem test") {
 
     // Shutdown
     ShaderManager::Get().Shutdown();
-    EngineShutdown();
+    EngineShutdown(host);
 }

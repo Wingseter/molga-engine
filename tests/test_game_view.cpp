@@ -349,7 +349,7 @@ TEST_CASE("Game output follows the active edit or disposable play world") {
     CHECK(document.EditWorld().Find("Play-only Main Camera") == nullptr);
 }
 
-TEST_CASE("Camera prepares explicit viewport without GLFW state") {
+TEST_CASE("Camera prepares explicit viewport without native-window state") {
     auto object = std::make_shared<GameObject>("Camera");
     Transform* transform = object->AddComponent<Transform>(25.0f, 50.0f);
     Camera* camera = object->AddComponent<Camera>();
@@ -365,12 +365,12 @@ TEST_CASE("Camera prepares explicit viewport without GLFW state") {
 }
 
 TEST_CASE("InputSnapshot maps gameplay state and focus loss releases once") {
-    Input::Init(nullptr);
+    Input::Init(0);
     Input::InitializeDefaultActions();
 
     InputSnapshot captured;
-    captured.keys[GLFW_KEY_D] = true;
-    captured.mouseButtons[GLFW_MOUSE_BUTTON_LEFT] = true;
+    captured.keys[static_cast<std::size_t>(Input::KeyCode::D)] = true;
+    captured.mouseButtons[static_cast<std::size_t>(Input::MouseButton::Left)] = true;
     captured.mouseX = 123.0f;
     captured.mouseY = 45.0f;
     captured.pointerValid = true;
@@ -378,31 +378,36 @@ TEST_CASE("InputSnapshot maps gameplay state and focus loss releases once") {
 
     CHECK(Input::GetMouseX() == doctest::Approx(123.0f));
     CHECK(Input::GetMouseY() == doctest::Approx(45.0f));
-    CHECK(Input::GetMouseButton(GLFW_MOUSE_BUTTON_LEFT));
+    CHECK(Input::GetMouseButton(Input::MouseButton::Left));
     CHECK(Input::GetAction("Fire"));
     CHECK(Input::GetAxis("Horizontal") == doctest::Approx(1.0f));
 
+    Input::BeginFrame();
     InputSnapshot outsidePresentation;
-    outsidePresentation.keys[GLFW_KEY_D] = true;
-    outsidePresentation.gamepadButtons[GLFW_GAMEPAD_BUTTON_A] = true;
+    outsidePresentation.keys[static_cast<std::size_t>(Input::KeyCode::D)] = true;
+    outsidePresentation.gamepadButtons[
+        static_cast<std::size_t>(Input::GamepadButton::South)] = true;
     outsidePresentation.pointerValid = false;
     Input::ApplySnapshot(outsidePresentation);
-    CHECK_FALSE(Input::GetMouseButton(GLFW_MOUSE_BUTTON_LEFT));
-    CHECK(Input::GetMouseButtonUp(GLFW_MOUSE_BUTTON_LEFT));
+    CHECK_FALSE(Input::GetMouseButton(Input::MouseButton::Left));
+    CHECK(Input::GetMouseButtonUp(Input::MouseButton::Left));
     CHECK(Input::GetAxis("Horizontal") == doctest::Approx(1.0f));
     CHECK(Input::GetAction("Jump"));
 
     // Focus loss remains stronger than a presentation-bar miss and releases
     // every device. Re-establish the captured frame to verify its one edge.
+    Input::BeginFrame();
     Input::ApplySnapshot(captured);
 
+    Input::BeginFrame();
     Input::ReleaseAll();
-    CHECK_FALSE(Input::GetMouseButton(GLFW_MOUSE_BUTTON_LEFT));
-    CHECK(Input::GetMouseButtonUp(GLFW_MOUSE_BUTTON_LEFT));
+    CHECK_FALSE(Input::GetMouseButton(Input::MouseButton::Left));
+    CHECK(Input::GetMouseButtonUp(Input::MouseButton::Left));
     CHECK(Input::GetActionUp("Fire"));
     CHECK(Input::GetAxis("Horizontal") == doctest::Approx(0.0f));
 
+    Input::BeginFrame();
     Input::ReleaseAll();
-    CHECK_FALSE(Input::GetMouseButtonUp(GLFW_MOUSE_BUTTON_LEFT));
+    CHECK_FALSE(Input::GetMouseButtonUp(Input::MouseButton::Left));
     CHECK_FALSE(Input::GetActionUp("Fire"));
 }

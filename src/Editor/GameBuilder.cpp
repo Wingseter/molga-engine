@@ -20,6 +20,7 @@
 #include "../ECS/ComponentFactory.h"
 #include "../Scripting/ScriptManager.h"
 #include "../Scripting/ScriptCompiler.h"
+#include "../Scripting/ScriptApi.h"
 #include "../Core/AssetDatabase.h"
 #include "../Core/AssetDependencyValidator.h"
 
@@ -576,32 +577,7 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildP
         config["developmentBuild"] = settings.profile.developmentBuild;
         config["projectSettings"] = ProjectSettings::Get().Serialize();
 
-        // Bundle input actions
-        nlohmann::json inputActionsJson = nlohmann::json::array();
-        for (const auto& action : Input::GetActions()) {
-            nlohmann::json actionJson;
-            actionJson["name"] = action.name;
-            actionJson["isAxis"] = action.isAxis;
-
-            nlohmann::json bindingsJson = nlohmann::json::array();
-            for (const auto& binding : action.bindings) {
-                nlohmann::json bindingJson;
-                std::string devStr = "Keyboard";
-                switch (binding.device) {
-                    case Input::DeviceType::Keyboard: devStr = "Keyboard"; break;
-                    case Input::DeviceType::Mouse: devStr = "Mouse"; break;
-                    case Input::DeviceType::GamepadButton: devStr = "GamepadButton"; break;
-                    case Input::DeviceType::GamepadAxis: devStr = "GamepadAxis"; break;
-                }
-                bindingJson["device"] = devStr;
-                bindingJson["code"] = binding.code;
-                bindingJson["multiplier"] = binding.multiplier;
-                bindingsJson.push_back(bindingJson);
-            }
-            actionJson["bindings"] = bindingsJson;
-            inputActionsJson.push_back(actionJson);
-        }
-        config["inputActions"] = inputActionsJson;
+        config["inputActions"] = Input::SerializeActions();
 
         // List all scenes from plan
         nlohmann::json scenesList = nlohmann::json::array();
@@ -624,7 +600,7 @@ bool GameBuilder::GenerateGameConfig(const BuildSettings& settings, const BuildP
             nlohmann::json scriptsJson;
             scriptsJson["enabled"] = true;
             scriptsJson["library"] = plan.optionalScriptLibrary;
-            scriptsJson["apiVersion"] = 1;
+            scriptsJson["apiVersion"] = molga::ScriptApiVersion;
             scriptsJson["buildHash"] = "source-or-library-hash";
             config["scripts"] = scriptsJson;
         }

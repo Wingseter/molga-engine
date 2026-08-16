@@ -8,7 +8,6 @@
 #include "../ECS/Components/UIButton.h"
 #include "../ECS/GameObject.h"
 #include "../Core/World.h"
-#include <GLFW/glfw3.h>
 
 #ifdef MOLGA_EDITOR
 #include <imgui.h>
@@ -31,10 +30,10 @@ public:
 
         float dx = 0.0f, dy = 0.0f;
 
-        if (Input::GetKey(GLFW_KEY_W) || Input::GetKey(GLFW_KEY_UP))    dy -= 1.0f;
-        if (Input::GetKey(GLFW_KEY_S) || Input::GetKey(GLFW_KEY_DOWN))  dy += 1.0f;
-        if (Input::GetKey(GLFW_KEY_A) || Input::GetKey(GLFW_KEY_LEFT))  dx -= 1.0f;
-        if (Input::GetKey(GLFW_KEY_D) || Input::GetKey(GLFW_KEY_RIGHT)) dx += 1.0f;
+        if (Input::GetKey(Input::KeyCode::W) || Input::GetKey(Input::KeyCode::Up))    dy -= 1.0f;
+        if (Input::GetKey(Input::KeyCode::S) || Input::GetKey(Input::KeyCode::Down))  dy += 1.0f;
+        if (Input::GetKey(Input::KeyCode::A) || Input::GetKey(Input::KeyCode::Left))  dx -= 1.0f;
+        if (Input::GetKey(Input::KeyCode::D) || Input::GetKey(Input::KeyCode::Right)) dx += 1.0f;
 
         transform->Translate(dx * moveSpeed * dt, dy * moveSpeed * dt);
     }

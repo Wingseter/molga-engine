@@ -7,7 +7,7 @@
 #include "../Rendering/TextRenderer.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
-#include <GLFW/glfw3.h>
+#include "../Platform/Window.h"
 
 MenuScene::MenuScene() : Scene("Menu") {
 }
@@ -96,35 +96,31 @@ void MenuScene::Update(float dt) {
     }
 
     // Keyboard navigation
-    if (Input::GetKeyDown(GLFW_KEY_UP) || Input::GetKeyDown(GLFW_KEY_W)) {
+    if (Input::GetKeyDown(Input::KeyCode::Up) ||
+        Input::GetKeyDown(Input::KeyCode::W)) {
         selectedButton = 0;
     }
-    if (Input::GetKeyDown(GLFW_KEY_DOWN) || Input::GetKeyDown(GLFW_KEY_S)) {
+    if (Input::GetKeyDown(Input::KeyCode::Down) ||
+        Input::GetKeyDown(Input::KeyCode::S)) {
         selectedButton = 1;
     }
 
     // Keyboard activation
-    if (Input::GetKeyDown(GLFW_KEY_ENTER) || Input::GetKeyDown(GLFW_KEY_SPACE)) {
+    if (Input::GetKeyDown(Input::KeyCode::Enter) ||
+        Input::GetKeyDown(Input::KeyCode::Space)) {
         if (selectedButton == 0) {
             SceneManager::ChangeScene("Game");
         } else if (selectedButton == 1) {
-            // Request quit - will be handled by main loop
-            extern GLFWwindow* g_window;
-            if (g_window) {
-                glfwSetWindowShouldClose(g_window, true);
-            }
+            molga::RequestApplicationQuit();
         }
     }
 
     // Mouse click
-    if (Input::GetMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT)) {
+    if (Input::GetMouseButtonDown(Input::MouseButton::Left)) {
         if (startHovered) {
             SceneManager::ChangeScene("Game");
         } else if (quitHovered) {
-            extern GLFWwindow* g_window;
-            if (g_window) {
-                glfwSetWindowShouldClose(g_window, true);
-            }
+            molga::RequestApplicationQuit();
         }
     }
 

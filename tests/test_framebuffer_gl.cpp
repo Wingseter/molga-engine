@@ -1,4 +1,5 @@
 #include "Core/AssetDatabase.h"
+#include "Core/Bootstrap.h"
 #include "Core/ProjectSettings.h"
 #include "Core/TextureManager.h"
 #include "Rendering/Camera2D.h"
@@ -29,7 +30,6 @@
 #include <cmath>
 #include <filesystem>
 #include <fstream>
-#include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <memory>
 #include <stdexcept>
@@ -44,36 +44,23 @@ public:
         return context;
     }
 
-    ~SharedGlContext() {
-        if (window_) glfwDestroyWindow(window_);
-        if (initialized_) glfwTerminate();
-    }
-
     bool Ready() const { return ready_; }
     void MakeCurrent() const {
-        if (window_) glfwMakeContextCurrent(window_);
+        if (host_) host_->MakeContextCurrent();
     }
 
 private:
     SharedGlContext() {
-        if (!glfwInit()) return;
-        initialized_ = true;
-        glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-        glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-        glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-#ifdef __APPLE__
-        glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
-#endif
-        window_ = glfwCreateWindow(64, 64, "framebuffer-test", nullptr, nullptr);
-        if (!window_) return;
-        glfwMakeContextCurrent(window_);
-        ready_ = gladLoadGLLoader(
-            reinterpret_cast<GLADloadproc>(glfwGetProcAddress)) != 0;
+        WindowConfig config;
+        config.title = "framebuffer-test";
+        config.width = 64;
+        config.height = 64;
+        config.visible = false;
+        host_ = EngineInit(config);
+        ready_ = host_ && host_->MakeContextCurrent();
     }
 
-    GLFWwindow* window_ = nullptr;
-    bool initialized_ = false;
+    std::unique_ptr<EngineHost> host_;
     bool ready_ = false;
 };
 
@@ -245,10 +232,7 @@ void CheckGlState(GLuint expectedDraw, GLuint expectedRead,
 
 TEST_CASE("Framebuffer bind restores framebuffer viewport scissor and sRGB state") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping GL-context framebuffer test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
 
     {
@@ -342,10 +326,7 @@ TEST_CASE("Framebuffer bind restores framebuffer viewport scissor and sRGB state
 
 TEST_CASE("Framebuffer supports HDR nearest color without depth-stencil") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping HDR framebuffer test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
 
     const FramebufferSpecification specification{
@@ -392,10 +373,7 @@ TEST_CASE("Framebuffer supports HDR nearest color without depth-stencil") {
 
 TEST_CASE("IntegerFit presents nearest pixels, black bars and crop while restoring GL state") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping GL-context output presentation test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
 
     {
@@ -733,10 +711,7 @@ TEST_CASE("IntegerFit presents nearest pixels, black bars and crop while restori
 
 TEST_CASE("Game output composes split and PIP cameras with deterministic viewport clears") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping multi-camera composition test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -846,10 +821,7 @@ TEST_CASE("Game output composes split and PIP cameras with deterministic viewpor
 
 TEST_CASE("Secondary-only cameras apply culling masks and map invalid layers to zero") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping multi-camera layer-mask test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -910,10 +882,7 @@ TEST_CASE("Secondary-only cameras apply culling masks and map invalid layers to 
 
 TEST_CASE("Color adjustment uses ordered linear math and restores fullscreen GL state") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping post-process color test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1046,10 +1015,7 @@ TEST_CASE("Color adjustment uses ordered linear math and restores fullscreen GL 
 
 TEST_CASE("Post-process resolve writes only its top-left destination rectangle") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping destination-rect resolve test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1108,10 +1074,7 @@ TEST_CASE("Post-process resolve writes only its top-left destination rectangle")
 
 TEST_CASE("Post-process resolve reports an incomplete destination and restores state") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping incomplete destination test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1159,10 +1122,7 @@ TEST_CASE("Post-process resolve reports an incomplete destination and restores s
 
 TEST_CASE("Vignette darkens aspect-aware corners and preserves alpha") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping post-process vignette test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1197,10 +1157,7 @@ TEST_CASE("Vignette darkens aspect-aware corners and preserves alpha") {
 
 TEST_CASE("Bloom creates HDR halos, honors threshold and soft knee, and is ordered") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping post-process Bloom test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1331,10 +1288,7 @@ TEST_CASE("Bloom creates HDR halos, honors threshold and soft knee, and is order
 
 TEST_CASE("Game output bypasses neutral profiles and keeps UI outside post-processing") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping post-process game output test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1498,10 +1452,7 @@ TEST_CASE("Game output bypasses neutral profiles and keeps UI outside post-proce
 
 TEST_CASE("Game output isolates camera PostFX results and cleans unused pipelines") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping per-camera post-process test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1671,10 +1622,7 @@ TEST_CASE("Game output isolates camera PostFX results and cleans unused pipeline
 
 TEST_CASE("Post-process shader failure falls back to direct world rendering") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping post-process fallback test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1770,10 +1718,7 @@ TEST_CASE("Post-process shader failure falls back to direct world rendering") {
 
 TEST_CASE("Lighting remains opt-in and is independent across split cameras") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping split-camera lighting test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -1976,10 +1921,7 @@ TEST_CASE("Lighting remains opt-in and is independent across split cameras") {
 
 TEST_CASE("Lighting and shadow failures stay camera-local and render Unlit fallbacks") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping camera-local lighting fallback test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -2095,10 +2037,7 @@ TEST_CASE("Lighting and shadow failures stay camera-local and render Unlit fallb
 
 TEST_CASE("Authored normals follow sprite rotation and UV flip") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping authored normal lighting test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
     TextureManager::Get().Clear();
@@ -2221,10 +2160,7 @@ TEST_CASE("Authored normals follow sprite rotation and UV flip") {
 
 TEST_CASE("Box and convex occluders cast hard shadow pixels") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping hard shadow pixel test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 
@@ -2322,10 +2258,7 @@ TEST_CASE("Box and convex occluders cast hard shadow pixels") {
 
 TEST_CASE("Shadow-mask preparation restores GL state and releases its cache") {
     SharedGlContext& context = SharedGlContext::Get();
-    if (!context.Ready()) {
-        MESSAGE("GLFW unavailable; skipping shadow-mask state test");
-        return;
-    }
+    REQUIRE(context.Ready());
     context.MakeCurrent();
     ShaderManager::Get().Shutdown();
 

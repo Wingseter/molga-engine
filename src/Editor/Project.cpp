@@ -100,7 +100,12 @@ bool Project::Open(const std::string& path) {
     // Load input actions
     std::string inputPath = (fs::path(projectPath) / "ProjectSettings" / "input_actions.json").string();
     if (fs::exists(inputPath)) {
-        Input::LoadActions(inputPath);
+        std::string inputError;
+        if (!Input::LoadActions(inputPath, &inputError)) {
+            Log::Error("Project", inputError);
+            Close();
+            return false;
+        }
     } else {
         Input::InitializeDefaultActions();
         Input::SaveActions(inputPath);

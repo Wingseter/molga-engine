@@ -5,6 +5,7 @@
 #include "Sprite.h"
 #include "Rendering/RenderQueue.h"
 #include "Rendering/Utf8.h"
+#include <glad/glad.h>
 #include <algorithm>
 #include <cmath>
 #include <cstring>

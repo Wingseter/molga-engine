@@ -437,7 +437,7 @@ endif()
 
 file(READ "${PACKAGE_ROOT}/game.json" game_config)
 set(EXPECTED_CONFIGS
-    [["schemaVersion": 2]]
+    [["schemaVersion": 3]]
     [["gameName": "SmokeGame"]]
     [["productVersion": "0.1.0"]]
     [["developmentBuild": true]]

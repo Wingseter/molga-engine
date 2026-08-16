@@ -1,4 +1,5 @@
 #include "Scripting/Script.h"
+#include "Scripting/ScriptApi.h"
 #include "Scripting/ScriptManager.h"
 #include "ECS/Component.h"
 #include "ECS/GameObject.h"
@@ -191,6 +192,6 @@ extern "C" {
             });
     }
     EXPORT int GetScriptApiVersion() {
-        return 1;
+        return molga::ScriptApiVersion;
     }
 }

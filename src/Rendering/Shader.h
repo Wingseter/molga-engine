@@ -1,6 +1,5 @@
 #pragma once
 
-#include <glad/glad.h>
 #include <string>
 #include <unordered_map>
 
@@ -30,10 +29,10 @@ private:
     bool valid_ = false;
     std::string vertexPath;
     std::string fragmentPath;
-    mutable std::unordered_map<std::string, GLint> uniformCache;
+    mutable std::unordered_map<std::string, int> uniformCache;
 
-    GLint GetUniformLocation(const char* name) const;
+    int GetUniformLocation(const char* name) const;
     std::string LoadShaderSource(const char* path);
-    unsigned int CompileShader(const char* source, GLenum type);
+    unsigned int CompileShader(const char* source, unsigned int type);
     bool CheckCompileErrors(unsigned int shader, const std::string& type);
 };

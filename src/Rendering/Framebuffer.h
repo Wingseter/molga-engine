@@ -1,7 +1,5 @@
 #pragma once
 
-#include <glad/glad.h>
-
 enum class FramebufferColorFormat {
     SRGBA8,
     RGBA16F,
@@ -55,10 +53,10 @@ public:
     void Unbind();
 
     // 컬러 어태치먼트 텍스처 ID
-    GLuint ColorTexture() const { return colorTexture_; }
+    unsigned int ColorTexture() const { return colorTexture_; }
     // Low-level presentation paths may bind this as a read framebuffer. Callers
     // must preserve the binding state around direct use.
-    GLuint Id() const { return fbo_; }
+    unsigned int Id() const { return fbo_; }
 
     int Width()  const { return width_; }
     int Height() const { return height_; }
@@ -69,20 +67,20 @@ public:
 private:
     void Cleanup();
 
-    GLuint fbo_          = 0;
-    GLuint colorTexture_ = 0;
-    GLuint rbo_          = 0;  // 깊이/스텐실 렌더버퍼 (선택적)
+    unsigned int fbo_          = 0;
+    unsigned int colorTexture_ = 0;
+    unsigned int rbo_          = 0;  // 깊이/스텐실 렌더버퍼 (선택적)
     int    width_        = 0;
     int    height_       = 0;
     FramebufferSpecification specification_{};
 
     struct SavedBindingState {
-        GLint drawFramebuffer = 0;
-        GLint readFramebuffer = 0;
-        GLint viewport[4] = {0, 0, 0, 0};
-        GLint scissorBox[4] = {0, 0, 0, 0};
-        GLboolean scissorEnabled = GL_FALSE;
-        GLboolean framebufferSrgbEnabled = GL_FALSE;
+        int drawFramebuffer = 0;
+        int readFramebuffer = 0;
+        int viewport[4] = {0, 0, 0, 0};
+        int scissorBox[4] = {0, 0, 0, 0};
+        unsigned char scissorEnabled = 0;
+        unsigned char framebufferSrgbEnabled = 0;
         bool valid = false;
     } saved_;
 };

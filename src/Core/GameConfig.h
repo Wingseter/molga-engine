@@ -19,7 +19,7 @@ struct SceneCatalogEntry {
 };
 
 struct GameConfig {
-    static constexpr int CurrentSchemaVersion = 2;
+    static constexpr int CurrentSchemaVersion = 3;
 
     int schemaVersion = CurrentSchemaVersion;
     std::string gameName = "Molga Game";

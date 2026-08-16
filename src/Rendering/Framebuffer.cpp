@@ -1,5 +1,6 @@
 #include "Framebuffer.h"
 #include "Common/Log.h"
+#include <glad/glad.h>
 #include <algorithm>
 
 Framebuffer::Framebuffer(FramebufferSpecification specification)

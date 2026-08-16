@@ -1,10 +1,10 @@
 #pragma once
 
-struct GLFWwindow;
+class EngineHost;
 
 class ImGuiLayer {
 public:
-    static void Init(GLFWwindow* window);
+    static void Init(EngineHost& host);
     static void Shutdown();
 
     static void BeginFrame();
@@ -19,5 +19,5 @@ public:
 
 private:
     static bool initialized;
-    static GLFWwindow* currentWindow;
+    static EngineHost* currentHost;
 };

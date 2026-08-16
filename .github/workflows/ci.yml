@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, phase4, phase6]
+    branches: [main, phase4, phase6, finetune]
   pull_request:
     branches: [main]
 
@@ -25,6 +25,8 @@ jobs:
         run: ctest --preset ${{ matrix.preset }} -L unit -LE smoke --output-on-failure
       - name: Run playable editor smoke
         run: ctest --preset ${{ matrix.preset }} -L smoke --output-on-failure
+      - name: Run SDL platform and GPU contracts
+        run: ctest --preset ${{ matrix.preset }} -L platform --output-on-failure
       - name: Upload smoke diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -45,14 +47,40 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install GLFW dependencies
-        run: sudo apt-get update && sudo apt-get install -y libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev
+      - name: Install SDL desktop and Mesa dependencies
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          xvfb libx11-dev libxext-dev libxrandr-dev libxinerama-dev
+          libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev
+          libwayland-dev libxkbcommon-dev libdecor-0-dev libgl1-mesa-dev
+          mesa-vulkan-drivers
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
       - name: Build
         run: cmake --build --preset ${{ matrix.preset }} -j$(nproc)
       - name: Run unit tests
         run: ctest --preset ${{ matrix.preset }} -L unit -LE smoke --output-on-failure
+      - name: Run designated OpenGL tests
+        run: xvfb-run -a ctest --preset ${{ matrix.preset }} -L opengl --output-on-failure
+      - name: Run SDL_GPU Vulkan contract
+        run: xvfb-run -a ctest --preset ${{ matrix.preset }} -L sdlgpu --output-on-failure
+      - name: Run playable editor smoke
+        run: xvfb-run -a ctest --preset ${{ matrix.preset }} -L smoke --output-on-failure
+
+  build-test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake -S . -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build/windows --parallel
+      - name: Run unit tests
+        run: ctest --test-dir build/windows -L unit -LE smoke --output-on-failure
+      - name: Run SDL platform and D3D12 GPU contracts
+        run: ctest --test-dir build/windows -L platform --output-on-failure
 
   sanitizers:
     runs-on: macos-latest
@@ -70,5 +98,6 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }} -j$(sysctl -n hw.ncpu)
       - name: Test
         # Run unit and internal smoke tests under sanitizers.
-        # Exclude E2E smoke test (smoke_end_to_end) to avoid platform OpenGL driver conflicts under sanitizers.
+        # Exclude the packaged GUI E2E from sanitizer lanes; it has a dedicated
+        # macOS and Linux/Mesa gate above.
         run: ctest --preset ${{ matrix.preset }} -LE e2e --output-on-failure

@@ -19,7 +19,6 @@ class GameObject;
 class Renderer;
 class Shader;
 class Camera2D;
-struct GLFWwindow;
 class HierarchyWindow;
 class InspectorWindow;
 

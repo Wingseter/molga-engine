@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <vector>
 #include <algorithm>
+#include <cstring>
 
 ProjectSettingsWindow::ProjectSettingsWindow()
     : EditorWindow("Project Settings") {
@@ -368,13 +369,19 @@ void ProjectSettingsWindow::OnGUI() {
                             ImGui::SetNextItemWidth(120.0f);
                             if (ImGui::Combo(("Device" + bindingId).c_str(), &currentDevice, deviceTypes, 4)) {
                                 binding.device = static_cast<Input::DeviceType>(currentDevice);
+                                binding.control = Input::DefaultControl(binding.device);
                                 inputModified = true;
                             }
 
-                            // Code
+                            // Stable symbolic control name (input schema v2)
                             ImGui::SameLine();
-                            ImGui::SetNextItemWidth(80.0f);
-                            if (ImGui::InputInt(("Code" + bindingId).c_str(), &binding.code)) {
+                            ImGui::SetNextItemWidth(110.0f);
+                            char control[64];
+                            std::strncpy(control, binding.control.c_str(), sizeof(control));
+                            control[sizeof(control) - 1] = '\0';
+                            if (ImGui::InputText(("Control" + bindingId).c_str(),
+                                                 control, sizeof(control))) {
+                                binding.control = control;
                                 inputModified = true;
                             }
 

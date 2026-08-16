@@ -4,6 +4,9 @@
 
 **Molga Engine**은 C++17로 개발 중인 커스텀 2D 게임 엔진이다. 에디터(Editor)와 런타임(Runtime) 두 가지 실행 파일로 구성되며, Entity-Component-System(ECS) 아키텍처를 기반으로 한다.
 
+SDL3 전환 범위와 그래픽 지원 주장 기준은
+[`docs/plan/2026-08-16_sdl3_platform_migration.md`](plan/2026-08-16_sdl3_platform_migration.md)를 따른다.
+
 - **에디터**: ImGui 기반의 GUI 에디터로, 씬 편집, 오브젝트 관리, 프로퍼티 인스펙션 지원
 - **런타임**: 에디터 없이 빌드된 게임을 독립 실행하는 플레이어
 
@@ -13,12 +16,12 @@
 |------|------|
 | 언어 | C++17 |
 | 빌드 시스템 | CMake (>= 3.27), CTest |
-| 그래픽스 | OpenGL 3.3 Core, GLFW, GLAD |
+| 플랫폼/그래픽스 | SDL 3.4.14, OpenGL 3.3 Core + GLAD (생산), SDL_GPU capability gate |
 | UI (에디터) | Dear ImGui (Docking) |
 | 오디오 | miniaudio |
 | JSON | nlohmann/json |
 | 이미지 로딩 | stb_image |
-| 플랫폼 | macOS (CoreAudio/AudioToolbox), 크로스플랫폼 의도 |
+| 플랫폼 | macOS 로컬 검증, Linux/Windows CI 게이트 구성 |
 
 ## 디렉토리 구조
 
@@ -32,7 +35,7 @@ src/
 │   ├── Log.h/cpp         # 통일된 로깅 유틸리티 (Info/Warn/Error)
 │   └── linmath.h         # 행렬/벡터 수학 라이브러리
 ├── Core/                 # 엔진 코어
-│   ├── Bootstrap.h/cpp   # 엔진 초기화/종료 (GLFW, OpenGL, Audio)
+│   ├── Bootstrap.h/cpp   # SDL3 EngineHost/이벤트/그래픽 수명주기
 │   ├── Scene.h/cpp       # Scene 기본 클래스 + SceneManager
 │   ├── MolgaTime.h/cpp   # 프레임 타이밍 관리
 │   ├── SceneSerializer.h/cpp  # JSON 씬 직렬화
@@ -40,6 +43,7 @@ src/
 │   └── PathConstants.h   # 경로 상수 (Project/Build/Engine/Config)
 ├── Rendering/            # 렌더링 시스템
 │   ├── Renderer.h/cpp    # OpenGL 렌더 파이프라인 (상태 머신)
+│   ├── GraphicsDevice.h/cpp # OpenGL context 및 SDL_GPU capability 경계
 │   ├── Shader.h/cpp      # GLSL 셰이더 (uniform 캐싱)
 │   ├── Texture.h/cpp     # OpenGL 텍스처
 │   ├── Sprite.h/cpp      # 2D 스프라이트
@@ -50,7 +54,7 @@ src/
 │   └── Tilemap.h/cpp     # 타일맵
 ├── Systems/              # 엔진 시스템
 │   ├── Audio.h/cpp       # 오디오 (miniaudio)
-│   ├── Input.h/cpp       # 키보드/마우스 입력
+│   ├── Input.h/cpp       # 엔진 소유 키/마우스/게임패드 입력과 action schema v2
 │   └── Particle.h/cpp    # 파티클 이미터
 ├── Physics/              # 물리/충돌
 │   └── Collision.h/cpp   # AABB, Circle, 포인트 충돌 감지
@@ -101,9 +105,9 @@ src/
     ├── default.vert
     └── default.frag
 
-external/           # 서드파티 (imgui, glfw, glad, miniaudio, nlohmann_json, stb)
+external/           # 서드파티 (SDL/imgui submodule, glad, miniaudio, nlohmann_json, stb)
 assets/             # 게임 에셋
-tests/              # CTest 기반 테스트 (4개)
+tests/              # CTest 81개 (unit/platform/gpu/smoke/e2e)
 ui_images/          # 에디터 UI 아이콘 리소스
 docs/               # 리팩토링 계획 및 현황 문서
 ```
@@ -129,12 +133,13 @@ CMakeLists.txt
 
 ### 1. 코어 엔진 시스템
 
-#### Bootstrap
-- GLFW 윈도우 생성 (OpenGL 3.3 Core Context)
+#### Bootstrap / EngineHost
+- SDL3 윈도우와 RAII 플랫폼 수명주기
+- 생산 OpenGL 3.3 context 및 SDL_GPU native capability device 생성
 - GLAD 로더 초기화
 - 알파 블렌딩 활성화
 - Time, Input, Audio 서브시스템 초기화/종료
-- macOS 호환성 처리 (Forward Compat)
+- high-DPI 논리/픽셀 크기, 포커스, main/detached close 이벤트 처리
 
 #### Renderer (상태 머신 기반)
 - OpenGL 3.3 Core Profile 렌더링 파이프라인
@@ -156,8 +161,10 @@ CMakeLists.txt
 - 프레임 Delta Time, FPS, FrameCount 관리
 
 #### Input
-- 키보드 입력 (GetKey, GetKeyDown, GetKeyUp)
-- 마우스 입력 (버튼, 위치, 델타, 스크롤)
+- 엔진 소유 `KeyCode` 기반 키보드 입력 (GetKey, GetKeyDown, GetKeyUp)
+- window-ID 기반 마우스 입력 (버튼, 위치, 델타, 스크롤)
+- SDL 표준 게임패드 hotplug/button/axis 입력
+- symbolic action schema v2와 명시적 `molga_migrate input` 변환 도구
 - 프레임 단위 이전 상태 추적
 
 #### Log 유틸리티
@@ -382,10 +389,11 @@ CMakeLists.txt
 
 ### 11. 테스트
 
-- `test_types` — Vector2, Color, AABB, Circle 타입 테스트
-- `test_collision` — AABB, Circle, 복합 충돌 감지 테스트
-- `test_ecs` — GameObject, Component, Transform 생명주기 테스트
-- `test_scene_serializer` — 씬 직렬화/역직렬화 라운드트립 테스트
+- 81개 CTest: 순수 unit, 실제 OpenGL, SDL 플랫폼, SDL_GPU, smoke/E2E로 분리
+- `test_input_migrator`: dry-run/apply/backup/idempotence 계약
+- `test_platform_sdl`: event/focus/close/window/HiDPI/OpenGL host 계약
+- `test_gpu_sdl`: native Metal/Vulkan/D3D12 device와 shader/texture/draw/present 계약
+- `smoke_end_to_end`: 에디터 build, package, 실제 숨김 런타임 렌더 리포트 계약
 
 ## 리팩토링 이력
 
@@ -400,7 +408,7 @@ CMakeLists.txt
 
 ## 현재 브랜치
 
-`phase4` — Phase 4-5 리팩토링 완료
+`finetune` — SDL3 플랫폼 전환 작업 반영
 
 ## 최근 커밋 히스토리
 

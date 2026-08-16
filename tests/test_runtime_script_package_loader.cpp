@@ -1,21 +1,38 @@
 #include "Core/GameConfig.h"
 #include "Scripting/ScriptPackageLoader.h"
+#include "Scripting/ScriptApi.h"
 #include "ECS/BuiltinComponents.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/Script.h"
+#include "Systems/Input.h"
 #include "doctest.h"
 
-TEST_CASE("GameConfig parses without script manifest") {
-    std::string jsonStr = R"({
-        "gameName": "My Awesome Game",
-        "mainScene": "scenes/level1.json",
-        "windowWidth": 1024,
-        "windowHeight": 768,
-        "fullscreen": true
-    })";
+namespace {
+
+nlohmann::json ValidGameConfig() {
+    return {
+        {"schemaVersion", GameConfig::CurrentSchemaVersion},
+        {"inputActions", {
+            {"schemaVersion", Input::ActionSchemaVersion},
+            {"actions", nlohmann::json::array()}
+        }}
+    };
+}
+
+} // namespace
+
+TEST_CASE("GameConfig parses schema v3 without script manifest") {
+    auto document = ValidGameConfig();
+    document.update({
+        {"gameName", "My Awesome Game"},
+        {"mainScene", "scenes/level1.json"},
+        {"windowWidth", 1024},
+        {"windowHeight", 768},
+        {"fullscreen", true}
+    });
 
     GameConfig config;
-    bool success = LoadGameConfigFromString(jsonStr, config);
+    bool success = LoadGameConfigFromString(document.dump(), config);
     REQUIRE(success);
     CHECK(config.gameName == "My Awesome Game");
     CHECK(config.mainScene == "scenes/level1.json");
@@ -32,45 +49,53 @@ TEST_CASE("GameConfig parses without script manifest") {
     CHECK(config.startupSceneId == "scenes/level1.json");
 }
 
-TEST_CASE("GameConfig parses schema v2 output mode and resizable setting") {
-    const std::string jsonStr = R"({
-        "schemaVersion": 2,
-        "gameName": "Pixel Game",
-        "mainScene": "Scenes/main.json",
-        "windowWidth": 320,
-        "windowHeight": 180,
-        "fullscreen": false,
-        "resizable": false,
-        "outputScaleMode": "IntegerFit"
-    })";
+TEST_CASE("GameConfig parses schema v3 output mode and resizable setting") {
+    auto document = ValidGameConfig();
+    document.update({
+        {"gameName", "Pixel Game"},
+        {"mainScene", "Scenes/main.json"},
+        {"windowWidth", 320},
+        {"windowHeight", 180},
+        {"fullscreen", false},
+        {"resizable", false},
+        {"outputScaleMode", "IntegerFit"}
+    });
 
     GameConfig config;
-    REQUIRE(LoadGameConfigFromString(jsonStr, config));
-    CHECK(config.schemaVersion == 2);
+    REQUIRE(LoadGameConfigFromString(document.dump(), config));
+    CHECK(config.schemaVersion == GameConfig::CurrentSchemaVersion);
     CHECK_FALSE(config.resizable);
     CHECK(config.outputScaleMode == molga::GameOutputScaleMode::IntegerFit);
 
-    CHECK_FALSE(LoadGameConfigFromString(
-        R"({"schemaVersion":2,"outputScaleMode":"Fractional"})", config));
-    CHECK_FALSE(LoadGameConfigFromString(
-        R"({"schemaVersion":3})", config));
+    auto invalidOutputMode = ValidGameConfig();
+    invalidOutputMode["outputScaleMode"] = "Fractional";
+    CHECK_FALSE(LoadGameConfigFromString(invalidOutputMode.dump(), config));
+
+    auto oldSchema = ValidGameConfig();
+    oldSchema["schemaVersion"] = 2;
+    CHECK_FALSE(LoadGameConfigFromString(oldSchema.dump(), config));
+
+    auto missingInputSchema = ValidGameConfig();
+    missingInputSchema.erase("inputActions");
+    CHECK_FALSE(LoadGameConfigFromString(missingInputSchema.dump(), config));
 }
 
 TEST_CASE("GameConfig parses scene catalog and storage identity") {
-    const std::string jsonStr = R"({
-        "gameName": "CatalogGame",
-        "companyName": "CatalogStudio",
-        "mainScene": "Scenes/start.pkg.json",
-        "scenes": ["Scenes/start.pkg.json", "Scenes/second.pkg.json"],
-        "startupSceneId": "Scenes/start.json",
-        "sceneCatalog": [
-            {"id":"Scenes/start.json","packagePath":"Scenes/start.pkg.json"},
-            {"id":"Levels/second.json","packagePath":"Scenes/second.pkg.json"}
-        ]
-    })";
+    auto document = ValidGameConfig();
+    document.update({
+        {"gameName", "CatalogGame"},
+        {"companyName", "CatalogStudio"},
+        {"mainScene", "Scenes/start.pkg.json"},
+        {"scenes", {"Scenes/start.pkg.json", "Scenes/second.pkg.json"}},
+        {"startupSceneId", "Scenes/start.json"},
+        {"sceneCatalog", {
+            {{"id", "Scenes/start.json"}, {"packagePath", "Scenes/start.pkg.json"}},
+            {{"id", "Levels/second.json"}, {"packagePath", "Scenes/second.pkg.json"}}
+        }}
+    });
 
     GameConfig config;
-    REQUIRE(LoadGameConfigFromString(jsonStr, config));
+    REQUIRE(LoadGameConfigFromString(document.dump(), config));
     CHECK(config.companyName == "CatalogStudio");
     CHECK(config.startupSceneId == "Scenes/start.json");
     REQUIRE(config.scenes.size() == 2);
@@ -80,23 +105,22 @@ TEST_CASE("GameConfig parses scene catalog and storage identity") {
 }
 
 TEST_CASE("GameConfig parses with script manifest") {
-    std::string jsonStr = R"({
-        "gameName": "My Script Game",
-        "scripts": {
-            "enabled": true,
-            "library": "Scripts/libUserScripts.dylib",
-            "apiVersion": 1,
-            "buildHash": "abcdef123456"
-        }
-    })";
+    auto document = ValidGameConfig();
+    document["gameName"] = "My Script Game";
+    document["scripts"] = {
+        {"enabled", true},
+        {"library", "Scripts/libUserScripts.dylib"},
+        {"apiVersion", molga::ScriptApiVersion},
+        {"buildHash", "abcdef123456"}
+    };
 
     GameConfig config;
-    bool success = LoadGameConfigFromString(jsonStr, config);
+    bool success = LoadGameConfigFromString(document.dump(), config);
     REQUIRE(success);
     CHECK(config.gameName == "My Script Game");
     CHECK(config.scripts.enabled);
     CHECK(config.scripts.library == "Scripts/libUserScripts.dylib");
-    CHECK(config.scripts.apiVersion == 1);
+    CHECK(config.scripts.apiVersion == molga::ScriptApiVersion);
     CHECK(config.scripts.buildHash == "abcdef123456");
 }
 
@@ -130,6 +154,7 @@ TEST_CASE("ScriptPackageLoader validation cases") {
         GameConfig config;
         config.scripts.enabled = true;
         config.scripts.library = "";
+        config.scripts.apiVersion = molga::ScriptApiVersion;
         std::string error;
         bool success = ScriptPackageLoader::Load(config, false, "", error);
         CHECK_FALSE(success);
@@ -141,6 +166,7 @@ TEST_CASE("ScriptPackageLoader validation cases") {
         GameConfig config;
         config.scripts.enabled = true;
         config.scripts.library = "NonExistentPath.dylib";
+        config.scripts.apiVersion = molga::ScriptApiVersion;
         std::string error;
         bool success = ScriptPackageLoader::Load(config, false, "", error);
         CHECK_FALSE(success);
@@ -152,7 +178,7 @@ TEST_CASE("ScriptPackageLoader validation cases") {
         GameConfig config;
         config.scripts.enabled = true;
         config.scripts.library = DUMMY_MISSING_REGISTER_LIB_PATH;
-        config.scripts.apiVersion = 1;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
         std::string error;
         bool success = ScriptPackageLoader::Load(config, false, "", error);
         CHECK_FALSE(success);
@@ -164,7 +190,7 @@ TEST_CASE("ScriptPackageLoader validation cases") {
         GameConfig config;
         config.scripts.enabled = true;
         config.scripts.library = DUMMY_MISSING_API_PATH;
-        config.scripts.apiVersion = 1;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
         std::string error;
         bool success = ScriptPackageLoader::Load(config, false, "", error);
         CHECK_FALSE(success);
@@ -176,7 +202,7 @@ TEST_CASE("ScriptPackageLoader validation cases") {
         GameConfig config;
         config.scripts.enabled = true;
         config.scripts.library = DUMMY_MISMATCH_API_PATH;
-        config.scripts.apiVersion = 1;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
         std::string error;
         bool success = ScriptPackageLoader::Load(config, false, "", error);
         CHECK_FALSE(success);
@@ -188,7 +214,7 @@ TEST_CASE("ScriptPackageLoader validation cases") {
         GameConfig config;
         config.scripts.enabled = true;
         config.scripts.library = DUMMY_VALID_LIB_PATH;
-        config.scripts.apiVersion = 1;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
         std::string error;
         bool success = ScriptPackageLoader::Load(config, false, "", error);
         INFO("Error message: " << error);

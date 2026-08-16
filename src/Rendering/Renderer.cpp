@@ -1,4 +1,5 @@
 #include "Renderer.h"
+#include <glad/glad.h>
 #include "Shader.h"
 #include "Sprite.h"
 #include "Texture.h"

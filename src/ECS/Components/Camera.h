@@ -52,7 +52,7 @@ public:
     void OnInspectorGUI() override;
 
     // Configure the camera for an explicit render target. Camera components do
-    // not inspect GLFW state; runtime and editor callers choose their output.
+    // not inspect native-window state; runtime and editor callers choose output.
     bool PrepareForViewport(molga::PixelSize viewport);
 
     // Getters / Setters

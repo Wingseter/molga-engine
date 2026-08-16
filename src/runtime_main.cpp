@@ -1,7 +1,4 @@
 // Molga Engine Runtime - Standalone game player without editor
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -61,7 +58,6 @@
 #include <cmath>
 #include <optional>
 
-GLFWwindow* g_window = nullptr;
 
 namespace {
 
@@ -607,9 +603,8 @@ int main(int argc, char* argv[]) {
     wc.fullscreen = config.fullscreen;
     wc.resizable = config.resizable;
     wc.visible = !smoke->enabled;
-    GLFWwindow* window = EngineInit(wc);
-    if (!window) return -1;
-    g_window = window;
+    auto host = EngineInit(wc);
+    if (!host) return -1;
 
     // Initialize renderer
     auto renderer = std::make_unique<Renderer>();
@@ -645,7 +640,7 @@ int main(int argc, char* argv[]) {
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
         renderer.reset();
-        EngineShutdown();
+        EngineShutdown(host);
         return 4;
     }
 
@@ -690,7 +685,7 @@ int main(int argc, char* argv[]) {
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
         renderer.reset();
-        EngineShutdown();
+        EngineShutdown(host);
         return 4;
     }
 
@@ -719,17 +714,18 @@ int main(int argc, char* argv[]) {
     auto gameOutputRenderer = std::make_unique<molga::GameOutputRenderer>();
     molga::GameOutputResult lastGameOutputResult;
     // Main game loop
-    while (!glfwWindowShouldClose(window)) {
+    while (!host->ShouldClose()) {
+        host->PollEvents();
+        if (host->ShouldClose()) break;
         Time::Update();
         float dt = Time::GetDeltaTime();
         World& world = sceneRuntime.ActiveWorld();
 
-        int framebufferWidth = 0;
-        int framebufferHeight = 0;
-        int windowWidth = 0;
-        int windowHeight = 0;
-        glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
-        glfwGetWindowSize(window, &windowWidth, &windowHeight);
+        const molga::WindowMetrics windowMetrics = host->Metrics();
+        const int framebufferWidth = windowMetrics.pixelWidth;
+        const int framebufferHeight = windowMetrics.pixelHeight;
+        const int windowWidth = windowMetrics.logicalWidth;
+        const int windowHeight = windowMetrics.logicalHeight;
         const molga::PixelSize framebufferSize{framebufferWidth,
                                                 framebufferHeight};
         const molga::PixelSize configuredLogicalSize{config.windowWidth,
@@ -739,11 +735,10 @@ int main(int argc, char* argv[]) {
                 config.outputScaleMode, configuredLogicalSize,
                 framebufferSize);
 
-        double windowPointerX = 0.0;
-        double windowPointerY = 0.0;
-        glfwGetCursorPos(window, &windowPointerX, &windowPointerY);
-        const bool windowFocused =
-            glfwGetWindowAttrib(window, GLFW_FOCUSED) == GLFW_TRUE;
+        const molga::WindowPointerState windowPointer = host->Pointer();
+        const float windowPointerX = windowPointer.x;
+        const float windowPointerY = windowPointer.y;
+        const bool windowFocused = windowMetrics.focused && windowPointer.valid;
         const bool canMapWindowPointer = windowFocused && windowWidth > 0 &&
                                          windowHeight > 0 &&
                                          framebufferSize.IsValid();
@@ -766,7 +761,8 @@ int main(int argc, char* argv[]) {
         const float mappedMouseY = logicalPointer
             ? static_cast<float>(logicalPointer->y) : 0.0f;
         InputSnapshot inputSnapshot = Input::CaptureSnapshot(
-            window, mappedMouseX, mappedMouseY, logicalPointer.has_value());
+            host->WindowId(), mappedMouseX, mappedMouseY,
+            logicalPointer.has_value());
         const molga::CameraOutputLayout cameraLayout =
             molga::CameraOutputLayout::Build(
                 world.Objects(), presentation.logicalSize);
@@ -788,8 +784,7 @@ int main(int argc, char* argv[]) {
         // UI capture follows the physical button edge, independently from the
         // script snapshot's pointer invalidation. Leaving a bar releases UI
         // capture, and re-entering while still held cannot synthesize a press.
-        const bool rawMouseDown =
-            glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        const bool rawMouseDown = windowPointer.leftDown;
 
         const Vector2 uiViewport{
             static_cast<float>(presentation.logicalSize.width),
@@ -922,12 +917,11 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+        host->SwapBuffers();
 
         // ESC to quit
-        if (Input::GetKeyDown(GLFW_KEY_ESCAPE)) {
-            glfwSetWindowShouldClose(window, true);
+        if (Input::GetKeyDown(Input::KeyCode::Escape)) {
+            host->RequestClose();
         }
 
         ++renderedFrames;
@@ -1118,7 +1112,7 @@ int main(int argc, char* argv[]) {
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
     renderer.reset();
-    EngineShutdown();
+    EngineShutdown(host);
 
     return exitCode;
 }

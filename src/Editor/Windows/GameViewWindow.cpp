@@ -9,9 +9,18 @@
 #include "Systems/Input.h"
 #include "UI/UISystem.h"
 
-#include <GLFW/glfw3.h>
 #include <algorithm>
+#include <cstdint>
 #include <imgui_internal.h>
+
+namespace {
+molga::WindowId ViewportWindowId(const ImGuiViewport* viewport) {
+    return viewport && viewport->PlatformHandle
+        ? static_cast<molga::WindowId>(
+              reinterpret_cast<std::intptr_t>(viewport->PlatformHandle))
+        : 0;
+}
+} // namespace
 
 GameViewWindow::GameViewWindow()
     : EditorWindow(EditorConstants::WIN_GAME),
@@ -205,23 +214,14 @@ void GameViewWindow::OnGUI() {
         dpi = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f);
     }
     molga::GameViewPoint framebufferScale{dpi, dpi};
-    auto* platformWindow = platformViewport
-        ? static_cast<GLFWwindow*>(platformViewport->PlatformHandle) : nullptr;
-    if (platformWindow) {
-        int windowWidth = 0;
-        int windowHeight = 0;
-        int framebufferWidth = 0;
-        int framebufferHeight = 0;
-        glfwGetWindowSize(platformWindow, &windowWidth, &windowHeight);
-        glfwGetFramebufferSize(platformWindow, &framebufferWidth,
-                               &framebufferHeight);
-        if (windowWidth > 0 && framebufferWidth > 0) {
-            framebufferScale.x = static_cast<float>(framebufferWidth) /
-                                 static_cast<float>(windowWidth);
+    const molga::WindowId platformWindow = ViewportWindowId(platformViewport);
+    molga::WindowMetrics platformMetrics;
+    if (molga::QueryWindowMetrics(platformWindow, platformMetrics)) {
+        if (platformMetrics.logicalWidth > 0 && platformMetrics.pixelWidth > 0) {
+            framebufferScale.x = platformMetrics.scaleX;
         }
-        if (windowHeight > 0 && framebufferHeight > 0) {
-            framebufferScale.y = static_cast<float>(framebufferHeight) /
-                                 static_cast<float>(windowHeight);
+        if (platformMetrics.logicalHeight > 0 && platformMetrics.pixelHeight > 0) {
+            framebufferScale.y = platformMetrics.scaleY;
         }
     }
     layout_ = molga::GameViewLayout::Calculate(
@@ -240,7 +240,6 @@ void GameViewWindow::OnGUI() {
         inputSourceWindow_ = platformWindow;
         Input::DiscardPendingScroll(inputSourceWindow_);
     }
-    Input::RegisterScrollSource(inputSourceWindow_);
     if (!inputFocused_) Input::DiscardPendingScroll(inputSourceWindow_);
 
     if (imageValid_) {
@@ -306,10 +305,11 @@ void GameViewWindow::ProcessPlayInput() {
     }
 
     ImGuiViewport* viewport = ImGui::FindViewportByID(platformViewportId_);
-    auto* nativeWindow = viewport
-        ? static_cast<GLFWwindow*>(viewport->PlatformHandle) : nullptr;
-    if (!viewport || !nativeWindow ||
-        glfwGetWindowAttrib(nativeWindow, GLFW_FOCUSED) != GLFW_TRUE) {
+    const molga::WindowId nativeWindow = ViewportWindowId(viewport);
+    molga::WindowMetrics nativeMetrics;
+    if (!viewport || nativeWindow == 0 ||
+        !molga::QueryWindowMetrics(nativeWindow, nativeMetrics) ||
+        !nativeMetrics.focused) {
         LoseInputFocus();
         return;
     }
@@ -318,14 +318,14 @@ void GameViewWindow::ProcessPlayInput() {
         inputSourceWindow_ = nativeWindow;
         Input::DiscardPendingScroll(inputSourceWindow_);
     }
-    Input::RegisterScrollSource(nativeWindow);
-
-    double localX = 0.0;
-    double localY = 0.0;
-    glfwGetCursorPos(nativeWindow, &localX, &localY);
+    molga::WindowPointerState pointer;
+    if (!molga::QueryWindowPointer(nativeWindow, pointer)) {
+        LoseInputFocus();
+        return;
+    }
     const molga::GameViewPoint screen{
-        static_cast<float>(localX) + viewport->Pos.x,
-        static_cast<float>(localY) + viewport->Pos.y};
+        pointer.x + viewport->Pos.x,
+        pointer.y + viewport->Pos.y};
     const auto targetPixel = layout_.ScreenToGamePixel(
         screen, {imageScreenOrigin_.x, imageScreenOrigin_.y});
     const molga::OutputPresentationLayout inputPresentation =
@@ -357,8 +357,7 @@ void GameViewWindow::ProcessPlayInput() {
     }
     Input::ApplySnapshot(snapshot);
 
-    const bool rawDown =
-        glfwGetMouseButton(nativeWindow, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    const bool rawDown = pointer.leftDown;
     const bool pointerValid = logicalPixel.has_value();
     if (!pointerValid) UISystem::Get().ResetPointerCapture();
     UISystem::Get().ProcessInput(

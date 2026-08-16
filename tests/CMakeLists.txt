@@ -87,12 +87,13 @@ molga_add_test(test_camera_output_layout test_camera_output_layout.cpp)
 molga_add_test(test_post_process      test_post_process.cpp)
 molga_add_test(test_lighting_2d       test_lighting_2d.cpp)
 molga_add_test(test_framebuffer_gl    test_framebuffer_gl.cpp)
+target_link_libraries(test_framebuffer_gl PRIVATE glad)
 target_compile_definitions(test_framebuffer_gl PRIVATE
     MOLGA_TEST_SHADER_DIR="${CMAKE_SOURCE_DIR}/src/Shaders")
-set_tests_properties(test_framebuffer_gl PROPERTIES LABELS "gl")
+set_tests_properties(test_framebuffer_gl PROPERTIES LABELS "gpu;opengl")
 molga_add_test(test_path_service       test_path_service.cpp)
 molga_add_test(test_shader_material   test_shader_material.cpp)
-set_tests_properties(test_shader_material PROPERTIES LABELS "gl")
+set_tests_properties(test_shader_material PROPERTIES LABELS "gpu;opengl")
 molga_add_test(test_game_builder      test_game_builder.cpp)
 molga_add_test(test_package_finalizer test_package_finalizer.cpp)
 
@@ -121,6 +122,21 @@ molga_add_test(test_scheduler         test_scheduler.cpp)
 molga_add_test(test_script_invocation_boundary test_script_invocation_boundary.cpp)
 molga_add_test(test_lifecycle         test_lifecycle.cpp)
 molga_add_test(test_input_actions     test_input_actions.cpp)
+add_test(
+    NAME test_input_migrator
+    COMMAND "${CMAKE_COMMAND}"
+        "-DMIGRATOR=$<TARGET_FILE:molga_migrate>"
+        "-DWORK_ROOT=${CMAKE_BINARY_DIR}/input-migrator-test"
+        -P "${CMAKE_SOURCE_DIR}/tests/test_input_migrator.cmake"
+)
+set_tests_properties(test_input_migrator PROPERTIES LABELS "unit;migration")
+molga_add_test(test_platform_sdl      test_platform_sdl.cpp)
+target_link_libraries(test_platform_sdl PRIVATE SDL3::SDL3)
+set_tests_properties(test_platform_sdl PROPERTIES
+    LABELS "platform;opengl")
+molga_add_test(test_gpu_sdl           test_gpu_sdl.cpp)
+set_tests_properties(test_gpu_sdl PROPERTIES
+    LABELS "platform;gpu;sdlgpu")
 molga_add_test(test_build_profile     test_build_profile.cpp)
 molga_add_test(test_project_build_profile test_project_build_profile.cpp)
 target_sources(test_project_build_profile PRIVATE

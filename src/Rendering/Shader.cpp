@@ -1,4 +1,5 @@
 #include "Shader.h"
+#include <glad/glad.h>
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -84,7 +85,7 @@ bool Shader::Reload() {
     return true;
 }
 
-GLint Shader::GetUniformLocation(const char* name) const {
+int Shader::GetUniformLocation(const char* name) const {
     auto it = uniformCache.find(name);
     if (it != uniformCache.end()) {
         return it->second;
@@ -138,7 +139,7 @@ std::string Shader::LoadShaderSource(const char* path) {
     return buffer.str();
 }
 
-unsigned int Shader::CompileShader(const char* source, GLenum type) {
+unsigned int Shader::CompileShader(const char* source, unsigned int type) {
     unsigned int shader = glCreateShader(type);
     glShaderSource(shader, 1, &source, nullptr);
     glCompileShader(shader);

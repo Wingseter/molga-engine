@@ -261,7 +261,7 @@ TEST_CASE("World render culling masks normalize invalid layers to zero") {
 }
 
 TEST_CASE("Input camera pointer state is independent and resets with snapshots") {
-    Input::Init(nullptr);
+    Input::Init(0);
     InputSnapshot cameraPointer;
     cameraPointer.pointerValid = true;
     cameraPointer.mouseX = 70.0f;

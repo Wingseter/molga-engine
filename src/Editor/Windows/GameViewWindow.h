@@ -6,6 +6,7 @@
 #include "Rendering/Framebuffer.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/PixelSize.h"
+#include "Platform/Window.h"
 
 #include <imgui.h>
 #include <memory>
@@ -15,7 +16,6 @@
 class GameObject;
 class Renderer;
 class Shader;
-struct GLFWwindow;
 
 class GameViewWindow : public EditorWindow {
 public:
@@ -65,5 +65,5 @@ private:
     bool imageValid_ = false;
     bool inputFocused_ = false;
     bool rawMouseWasDown_ = false;
-    GLFWwindow* inputSourceWindow_ = nullptr;
+    molga::WindowId inputSourceWindow_ = 0;
 };

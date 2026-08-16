@@ -9,8 +9,7 @@ namespace {
 bool ParseGameConfigJson(const nlohmann::json& j, GameConfig& config) {
     if (!j.is_object()) return false;
     const int storedSchemaVersion = j.value("schemaVersion", 1);
-    if (storedSchemaVersion < 1 ||
-        storedSchemaVersion > GameConfig::CurrentSchemaVersion) {
+    if (storedSchemaVersion != GameConfig::CurrentSchemaVersion) {
         return false;
     }
     config.schemaVersion = GameConfig::CurrentSchemaVersion;
@@ -34,9 +33,8 @@ bool ParseGameConfigJson(const nlohmann::json& j, GameConfig& config) {
     if (j.contains("projectSettings")) {
         ProjectSettings::Get().Deserialize(j["projectSettings"]);
     }
-    if (j.contains("inputActions")) {
-        Input::DeserializeActions(j["inputActions"]);
-    }
+    if (!j.contains("inputActions") ||
+        !Input::DeserializeActions(j["inputActions"])) return false;
 
     config.scenes.clear();
     if (j.contains("scenes")) {
