@@ -6,8 +6,8 @@ namespace fs = std::filesystem;
 
 TEST_CASE("Resolve passes absolute through and joins relative under root") {
     CHECK(PathService::Resolve("/proj", "/abs/x.png") == "/abs/x.png");
-    CHECK(PathService::Resolve("/proj", "Assets/x.png") ==
-          fs::path("/proj/Assets/x.png").string());
+    CHECK(fs::path(PathService::Resolve("/proj", "Assets/x.png")) ==
+          fs::path("/proj") / "Assets/x.png");
     CHECK(PathService::Resolve("/proj", "") == "");
 }
 

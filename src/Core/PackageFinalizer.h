@@ -15,4 +15,8 @@ struct Result {
 Result FinalizeStagedPackage(const std::filesystem::path& stagingOutput,
                              const std::filesystem::path& finalOutput);
 
+// Deterministic rollback-path coverage across platforms whose directory
+// permission and rename semantics differ.
+void FailNextStagingRenameForTesting();
+
 }  // namespace PackageFinalizer

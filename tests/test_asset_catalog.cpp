@@ -36,17 +36,19 @@ TEST_CASE("SaveCatalog writes JSON with all records") {
     REQUIRE(fs::exists(catalogPath));
 
     // Read the file and verify JSON structure
-    std::ifstream file(catalogPath);
     nlohmann::json j;
-    file >> j;
-    CHECK(j["schemaVersion"] == 2);
-    CHECK(j["assetRootMode"] == "packageRoot");
-    CHECK(j["records"].is_array());
-    CHECK(j["records"].size() == 2);
-    for (const auto& record : j["records"]) {
-        const auto hash = record.value("hash", std::string());
-        CHECK_FALSE(hash.empty());
-        CHECK(hash != "dummy_hash");
+    {
+        std::ifstream file(catalogPath);
+        file >> j;
+        CHECK(j["schemaVersion"] == 2);
+        CHECK(j["assetRootMode"] == "packageRoot");
+        CHECK(j["records"].is_array());
+        CHECK(j["records"].size() == 2);
+        for (const auto& record : j["records"]) {
+            const auto hash = record.value("hash", std::string());
+            CHECK_FALSE(hash.empty());
+            CHECK(hash != "dummy_hash");
+        }
     }
 
     fs::remove_all(root);

@@ -19,8 +19,10 @@ inline std::string WriteMinimalMslShaderBundle(
     const std::string fragmentSource = vertexSource;
     fs::create_directories(bundle / "artifacts");
     {
-        std::ofstream(bundle / "artifacts/test.vertex.msl") << vertexSource;
-        std::ofstream(bundle / "artifacts/test.fragment.msl") << fragmentSource;
+        std::ofstream(bundle / "artifacts/test.vertex.msl", std::ios::binary)
+            << vertexSource;
+        std::ofstream(bundle / "artifacts/test.fragment.msl", std::ios::binary)
+            << fragmentSource;
     }
 
     const auto resources = nlohmann::json{

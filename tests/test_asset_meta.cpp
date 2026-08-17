@@ -105,16 +105,22 @@ TEST_CASE("AssetMeta atomic failure leaves the last sidecar intact") {
     { std::ofstream(asset) << "fake"; }
     AssetMeta meta = AssetMeta::CreateOrLoad(asset, "TextureImporter", 2);
 
-    std::ifstream beforeFile(AssetMeta::MetaPathFor(asset));
-    const std::string before((std::istreambuf_iterator<char>(beforeFile)),
-                             std::istreambuf_iterator<char>());
+    std::string before;
+    {
+        std::ifstream beforeFile(AssetMeta::MetaPathFor(asset));
+        before.assign(std::istreambuf_iterator<char>(beforeFile),
+                      std::istreambuf_iterator<char>());
+    }
     meta.settings["filter"] = "Nearest";
     PersistentStorage::FailNextAtomicReplaceForTesting();
     CHECK_FALSE(AssetMeta::Write(asset, meta));
 
-    std::ifstream afterFile(AssetMeta::MetaPathFor(asset));
-    const std::string after((std::istreambuf_iterator<char>(afterFile)),
-                            std::istreambuf_iterator<char>());
+    std::string after;
+    {
+        std::ifstream afterFile(AssetMeta::MetaPathFor(asset));
+        after.assign(std::istreambuf_iterator<char>(afterFile),
+                     std::istreambuf_iterator<char>());
+    }
     CHECK(after == before);
 
     fs::remove_all(dir);

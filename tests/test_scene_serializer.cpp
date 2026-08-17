@@ -13,10 +13,13 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <vector>
+
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -188,13 +191,14 @@ TEST_CASE("SceneSerializer: scene save and load") {
     originalScene.push_back(obj2);
 
     // Save to temp file
-    const char* tmpPath = "/tmp/molga_test_scene.json";
-    bool saved = SceneSerializer::SaveScene(tmpPath, originalScene);
+    const fs::path tmpPath =
+        fs::temp_directory_path() / "molga_test_scene.json";
+    bool saved = SceneSerializer::SaveScene(tmpPath.string(), originalScene);
     CHECK(saved);
 
     // Load back
     std::vector<std::shared_ptr<GameObject>> loadedScene;
-    bool loaded = SceneSerializer::LoadScene(tmpPath, loadedScene);
+    bool loaded = SceneSerializer::LoadScene(tmpPath.string(), loadedScene);
     CHECK(loaded);
     REQUIRE(loadedScene.size() == 2);
 
@@ -220,7 +224,7 @@ TEST_CASE("SceneSerializer: scene save and load") {
     CHECK(lt2->GetRotation() == doctest::Approx(90.0f));
 
     // Cleanup
-    std::remove(tmpPath);
+    fs::remove(tmpPath);
 }
 
 // ── ID preservation ─────────────────────────────────────────────────────────
@@ -335,13 +339,14 @@ TEST_CASE("SceneSerializer: parent-child serialization") {
     unsigned int childID = child->GetID();
 
     // Save
-    const char* tmpPath = "/tmp/molga_test_hierarchy.json";
-    bool saved = SceneSerializer::SaveScene(tmpPath, originalScene);
+    const fs::path tmpPath =
+        fs::temp_directory_path() / "molga_test_hierarchy.json";
+    bool saved = SceneSerializer::SaveScene(tmpPath.string(), originalScene);
     CHECK(saved);
 
     // Load
     std::vector<std::shared_ptr<GameObject>> loadedScene;
-    bool loaded = SceneSerializer::LoadScene(tmpPath, loadedScene);
+    bool loaded = SceneSerializer::LoadScene(tmpPath.string(), loadedScene);
     CHECK(loaded);
     REQUIRE(loadedScene.size() == 2);
 
@@ -360,7 +365,7 @@ TEST_CASE("SceneSerializer: parent-child serialization") {
     REQUIRE(loadedParent->GetChildren().size() == 1);
     CHECK(loadedParent->GetChildren()[0] == loadedChild);
 
-    std::remove(tmpPath);
+    fs::remove(tmpPath);
 }
 
 // ── Error handling ───────────────────────────────────────────────────────────
