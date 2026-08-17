@@ -193,6 +193,7 @@ TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
 
     // Should now pass
     valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    INFO("completed package validation error: " << error);
     CHECK(valid);
     CHECK(error.empty());
 

@@ -80,6 +80,7 @@ TEST_CASE("PackageLayout script manifest validation") {
 
     std::string error;
     bool valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    INFO("initial package validation error: " << error);
     CHECK(valid);
     CHECK(error.empty());
 
