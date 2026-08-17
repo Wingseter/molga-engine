@@ -239,7 +239,14 @@ target_sources(test_editor_undo_dirty PRIVATE
 target_include_directories(test_editor_undo_dirty PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(test_editor_undo_dirty PRIVATE imgui)
 
-add_library(dummy_valid_lib SHARED dummy_valid_lib.cpp)
+if(WIN32)
+    # Windows qualification in this stage covers the loader ABI contract, not
+    # packaged user-script execution. PE/COFF does not support the unresolved
+    # host-symbol lookup used by the richer macOS/Linux E2E fixture.
+    add_library(dummy_valid_lib SHARED dummy_valid_loader_only_lib.cpp)
+else()
+    add_library(dummy_valid_lib SHARED dummy_valid_lib.cpp)
+endif()
 target_include_directories(dummy_valid_lib PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
