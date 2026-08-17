@@ -30,18 +30,14 @@ TEST_CASE("ScriptCompiler subfolder script template creation, discovery, and CMa
     CHECK(fs::exists(scriptsRoot / "Enemies" / "Enemy.h"));
     CHECK(fs::exists(scriptsRoot / "Enemies" / "Enemy.cpp"));
 
-    // 3. Create a script in subdirectory with casing differences (lower case "scripts") to test case-insensitivity
+    // 3. A casing difference in the logical Scripts root must still map into
+    // the configured Scripts tree on every host filesystem.
     std::string lowerEnemiesDir = (projectRoot / "scripts" / "NPCs").string();
     ok = compiler.CreateScriptTemplate("NPC", lowerEnemiesDir);
     REQUIRE(ok);
 
-#if defined(__APPLE__) || defined(_WIN32)
-    // On case-insensitive platforms, these paths resolve to the same folder tree
     CHECK(fs::exists(scriptsRoot / "NPCs" / "NPC.h"));
     CHECK(fs::exists(scriptsRoot / "NPCs" / "NPC.cpp"));
-#else
-    // On case-sensitive platforms, it might create under "scripts" instead of "Scripts" if they coexist
-#endif
 
     // 4. Discover all scripts recursively
     auto discovered = compiler.DiscoverScripts();

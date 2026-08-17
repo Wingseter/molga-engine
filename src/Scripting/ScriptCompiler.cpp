@@ -7,10 +7,49 @@
 #include <sstream>
 #include <iostream>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <algorithm>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+std::string FoldAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char character) {
+                       return static_cast<char>(std::tolower(character));
+                   });
+    return value;
+}
+
+bool MapIntoScriptsDirectory(const fs::path& target,
+                             const fs::path& scripts,
+                             fs::path& mapped) {
+    const fs::path canonicalTarget = fs::weakly_canonical(target);
+    const fs::path canonicalScripts = fs::weakly_canonical(scripts);
+
+    auto targetPart = canonicalTarget.begin();
+    for (auto scriptsPart = canonicalScripts.begin();
+         scriptsPart != canonicalScripts.end(); ++scriptsPart, ++targetPart) {
+        if (targetPart == canonicalTarget.end() ||
+            FoldAscii(targetPart->generic_string()) !=
+                FoldAscii(scriptsPart->generic_string())) {
+            return false;
+        }
+    }
+
+    mapped = canonicalScripts;
+    for (; targetPart != canonicalTarget.end(); ++targetPart) {
+        if (*targetPart == "." || *targetPart == "..") {
+            return false;
+        }
+        mapped /= *targetPart;
+    }
+    return true;
+}
+
+} // namespace
 
 ScriptCompiler& ScriptCompiler::Get() {
     static ScriptCompiler instance;
@@ -301,28 +340,10 @@ bool ScriptCompiler::CreateScriptTemplate(const std::string& scriptName,
         fs::path td(targetDir);
         fs::path sd(scriptsPath);
         try {
-            fs::path canonTd = fs::weakly_canonical(td);
-            fs::path canonSd = fs::weakly_canonical(sd);
-            
-            std::string strTd = canonTd.string();
-            std::string strSd = canonSd.string();
-            
-#if defined(__APPLE__) || defined(_WIN32)
-            std::transform(strTd.begin(), strTd.end(), strTd.begin(), ::tolower);
-            std::transform(strSd.begin(), strSd.end(), strSd.begin(), ::tolower);
-#endif
-            
-            bool inScripts = false;
-            if (strTd == strSd) {
-                inScripts = true;
-            } else if (strTd.size() > strSd.size() && strTd.substr(0, strSd.size()) == strSd) {
-                char nextChar = strTd[strSd.size()];
-                if (nextChar == '/' || nextChar == '\\') {
-                    inScripts = true;
-                }
-            }
-            
-            destDir = inScripts ? td : sd;
+            fs::path mappedTarget;
+            destDir = MapIntoScriptsDirectory(td, sd, mappedTarget)
+                          ? mappedTarget
+                          : sd;
         } catch (...) {
             destDir = fs::path(scriptsPath);
         }
