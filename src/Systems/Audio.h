@@ -6,6 +6,12 @@
 #include <memory>
 #include <string>
 
+#ifdef PlaySound
+// windows.h aliases this token to PlaySoundA/PlaySoundW, including when it is
+// used as a C++ member name. Preserve the engine's cross-platform facade ABI.
+#undef PlaySound
+#endif
+
 struct ma_engine;
 struct ma_sound;
 
