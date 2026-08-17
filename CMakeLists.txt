@@ -316,6 +316,18 @@ target_link_libraries(molga_shaderc PRIVATE
     SDL3::SDL3-static
     molga_warnings
 )
+if(WIN32)
+    # The vendored shadercross target links DXC through its import library.
+    # Put the matching vendored DLLs beside the host tool so Windows cannot
+    # resolve an unrelated system/Visual Studio dxcompiler.dll first.
+    add_custom_command(TARGET molga_shaderc POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:dxcompiler>
+                $<TARGET_FILE:dxildll>
+                $<TARGET_FILE_DIR:molga_shaderc>
+        COMMENT "Copying vendored DXC runtime beside molga_shaderc"
+        VERBATIM)
+endif()
 
 file(GLOB_RECURSE MOLGA_SHADER_INPUTS CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/src/Shaders/*.hlsl"
