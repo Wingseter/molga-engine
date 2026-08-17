@@ -37,12 +37,18 @@ public:
 
     // Get world position (considering parent transforms)
     Vector2 GetWorldPosition() const;
+    void SetWorldPosition(const Vector2& worldPosition);
 
     // Get world rotation
     float GetWorldRotation() const;
+    void SetWorldRotation(float worldDegrees);
 
     // Get world scale
     Vector2 GetWorldScale() const;
+    // Atomically converts a desired world scale to local space. Returns false
+    // without changing this Transform when a parent world-scale axis is too
+    // close to zero to invert safely.
+    bool TrySetWorldScale(const Vector2& worldScale, float epsilon = 1.0e-6f);
 
     // Serialization
     void Serialize(nlohmann::json& j) const override;

@@ -1,14 +1,22 @@
 #pragma once
 
 #include "EditorWindow.h"
-#include "Rendering/Framebuffer.h"
+#include "Rendering/RenderTarget.h"
 #include "Rendering/Camera2D.h"
 #include "Editor/ViewportMath.h"
 #include "Editor/Gizmos/TransformGizmo.h"
+#include "Editor/EditorPreferences.h"
+#include "Rendering/PostProcessPipeline.h"
+#include "Rendering/LightingPipeline2D.h"
 #include <imgui.h>
 #include <memory>
 #include <vector>
 #include <functional>
+#include <filesystem>
+#include <string>
+#include <unordered_set>
+#include <cstdint>
+#include <nlohmann/json.hpp>
 
 class Renderer;
 class Shader;
@@ -45,16 +53,20 @@ private:
     Shader*     spriteShader_ = nullptr;
     std::vector<std::shared_ptr<GameObject>>* gameObjects_ = nullptr;
 
-    // 오프스크린 FBO
-    Framebuffer fbo_;
+    // Scene View 전용 오프스크린 타깃
+    molga::RenderTarget sceneTarget_;
+    molga::PostProcessPipeline postProcessPipeline_;
+    molga::LightingPipeline2D lightingPipeline_;
+    molga::EditorPreferences preferences_;
+    std::filesystem::path preferencePath_;
+    std::unordered_set<std::string> postProcessWarnings_;
+    std::unordered_set<std::string> lightingWarnings_;
 
     // 에디터 전용 Camera2D
     std::unique_ptr<Camera2D> editorCamera_;
 
     // 그리드 셰이더
-    std::unique_ptr<Shader> gridShader_;
-    unsigned int gridVAO_ = 0;
-    unsigned int gridVBO_ = 0;
+    Shader* gridShader_ = nullptr;
     bool gridShaderLoaded_ = false;
 
     // 뷰포트 크기 추적
@@ -67,6 +79,16 @@ private:
     float lastMouseY_   = 0.f;
 
     molga::TransformGizmo gizmo_;
+    enum class LightingHandleKind {
+        None,
+        PointRadius,
+        PolygonVertex,
+    };
+    LightingHandleKind lightingHandleKind_ = LightingHandleKind::None;
+    unsigned int lightingHandleObjectId_ = 0;
+    std::uint64_t lightingHandleInstanceId_ = 0;
+    int lightingHandleVertex_ = -1;
+    nlohmann::json lightingHandleBefore_;
 
     // 우클릭 컨텍스트 메뉴: 우클릭한 지점의 월드 좌표(생성 위치)
     float ctxWorldX_ = 0.f;
@@ -74,13 +96,17 @@ private:
 
     // 초기화
     void InitGridShader();
-    void InitGridQuad();
 
     // 씬 렌더
     void RenderSceneToFBO(float vpW, float vpH);
+    void DrawSceneBase();
+    void SavePreferences();
     void DrawGrid();
     void DrawSprites();
-
+    void DrawUI(float vpW, float vpH);
+    void DrawCameraOutputGizmos(ImVec2 panelPos, ImVec2 panelSize);
+    bool DrawLightingHandles(ImVec2 panelPos, ImVec2 panelSize);
+    void CancelLightingHandleDrag();
     // 입력 처리
     void HandleInput(ImVec2 panelPos, ImVec2 panelSize);
 

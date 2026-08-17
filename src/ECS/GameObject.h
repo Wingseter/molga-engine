@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 #include <memory>
@@ -13,7 +14,7 @@ class World;
 class GameObject {
 public:
     explicit GameObject(const std::string& name = "GameObject");
-    ~GameObject();
+    ~GameObject() noexcept;
 
     // World association
     World* GetWorld() const { return world; }
@@ -111,20 +112,12 @@ public:
     template<typename T>
     void RemoveComponent() {
         static_assert(std::is_base_of<Component, T>::value, "T must derive from Component");
-        auto it = componentMap.find(ComponentTypeID::Get<T>());
-        if (it != componentMap.end()) {
-            Component* raw = it->second.get();
-            if (it->second->IsEnabled()) it->second->OnDisable();
-            it->second->OnDetach();
-            componentOrder_.erase(
-                std::remove(componentOrder_.begin(), componentOrder_.end(), raw),
-                componentOrder_.end());
-            componentMap.erase(it);
-        }
+        RemoveComponentById(ComponentTypeID::Get<T>());
     }
 
     // Add component from raw pointer (takes ownership, uses runtime type ID)
     Component* AddComponentRaw(Component* component);
+    void RemoveComponentById(size_t typeId);
 
     // Get all components (returns vector of raw pointers for iteration)
     std::vector<Component*> GetComponents() const;
@@ -132,9 +125,13 @@ public:
     // Hierarchy
     GameObject* GetParent() const { return parent; }
     const std::vector<GameObject*>& GetChildren() const { return children; }
+    std::size_t GetSiblingIndex() const;
 
     // 성공 시 true. self/cycle을 만들면 거부하고 false를 반환한다.
     bool SetParent(GameObject* newParent);
+    // Keeps the current parent and moves this object to an exact sibling slot.
+    // Root ordering is owned by the World's flat object vector instead.
+    bool SetSiblingIndex(std::size_t index);
     void AddChild(GameObject* child);
     void RemoveChild(GameObject* child);
 
@@ -158,7 +155,7 @@ public:
 
     // Notify all components that this GameObject is being destroyed.
     // Safe to call multiple times (idempotent via destroyed flag).
-    void NotifyDestroy();
+    void NotifyDestroy() noexcept;
 
     // Script lifecycle hooks (avoid duplicating dynamic_cast loops in entry points)
     void FixedUpdateScripts(float fixedDt);
@@ -174,6 +171,16 @@ public:
     void ResolveAssets();
 
 private:
+    struct ComponentIdentity {
+        size_t typeId = 0;
+        std::uint64_t instanceId = 0;
+    };
+
+    std::vector<ComponentIdentity> SnapshotComponentIdentities() const;
+    Component* ResolveComponent(const ComponentIdentity& identity);
+    void InvokeOnDisable(Component* component);
+    void InvokeOnDestroy(Component* component);
+
     static unsigned int nextID;
 
     unsigned int id;
@@ -186,6 +193,14 @@ private:
     std::unordered_map<size_t, std::unique_ptr<Component>> componentMap;
     // 삽입 순서를 보존하는 컴포넌트 목록(결정적 실행 순서). 소유권은 map이 가진다.
     std::vector<Component*> componentOrder_;
+    // Guards OnDisable against reentrant component removal. An OnDisable
+    // callback may remove itself; the removal path must not invoke it twice.
+    std::vector<std::uint64_t> disableCallbacksInProgress_;
+    std::vector<std::uint64_t> disableCallbacksCompletedDuringDestroy_;
+    // OnDestroy remains exactly-once even if a destruction callback removes
+    // its own component and re-enters the removal path.
+    std::vector<std::uint64_t> destroyCallbacksInProgress_;
+    std::vector<std::uint64_t> destroyCallbacksCompleted_;
 
     GameObject* parent = nullptr;
     std::vector<GameObject*> children;

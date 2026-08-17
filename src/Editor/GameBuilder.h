@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Core/BuildProfile.h"
+#include "../Core/BuildPlan.h"
 #include <string>
 #include <vector>
 
@@ -29,9 +30,12 @@ private:
     bool CreateOutputDirectory(const std::string& path);
     bool CopyAssets(const std::string& outputPath);
     bool CopyShaders(const std::string& outputPath);
-    bool GenerateGameConfig(const BuildSettings& settings, const std::string& outputPath);
+    bool GenerateGameConfig(const BuildSettings& settings, const BuildPlan& plan, const std::string& outputPath);
     bool CopyExecutable(const std::string& outputPath, const std::string& gameName);
-    bool CopyScenes(const BuildSettings& settings, const std::string& outputPath);
+    bool CopyScenes(const BuildPlan& plan, const std::string& outputPath);
+    bool CopyUserScripts(const std::string& outputPath, std::string& outLibraryPath);
+    bool EmitAssetCatalog(const std::string& outputPath);
+    bool CopyPlaceholderResource(const std::string& outputPath);
 
     std::string lastError;
     float progress = 0.0f;

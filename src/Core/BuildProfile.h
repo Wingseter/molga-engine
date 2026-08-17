@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Rendering/OutputPresentationLayout.h"
+
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -9,10 +11,14 @@ struct BuildWindowSettings {
     int height = 600;
     bool fullscreen = false;
     bool resizable = true;
+    molga::GameOutputScaleMode outputScaleMode =
+        molga::GameOutputScaleMode::Native;
 };
 
 struct BuildProfile {
-    int schemaVersion = 1;
+    static constexpr int CurrentSchemaVersion = 2;
+
+    int schemaVersion = CurrentSchemaVersion;
     std::string gameName = "MyGame";
     std::string productVersion = "0.1.0";
     std::string companyName = "Molga";

@@ -3,27 +3,40 @@
 #include "Core/PackageLayout.h"
 #include "Core/SmokeReport.h"
 #include "SmokeTestSupport.h"
+#include "ShaderPackageTestSupport.h"
 
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
-TEST_CASE("build package requires executable config scene assets and shaders") {
+TEST_CASE("build package requires executable config scene assets and MSL bundle") {
     test_support::TempDirectory temp{"build-smoke"};
     const fs::path root = temp.Path();
 
     fs::create_directories(root / "Scenes");
     fs::create_directories(root / "Assets");
-    test_support::WriteText(root / "SmokeGame", "runtime");
-    test_support::WriteText(root / "game.json", "{}");
+    const std::string executableName = PackageLayout::ExecutableNameFor("SmokeGame");
+    test_support::WriteText(root / executableName, "runtime");
     test_support::WriteText(root / "Scenes/main.json", "{}");
+    const std::string shaderHash =
+        test_support::WriteMinimalMslShaderBundle(root);
+    test_support::WriteText(
+        root / "game.json",
+        test_support::MinimalPackageGameConfig(shaderHash).dump(2));
+    fs::remove_all(root / "ShaderBundle");
 
     std::string error;
-    CHECK_FALSE(PackageLayout::Validate(root, "SmokeGame", error));
-    CHECK(error.find("Shaders") != std::string::npos);
+    CHECK_FALSE(PackageLayout::Validate(root, executableName, error));
+    CHECK(error.find("ShaderBundle") != std::string::npos);
 
-    test_support::WriteText(root / "Shaders/sprite.vert", "shader");
-    CHECK(PackageLayout::Validate(root, "SmokeGame", error));
+    test_support::WriteMinimalMslShaderBundle(root);
+
+    // asset_catalog.json and placeholder resource are now required
+    CHECK_FALSE(PackageLayout::Validate(root, executableName, error));
+    test_support::WriteText(root / "asset_catalog.json", "{\"schemaVersion\":1,\"records\":[]}");
+    fs::create_directories(root / "Resources");
+    test_support::WriteText(root / "Resources/missing_texture.png", "placeholder");
+    CHECK(PackageLayout::Validate(root, executableName, error));
 }
 
 TEST_CASE("smoke report round trips through json") {
@@ -36,7 +49,81 @@ TEST_CASE("smoke report round trips through json") {
     written.scenePath = "Scenes/main.json";
     written.objectCount = 1;
     written.frames = 3;
+    written.graphicsApi = "sdlgpu";
+    written.graphicsDriver = "metal";
+    written.osVersion = "macOS 26.5.1";
+    written.architecture = "arm64";
+    written.swapchainFormat = "BGRA8";
+    written.outputTextureFormat = "SRGBA8";
+    written.shaderArtifactFormat = "msl";
+    written.shaderManifestSha256 = std::string(64, 'a');
+    written.gpuRenderPasses = 4;
+    written.gpuUploadBytes = 4096;
+    written.gpuValidationEnabled = true;
+    written.gpuValidationErrors = 0;
+    written.finalPixelProbeValid = true;
+    written.finalPixelR = 12;
+    written.finalPixelG = 34;
+    written.finalPixelB = 56;
+    written.finalPixelA = 255;
+    written.benchmarkWarmupFrames = 120;
+    written.benchmarkMeasuredFrames = 600;
+    written.benchmarkCpuP50Ms = 1.25;
+    written.benchmarkCpuP95Ms = 2.5;
     written.assetsResolved = true;
+    written.assetCatalogLoaded = true;
+    written.assetCatalogRecords = 2;
+    written.spriteAssetsResolved = 1;
+    written.spriteAssetsMissing = 0;
+    written.sceneTransitions = 2;
+    written.uiDrivenSceneTransitions = 2;
+    written.fontAssetsResolved = true;
+    written.fontAssetsResolvedCount = 1;
+    written.fontAssetsMissing = 0;
+    written.koreanTitlePreserved = true;
+    written.koreanFontGlyphsPresent = true;
+    written.koreanGlyphAtlasReady = true;
+    written.koreanGlyphQuads = 8;
+    written.uiComponentsLoaded = 5;
+    written.platformerPlayersLoaded = 1;
+    written.physicsBodiesLoaded = 2;
+    written.physicsShapesLoaded = 2;
+    written.rotatedTerrainVerified = true;
+    written.physicsContactObserved = true;
+    written.restitutionResponseObserved = true;
+    written.frictionResponseObserved = true;
+    written.saveRoundtrip = true;
+    written.scriptDrivenPrefsSaved = true;
+    written.scriptDrivenSlotSaved = true;
+    written.scriptDrivenPersistence = true;
+    written.postProcessed = true;
+    written.postProcessFallback = false;
+    written.postProcessPasses = 7;
+    written.postProcessProfileGuid = "dddddddddddddddddddddddddddddddd";
+    written.selectedCameraCount = 2;
+    written.renderedCameraCount = 2;
+    written.postProcessedCameraCount = 1;
+    written.postProcessFallbackCameraCount = 0;
+    written.lightingAppliedCameraCount = 1;
+    written.lightingFallbackCameraCount = 0;
+    written.shadowFallbackCameraCount = 0;
+    written.selectedLightCount = 1;
+    written.shadowedLightCount = 1;
+    written.shadowCasterDrawCount = 1;
+    written.lightingPasses = 1;
+    written.shadowPasses = 1;
+    written.drawCalls = 5;
+    written.batches = 2;
+    written.textureBinds = 4;
+    written.shaderSwitches = 1;
+    written.outputCameraPasses = 2;
+    written.submittedSprites = 10;
+    written.submittedCommands = 12;
+    written.batchFlushes = 3;
+    written.batchBreaks = 1;
+    written.maxSpritesPerBatch = 8;
+    written.verticesUploadedBytes = 128;
+    written.queueSortNanos = 5000;
     REQUIRE(written.Save(path));
 
     SmokeReport loaded;
@@ -44,5 +131,70 @@ TEST_CASE("smoke report round trips through json") {
     CHECK(loaded.status == "ok");
     CHECK(loaded.objectCount == 1);
     CHECK(loaded.frames == 3);
+    CHECK(loaded.graphicsApi == "sdlgpu");
+    CHECK(loaded.graphicsDriver == "metal");
+    CHECK(loaded.shaderManifestSha256 == std::string(64, 'a'));
+    CHECK(loaded.gpuRenderPasses == 4);
+    CHECK(loaded.gpuUploadBytes == 4096);
+    CHECK(loaded.gpuValidationEnabled);
+    CHECK(loaded.gpuValidationErrors == 0);
+    CHECK(loaded.finalPixelProbeValid);
+    CHECK(loaded.finalPixelA == 255);
+    CHECK(loaded.benchmarkMeasuredFrames == 600);
+    CHECK(loaded.benchmarkCpuP95Ms == doctest::Approx(2.5));
     CHECK(loaded.assetsResolved);
+    CHECK(loaded.assetCatalogLoaded);
+    CHECK(loaded.assetCatalogRecords == 2);
+    CHECK(loaded.spriteAssetsResolved == 1);
+    CHECK(loaded.spriteAssetsMissing == 0);
+    CHECK(loaded.sceneTransitions == 2);
+    CHECK(loaded.uiDrivenSceneTransitions == 2);
+    CHECK(loaded.fontAssetsResolved);
+    CHECK(loaded.fontAssetsResolvedCount == 1);
+    CHECK(loaded.fontAssetsMissing == 0);
+    CHECK(loaded.koreanTitlePreserved);
+    CHECK(loaded.koreanFontGlyphsPresent);
+    CHECK(loaded.koreanGlyphAtlasReady);
+    CHECK(loaded.koreanGlyphQuads == 8);
+    CHECK(loaded.uiComponentsLoaded == 5);
+    CHECK(loaded.platformerPlayersLoaded == 1);
+    CHECK(loaded.physicsBodiesLoaded == 2);
+    CHECK(loaded.physicsShapesLoaded == 2);
+    CHECK(loaded.rotatedTerrainVerified);
+    CHECK(loaded.physicsContactObserved);
+    CHECK(loaded.restitutionResponseObserved);
+    CHECK(loaded.frictionResponseObserved);
+    CHECK(loaded.saveRoundtrip);
+    CHECK(loaded.scriptDrivenPrefsSaved);
+    CHECK(loaded.scriptDrivenSlotSaved);
+    CHECK(loaded.scriptDrivenPersistence);
+    CHECK(loaded.postProcessed);
+    CHECK_FALSE(loaded.postProcessFallback);
+    CHECK(loaded.postProcessPasses == 7);
+    CHECK(loaded.postProcessProfileGuid ==
+          "dddddddddddddddddddddddddddddddd");
+    CHECK(loaded.selectedCameraCount == 2);
+    CHECK(loaded.renderedCameraCount == 2);
+    CHECK(loaded.postProcessedCameraCount == 1);
+    CHECK(loaded.postProcessFallbackCameraCount == 0);
+    CHECK(loaded.lightingAppliedCameraCount == 1);
+    CHECK(loaded.lightingFallbackCameraCount == 0);
+    CHECK(loaded.shadowFallbackCameraCount == 0);
+    CHECK(loaded.selectedLightCount == 1);
+    CHECK(loaded.shadowedLightCount == 1);
+    CHECK(loaded.shadowCasterDrawCount == 1);
+    CHECK(loaded.lightingPasses == 1);
+    CHECK(loaded.shadowPasses == 1);
+    CHECK(loaded.drawCalls == 5);
+    CHECK(loaded.batches == 2);
+    CHECK(loaded.textureBinds == 4);
+    CHECK(loaded.shaderSwitches == 1);
+    CHECK(loaded.outputCameraPasses == 2);
+    CHECK(loaded.submittedSprites == 10);
+    CHECK(loaded.submittedCommands == 12);
+    CHECK(loaded.batchFlushes == 3);
+    CHECK(loaded.batchBreaks == 1);
+    CHECK(loaded.maxSpritesPerBatch == 8);
+    CHECK(loaded.verticesUploadedBytes == 128);
+    CHECK(loaded.queueSortNanos == 5000);
 }

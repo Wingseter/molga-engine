@@ -399,8 +399,8 @@ LINMATH_H_FUNC void mat4x4_perspective(mat4x4 m, float y_fov, float aspect, floa
 }
 LINMATH_H_FUNC void mat4x4_look_at(mat4x4 m, vec3 const eye, vec3 const center, vec3 const up)
 {
-    /* Adapted from Android's OpenGL Matrix.java.                        */
-    /* See the OpenGL GLUT documentation for gluLookAt for a description */
+    /* Adapted from Android's Matrix.java.                               */
+    /* See the original look-at documentation for a description.        */
     /* of the algorithm. We implement it in a straightforward way:       */
 
     /* TODO: The negation of of can be spared by swapping the order of

@@ -1,9 +1,12 @@
 #include "GameObject.h"
 #include "Component.h"
 #include "../Scripting/Script.h"
+#include "../Scripting/ScriptInvocationBoundary.h"
 #include "../Core/World.h"
+#include "Common/Log.h"
 #include <algorithm>
 #include <cassert>
+#include <exception>
 
 unsigned int GameObject::nextID = 1;
 
@@ -11,12 +14,127 @@ GameObject::GameObject(const std::string& name)
     : id(nextID++), name(name) {
 }
 
-#include "Common/Log.h"
+std::vector<GameObject::ComponentIdentity> GameObject::SnapshotComponentIdentities() const {
+    std::vector<ComponentIdentity> plan;
+    plan.reserve(componentOrder_.size());
+    for (const Component* component : componentOrder_) {
+        if (component) {
+            plan.push_back({component->GetRuntimeTypeID(), component->GetInstanceID()});
+        }
+    }
+    return plan;
+}
 
-GameObject::~GameObject() {
+Component* GameObject::ResolveComponent(const ComponentIdentity& identity) {
+    auto it = componentMap.find(identity.typeId);
+    if (it == componentMap.end() ||
+        it->second->GetInstanceID() != identity.instanceId) {
+        return nullptr;
+    }
+    return it->second.get();
+}
+
+void GameObject::InvokeOnDisable(Component* component) {
+    if (!component) return;
+    const std::uint64_t instanceId = component->GetInstanceID();
+    if (destroyed &&
+        std::find(disableCallbacksCompletedDuringDestroy_.begin(),
+                  disableCallbacksCompletedDuringDestroy_.end(),
+                  instanceId) != disableCallbacksCompletedDuringDestroy_.end()) {
+        return;
+    }
+    if (std::find(disableCallbacksInProgress_.begin(),
+                  disableCallbacksInProgress_.end(),
+                  instanceId) != disableCallbacksInProgress_.end()) {
+        return;
+    }
+
+    disableCallbacksInProgress_.push_back(instanceId);
+    auto finish = [&]() {
+        auto it = std::find(disableCallbacksInProgress_.begin(),
+                            disableCallbacksInProgress_.end(), instanceId);
+        if (it != disableCallbacksInProgress_.end()) {
+            disableCallbacksInProgress_.erase(it);
+        }
+    };
+    std::exception_ptr error;
+    try {
+        if (auto* script = dynamic_cast<Script*>(component)) {
+            const ScriptHandle handle = script->GetHandle();
+            Script* resolved = world ? ScriptInvocationBoundary::Resolve(
+                *world, handle, true, true, true) : nullptr;
+            if (resolved == script) {
+                ScriptInvocationBoundary::Invoke(
+                    *world, handle, ScriptPhase::OnDisable,
+                    [](Script& current) { current.OnDisable(); }, true, true);
+            } else {
+                // Component removal erases the lookup identity before invoking
+                // teardown, but the caller retains unique ownership.
+                ScriptInvocationBoundary::InvokeDetached(
+                    *script, ScriptPhase::OnDisable,
+                    [](Script& current) { current.OnDisable(); });
+            }
+        } else {
+            component->OnDisable();
+        }
+    } catch (...) {
+        error = std::current_exception();
+    }
+    finish();
+    if (destroyed &&
+        std::find(disableCallbacksCompletedDuringDestroy_.begin(),
+                  disableCallbacksCompletedDuringDestroy_.end(),
+                  instanceId) == disableCallbacksCompletedDuringDestroy_.end()) {
+        disableCallbacksCompletedDuringDestroy_.push_back(instanceId);
+    }
+    if (error) std::rethrow_exception(error);
+}
+
+void GameObject::InvokeOnDestroy(Component* component) {
+    if (!component) return;
+    const std::uint64_t instanceId = component->GetInstanceID();
+    if (std::find(destroyCallbacksCompleted_.begin(),
+                  destroyCallbacksCompleted_.end(),
+                  instanceId) != destroyCallbacksCompleted_.end() ||
+        std::find(destroyCallbacksInProgress_.begin(),
+                  destroyCallbacksInProgress_.end(),
+                  instanceId) != destroyCallbacksInProgress_.end()) {
+        return;
+    }
+
+    destroyCallbacksInProgress_.push_back(instanceId);
+    std::exception_ptr error;
+    try {
+        component->OnDestroy();
+    } catch (...) {
+        error = std::current_exception();
+    }
+    auto active = std::find(destroyCallbacksInProgress_.begin(),
+                            destroyCallbacksInProgress_.end(), instanceId);
+    if (active != destroyCallbacksInProgress_.end()) {
+        destroyCallbacksInProgress_.erase(active);
+    }
+    if (std::find(destroyCallbacksCompleted_.begin(),
+                  destroyCallbacksCompleted_.end(),
+                  instanceId) == destroyCallbacksCompleted_.end()) {
+        destroyCallbacksCompleted_.push_back(instanceId);
+    }
+    if (error) std::rethrow_exception(error);
+}
+
+GameObject::~GameObject() noexcept {
     NotifyDestroy();  // destroyed flag prevents double-call
-    for (auto* comp : componentOrder_) {
-        comp->OnDetach();
+    const auto detachPlan = SnapshotComponentIdentities();
+    for (const auto& identity : detachPlan) {
+        Component* component = ResolveComponent(identity);
+        if (!component) continue;
+        try {
+            component->OnDetach();
+        } catch (const std::exception& error) {
+            Log::Error("GameObject", "OnDetach failed on '" + name + "': " + error.what());
+        } catch (...) {
+            Log::Error("GameObject", "OnDetach failed on '" + name + "'.");
+        }
     }
     componentOrder_.clear();
     componentMap.clear();
@@ -59,6 +177,27 @@ bool GameObject::SetParent(GameObject* newParent) {
     return true;
 }
 
+std::size_t GameObject::GetSiblingIndex() const {
+    if (!parent) return 0;
+    const auto& siblings = parent->children;
+    const auto it = std::find(siblings.begin(), siblings.end(), this);
+    return it == siblings.end()
+        ? 0
+        : static_cast<std::size_t>(std::distance(siblings.begin(), it));
+}
+
+bool GameObject::SetSiblingIndex(std::size_t index) {
+    if (!parent) return false;
+    auto& siblings = parent->children;
+    const auto current = std::find(siblings.begin(), siblings.end(), this);
+    if (current == siblings.end()) return false;
+    GameObject* object = *current;
+    siblings.erase(current);
+    index = std::min(index, siblings.size());
+    siblings.insert(siblings.begin() + static_cast<std::ptrdiff_t>(index), object);
+    return true;
+}
+
 bool GameObject::IsAncestorOf(const GameObject* node) const {
     for (const GameObject* p = (node ? node->parent : nullptr); p; p = p->parent) {
         if (p == this) return true;
@@ -92,22 +231,33 @@ void GameObject::RemoveChild(GameObject* child) {
 }
 
 void GameObject::Update(float dt) {
-    if (!active) return;
+    if (!active || destroyed) return;
 
-    for (auto* comp : componentOrder_) {
-        if (comp->IsEnabled()) {
-            comp->Update(dt);
+    const auto plan = SnapshotComponentIdentities();
+    for (const auto& identity : plan) {
+        if (!active || destroyed) break;
+        Component* component = ResolveComponent(identity);
+        if (!component || !component->IsEnabled()) continue;
+        if (auto* script = dynamic_cast<Script*>(component); script && world) {
+            const ScriptHandle handle = script->GetHandle();
+            ScriptInvocationBoundary::Invoke(
+                *world, handle, ScriptPhase::Update,
+                [dt](Script& current) { current.Update(dt); });
+        } else {
+            // Engine Components intentionally remain fail-loud.
+            component->Update(dt);
         }
     }
 }
 
 void GameObject::Render() {
-    if (!active) return;
+    if (!active || destroyed) return;
 
-    for (auto* comp : componentOrder_) {
-        if (comp->IsEnabled()) {
-            comp->Render();
-        }
+    const auto plan = SnapshotComponentIdentities();
+    for (const auto& identity : plan) {
+        if (!active || destroyed) break;
+        Component* component = ResolveComponent(identity);
+        if (component && component->IsEnabled()) component->Render();
     }
 }
 
@@ -125,27 +275,103 @@ Component* GameObject::AddComponentRaw(Component* component) {
     return component;
 }
 
+void GameObject::RemoveComponentById(size_t typeId) {
+    auto it = componentMap.find(typeId);
+    if (it == componentMap.end()) return;
+
+    // Remove the identity from both containers before entering user code.
+    // Reentrant removal now sees an absent component, while local ownership
+    // keeps the removed instance alive through both lifecycle callbacks.
+    std::unique_ptr<Component> removed = std::move(it->second);
+    Component* raw = removed.get();
+    const std::string typeName = removed->GetTypeName();
+    componentOrder_.erase(
+        std::remove(componentOrder_.begin(), componentOrder_.end(), raw),
+        componentOrder_.end());
+    componentMap.erase(it);
+
+    if (removed->IsEnabled()) {
+        try {
+            InvokeOnDisable(removed.get());
+        } catch (const std::exception& error) {
+            Log::Error("GameObject", "OnDisable failed while removing '" +
+                typeName + "' from '" + name + "': " + error.what());
+        } catch (...) {
+            Log::Error("GameObject", "OnDisable failed while removing '" +
+                typeName + "' from '" + name + "'.");
+        }
+    }
+    if (destroyed) {
+        try {
+            InvokeOnDestroy(removed.get());
+        } catch (const std::exception& error) {
+            Log::Error("GameObject", "OnDestroy failed while removing '" +
+                typeName + "' from '" + name + "': " + error.what());
+        } catch (...) {
+            Log::Error("GameObject", "OnDestroy failed while removing '" +
+                typeName + "' from '" + name + "'.");
+        }
+    }
+    try {
+        removed->OnDetach();
+    } catch (const std::exception& error) {
+        Log::Error("GameObject", "OnDetach failed while removing '" +
+            typeName + "' from '" + name + "': " + error.what());
+    } catch (...) {
+        Log::Error("GameObject", "OnDetach failed while removing '" +
+            typeName + "' from '" + name + "'.");
+    }
+    removed->SetGameObject(nullptr);
+}
+
 std::vector<Component*> GameObject::GetComponents() const {
     return componentOrder_;  // 삽입 순서(결정적)
 }
 
-void GameObject::NotifyDestroy() {
+void GameObject::NotifyDestroy() noexcept {
     if (destroyed) return;
     destroyed = true;
 
-    // Snapshot-based iteration (safe if callbacks modify the component list)
-    std::vector<Component*> snapshot = componentOrder_;
-    for (auto* comp : snapshot) {
-        if (comp->IsEnabled()) comp->OnDisable();
-        comp->OnDestroy();
+    // Re-resolve value identities before every callback: OnDisable can remove
+    // or replace itself or a later component synchronously.
+    const auto plan = SnapshotComponentIdentities();
+    for (const auto& identity : plan) {
+        if (Component* component = ResolveComponent(identity);
+            component && component->IsEnabled()) {
+            try {
+                InvokeOnDisable(component);
+            } catch (const std::exception& error) {
+                Log::Error("GameObject", "OnDisable failed on '" + name + "': " + error.what());
+            } catch (...) {
+                Log::Error("GameObject", "OnDisable failed on '" + name + "'.");
+            }
+        }
+        if (Component* component = ResolveComponent(identity)) {
+            try {
+                InvokeOnDestroy(component);
+            } catch (const std::exception& error) {
+                Log::Error("GameObject", "OnDestroy failed on '" + name + "': " + error.what());
+            } catch (...) {
+                Log::Error("GameObject", "OnDestroy failed on '" + name + "'.");
+            }
+        }
     }
 }
 
 void GameObject::FixedUpdateScripts(float fixedDt) {
-    if (!active) return;
-    for (auto* comp : componentOrder_) {
-        if (comp->IsEnabled()) {
-            if (auto* script = dynamic_cast<Script*>(comp)) {
+    if (!active || destroyed) return;
+    const auto plan = SnapshotComponentIdentities();
+    for (const auto& identity : plan) {
+        if (!active || destroyed) break;
+        Component* component = ResolveComponent(identity);
+        if (!component || !component->IsEnabled()) continue;
+        if (auto* script = dynamic_cast<Script*>(component)) {
+            if (world) {
+                const ScriptHandle handle = script->GetHandle();
+                ScriptInvocationBoundary::Invoke(
+                    *world, handle, ScriptPhase::FixedUpdate,
+                    [fixedDt](Script& current) { current.FixedUpdate(fixedDt); });
+            } else {
                 script->FixedUpdate(fixedDt);
             }
         }
@@ -153,10 +379,19 @@ void GameObject::FixedUpdateScripts(float fixedDt) {
 }
 
 void GameObject::LateUpdateScripts(float dt) {
-    if (!active) return;
-    for (auto* comp : componentOrder_) {
-        if (comp->IsEnabled()) {
-            if (auto* script = dynamic_cast<Script*>(comp)) {
+    if (!active || destroyed) return;
+    const auto plan = SnapshotComponentIdentities();
+    for (const auto& identity : plan) {
+        if (!active || destroyed) break;
+        Component* component = ResolveComponent(identity);
+        if (!component || !component->IsEnabled()) continue;
+        if (auto* script = dynamic_cast<Script*>(component)) {
+            if (world) {
+                const ScriptHandle handle = script->GetHandle();
+                ScriptInvocationBoundary::Invoke(
+                    *world, handle, ScriptPhase::LateUpdate,
+                    [dt](Script& current) { current.LateUpdate(dt); });
+            } else {
                 script->LateUpdate(dt);
             }
         }
@@ -164,42 +399,119 @@ void GameObject::LateUpdateScripts(float dt) {
 }
 
 void GameObject::AwakeScripts() {
-    if (!active) return;
-    for (auto* comp : componentOrder_) {
-        if (comp->IsEnabled() && !comp->HasAwoken()) {
-            comp->Awake();
-            comp->MarkAwoken();
+    if (!active || destroyed) return;
+    const auto plan = SnapshotComponentIdentities();
+    std::exception_ptr firstError;
+    for (const auto& identity : plan) {
+        if (!active || destroyed) break;
+        Component* comp = ResolveComponent(identity);
+        if (comp && comp->IsEnabled() && !comp->HasAwoken()) {
+            if (auto* script = dynamic_cast<Script*>(comp); script && world) {
+                const ScriptHandle handle = script->GetHandle();
+                if (ScriptInvocationBoundary::Invoke(
+                        *world, handle, ScriptPhase::Awake,
+                        [](Script& current) { current.Awake(); })) {
+                    if (Component* stillPresent = ResolveComponent(identity)) {
+                        stillPresent->MarkAwoken();
+                    }
+                }
+                continue;
+            }
+            try {
+                comp->Awake();
+                if (Component* stillPresent = ResolveComponent(identity)) {
+                    stillPresent->MarkAwoken();
+                }
+            } catch (...) {
+                if (!firstError) firstError = std::current_exception();
+            }
         }
     }
+    if (firstError) std::rethrow_exception(firstError);
 }
 
 void GameObject::EnableScripts() {
-    if (!active) return;
-    for (auto* comp : componentOrder_) {
-        if (comp->IsEnabled()) comp->OnEnable();
+    if (!active || destroyed) return;
+    const auto plan = SnapshotComponentIdentities();
+    std::exception_ptr firstError;
+    for (const auto& identity : plan) {
+        if (!active || destroyed) break;
+        Component* comp = ResolveComponent(identity);
+        if (!comp) continue;
+        if (!comp->IsEnabled()) continue;
+        if (auto* script = dynamic_cast<Script*>(comp); script && world) {
+            ScriptInvocationBoundary::Invoke(
+                *world, script->GetHandle(), ScriptPhase::OnEnable,
+                [](Script& current) { current.OnEnable(); });
+            continue;
+        }
+        try {
+            comp->OnEnable();
+        } catch (...) {
+            if (!firstError) firstError = std::current_exception();
+        }
     }
+    if (firstError) std::rethrow_exception(firstError);
 }
 
 void GameObject::DisableScripts() {
-    for (auto* comp : componentOrder_) {
-        if (comp->IsEnabled()) comp->OnDisable();
+    if (destroyed) return;
+    const auto plan = SnapshotComponentIdentities();
+    std::exception_ptr firstError;
+    for (const auto& identity : plan) {
+        Component* component = ResolveComponent(identity);
+        if (!component || !component->IsEnabled()) continue;
+        try {
+            InvokeOnDisable(component);
+        } catch (...) {
+            if (!firstError) firstError = std::current_exception();
+        }
     }
+    if (firstError) std::rethrow_exception(firstError);
 }
 
 void GameObject::StartScripts() {
-    if (!active) return;
-    for (auto* comp : componentOrder_) {
+    if (!active || destroyed) return;
+    const auto plan = SnapshotComponentIdentities();
+    std::exception_ptr firstError;
+    for (const auto& identity : plan) {
+        if (!active || destroyed) break;
+        Component* comp = ResolveComponent(identity);
+        if (!comp) continue;
         if (!comp->IsEnabled()) continue;
         if (!comp->HasStarted()) {
-            comp->Start();
-            comp->MarkStarted();
+            if (auto* script = dynamic_cast<Script*>(comp); script && world) {
+                const ScriptHandle handle = script->GetHandle();
+                if (ScriptInvocationBoundary::Invoke(
+                        *world, handle, ScriptPhase::Start,
+                        [](Script& current) { current.Start(); })) {
+                    if (Component* stillPresent = ResolveComponent(identity)) {
+                        stillPresent->MarkStarted();
+                    }
+                }
+                continue;
+            }
+            try {
+                comp->Start();
+                if (Component* stillPresent = ResolveComponent(identity)) {
+                    stillPresent->MarkStarted();
+                }
+            } catch (...) {
+                if (!firstError) firstError = std::current_exception();
+            }
         }
     }
+    if (firstError) std::rethrow_exception(firstError);
 }
 
 void GameObject::ResolveAssets() {
-    for (auto* comp : componentOrder_) {
-        if (comp) comp->ResolveAssets();
+    if (destroyed) return;
+    const auto plan = SnapshotComponentIdentities();
+    for (const auto& identity : plan) {
+        if (destroyed) break;
+        if (Component* component = ResolveComponent(identity)) {
+            component->ResolveAssets();
+        }
     }
 }
 

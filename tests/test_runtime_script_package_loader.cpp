@@ -1,0 +1,242 @@
+#include "Core/GameConfig.h"
+#include "Scripting/ScriptPackageLoader.h"
+#include "Scripting/ScriptApi.h"
+#include "ECS/BuiltinComponents.h"
+#include "Scripting/ScriptManager.h"
+#include "Scripting/Script.h"
+#include "Systems/Input.h"
+#include "doctest.h"
+
+namespace {
+
+nlohmann::json ValidGameConfig() {
+    return {
+        {"schemaVersion", GameConfig::CurrentSchemaVersion},
+        {"graphics", {
+            {"api", "sdlgpu"},
+            {"driver", "metal"},
+            {"shaderFormat", "msl"},
+            {"shaderManifest", "ShaderBundle/manifest.json"},
+            {"shaderManifestSha256", std::string(64, '0')},
+        }},
+        {"inputActions", {
+            {"schemaVersion", Input::ActionSchemaVersion},
+            {"actions", nlohmann::json::array()}
+        }}
+    };
+}
+
+} // namespace
+
+TEST_CASE("GameConfig parses schema v4 without script manifest") {
+    auto document = ValidGameConfig();
+    document.update({
+        {"gameName", "My Awesome Game"},
+        {"mainScene", "scenes/level1.json"},
+        {"windowWidth", 1024},
+        {"windowHeight", 768},
+        {"fullscreen", true}
+    });
+
+    GameConfig config;
+    bool success = LoadGameConfigFromString(document.dump(), config);
+    REQUIRE(success);
+    CHECK(config.gameName == "My Awesome Game");
+    CHECK(config.mainScene == "scenes/level1.json");
+    CHECK(config.windowWidth == 1024);
+    CHECK(config.windowHeight == 768);
+    CHECK(config.fullscreen == true);
+    CHECK(config.schemaVersion == GameConfig::CurrentSchemaVersion);
+    CHECK(config.resizable);
+    CHECK(config.outputScaleMode == molga::GameOutputScaleMode::Native);
+    CHECK_FALSE(config.scripts.enabled);
+    REQUIRE(config.sceneCatalog.size() == 1);
+    CHECK(config.sceneCatalog[0].id == "scenes/level1.json");
+    CHECK(config.sceneCatalog[0].packagePath == "scenes/level1.json");
+    CHECK(config.startupSceneId == "scenes/level1.json");
+}
+
+TEST_CASE("GameConfig parses schema v4 output mode and resizable setting") {
+    auto document = ValidGameConfig();
+    document.update({
+        {"gameName", "Pixel Game"},
+        {"mainScene", "Scenes/main.json"},
+        {"windowWidth", 320},
+        {"windowHeight", 180},
+        {"fullscreen", false},
+        {"resizable", false},
+        {"outputScaleMode", "IntegerFit"}
+    });
+
+    GameConfig config;
+    REQUIRE(LoadGameConfigFromString(document.dump(), config));
+    CHECK(config.schemaVersion == GameConfig::CurrentSchemaVersion);
+    CHECK_FALSE(config.resizable);
+    CHECK(config.outputScaleMode == molga::GameOutputScaleMode::IntegerFit);
+
+    auto invalidOutputMode = ValidGameConfig();
+    invalidOutputMode["outputScaleMode"] = "Fractional";
+    CHECK_FALSE(LoadGameConfigFromString(invalidOutputMode.dump(), config));
+
+    auto oldSchema = ValidGameConfig();
+    oldSchema["schemaVersion"] = 3;
+    CHECK_FALSE(LoadGameConfigFromString(oldSchema.dump(), config));
+
+    auto missingInputSchema = ValidGameConfig();
+    missingInputSchema.erase("inputActions");
+    CHECK_FALSE(LoadGameConfigFromString(missingInputSchema.dump(), config));
+}
+
+TEST_CASE("GameConfig parses scene catalog and storage identity") {
+    auto document = ValidGameConfig();
+    document.update({
+        {"gameName", "CatalogGame"},
+        {"companyName", "CatalogStudio"},
+        {"mainScene", "Scenes/start.pkg.json"},
+        {"scenes", {"Scenes/start.pkg.json", "Scenes/second.pkg.json"}},
+        {"startupSceneId", "Scenes/start.json"},
+        {"sceneCatalog", {
+            {{"id", "Scenes/start.json"}, {"packagePath", "Scenes/start.pkg.json"}},
+            {{"id", "Levels/second.json"}, {"packagePath", "Scenes/second.pkg.json"}}
+        }}
+    });
+
+    GameConfig config;
+    REQUIRE(LoadGameConfigFromString(document.dump(), config));
+    CHECK(config.companyName == "CatalogStudio");
+    CHECK(config.startupSceneId == "Scenes/start.json");
+    REQUIRE(config.scenes.size() == 2);
+    REQUIRE(config.sceneCatalog.size() == 2);
+    CHECK(config.sceneCatalog[1].id == "Levels/second.json");
+    CHECK(config.sceneCatalog[1].packagePath == "Scenes/second.pkg.json");
+}
+
+TEST_CASE("GameConfig parses with script manifest") {
+    auto document = ValidGameConfig();
+    document["gameName"] = "My Script Game";
+    document["scripts"] = {
+        {"enabled", true},
+        {"library", "Scripts/libUserScripts.dylib"},
+        {"apiVersion", molga::ScriptApiVersion},
+        {"buildHash", "abcdef123456"}
+    };
+
+    GameConfig config;
+    bool success = LoadGameConfigFromString(document.dump(), config);
+    REQUIRE(success);
+    CHECK(config.gameName == "My Script Game");
+    CHECK(config.scripts.enabled);
+    CHECK(config.scripts.library == "Scripts/libUserScripts.dylib");
+    CHECK(config.scripts.apiVersion == molga::ScriptApiVersion);
+    CHECK(config.scripts.buildHash == "abcdef123456");
+}
+
+TEST_CASE("ScriptPackageLoader validation cases") {
+    // A packaged runtime registers the built-in components before loading user
+    // scripts. Mirror that host surface here so script-facing P1 component
+    // methods are retained and exported from this test executable as well.
+    RegisterBuiltinComponents();
+    // Force linker to include Script vtable/methods to avoid dynamic loader lookup failure in tests
+    {
+        struct TestDummyScript : public Script {
+            SCRIPT_CLASS(TestDummyScript)
+        };
+        TestDummyScript ds;
+        nlohmann::json j;
+        ds.Deserialize(j);
+    }
+    // 1. Script disabled
+    {
+        GameConfig config;
+        config.scripts.enabled = false;
+        config.scripts.library = "NonExistentPath.dylib";
+        std::string error;
+        bool success = ScriptPackageLoader::Load(config, false, "", error);
+        CHECK(success);
+        CHECK(error.empty());
+    }
+
+    // 2. Script enabled, empty path
+    {
+        GameConfig config;
+        config.scripts.enabled = true;
+        config.scripts.library = "";
+        config.scripts.apiVersion = molga::ScriptApiVersion;
+        std::string error;
+        bool success = ScriptPackageLoader::Load(config, false, "", error);
+        CHECK_FALSE(success);
+        CHECK(error.find("empty") != std::string::npos);
+    }
+
+    // 3. Script enabled, missing file
+    {
+        GameConfig config;
+        config.scripts.enabled = true;
+        config.scripts.library = "NonExistentPath.dylib";
+        config.scripts.apiVersion = molga::ScriptApiVersion;
+        std::string error;
+        bool success = ScriptPackageLoader::Load(config, false, "", error);
+        CHECK_FALSE(success);
+        CHECK(error.find("not found") != std::string::npos);
+    }
+
+    // 4. Script enabled, missing RegisterScripts
+    {
+        GameConfig config;
+        config.scripts.enabled = true;
+        config.scripts.library = DUMMY_MISSING_REGISTER_LIB_PATH;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
+        std::string error;
+        bool success = ScriptPackageLoader::Load(config, false, "", error);
+        CHECK_FALSE(success);
+        CHECK(error.find("RegisterScripts symbol not found") != std::string::npos);
+    }
+
+    // 5. Script enabled, missing GetScriptApiVersion
+    {
+        GameConfig config;
+        config.scripts.enabled = true;
+        config.scripts.library = DUMMY_MISSING_API_PATH;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
+        std::string error;
+        bool success = ScriptPackageLoader::Load(config, false, "", error);
+        CHECK_FALSE(success);
+        CHECK(error.find("GetScriptApiVersion symbol not found") != std::string::npos);
+    }
+
+    // 6. Script enabled, api version mismatch
+    {
+        GameConfig config;
+        config.scripts.enabled = true;
+        config.scripts.library = DUMMY_MISMATCH_API_PATH;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
+        std::string error;
+        bool success = ScriptPackageLoader::Load(config, false, "", error);
+        CHECK_FALSE(success);
+        CHECK(error.find("API version mismatch") != std::string::npos);
+    }
+
+    // 7. Script enabled, valid load
+    {
+        GameConfig config;
+        config.scripts.enabled = true;
+        config.scripts.library = DUMMY_VALID_LIB_PATH;
+        config.scripts.apiVersion = molga::ScriptApiVersion;
+        std::string error;
+        bool success = ScriptPackageLoader::Load(config, false, "", error);
+        INFO("Error message: " << error);
+        CHECK(success);
+        CHECK(error.empty());
+        
+        // Check ScriptManager registry
+        auto loaded = ScriptManager::Get().GetLoadedLibraries();
+        bool found = false;
+        for (const auto& lib : loaded) {
+            if (lib == DUMMY_VALID_LIB_PATH) {
+                found = true;
+                break;
+            }
+        }
+        CHECK(found);
+    }
+}

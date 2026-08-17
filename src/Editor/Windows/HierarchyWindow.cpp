@@ -9,6 +9,8 @@
 #include "Editor/Editor.h"
 #include "Editor/Commands/ObjectCommands.h"
 #include "Editor/Commands/PrefabCommands.h"
+#include "Editor/Commands/ComponentCommands.h"
+#include "Editor/Selection/SelectionUtils.h"
 #include "../../ECS/Components/PrefabInstance.h"
 #include <imgui.h>
 #include <cstring>
@@ -38,17 +40,44 @@ void HierarchyWindow::OnGUI() {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Draw scene tree
+    // Build the complete visible order before any row handles a Shift click.
+    // A per-root collect/draw loop leaves later roots absent while earlier
+    // roots are processing input.
+    visibleOrder_.clear();
+    std::vector<GameObject*> filteredRoots;
     if (gameObjects) {
         for (auto& obj : *gameObjects) {
             // Only draw root objects (no parent)
             if (obj && !obj->GetParent()) {
                 // Filter by search
                 if (strlen(searchBuffer) == 0 || obj->GetName().find(searchBuffer) != std::string::npos) {
-                    DrawGameObjectNode(obj.get());
+                    filteredRoots.push_back(obj.get());
                 }
             }
         }
+    }
+    CollectVisibleDfs(filteredRoots);
+    for (GameObject* root : filteredRoots) DrawGameObjectNode(root);
+
+    const bool hierarchyFocused = ImGui::IsWindowFocused(
+        ImGuiFocusedFlags_RootAndChildWindows);
+    const ImGuiIO& io = ImGui::GetIO();
+#if defined(__APPLE__)
+    const bool command = io.KeySuper;
+#else
+    const bool command = io.KeyCtrl;
+#endif
+    if (hierarchyFocused && !io.WantTextInput &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+        DeleteSelectedObject();
+    }
+    if (hierarchyFocused && !io.WantTextInput && command &&
+        ImGui::IsKeyPressed(ImGuiKey_D)) {
+        DuplicateSelectedObject();
+    }
+    if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+        !ImGui::IsAnyItemHovered()) {
+        Editor::Get().GetSelection().Clear(molga::SelectionSource::Hierarchy);
     }
 
     // Right-click context menu in empty space
@@ -65,10 +94,31 @@ void HierarchyWindow::OnGUI() {
             }
             ImGui::EndMenu();
         }
+        if (ImGui::BeginMenu("Create UI")) {
+            if (ImGui::MenuItem("Canvas")) CreateUIObject(0);
+            if (ImGui::MenuItem("Image")) CreateUIObject(1);
+            if (ImGui::MenuItem("Label")) CreateUIObject(2);
+            if (ImGui::MenuItem("Button")) CreateUIObject(3);
+            ImGui::EndMenu();
+        }
         ImGui::EndPopup();
     }
 
     ImGui::End();
+}
+
+void HierarchyWindow::CollectVisibleDfs(const std::vector<GameObject*>& roots) {
+    molga::AppendVisibleHierarchyForestDfs(
+        roots,
+        [this](const GameObject& object) {
+            if (isRenaming && renamingObject == &object) return false;
+            if (object.GetChildren().empty()) return false;
+            const ImGuiID id = ImGui::GetID(
+                reinterpret_cast<const void*>(
+                    static_cast<intptr_t>(object.GetID())));
+            return ImGui::GetStateStorage()->GetBool(id, false);
+        },
+        visibleOrder_);
 }
 
 void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
@@ -158,7 +208,21 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 
     // Handle selection
     if (ImGui::IsItemClicked()) {
-        Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
+        const ImGuiIO& io = ImGui::GetIO();
+#if defined(__APPLE__)
+        const bool command = io.KeySuper;
+#else
+        const bool command = io.KeyCtrl;
+#endif
+        auto& selection = Editor::Get().GetSelection();
+        if (io.KeyShift) {
+            selection.SelectRange(visibleOrder_, obj->GetID(), command,
+                                  molga::SelectionSource::Hierarchy);
+        } else if (command) {
+            selection.Toggle(obj->GetID(), molga::SelectionSource::Hierarchy);
+        } else {
+            selection.Select(obj->GetID(), molga::SelectionSource::Hierarchy);
+        }
     }
 
     // Right-click context menu
@@ -170,7 +234,9 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
             renameBuffer[sizeof(renameBuffer) - 1] = '\0';
         }
         if (ImGui::MenuItem((std::string(Icons::Cubes) + " Duplicate").c_str())) {
-            Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
+            if (!Editor::Get().GetSelection().IsSelected(obj->GetID())) {
+                Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
+            }
             DuplicateSelectedObject();
         }
         
@@ -199,7 +265,9 @@ void HierarchyWindow::DrawGameObjectNode(GameObject* obj) {
 
         ImGui::Separator();
         if (ImGui::MenuItem((std::string(Icons::Trash) + " Delete").c_str())) {
-            Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
+            if (!Editor::Get().GetSelection().IsSelected(obj->GetID())) {
+                Editor::Get().GetSelection().Select(obj->GetID(), molga::SelectionSource::Hierarchy);
+            }
             DeleteSelectedObject();
         }
         ImGui::EndPopup();
@@ -220,34 +288,32 @@ void HierarchyWindow::CreateEmptyGameObject() {
 }
 
 void HierarchyWindow::CreateSpriteObject() {
-    auto cmd = std::make_unique<molga::CreateObjectCommand>("Sprite");
+    auto cmd = std::make_unique<molga::CreateObjectWithComponentsCommand>("Sprite", std::vector<std::string>{"SpriteRenderer"});
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    // 생성된 오브젝트에 SpriteRenderer 부착
-    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
-        obj->AddComponent<SpriteRenderer>();
-        Editor::Get().MarkSceneModified();
-    }
 }
 
 void HierarchyWindow::CreateTilemapObject() {
-    auto cmd = std::make_unique<molga::CreateObjectCommand>("Tilemap");
+    auto cmd = std::make_unique<molga::CreateObjectWithComponentsCommand>("Tilemap", std::vector<std::string>{"TilemapRenderer"});
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
-    if (GameObject* obj = Editor::Get().GetSelectedObject()) {
-        obj->AddComponent<TilemapRenderer>();
-        Editor::Get().MarkSceneModified();
-    }
+}
+
+void HierarchyWindow::CreateUIObject(int presetType) {
+    presetType = std::max(0, std::min(presetType, 3));
+    Editor::Get().GetCommandHistory().Execute(
+        std::make_unique<molga::CreateUIPresetCommand>(
+            static_cast<molga::UIPresetType>(presetType)));
 }
 
 void HierarchyWindow::DeleteSelectedObject() {
-    GameObject* selected = Editor::Get().GetSelectedObject();
-    if (!selected) return;
-    auto cmd = std::make_unique<molga::DeleteObjectCommand>(selected);
+    const auto ids = Editor::Get().GetSelection().SelectedIds();
+    if (ids.empty()) return;
+    auto cmd = std::make_unique<molga::DeleteObjectsCommand>(ids);
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
 }
 
 void HierarchyWindow::DuplicateSelectedObject() {
-    GameObject* selected = Editor::Get().GetSelectedObject();
-    if (!gameObjects || !selected) return;
-    auto cmd = std::make_unique<molga::DuplicateObjectCommand>(selected);
+    const auto ids = Editor::Get().GetSelection().SelectedIds();
+    if (!gameObjects || ids.empty()) return;
+    auto cmd = std::make_unique<molga::DuplicateObjectsCommand>(ids);
     Editor::Get().GetCommandHistory().Execute(std::move(cmd));
 }

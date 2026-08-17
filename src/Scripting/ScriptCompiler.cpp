@@ -1,4 +1,5 @@
 #include "ScriptCompiler.h"
+#include "Scripting/ScriptApi.h"
 #include "../Common/Log.h"
 #include "../Editor/Project.h"
 #include <filesystem>
@@ -6,10 +7,49 @@
 #include <sstream>
 #include <iostream>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <algorithm>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+std::string FoldAscii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char character) {
+                       return static_cast<char>(std::tolower(character));
+                   });
+    return value;
+}
+
+bool MapIntoScriptsDirectory(const fs::path& target,
+                             const fs::path& scripts,
+                             fs::path& mapped) {
+    const fs::path canonicalTarget = fs::weakly_canonical(target);
+    const fs::path canonicalScripts = fs::weakly_canonical(scripts);
+
+    auto targetPart = canonicalTarget.begin();
+    for (auto scriptsPart = canonicalScripts.begin();
+         scriptsPart != canonicalScripts.end(); ++scriptsPart, ++targetPart) {
+        if (targetPart == canonicalTarget.end() ||
+            FoldAscii(targetPart->generic_string()) !=
+                FoldAscii(scriptsPart->generic_string())) {
+            return false;
+        }
+    }
+
+    mapped = canonicalScripts;
+    for (; targetPart != canonicalTarget.end(); ++targetPart) {
+        if (*targetPart == "." || *targetPart == "..") {
+            return false;
+        }
+        mapped /= *targetPart;
+    }
+    return true;
+}
+
+} // namespace
 
 ScriptCompiler& ScriptCompiler::Get() {
     static ScriptCompiler instance;
@@ -154,7 +194,12 @@ std::string ScriptCompiler::GenerateCMakeContent(const std::vector<ScriptInfo>& 
     // Engine include path
     ss << "# Engine include paths\n";
     if (!enginePath.empty()) {
-        ss << "set(MOLGA_ENGINE_PATH \"" << enginePath << "\")\n";
+        std::string cleanEnginePath = enginePath;
+        std::replace(cleanEnginePath.begin(), cleanEnginePath.end(), '\\', '/');
+        ss << "set(MOLGA_ENGINE_PATH \"" << cleanEnginePath << "\")\n";
+        ss << "if(NOT EXISTS \"${MOLGA_ENGINE_PATH}/src\")\n";
+        ss << "    message(FATAL_ERROR \"MOLGA_ENGINE_PATH/src not found at: ${MOLGA_ENGINE_PATH}/src\")\n";
+        ss << "endif()\n";
         ss << "include_directories(${MOLGA_ENGINE_PATH}/src)\n";
         // glm is header-only via system/vcpkg; no external/glm directory exists
         ss << "include_directories(${MOLGA_ENGINE_PATH}/external/imgui)\n";
@@ -218,6 +263,9 @@ std::string ScriptCompiler::GenerateScriptExportsContent(const std::vector<Scrip
     ss << "extern \"C\" {\n";
     ss << "    void RegisterScripts() {\n";
     ss << "        // Scripts auto-register via REGISTER_SCRIPT macro\n";
+    ss << "    }\n";
+    ss << "    int GetScriptApiVersion() {\n";
+    ss << "        return " << molga::ScriptApiVersion << ";\n";
     ss << "    }\n";
     ss << "}\n";
 
@@ -292,28 +340,10 @@ bool ScriptCompiler::CreateScriptTemplate(const std::string& scriptName,
         fs::path td(targetDir);
         fs::path sd(scriptsPath);
         try {
-            fs::path canonTd = fs::weakly_canonical(td);
-            fs::path canonSd = fs::weakly_canonical(sd);
-            
-            std::string strTd = canonTd.string();
-            std::string strSd = canonSd.string();
-            
-#if defined(__APPLE__) || defined(_WIN32)
-            std::transform(strTd.begin(), strTd.end(), strTd.begin(), ::tolower);
-            std::transform(strSd.begin(), strSd.end(), strSd.begin(), ::tolower);
-#endif
-            
-            bool inScripts = false;
-            if (strTd == strSd) {
-                inScripts = true;
-            } else if (strTd.size() > strSd.size() && strTd.substr(0, strSd.size()) == strSd) {
-                char nextChar = strTd[strSd.size()];
-                if (nextChar == '/' || nextChar == '\\') {
-                    inScripts = true;
-                }
-            }
-            
-            destDir = inScripts ? td : sd;
+            fs::path mappedTarget;
+            destDir = MapIntoScriptsDirectory(td, sd, mappedTarget)
+                          ? mappedTarget
+                          : sd;
         } catch (...) {
             destDir = fs::path(scriptsPath);
         }
@@ -464,4 +494,12 @@ bool ScriptCompiler::ExecuteCommand(const std::string& command, std::string& out
 #endif
 
     return result == 0;
+}
+
+std::string ScriptCompiler::ConfigureCommand() const {
+    return "cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug";
+}
+
+std::string ScriptCompiler::BuildCommand() const {
+    return "cmake --build build";
 }

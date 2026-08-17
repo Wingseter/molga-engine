@@ -1,10 +1,17 @@
 #include "AudioSource.h"
-#include "../../external/miniaudio/miniaudio.h"
+
 #include "../GameObject.h"
-#include "Transform.h"
 #include "../ComponentFactory.h"
-#include "../../Core/PathService.h"
-#include "../../Common/Log.h"
+#include "Transform.h"
+#include "Common/Log.h"
+#include "Core/AssetDatabase.h"
+#include "Core/PathService.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <filesystem>
+
 #ifdef MOLGA_EDITOR
 #include "../../Editor/Project.h"
 #include <imgui.h>
@@ -12,245 +19,325 @@
 
 REGISTER_COMPONENT(AudioSource)
 
+namespace {
+
+AudioLoadMode LoadModeForRecord(const molga::AssetRecord* record) {
+    if (record && record->settings.is_object() &&
+        record->settings.value("loadMode", std::string{}) == "Streaming") {
+        return AudioLoadMode::Streaming;
+    }
+    return AudioLoadMode::DecodeOnLoad;
+}
+
+float FiniteOr(float value, float fallback) {
+    return std::isfinite(value) ? value : fallback;
+}
+
+} // namespace
+
 AudioSource::AudioSource() = default;
-AudioSource::~AudioSource() = default;
+
+AudioSource::~AudioSource() {
+    ReleaseVoice();
+}
+
+void AudioSource::SetClipPath(const std::string& path) {
+    if (clipPath == path && clipGuid.empty()) return;
+    ReleaseVoice();
+    clipPath = path;
+    clipGuid.clear();
+    resolvedPath.clear();
+}
+
+void AudioSource::SetClipGuid(const std::string& guid) {
+    if (clipGuid == guid) return;
+    ReleaseVoice();
+    clipGuid = guid;
+    resolvedPath.clear();
+}
+
+void AudioSource::SetOutputBus(AudioBus bus) {
+    if (static_cast<std::uint8_t>(bus) >=
+        static_cast<std::uint8_t>(AudioBus::Count)) {
+        bus = AudioBus::Master;
+    }
+    if (outputBus == bus) return;
+    const bool wasPlaying = IsPlaying();
+    ReleaseVoice();
+    outputBus = bus;
+    if (wasPlaying && EnsureVoice()) Play();
+}
+
+bool AudioSource::EnsureVoice() {
+    AudioService& audio = AudioService::Get();
+    if (audio.IsVoiceValid(voice)) return true;
+    voice = {};
+    if (!audio.IsInitialized()) return false;
+
+    if (!clipGuid.empty()) {
+        const molga::AssetRecord* record = molga::AssetDatabase::Get().Find(clipGuid);
+        if (!record || record->importer != "AudioImporter" || record->importFailed) {
+            return false;
+        }
+        const std::filesystem::path source =
+            molga::AssetDatabase::Get().AbsoluteSourcePath(clipGuid);
+        if (source.empty()) return false;
+        resolvedPath = source.string();
+        loadMode = LoadModeForRecord(record);
+        voice = audio.CreateVoiceFromGuid(clipGuid, outputBus, loadMode);
+    } else if (!clipPath.empty()) {
+        resolvedPath = PathService::Get().ResolveAsset(clipPath);
+        loadMode = AudioLoadMode::DecodeOnLoad;
+        voice = audio.CreateVoiceFromFile(resolvedPath, outputBus, loadMode);
+    }
+
+    if (!voice) return false;
+    ApplyProperties();
+    return true;
+}
+
+void AudioSource::ReleaseVoice() {
+    if (voice) AudioService::Get().ReleaseVoice(voice);
+    voice = {};
+}
 
 void AudioSource::Play() {
-    if (sound) {
-        ma_sound_start(sound.get());
-    }
+    if (EnsureVoice()) AudioService::Get().PlayVoice(voice);
 }
 
 void AudioSource::Stop() {
-    if (sound) {
-        ma_sound_stop(sound.get());
-        ma_sound_seek_to_pcm_frame(sound.get(), 0);
-    }
+    AudioService::Get().StopVoice(voice);
 }
 
 void AudioSource::Pause() {
-    if (sound) {
-        ma_sound_stop(sound.get());
-    }
+    AudioService::Get().PauseVoice(voice);
 }
 
 void AudioSource::Resume() {
-    if (sound) {
-        ma_sound_start(sound.get());
-    }
+    if (EnsureVoice()) AudioService::Get().ResumeVoice(voice);
 }
 
 bool AudioSource::IsPlaying() const {
-    if (sound) {
-        return ma_sound_is_playing(sound.get()) == MA_TRUE;
-    }
-    return false;
+    return AudioService::Get().IsVoicePlaying(voice);
 }
 
-void AudioSource::SetVolume(float vol) {
-    volume = vol;
-    if (sound) {
-        ma_sound_set_volume(sound.get(), volume);
-    }
+void AudioSource::SetVolume(float value) {
+    volume = std::clamp(FiniteOr(value, 1.0f), 0.0f, 1.0f);
+    AudioService::Get().SetVoiceVolume(voice, volume);
 }
 
-void AudioSource::SetPitch(float p) {
-    pitch = p;
-    if (sound) {
-        ma_sound_set_pitch(sound.get(), pitch);
-    }
+void AudioSource::SetPitch(float value) {
+    pitch = std::max(FiniteOr(value, 1.0f), 0.01f);
+    AudioService::Get().SetVoicePitch(voice, pitch);
 }
 
-void AudioSource::SetLooping(bool l) {
-    loop = l;
-    if (sound) {
-        ma_sound_set_looping(sound.get(), loop ? MA_TRUE : MA_FALSE);
-    }
+void AudioSource::SetLooping(bool value) {
+    loop = value;
+    AudioService::Get().SetVoiceLooping(voice, loop);
 }
 
-void AudioSource::SetSpatial(bool val) {
-    spatial = val;
-    if (sound) {
-        ma_sound_set_spatialization_enabled(sound.get(), spatial ? MA_TRUE : MA_FALSE);
-    }
+void AudioSource::SetSpatial(bool value) {
+    spatial = value;
+    AudioService::Get().SetVoiceSpatial(voice, spatial);
 }
 
-void AudioSource::SetMinDistance(float dist) {
-    minDistance = dist;
-    if (sound) {
-        ma_sound_set_min_distance(sound.get(), minDistance);
-    }
+void AudioSource::SetMinDistance(float distance) {
+    minDistance = std::max(FiniteOr(distance, 1.0f), 0.0f);
+    AudioService::Get().SetVoiceMinDistance(voice, minDistance);
 }
 
-void AudioSource::SetMaxDistance(float dist) {
-    maxDistance = dist;
-    if (sound) {
-        ma_sound_set_max_distance(sound.get(), maxDistance);
-    }
+void AudioSource::SetMaxDistance(float distance) {
+    maxDistance = std::max(FiniteOr(distance, 500.0f), 0.0f);
+    AudioService::Get().SetVoiceMaxDistance(voice, maxDistance);
 }
 
 void AudioSource::ApplyProperties() {
-    if (!sound) return;
-    ma_sound_set_volume(sound.get(), volume);
-    ma_sound_set_pitch(sound.get(), pitch);
-    ma_sound_set_looping(sound.get(), loop ? MA_TRUE : MA_FALSE);
-    ma_sound_set_spatialization_enabled(sound.get(), spatial ? MA_TRUE : MA_FALSE);
-    ma_sound_set_min_distance(sound.get(), minDistance);
-    ma_sound_set_max_distance(sound.get(), maxDistance);
+    AudioService& audio = AudioService::Get();
+    if (!audio.IsVoiceValid(voice)) return;
+    audio.SetVoiceVolume(voice, volume);
+    audio.SetVoicePitch(voice, pitch);
+    audio.SetVoiceLooping(voice, loop);
+    audio.SetVoiceSpatial(voice, spatial);
+    audio.SetVoiceMinDistance(voice, minDistance);
+    audio.SetVoiceMaxDistance(voice, maxDistance);
 }
 
 void AudioSource::Start() {
-    if (playOnAwake) {
-        Play();
-    }
+    if (playOnAwake) Play();
+}
+
+void AudioSource::OnEnable() {
+    // Initial OnEnable runs before Start. Re-enabling an already-started source
+    // recreates the released voice and honors playOnAwake.
+    if (HasStarted() && playOnAwake) Play();
+}
+
+void AudioSource::OnDisable() {
+    ReleaseVoice();
 }
 
 void AudioSource::Update(float dt) {
-    if (spatial && sound && gameObject) {
-        Transform* transform = gameObject->GetComponent<Transform>();
-        if (transform) {
-            Vector2 pos = transform->GetWorldPosition();
-            ma_sound_set_position(sound.get(), pos.x, pos.y, 0.0f);
-        }
+    (void)dt;
+    if (!spatial || !AudioService::Get().IsVoiceValid(voice) || !gameObject) return;
+    if (Transform* transform = gameObject->GetComponent<Transform>()) {
+        const Vector2 position = transform->GetWorldPosition();
+        AudioService::Get().SetVoicePosition(voice, position.x, position.y, 0.0f);
     }
 }
 
 void AudioSource::OnDestroy() {
-    Stop();
-    sound.reset();
+    ReleaseVoice();
 }
 
 void AudioSource::ResolveAssets() {
-    if (clipPath.empty()) return;
+    ReleaseVoice();
+    resolvedPath.clear();
 
-    sound.reset();
-
-    std::string absPath = PathService::Get().ResolveAsset(clipPath);
-    ma_engine* engine = Audio::GetEngine();
-    if (!engine) {
-        Log::Warn("AudioSource", "Cannot resolve assets, audio engine not initialized");
-        return;
+    if (clipGuid.empty() && !clipPath.empty()) {
+        const std::string migrated = molga::AssetDatabase::Get().GuidForSource(clipPath);
+        if (!migrated.empty()) clipGuid = migrated;
     }
 
-    auto raw = new ma_sound();
-    ma_result result = ma_sound_init_from_file(engine, absPath.c_str(), 0, nullptr, nullptr, raw);
-    if (result != MA_SUCCESS) {
-        Log::Warn("AudioSource", "Failed to load sound file: " + absPath);
-        delete raw;
-        return;
+    if ((clipGuid.empty() && clipPath.empty()) || EnsureVoice()) return;
+    if (!AudioService::Get().IsInitialized()) {
+        Log::Warn("AudioSource", "Cannot resolve assets, audio service is not initialized");
+    } else {
+        const std::string reference = !clipGuid.empty() ? clipGuid : clipPath;
+        Log::Warn("AudioSource", "Failed to load audio clip: " + reference);
+    }
+}
+
+void AudioSource::Serialize(nlohmann::json& json) const {
+    json["clipPath"] = clipPath;
+    json["clipGuid"] = clipGuid;
+    json["volume"] = volume;
+    json["pitch"] = pitch;
+    json["loop"] = loop;
+    json["playOnAwake"] = playOnAwake;
+    json["spatial"] = spatial;
+    json["minDistance"] = minDistance;
+    json["maxDistance"] = maxDistance;
+    json["outputBus"] = AudioBusName(outputBus);
+}
+
+void AudioSource::Deserialize(const nlohmann::json& json) {
+    ReleaseVoice();
+    if (json.contains("clipGuid") && json["clipGuid"].is_string()) {
+        clipGuid = json["clipGuid"].get<std::string>();
+    } else {
+        clipGuid.clear();
+    }
+    if (json.contains("clipPath") && json["clipPath"].is_string()) {
+        clipPath = json["clipPath"].get<std::string>();
+    } else {
+        clipPath.clear();
+    }
+    if (clipGuid.empty() && !clipPath.empty()) {
+        const std::string migrated = molga::AssetDatabase::Get().GuidForSource(clipPath);
+        if (!migrated.empty()) clipGuid = migrated;
     }
 
-    sound = std::unique_ptr<ma_sound, MaSoundDeleter>(raw);
-    ApplyProperties();
-}
+    volume = std::clamp(FiniteOr(json.value("volume", volume), 1.0f), 0.0f, 1.0f);
+    pitch = std::max(FiniteOr(json.value("pitch", pitch), 1.0f), 0.01f);
+    loop = json.value("loop", loop);
+    playOnAwake = json.value("playOnAwake", playOnAwake);
+    spatial = json.value("spatial", spatial);
+    minDistance = std::max(FiniteOr(json.value("minDistance", minDistance), 1.0f), 0.0f);
+    maxDistance = std::max(FiniteOr(json.value("maxDistance", maxDistance), 500.0f), 0.0f);
 
-void AudioSource::Serialize(nlohmann::json& j) const {
-    j["clipPath"] = clipPath;
-    j["volume"] = volume;
-    j["pitch"] = pitch;
-    j["loop"] = loop;
-    j["playOnAwake"] = playOnAwake;
-    j["spatial"] = spatial;
-    j["minDistance"] = minDistance;
-    j["maxDistance"] = maxDistance;
-}
-
-void AudioSource::Deserialize(const nlohmann::json& j) {
-    if (j.contains("clipPath")) clipPath = j["clipPath"].get<std::string>();
-    if (j.contains("volume")) volume = j["volume"].get<float>();
-    if (j.contains("pitch")) pitch = j["pitch"].get<float>();
-    if (j.contains("loop")) loop = j["loop"].get<bool>();
-    if (j.contains("playOnAwake")) playOnAwake = j["playOnAwake"].get<bool>();
-    if (j.contains("spatial")) spatial = j["spatial"].get<bool>();
-    if (j.contains("minDistance")) minDistance = j["minDistance"].get<float>();
-    if (j.contains("maxDistance")) maxDistance = j["maxDistance"].get<float>();
+    // Legacy scenes had no routing field and historically fed the engine root.
+    // Newly constructed components retain the SFX default.
+    outputBus = AudioBus::Master;
+    if (json.contains("outputBus") && json["outputBus"].is_string()) {
+        AudioBus parsed = AudioBus::Master;
+        if (TryParseAudioBus(json["outputBus"].get<std::string>(), parsed)) {
+            outputBus = parsed;
+        }
+    }
+    resolvedPath.clear();
 }
 
 void AudioSource::OnInspectorGUI() {
 #ifdef MOLGA_EDITOR
-    // Clip path edit field
     char pathBuffer[512];
-    strncpy(pathBuffer, clipPath.c_str(), sizeof(pathBuffer) - 1);
+    std::strncpy(pathBuffer, clipPath.c_str(), sizeof(pathBuffer) - 1);
     pathBuffer[sizeof(pathBuffer) - 1] = '\0';
 
     ImGui::Text("Audio Clip Path");
     ImGui::SetNextItemWidth(-60);
     if (ImGui::InputText("##clipPath", pathBuffer, sizeof(pathBuffer))) {
-        clipPath = pathBuffer;
+        SetClipPath(pathBuffer);
     }
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
-        clipPath.clear();
-        Stop();
-        sound.reset();
+        SetClipPath("");
     }
 
-    // Drop target for audio file
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("AUDIO_PATH")) {
             const char* droppedPath = static_cast<const char*>(payload->Data);
-            std::string relativePath = droppedPath;
+            std::string relativePath = droppedPath ? droppedPath : "";
             if (Project::Get().IsOpen()) {
-                relativePath = Project::Get().GetRelativePath(droppedPath);
+                relativePath = Project::Get().GetRelativePath(relativePath);
             }
-            clipPath = relativePath;
+            SetClipPath(relativePath);
+            const std::string guid =
+                molga::AssetDatabase::Get().GuidForSource(relativePath);
+            if (!guid.empty()) SetClipGuid(guid);
             ResolveAssets();
+        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_GUID")) {
+            const char* data = static_cast<const char*>(payload->Data);
+            const std::string guid = data ? data : "";
+            const molga::AssetRecord* record = molga::AssetDatabase::Get().Find(guid);
+            if (record && record->importer == "AudioImporter") {
+                const std::string path = record->sourcePath;
+                SetClipPath(path);
+                SetClipGuid(guid);
+                ResolveAssets();
+            }
         }
         ImGui::EndDragDropTarget();
     }
 
-    // Load/Reload button if path is not empty
-    if (!clipPath.empty()) {
+    if (!clipPath.empty() || !clipGuid.empty()) {
         ImGui::SameLine();
-        if (ImGui::Button(sound ? "Reload" : "Load")) {
+        if (ImGui::Button(AudioService::Get().IsVoiceValid(voice) ? "Reload" : "Load")) {
             ResolveAssets();
         }
     }
 
-    if (sound) {
+    if (AudioService::Get().IsVoiceValid(voice)) {
         ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "Loaded successfully");
-    } else if (!clipPath.empty()) {
+    } else if (!clipPath.empty() || !clipGuid.empty()) {
         ImGui::TextColored(ImVec4(0.8f, 0.5f, 0.3f, 1.0f), "Not loaded");
     }
 
-    ImGui::Spacing();
-
-    // Volume
-    float vol = volume;
-    if (ImGui::SliderFloat("Volume", &vol, 0.0f, 1.0f)) {
-        SetVolume(vol);
+    const char* busNames[] = {"Master", "Music", "SFX", "Voice", "UI"};
+    int busIndex = static_cast<int>(outputBus);
+    if (ImGui::Combo("Output Bus", &busIndex, busNames, 5)) {
+        SetOutputBus(static_cast<AudioBus>(busIndex));
     }
 
-    // Pitch
-    float p = pitch;
-    if (ImGui::SliderFloat("Pitch", &p, 0.1f, 3.0f)) {
-        SetPitch(p);
-    }
-
-    // Loop
-    bool l = loop;
-    if (ImGui::Checkbox("Loop", &l)) {
-        SetLooping(l);
-    }
-
-    // Play on Awake
+    float editedVolume = volume;
+    if (ImGui::SliderFloat("Volume", &editedVolume, 0.0f, 1.0f)) SetVolume(editedVolume);
+    float editedPitch = pitch;
+    if (ImGui::SliderFloat("Pitch", &editedPitch, 0.1f, 3.0f)) SetPitch(editedPitch);
+    bool editedLoop = loop;
+    if (ImGui::Checkbox("Loop", &editedLoop)) SetLooping(editedLoop);
     ImGui::Checkbox("Play on Awake", &playOnAwake);
 
-    // Spatial
-    bool sp = spatial;
-    if (ImGui::Checkbox("Spatial (3D)", &sp)) {
-        SetSpatial(sp);
-    }
-
+    bool editedSpatial = spatial;
+    if (ImGui::Checkbox("Spatial (3D)", &editedSpatial)) SetSpatial(editedSpatial);
     if (spatial) {
         ImGui::Indent();
-        float minDist = minDistance;
-        if (ImGui::DragFloat("Min Distance", &minDist, 0.1f, 0.0f, 1000.0f)) {
-            SetMinDistance(minDist);
+        float editedMin = minDistance;
+        if (ImGui::DragFloat("Min Distance", &editedMin, 0.1f, 0.0f, 1000.0f)) {
+            SetMinDistance(editedMin);
         }
-        float maxDist = maxDistance;
-        if (ImGui::DragFloat("Max Distance", &maxDist, 1.0f, 0.0f, 10000.0f)) {
-            SetMaxDistance(maxDist);
+        float editedMax = maxDistance;
+        if (ImGui::DragFloat("Max Distance", &editedMax, 1.0f, 0.0f, 10000.0f)) {
+            SetMaxDistance(editedMax);
         }
         ImGui::Unindent();
     }
@@ -258,16 +345,8 @@ void AudioSource::OnInspectorGUI() {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
-
-    if (ImGui::Button("Play Preview")) {
-        if (!sound && !clipPath.empty()) {
-            ResolveAssets();
-        }
-        Play();
-    }
+    if (ImGui::Button("Play Preview")) Play();
     ImGui::SameLine();
-    if (ImGui::Button("Stop Preview")) {
-        Stop();
-    }
+    if (ImGui::Button("Stop Preview")) Stop();
 #endif
 }

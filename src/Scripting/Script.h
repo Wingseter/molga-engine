@@ -3,10 +3,12 @@
 #include "../ECS/Component.h"
 #include "Common/Types.h"
 #include "ScriptField.h"
+#include "ScriptInvocationBoundary.h"
 #include "Core/World.h"          // FindObjectOfType<T>, Find 등 World API
 #include "../Physics/Physics2D.h" // RaycastHit2D, Physics2D 질의
 #include <vector>
 #include <functional>
+#include <optional>
 
 class Scheduler;
 
@@ -23,6 +25,19 @@ public:
     static std::string StaticTypeName() { return "Script"; }
 
     virtual ~Script() = default;
+
+    // Script enable transitions are exception-isolated while attached to a
+    // World. Explicitly re-enabling a faulted instance clears its runtime-only
+    // fault and retries unfinished lifecycle phases.
+    void SetEnabled(bool value) override;
+
+    ScriptHandle GetHandle() const {
+        return ScriptInvocationBoundary::MakeHandle(*this);
+    }
+    bool IsFaulted() const { return faultInfo_.has_value(); }
+    const ScriptFaultInfo* GetFaultInfo() const {
+        return faultInfo_ ? &*faultInfo_ : nullptr;
+    }
 
     // Called once for self-initialization, before any Start (do not reference other objects).
     void Awake() override {}
@@ -65,6 +80,12 @@ public:
     GameObject* InstantiatePrefab(const std::string& guid);
     void Destroy(GameObject* obj, float delay = 0.0f);
     void Destroy(float delay = 0.0f);
+
+    // Deferred scene transition helpers. Paths are public scene IDs registered
+    // by the BuildProfile, not arbitrary filesystem paths.
+    bool LoadScene(const std::string& registeredPath);
+    std::string GetActiveScenePath() const;
+    bool IsSceneLoadPending() const;
 
     // 참조 필드 헬퍼
     // ObjectRef를 살아있는 GameObject로 해석 (없으면 nullptr).
@@ -132,6 +153,11 @@ public:
     void Serialize(nlohmann::json& j) const override;
     void Deserialize(const nlohmann::json& j) override;
 
+    // reload 경계에서 사용하는 필드 스냅샷/복원. Serialize/Deserialize의
+    // "fields" 페이로드를 그대로 재사용한다.
+    nlohmann::json SnapshotFields() const;
+    void RestoreFields(const nlohmann::json& snapshot);
+
     // 복제 시 ObjectRef 필드의 id를 새 id로 리매핑한다.
     void RemapReferences(const std::unordered_map<unsigned int, unsigned int>& idRemap) override;
 
@@ -143,8 +169,11 @@ public:
     size_t GetRuntimeTypeID() const override { return ComponentTypeID::Get<Script>(); }
 
 private:
+    friend class ScriptInvocationBoundary;
+
     ScriptFieldRegistry fieldRegistry_;
     bool fieldsBuilt_ = false;
+    std::optional<ScriptFaultInfo> faultInfo_;
 };
 
 // Macro for easy script definition

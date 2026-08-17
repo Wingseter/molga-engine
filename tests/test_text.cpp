@@ -18,6 +18,9 @@ TEST_CASE("TextRenderer2D: properties and getters/setters") {
     CHECK(textComp.GetColor().a == doctest::Approx(1.0f));
     CHECK(textComp.GetScale() == doctest::Approx(1.0f));
     CHECK(textComp.GetAlignment() == TextRenderer2D::Alignment::Left);
+    CHECK(textComp.GetFontGuid().empty());
+    CHECK(textComp.GetFontSizePx() == doctest::Approx(16.0f));
+    CHECK(textComp.GetLineSpacing() == doctest::Approx(1.2f));
     CHECK(textComp.GetFontName() == "default");
     CHECK(textComp.GetSortingOrder() == 0);
     CHECK(textComp.IsEnabled());
@@ -27,6 +30,9 @@ TEST_CASE("TextRenderer2D: properties and getters/setters") {
     textComp.SetColor(Color(0.5f, 0.2f, 0.8f, 0.9f));
     textComp.SetScale(2.5f);
     textComp.SetAlignment(TextRenderer2D::Alignment::Center);
+    textComp.SetFontGuid("0123456789abcdef0123456789abcdef");
+    textComp.SetFontSizePx(28.0f);
+    textComp.SetLineSpacing(1.5f);
     textComp.SetFontName("custom_font");
     textComp.SetSortingOrder(15);
     textComp.SetEnabled(false);
@@ -39,6 +45,9 @@ TEST_CASE("TextRenderer2D: properties and getters/setters") {
     CHECK(textComp.GetColor().a == doctest::Approx(0.9f));
     CHECK(textComp.GetScale() == doctest::Approx(2.5f));
     CHECK(textComp.GetAlignment() == TextRenderer2D::Alignment::Center);
+    CHECK(textComp.GetFontGuid() == "0123456789abcdef0123456789abcdef");
+    CHECK(textComp.GetFontSizePx() == doctest::Approx(28.0f));
+    CHECK(textComp.GetLineSpacing() == doctest::Approx(1.5f));
     CHECK(textComp.GetFontName() == "custom_font");
     CHECK(textComp.GetSortingOrder() == 15);
     CHECK(!textComp.IsEnabled());
@@ -148,6 +157,9 @@ TEST_CASE("TextRenderer2D: serialization and deserialization roundtrip") {
     tr->SetColor(Color(0.1f, 0.2f, 0.3f, 0.4f));
     tr->SetScale(1.5f);
     tr->SetAlignment(TextRenderer2D::Alignment::Right);
+    tr->SetFontGuid("abcdef0123456789abcdef0123456789");
+    tr->SetFontSizePx(32.0f);
+    tr->SetLineSpacing(1.35f);
     tr->SetFontName("arial");
     tr->SetSortingOrder(42);
 
@@ -172,7 +184,26 @@ TEST_CASE("TextRenderer2D: serialization and deserialization roundtrip") {
     CHECK(restoredTr->GetColor().a == doctest::Approx(0.4f));
     CHECK(restoredTr->GetScale() == doctest::Approx(1.5f));
     CHECK(restoredTr->GetAlignment() == TextRenderer2D::Alignment::Right);
+    CHECK(restoredTr->GetFontGuid() == "abcdef0123456789abcdef0123456789");
+    CHECK(restoredTr->GetFontSizePx() == doctest::Approx(32.0f));
+    CHECK(restoredTr->GetLineSpacing() == doctest::Approx(1.35f));
     CHECK(restoredTr->GetFontName() == "arial");
     CHECK(restoredTr->GetSortingOrder() == 42);
     CHECK(restoredTr->IsEnabled());
+}
+
+TEST_CASE("TextRenderer2D: legacy scenes preserve bitmap sizing") {
+    TextRenderer2D component;
+    nlohmann::json legacy = {
+        {"text", "legacy"},
+        {"scale", 2.0f},
+        {"fontName", "default"}
+    };
+
+    component.Deserialize(legacy);
+
+    CHECK(component.GetFontGuid().empty());
+    CHECK(component.GetFontSizePx() == doctest::Approx(8.0f));
+    CHECK(component.GetScale() == doctest::Approx(2.0f));
+    CHECK(component.GetLineSpacing() == doctest::Approx(1.2f));
 }

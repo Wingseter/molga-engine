@@ -2,8 +2,8 @@
 
 namespace molga {
 
-// GL과 분리된, Renderer Begin/Draw/End 계약을 강제하는 상태 머신.
-// OpenGL 컨텍스트 없이 단위 테스트할 수 있도록 molga_core에 둔다.
+// Renderer Begin/Draw/End 계약을 강제하는 backend-neutral 상태 머신.
+// GPU 장치 없이 단위 테스트할 수 있도록 molga_core에 둔다.
 class RenderPassState {
 public:
     enum class Phase { Idle, Drawing };

@@ -3,7 +3,7 @@
 
 TEST_CASE("BuildProfile defaults include main scene") {
     BuildProfile profile = BuildProfile::Defaults("MyGame");
-    CHECK(profile.schemaVersion == 1);
+    CHECK(profile.schemaVersion == BuildProfile::CurrentSchemaVersion);
     CHECK(profile.gameName == "MyGame");
     CHECK(profile.startupScene == "Scenes/main.json");
     REQUIRE(profile.scenes.size() == 1);
@@ -14,6 +14,20 @@ TEST_CASE("BuildProfile validation rejects empty game name") {
     BuildProfile profile = BuildProfile::Defaults("MyGame");
     profile.gameName = "";
     std::string error;
+    CHECK_FALSE(profile.Validate(error));
+    CHECK(error.find("gameName") != std::string::npos);
+}
+
+TEST_CASE("BuildProfile validation rejects unsafe persistent storage names") {
+    BuildProfile profile = BuildProfile::Defaults("MyGame");
+    std::string error;
+
+    profile.companyName = "../Studio";
+    CHECK_FALSE(profile.Validate(error));
+    CHECK(error.find("companyName") != std::string::npos);
+
+    profile.companyName = "Studio";
+    profile.gameName = std::string("Bad") + static_cast<char>(0x1f) + "Name";
     CHECK_FALSE(profile.Validate(error));
     CHECK(error.find("gameName") != std::string::npos);
 }
@@ -33,6 +47,8 @@ TEST_CASE("BuildProfile round trips JSON") {
     profile.window.width = 1280;
     profile.window.height = 720;
     profile.window.fullscreen = true;
+    profile.window.resizable = false;
+    profile.window.outputScaleMode = molga::GameOutputScaleMode::IntegerFit;
     profile.developmentBuild = true;
 
     nlohmann::json j = profile.Serialize();
@@ -45,5 +61,164 @@ TEST_CASE("BuildProfile round trips JSON") {
     CHECK(restored.window.width == 1280);
     CHECK(restored.window.height == 720);
     CHECK(restored.window.fullscreen);
+    CHECK_FALSE(restored.window.resizable);
+    CHECK(restored.window.outputScaleMode ==
+          molga::GameOutputScaleMode::IntegerFit);
     CHECK(restored.developmentBuild);
+}
+
+TEST_CASE("BuildProfile migrates schema v1 to Native schema v2") {
+    BuildProfile restored = BuildProfile::Defaults("Fallback");
+    restored.window.outputScaleMode = molga::GameOutputScaleMode::IntegerFit;
+    const nlohmann::json legacy = {
+        {"schemaVersion", 1},
+        {"gameName", "Legacy"},
+        {"companyName", "Studio"},
+        {"startupScene", "Scenes/main.json"},
+        {"scenes", nlohmann::json::array({"Scenes/main.json"})},
+        {"window", {{"width", 320}, {"height", 180},
+                    {"fullscreen", false}, {"resizable", false}}}
+    };
+    REQUIRE(restored.Deserialize(legacy));
+    CHECK(restored.schemaVersion == BuildProfile::CurrentSchemaVersion);
+    CHECK(restored.window.outputScaleMode == molga::GameOutputScaleMode::Native);
+    CHECK_FALSE(restored.window.resizable);
+    CHECK(restored.Serialize()["schemaVersion"] == 2);
+    CHECK(restored.Serialize()["window"]["outputScaleMode"] == "Native");
+
+    nlohmann::json future = legacy;
+    future["schemaVersion"] = 3;
+    CHECK_FALSE(restored.Deserialize(future));
+
+    nlohmann::json invalid = restored.Serialize();
+    invalid["window"]["outputScaleMode"] = "SmoothStretch";
+    CHECK_FALSE(restored.Deserialize(invalid));
+}
+
+#include "Core/BuildPlan.h"
+#include "Core/PackageLayout.h"
+#include "ShaderPackageTestSupport.h"
+#include <filesystem>
+#include <fstream>
+
+namespace fs = std::filesystem;
+
+TEST_CASE("BuildPlanBuilder validates and creates correct plan") {
+    BuildProfile profile = BuildProfile::Defaults("MyGame");
+    profile.scenes = {"Scenes/main.json", "Scenes/levels/start.json"};
+    profile.startupScene = "Scenes/levels/start.json";
+
+    BuildPlan plan;
+    std::string error;
+    bool success = BuildPlanBuilder::Build(profile, "/my/project/root", "host", "", plan, error);
+    REQUIRE(success);
+    CHECK(plan.executableName == PackageLayout::ExecutableNameFor("MyGame"));
+    REQUIRE(plan.sceneEntries.size() == 2);
+    CHECK(plan.sceneEntries[0].sourceProfilePath == "Scenes/main.json");
+    CHECK(plan.sceneEntries[0].sceneId == "Scenes/main.json");
+    CHECK(plan.sceneEntries[0].packagePath == "Scenes/main.json");
+    CHECK(plan.sceneEntries[1].sourceProfilePath == "Scenes/levels/start.json");
+    CHECK(plan.sceneEntries[1].sceneId == "Scenes/levels/start.json");
+    CHECK(plan.sceneEntries[1].packagePath == "Scenes/levels/start.json");
+    CHECK(plan.startupSceneId == "Scenes/levels/start.json");
+    CHECK(plan.startupScenePackagePath == "Scenes/levels/start.json");
+}
+
+TEST_CASE("BuildPlanBuilder detects duplicate scene package paths") {
+    BuildProfile profile = BuildProfile::Defaults("MyGame");
+    // These two map to the same package path "Scenes/start.json" because of case normalization of the "scenes/" prefix
+    profile.scenes = {"Scenes/start.json", "scenes/start.json"};
+    profile.startupScene = "Scenes/start.json";
+
+    BuildPlan plan;
+    std::string error;
+    bool success = BuildPlanBuilder::Build(profile, "/my/project/root", "host", "", plan, error);
+    CHECK_FALSE(success);
+    CHECK(error.find("Duplicate scene package path detected") != std::string::npos);
+}
+
+TEST_CASE("BuildPlanBuilder rejects escaping scene paths") {
+    BuildProfile profile = BuildProfile::Defaults("MyGame");
+    profile.scenes = {"../outside.json"};
+    profile.startupScene = "../outside.json";
+
+    BuildPlan plan;
+    std::string error;
+    bool success = BuildPlanBuilder::Build(profile, "/my/project/root", "host", "", plan, error);
+    CHECK_FALSE(success);
+    CHECK(error.find("escapes project root") != std::string::npos);
+}
+
+TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
+    fs::path tmpDir = fs::temp_directory_path() / "molga_custom_pkg_layout_test";
+    fs::remove_all(tmpDir);
+    fs::create_directories(tmpDir);
+
+    std::string exeName = PackageLayout::ExecutableNameFor("TestCustomGame");
+    { std::ofstream(tmpDir / exeName); }
+    fs::create_directories(tmpDir / "Assets");
+    { std::ofstream(tmpDir / "asset_catalog.json") << "{\"schemaVersion\":1,\"records\":[]}"; }
+    fs::create_directories(tmpDir / "Resources");
+    { std::ofstream(tmpDir / "Resources/missing_texture.png") << "placeholder"; }
+    const std::string shaderManifestSha256 =
+        test_support::WriteMinimalMslShaderBundle(tmpDir);
+    auto config = test_support::MinimalPackageGameConfig(
+        shaderManifestSha256);
+    config["mainScene"] = "Scenes/levels/start.json";
+    config["scenes"] = {"Scenes/levels/start.json", "Scenes/other.json"};
+    config["startupSceneId"] = "Scenes/levels/start.json";
+    config["sceneCatalog"] = {
+        {{"id", "Scenes/levels/start.json"},
+         {"packagePath", "Scenes/levels/start.json"}},
+        {{"id", "Levels/other.json"},
+         {"packagePath", "Scenes/other.json"}},
+    };
+    const auto writeConfig = [&]() {
+        std::ofstream(tmpDir / "game.json") << config.dump(2) << '\n';
+    };
+
+    // Case 1: Custom mainScene and scenes listed in game.json
+    writeConfig();
+
+    std::string error;
+    // Should fail because Scenes/levels/start.json does not exist yet
+    bool valid = PackageLayout::Validate(tmpDir, exeName, error);
+    CHECK_FALSE(valid);
+    CHECK(error.find("Missing package entry") != std::string::npos);
+
+    // Create the required custom scenes
+    fs::create_directories(tmpDir / "Scenes/levels");
+    { std::ofstream(tmpDir / "Scenes/levels/start.json"); }
+    { std::ofstream(tmpDir / "Scenes/other.json"); }
+
+    // Should now pass
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
+    INFO("completed package validation error: " << error);
+    CHECK(valid);
+    CHECK(error.empty());
+
+    // New catalog contract is validated alongside the retained legacy fields.
+    writeConfig();
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
+    CHECK(valid);
+
+    config["startupSceneId"] = "Scenes/not-registered.json";
+    config["sceneCatalog"] = {{{"id", "Scenes/levels/start.json"},
+                                {"packagePath", "Scenes/levels/start.json"}}};
+    writeConfig();
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
+    CHECK_FALSE(valid);
+    CHECK(error.find("startupSceneId") != std::string::npos);
+
+    config["mainScene"] = "../outside.json";
+    config["startupSceneId"] = "../outside.json";
+    config["scenes"] = {"../outside.json"};
+    config["sceneCatalog"] = {{{"id", "../outside.json"},
+                                {"packagePath", "../outside.json"}}};
+    writeConfig();
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
+    CHECK_FALSE(valid);
+    CHECK(error.find("package root") != std::string::npos);
+
+    fs::remove_all(tmpDir);
 }

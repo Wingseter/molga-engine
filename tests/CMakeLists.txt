@@ -9,15 +9,62 @@ target_link_libraries(doctest_main PUBLIC doctest)
 function(molga_add_test TEST_NAME TEST_SOURCE)
     add_executable(${TEST_NAME} ${TEST_SOURCE})
     target_link_libraries(${TEST_NAME} PRIVATE molga_core doctest_main molga_warnings)
+    set_target_properties(${TEST_NAME} PROPERTIES ENABLE_EXPORTS ON)
     add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
     set_tests_properties(${TEST_NAME} PROPERTIES LABELS "unit")
 endfunction()
 
 molga_add_test(test_types             test_types.cpp)
+molga_add_test(test_guid              test_guid.cpp)
+molga_add_test(test_asset_meta        test_asset_meta.cpp)
+molga_add_test(test_asset_database    test_asset_database.cpp)
+molga_add_test(test_asset_catalog     test_asset_catalog.cpp)
+molga_add_test(test_importer          test_importer.cpp)
+target_sources(test_importer PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/TextureImporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/AudioImporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/PrefabImporter.cpp
+    ${CMAKE_SOURCE_DIR}/src/Core/Importers/PostProcessProfileImporter.cpp)
+molga_add_test(test_asset_reference_migration test_asset_reference_migration.cpp)
+molga_add_test(test_asset_reference_scan test_asset_reference_scan.cpp)
+target_sources(test_asset_reference_scan PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/AssetReferenceScan.cpp)
+molga_add_test(test_project_file_commands test_project_file_commands.cpp)
+target_sources(test_project_file_commands PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/ProjectFileCommands.cpp)
+molga_add_test(test_asset_watcher test_asset_watcher.cpp)
+target_sources(test_asset_watcher PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Watcher/AssetWatcher.cpp)
+molga_add_test(test_create_sprite_from_asset test_create_sprite_from_asset.cpp)
+target_sources(test_create_sprite_from_asset PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/CreateSpriteFromAssetCommand.cpp)
 molga_add_test(test_text              test_text.cpp)
+molga_add_test(test_font              test_font.cpp)
+target_compile_definitions(test_font PRIVATE
+    MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+molga_add_test(test_log_message      test_log_message.cpp)
+molga_add_test(test_log_sinks        test_log_sinks.cpp)
+target_include_directories(test_log_sinks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_add_test(test_editor_console_sink test_editor_console_sink.cpp)
+target_sources(test_editor_console_sink PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorConsoleSink.cpp)
+target_include_directories(test_editor_console_sink PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_add_test(test_editor_task_service test_editor_task_service.cpp)
+target_sources(test_editor_task_service PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorTaskService.cpp)
+target_include_directories(test_editor_task_service PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_add_test(test_process_runner test_process_runner.cpp)
+target_sources(test_process_runner PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Platform/Process.cpp)
+target_include_directories(test_process_runner PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_add_test(test_script_field_snapshot test_script_field_snapshot.cpp)
+molga_add_test(test_script_reload_service test_script_reload_service.cpp)
+molga_add_test(test_play_mode_compile_policy test_play_mode_compile_policy.cpp)
 molga_add_test(test_collision         test_collision.cpp)
 molga_add_test(test_physics           test_physics.cpp)
 molga_add_test(test_tilemap           test_tilemap.cpp)
+molga_add_test(test_animation         test_animation.cpp)
 molga_add_test(test_ecs               test_ecs.cpp)
 molga_add_test(test_scene_serializer  test_scene_serializer.cpp)
 molga_add_test(test_time              test_time.cpp)
@@ -25,22 +72,68 @@ molga_add_test(test_event             test_event.cpp)
 molga_add_test(test_audio             test_audio.cpp)
 molga_add_test(test_particle          test_particle.cpp)
 molga_add_test(test_renderer_contract test_renderer_contract.cpp)
+molga_add_test(test_render_queue      test_render_queue.cpp)
+molga_add_test(test_world_sort       test_world_sort.cpp)
 molga_add_test(test_hierarchy         test_hierarchy.cpp)
 molga_add_test(test_command_history   test_command_history.cpp)
 molga_add_test(test_world             test_world.cpp)
+molga_add_test(test_scene_runtime     test_scene_runtime.cpp)
+target_include_directories(test_scene_runtime PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 molga_add_test(test_world_lifecycle   test_world_lifecycle.cpp)
 molga_add_test(test_prefab            test_prefab.cpp)
 molga_add_test(test_camera            test_camera.cpp)
+molga_add_test(test_game_view         test_game_view.cpp)
+molga_add_test(test_camera_output_layout test_camera_output_layout.cpp)
+molga_add_test(test_post_process      test_post_process.cpp)
+molga_add_test(test_lighting_2d       test_lighting_2d.cpp)
+molga_add_test(test_rendering_sdlgpu  test_rendering_sdlgpu.cpp)
+target_compile_definitions(test_rendering_sdlgpu PRIVATE
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+if(MOLGA_MARROW_SUPPORT)
+    target_compile_definitions(test_rendering_sdlgpu PRIVATE
+        MOLGA_MARROW_FIXTURE_DIR="${MOLGA_MARROW_DIR}/assets/fixtures")
+endif()
+set_tests_properties(test_rendering_sdlgpu PROPERTIES
+    LABELS "gpu;sdlgpu;pixel")
+molga_add_test(test_imgui_sdlgpu test_imgui_sdlgpu.cpp)
+target_sources(test_imgui_sdlgpu PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/ImGuiLayer.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/ImGuiTextureBridge.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/FontManager.cpp)
+target_link_libraries(test_imgui_sdlgpu PRIVATE imgui)
+set_tests_properties(test_imgui_sdlgpu PROPERTIES
+    LABELS "smoke;gpu;sdlgpu;imgui"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    RUN_SERIAL TRUE
+    TIMEOUT 60)
 molga_add_test(test_path_service       test_path_service.cpp)
 molga_add_test(test_shader_material   test_shader_material.cpp)
+target_compile_definitions(test_shader_material PRIVATE
+    MOLGA_TEST_SHADER_BUNDLE="${CMAKE_BINARY_DIR}/ShaderBundle")
+set_tests_properties(test_shader_material PROPERTIES LABELS "unit;shader-bundle")
+add_test(
+    NAME test_shader_bundle_tool
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSHADERC=$<TARGET_FILE:molga_shaderc>"
+        "-DFULL_BUNDLE=${CMAKE_BINARY_DIR}/ShaderBundle"
+        "-DWORK_ROOT=${CMAKE_BINARY_DIR}/shader-bundle-tool-test"
+        "-DSOURCE_SHADERS=${CMAKE_SOURCE_DIR}/src/Shaders"
+        -P "${CMAKE_SOURCE_DIR}/tests/test_shader_bundle_tool.cmake")
+set_tests_properties(test_shader_bundle_tool PROPERTIES
+    LABELS "unit;shader-bundle")
 molga_add_test(test_game_builder      test_game_builder.cpp)
 molga_add_test(test_package_finalizer test_package_finalizer.cpp)
+
+molga_add_test(test_profile_scope     test_profile_scope.cpp)
+molga_add_test(test_frame_counters    test_frame_counters.cpp)
+molga_add_test(test_profiler_service  test_profiler_service.cpp)
 target_include_directories(test_package_finalizer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
 molga_add_test(test_selection_service test_selection_service.cpp)
 molga_add_test(test_viewport_math test_viewport_math.cpp)
 molga_add_test(test_scene_picker test_scene_picker.cpp)
 molga_add_test(test_transform_gizmo_math test_transform_gizmo_math.cpp)
+molga_add_test(test_editor_property_descriptor test_editor_property_descriptor.cpp)
 
 molga_add_test(test_transform_command test_transform_command.cpp)
 target_sources(test_transform_command PRIVATE
@@ -53,8 +146,24 @@ molga_add_test(test_script_compiler  test_script_compiler.cpp)
 molga_add_test(test_script_reflection test_script_reflection.cpp)
 molga_add_test(test_physics_query     test_physics_query.cpp)
 molga_add_test(test_scheduler         test_scheduler.cpp)
+molga_add_test(test_script_invocation_boundary test_script_invocation_boundary.cpp)
 molga_add_test(test_lifecycle         test_lifecycle.cpp)
 molga_add_test(test_input_actions     test_input_actions.cpp)
+add_test(
+    NAME test_input_migrator
+    COMMAND "${CMAKE_COMMAND}"
+        "-DMIGRATOR=$<TARGET_FILE:molga_migrate>"
+        "-DWORK_ROOT=${CMAKE_BINARY_DIR}/input-migrator-test"
+        -P "${CMAKE_SOURCE_DIR}/tests/test_input_migrator.cmake"
+)
+set_tests_properties(test_input_migrator PROPERTIES LABELS "unit;migration")
+molga_add_test(test_platform_sdl      test_platform_sdl.cpp)
+target_link_libraries(test_platform_sdl PRIVATE SDL3::SDL3)
+set_tests_properties(test_platform_sdl PROPERTIES
+    LABELS "platform;sdl3")
+molga_add_test(test_gpu_sdl           test_gpu_sdl.cpp)
+set_tests_properties(test_gpu_sdl PROPERTIES
+    LABELS "platform;gpu;sdlgpu")
 molga_add_test(test_build_profile     test_build_profile.cpp)
 molga_add_test(test_project_build_profile test_project_build_profile.cpp)
 target_sources(test_project_build_profile PRIVATE
@@ -67,6 +176,13 @@ target_sources(test_build_manager PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/BuildManager.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/GameBuilder.cpp
     ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorConsoleSink.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorTaskService.cpp
+    ${CMAKE_SOURCE_DIR}/src/Platform/Process.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/EditorState.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/WindowManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Windows/ConsoleWindow.cpp
+    ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp
 )
 target_include_directories(test_build_manager PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(test_build_manager PRIVATE imgui)
@@ -88,16 +204,76 @@ molga_add_test(build_smoke
     test_build_smoke.cpp
 )
 target_include_directories(build_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-set_tests_properties(build_smoke PROPERTIES LABELS "unit;smoke")
+set_tests_properties(build_smoke PROPERTIES LABELS "smoke")
 
 molga_add_test(editor_smoke
     test_editor_smoke.cpp
 )
 target_include_directories(editor_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-set_tests_properties(editor_smoke PROPERTIES LABELS "unit;smoke")
+set_tests_properties(editor_smoke PROPERTIES LABELS "smoke")
 
 molga_add_test(runtime_smoke
     test_runtime_smoke.cpp
 )
 target_include_directories(runtime_smoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
-set_tests_properties(runtime_smoke PROPERTIES LABELS "unit;smoke")
+set_tests_properties(runtime_smoke PROPERTIES LABELS "smoke")
+
+molga_add_test(test_runtime_script_package_loader
+    test_runtime_script_package_loader.cpp
+)
+target_include_directories(test_runtime_script_package_loader PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_storage test_storage.cpp)
+target_include_directories(test_storage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_ui test_ui.cpp)
+target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+molga_add_test(test_editor_undo_dirty test_editor_undo_dirty.cpp)
+target_sources(test_editor_undo_dirty PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/SceneSnapshots.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/PropertyCommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/ComponentCommands.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Commands/ObjectCommands.cpp
+)
+target_include_directories(test_editor_undo_dirty PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(test_editor_undo_dirty PRIVATE imgui)
+
+if(WIN32)
+    # Windows qualification in this stage covers the loader ABI contract, not
+    # packaged user-script execution. PE/COFF does not support the unresolved
+    # host-symbol lookup used by the richer macOS/Linux E2E fixture.
+    add_library(dummy_valid_lib SHARED dummy_valid_loader_only_lib.cpp)
+else()
+    add_library(dummy_valid_lib SHARED dummy_valid_lib.cpp)
+endif()
+target_include_directories(dummy_valid_lib PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/nlohmann_json/include
+)
+if(APPLE)
+    set_target_properties(dummy_valid_lib PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+endif()
+
+add_library(dummy_missing_register_lib SHARED dummy_missing_register_lib.cpp)
+target_link_libraries(dummy_missing_register_lib PRIVATE molga_core)
+
+add_library(dummy_missing_api_lib SHARED dummy_missing_api_lib.cpp)
+target_link_libraries(dummy_missing_api_lib PRIVATE molga_core)
+
+add_library(dummy_mismatch_api_lib SHARED dummy_mismatch_api_lib.cpp)
+target_link_libraries(dummy_mismatch_api_lib PRIVATE molga_core)
+
+add_dependencies(test_runtime_script_package_loader
+    dummy_valid_lib
+    dummy_missing_register_lib
+    dummy_missing_api_lib
+    dummy_mismatch_api_lib
+)
+
+target_compile_definitions(test_runtime_script_package_loader PRIVATE
+    DUMMY_VALID_LIB_PATH="$<TARGET_FILE:dummy_valid_lib>"
+    DUMMY_MISSING_REGISTER_LIB_PATH="$<TARGET_FILE:dummy_missing_register_lib>"
+    DUMMY_MISSING_API_PATH="$<TARGET_FILE:dummy_missing_api_lib>"
+    DUMMY_MISMATCH_API_PATH="$<TARGET_FILE:dummy_mismatch_api_lib>"
+)

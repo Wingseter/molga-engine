@@ -1,15 +1,19 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 #include <imgui.h>
 #include "WindowManager.h"
 #include "SceneOperations.h"
 #include "BuildManager.h"
+#include "Core/Profiling/FrameProfile.h"
 
 #include "Editor/Commands/CommandHistory.h"
 #include "Editor/Selection/SelectionService.h"
 #include "Editor/Commands/TransformCommand.h"
+#include "Editor/EditorTaskService.h"
+#include "Scripting/ScriptReloadService.h"
 
 class GameObject;
 class Renderer;
@@ -41,14 +45,27 @@ public:
     std::shared_ptr<GameObject> CreateGameObject(const std::string& name = "GameObject");
 
     molga::CommandHistory& GetCommandHistory() { return commandHistory; }
+    molga::CommandHistory& GetAssetCommandHistory() { return assetCommandHistory_; }
     WindowManager& GetWindowManager() { return windowManager; }
     molga::SelectionService& GetSelection() { return selection_; }
+    molga::EditorTaskService& GetTaskService() { return taskService; }
+    molga::ScriptReloadService& GetScriptReload() { return *reloadService_; }
+
+    void PumpScriptReload(bool isEditMode);
+    void LaunchScriptCompile(molga::TaskId id,
+                             const std::string& scriptsDir,
+                             const std::string& configureCmd,
+                             const std::string& buildCmd);
+
     void SubmitTransformEdit(unsigned int targetId,
                              const molga::TransformState& before,
                              const molga::TransformState& after);
 
     // Command가 사용하는 저수준 헬퍼
     std::shared_ptr<GameObject> AddExistingObject(std::shared_ptr<GameObject> obj);
+    std::shared_ptr<GameObject> InsertExistingObjectAt(
+        std::shared_ptr<GameObject> obj, std::size_t index);
+    bool TryGetObjectIndex(unsigned int id, std::size_t& index) const;
     void RemoveObjectsByIds(const std::vector<unsigned int>& ids);
     GameObject* FindObjectById(unsigned int id) const;
     void MarkSceneModified();
@@ -64,10 +81,13 @@ public:
     void SetCurrentScenePath(const std::string& path) {
         sceneOps.SetCurrentPath(path);
         sceneOps.ClearModified();
+        commandHistory.Clear();
     }
 
     // SceneView에 렌더 리소스 주입
     void SetSceneViewResources(Renderer* renderer, Shader* shader);
+    void ProcessPlayUIInput();
+    void ResetPlayUIInput();
 
 private:
     Editor() = default;
@@ -87,12 +107,26 @@ private:
     WindowManager windowManager;
     SceneOperations sceneOps;
     BuildManager buildMgr;
+    molga::EditorTaskService taskService;
+    std::unique_ptr<molga::ILibraryPort> libraryPort_;
+    std::unique_ptr<molga::ScriptReloadService> reloadService_;
 
     std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
     molga::CommandHistory commandHistory;
+    molga::CommandHistory assetCommandHistory_;
     molga::SelectionService selection_;
 
     // DockSpace
     bool firstTimeLayout = true;
     ImGuiID dockspaceId = 0;
+
+public:
+    molga::FrameCounters TakeFrameCounters() { auto c = frameCounters_; frameCounters_.Reset(); return c; }
+    molga::RenderStats   TakeRenderStats()   { auto r = renderStats_;   renderStats_.Reset();   return r; }
+    molga::FrameCounters& FrameCounters() { return frameCounters_; }
+    molga::RenderStats&   RenderStats()   { return renderStats_; }
+
+private:
+    molga::FrameCounters frameCounters_;
+    molga::RenderStats   renderStats_;
 };

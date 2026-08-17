@@ -3,8 +3,79 @@
 #include "../ECS/Components/Transform.h"
 #include "Core/World.h"
 #include "Core/Scheduler.h"
+#include "Core/SceneRuntime.h"
+#include "ScriptInvocationBoundary.h"
 #include "../Physics/Physics2D.h"
 #include <nlohmann/json.hpp>
+
+void Script::SetEnabled(bool value) {
+    const bool retryFault = value && faultInfo_.has_value();
+    if (enabled == value && !retryFault) return;
+
+    World* world = GetWorld();
+    GameObject* owner = gameObject;
+    if (!world || !owner) {
+        if (retryFault) faultInfo_.reset();
+        enabled = value;
+        // Preserve Component's standalone/deserialization behavior. There is
+        // no World identity resolver available outside runtime ownership.
+        if (value) OnEnable();
+        else OnDisable();
+        return;
+    }
+
+    const ScriptHandle handle = GetHandle();
+    if (!value) {
+        // Component's existing contract exposes the new enabled state from
+        // inside OnDisable.
+        enabled = false;
+        ScriptInvocationBoundary::Invoke(
+            *world, handle, ScriptPhase::OnDisable,
+            [](Script& script) { script.OnDisable(); },
+            true, true);
+        return;
+    }
+
+    if (retryFault) faultInfo_.reset();
+    enabled = true;
+    if (!owner->IsActive()) return;
+
+    if (!retryFault) {
+        ScriptInvocationBoundary::Invoke(
+            *world, handle, ScriptPhase::OnEnable,
+            [](Script& script) { script.OnEnable(); });
+        return;
+    }
+
+    // A failed Awake/Start is intentionally left incomplete. Re-enable is the
+    // explicit recovery action and retries only the phases still pending.
+    Script* live = ScriptInvocationBoundary::Resolve(*world, handle);
+    if (!live) return;
+    if (!live->HasAwoken()) {
+        const bool completed = ScriptInvocationBoundary::Invoke(
+            *world, handle, ScriptPhase::Awake,
+            [](Script& script) { script.Awake(); });
+        if (!completed) return;
+        live = ScriptInvocationBoundary::Resolve(*world, handle);
+        if (!live) return;
+        live->MarkAwoken();
+    }
+
+    if (!ScriptInvocationBoundary::Invoke(
+            *world, handle, ScriptPhase::OnEnable,
+            [](Script& script) { script.OnEnable(); })) {
+        return;
+    }
+
+    live = ScriptInvocationBoundary::Resolve(*world, handle);
+    if (!live || !world->IsRunning() || live->HasStarted()) return;
+    if (ScriptInvocationBoundary::Invoke(
+            *world, handle, ScriptPhase::Start,
+            [](Script& script) { script.Start(); })) {
+        live = ScriptInvocationBoundary::Resolve(*world, handle);
+        if (live) live->MarkStarted();
+    }
+}
 
 const ScriptFieldRegistry& Script::Fields() {
     if (!fieldsBuilt_) {
@@ -25,7 +96,8 @@ void Script::Serialize(nlohmann::json& j) const {
     for (const auto& f : reg.Fields()) {
         switch (f.type) {
             case ScriptFieldType::Float:  fields[f.name] = *static_cast<const float*>(f.ptr); break;
-            case ScriptFieldType::Int:    fields[f.name] = *static_cast<const int*>(f.ptr); break;
+            case ScriptFieldType::Int:
+            case ScriptFieldType::Enum:   fields[f.name] = *static_cast<const int*>(f.ptr); break;
             case ScriptFieldType::Bool:   fields[f.name] = *static_cast<const bool*>(f.ptr); break;
             case ScriptFieldType::String: fields[f.name] = *static_cast<const std::string*>(f.ptr); break;
             case ScriptFieldType::Vector2: {
@@ -59,7 +131,8 @@ void Script::Deserialize(const nlohmann::json& j) {
         try {
             switch (f.type) {
                 case ScriptFieldType::Float:  *static_cast<float*>(f.ptr) = val.get<float>(); break;
-                case ScriptFieldType::Int:    *static_cast<int*>(f.ptr) = val.get<int>(); break;
+                case ScriptFieldType::Int:
+                case ScriptFieldType::Enum:   *static_cast<int*>(f.ptr) = val.get<int>(); break;
                 case ScriptFieldType::Bool:   *static_cast<bool*>(f.ptr) = val.get<bool>(); break;
                 case ScriptFieldType::String: *static_cast<std::string*>(f.ptr) = val.get<std::string>(); break;
                 case ScriptFieldType::Vector2: {
@@ -91,6 +164,16 @@ void Script::Deserialize(const nlohmann::json& j) {
             // 타입 불일치 등은 무시하고 기본값 유지.
         }
     }
+}
+
+nlohmann::json Script::SnapshotFields() const {
+    nlohmann::json j = nlohmann::json::object();
+    Serialize(j);
+    return j;
+}
+
+void Script::RestoreFields(const nlohmann::json& snapshot) {
+    Deserialize(snapshot);
 }
 
 void Script::RemapReferences(const std::unordered_map<unsigned int, unsigned int>& idRemap) {
@@ -162,41 +245,41 @@ GameObject* Script::OverlapPoint(const Vector2& point, int layerMask) const {
 }
 
 // ── 타이머 / 코루틴 ──
-// owner는 이 스크립트 인스턴스(this), goId는 소유 GameObject id로 태깅한다.
+// ScriptHandle은 주소 재사용과 callback 중 교체를 구분한다.
 void Script::Invoke(std::function<void()> fn, float delay) {
     World* w = GetWorld();
     if (w && w->GetScheduler() && gameObject) {
-        w->GetScheduler()->Invoke(this, gameObject->GetID(), std::move(fn), delay);
+        w->GetScheduler()->Invoke(GetHandle(), std::move(fn), delay);
     }
 }
 
 void Script::InvokeRepeating(std::function<void()> fn, float delay, float interval) {
     World* w = GetWorld();
     if (w && w->GetScheduler() && gameObject) {
-        w->GetScheduler()->InvokeRepeating(this, gameObject->GetID(), std::move(fn), delay, interval);
+        w->GetScheduler()->InvokeRepeating(GetHandle(), std::move(fn), delay, interval);
     }
 }
 
 void Script::CancelInvoke() {
     World* w = GetWorld();
-    if (w && w->GetScheduler()) w->GetScheduler()->CancelInvoke(this);
+    if (w && w->GetScheduler()) w->GetScheduler()->CancelInvoke(GetHandle());
 }
 
 bool Script::IsInvoking() const {
     World* w = GetWorld();
-    return w && w->GetScheduler() && w->GetScheduler()->IsInvoking(this);
+    return w && w->GetScheduler() && w->GetScheduler()->IsInvoking(GetHandle());
 }
 
 void Script::StartCoroutine(std::function<bool(float)> step) {
     World* w = GetWorld();
     if (w && w->GetScheduler() && gameObject) {
-        w->GetScheduler()->StartCoroutine(this, gameObject->GetID(), std::move(step));
+        w->GetScheduler()->StartCoroutine(GetHandle(), std::move(step));
     }
 }
 
 void Script::StopAllCoroutines() {
     World* w = GetWorld();
-    if (w && w->GetScheduler()) w->GetScheduler()->StopCoroutines(this);
+    if (w && w->GetScheduler()) w->GetScheduler()->StopCoroutines(GetHandle());
 }
 
 Transform* Script::GetTransform() {
@@ -244,6 +327,24 @@ void Script::Destroy(float delay) {
     if (gameObject && gameObject->GetWorld()) {
         gameObject->GetWorld()->Destroy(gameObject, delay);
     }
+}
+
+bool Script::LoadScene(const std::string& registeredPath) {
+    World* world = GetWorld();
+    SceneRuntime* runtime = world ? world->GetSceneRuntime() : nullptr;
+    return runtime ? runtime->RequestLoad(registeredPath) : false;
+}
+
+std::string Script::GetActiveScenePath() const {
+    World* world = GetWorld();
+    SceneRuntime* runtime = world ? world->GetSceneRuntime() : nullptr;
+    return runtime ? runtime->CurrentScenePath() : std::string{};
+}
+
+bool Script::IsSceneLoadPending() const {
+    World* world = GetWorld();
+    SceneRuntime* runtime = world ? world->GetSceneRuntime() : nullptr;
+    return runtime && runtime->IsSceneLoadPending();
 }
 
 // 인스펙터 렌더링은 에디터(molga_engine, MOLGA_EDITOR + imgui)에서 수행한다.

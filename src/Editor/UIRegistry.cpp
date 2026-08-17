@@ -15,15 +15,34 @@ const std::unordered_map<std::string, UIRegistry::FileTypeInfo> UIRegistry::s_fi
     { ".wav",  { Icons::FileAudio, EditorTheme::FileColor::AUDIO } },
     { ".mp3",  { Icons::FileAudio, EditorTheme::FileColor::AUDIO } },
     { ".ogg",  { Icons::FileAudio, EditorTheme::FileColor::AUDIO } },
+    { ".ttf",  { Icons::File,      EditorTheme::FileColor::DEFAULT } },
+    { ".otf",  { Icons::File,      EditorTheme::FileColor::DEFAULT } },
+    { ".animclip", { Icons::FileCode, EditorTheme::FileColor::JSON } },
+    { ".animator", { Icons::Sitemap,  EditorTheme::FileColor::JSON } },
+    { ".tileset",  { Icons::Image,    EditorTheme::FileColor::IMAGE } },
+    { ".postfx",   { Icons::Cog,      EditorTheme::FileColor::JSON } },
 };
 
 const std::unordered_map<std::string, UIRegistry::ComponentTypeInfo> UIRegistry::s_componentTypes = {
     { "Transform",      { Icons::ArrowsAlt } },
     { "SpriteRenderer", { Icons::Image     } },
     { "BoxCollider2D",  { Icons::Square    } },
+    { "CircleCollider2D", { Icons::Circle  } },
+    { "Rigidbody2D",    { Icons::Cogs      } },
+    { "TextRenderer2D", { Icons::ListUl    } },
     { "AudioSource",    { Icons::Music     } },
     { "AudioListener",  { Icons::VolumeUp  } },
+    { "Animator2D",     { Icons::Sitemap   } },
+    { "TilemapRenderer",{ Icons::Image     } },
+    { "ParticleSystem", { Icons::Circle    } },
     { "Camera",         { Icons::Camera    } },
+    { "PointLight2D",   { Icons::Lightbulb } },
+    { "ShadowOccluder2D", { Icons::Square  } },
+    { "UICanvas",       { Icons::Square    } },
+    { "RectTransform",  { Icons::ArrowsAlt } },
+    { "UIImage",        { Icons::Image     } },
+    { "UILabel",        { Icons::ListUl    } },
+    { "UIButton",       { Icons::Square    } },
 };
 
 const UIRegistry::FileTypeInfo& UIRegistry::GetFileTypeInfo(const std::string& extension, bool isDirectory) {

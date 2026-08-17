@@ -7,6 +7,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
+bool g_failNextStagingRename = false;
+
 Result Fail(const std::string& error) {
     return Result{false, error};
 }
@@ -65,7 +67,12 @@ Result FinalizeStagedPackage(const fs::path& stagingOutput,
         }
     }
 
-    fs::rename(stagingOutput, finalOutput, ec);
+    if (g_failNextStagingRename) {
+        g_failNextStagingRename = false;
+        ec = std::make_error_code(std::errc::permission_denied);
+    } else {
+        fs::rename(stagingOutput, finalOutput, ec);
+    }
     if (ec) {
         const std::string renameError = ec.message();
 
@@ -99,6 +106,10 @@ Result FinalizeStagedPackage(const fs::path& stagingOutput,
     }
 
     return Result{true, ""};
+}
+
+void FailNextStagingRenameForTesting() {
+    g_failNextStagingRename = true;
 }
 
 }  // namespace PackageFinalizer

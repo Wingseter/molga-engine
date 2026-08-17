@@ -3,6 +3,7 @@
 #include <string>
 #include <unordered_map>
 #include <memory>
+#include "Core/TextureImportSettings.h"
 
 class Texture;
 
@@ -11,7 +12,12 @@ public:
     static TextureManager& Get();
 
     // Load texture (cached)
-    Texture* Load(const std::string& path);
+    Texture* Load(const std::string& path, const char* caller = "Unknown");
+    Texture* LoadWithSettings(const std::string& path,
+                              const molga::TextureImportSettings& settings,
+                              const char* caller = "Unknown");
+    bool Reload(const std::string& path, const molga::TextureImportSettings& settings,
+                std::string* errorOut = nullptr);
 
     // Get already loaded texture
     Texture* Get(const std::string& path);
@@ -34,4 +40,5 @@ private:
     TextureManager& operator=(const TextureManager&) = delete;
 
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures;
+    static std::string CacheKey(const std::string& path);
 };

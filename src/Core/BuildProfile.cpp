@@ -2,11 +2,17 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <utility>
 
 namespace {
-bool ContainsPathSeparator(const std::string& value) {
-    return value.find('/') != std::string::npos ||
-           value.find('\\') != std::string::npos;
+bool IsSafeStorageSegment(const std::string& value) {
+    if (value.empty() || value == "." || value == "..") return false;
+    for (unsigned char c : value) {
+        if (c < 0x20 || c == 0x7f || c == '/' || c == '\\' || c == ':') {
+            return false;
+        }
+    }
+    return true;
 }
 }
 
@@ -20,7 +26,7 @@ BuildProfile BuildProfile::Defaults(const std::string& projectName) {
 }
 
 bool BuildProfile::Validate(std::string& errorOut) const {
-    if (schemaVersion != 1) {
+    if (schemaVersion != CurrentSchemaVersion) {
         errorOut = "Unsupported build profile schemaVersion: " + std::to_string(schemaVersion);
         return false;
     }
@@ -28,8 +34,12 @@ bool BuildProfile::Validate(std::string& errorOut) const {
         errorOut = "Build profile gameName must not be empty.";
         return false;
     }
-    if (ContainsPathSeparator(gameName)) {
-        errorOut = "Build profile gameName must not contain path separators.";
+    if (!IsSafeStorageSegment(gameName)) {
+        errorOut = "Build profile gameName contains characters that are unsafe for storage paths.";
+        return false;
+    }
+    if (!IsSafeStorageSegment(companyName)) {
+        errorOut = "Build profile companyName contains characters that are unsafe for storage paths.";
         return false;
     }
     if (startupScene.empty()) {
@@ -65,7 +75,9 @@ nlohmann::json BuildProfile::Serialize() const {
         {"width", window.width},
         {"height", window.height},
         {"fullscreen", window.fullscreen},
-        {"resizable", window.resizable}
+        {"resizable", window.resizable},
+        {"outputScaleMode",
+         molga::GameOutputScaleModeName(window.outputScaleMode)}
     };
     j["developmentBuild"] = developmentBuild;
     j["showConsole"] = showConsole;
@@ -75,32 +87,57 @@ nlohmann::json BuildProfile::Serialize() const {
 
 bool BuildProfile::Deserialize(const nlohmann::json& j) {
     try {
-        schemaVersion = j.value("schemaVersion", 1);
-        gameName = j.value("gameName", gameName);
-        productVersion = j.value("productVersion", productVersion);
-        companyName = j.value("companyName", companyName);
-        outputPath = j.value("outputPath", outputPath);
-        startupScene = j.value("startupScene", startupScene);
-        target = j.value("target", target);
-        developmentBuild = j.value("developmentBuild", developmentBuild);
-        showConsole = j.value("showConsole", showConsole);
+        if (!j.is_object()) return false;
+        const int storedSchemaVersion = j.value("schemaVersion", 1);
+        if (storedSchemaVersion < 1 ||
+            storedSchemaVersion > CurrentSchemaVersion) {
+            return false;
+        }
+
+        BuildProfile parsed = *this;
+        parsed.schemaVersion = CurrentSchemaVersion;
+        parsed.gameName = j.value("gameName", parsed.gameName);
+        parsed.productVersion = j.value("productVersion", parsed.productVersion);
+        parsed.companyName = j.value("companyName", parsed.companyName);
+        parsed.outputPath = j.value("outputPath", parsed.outputPath);
+        parsed.startupScene = j.value("startupScene", parsed.startupScene);
+        parsed.target = j.value("target", parsed.target);
+        parsed.developmentBuild =
+            j.value("developmentBuild", parsed.developmentBuild);
+        parsed.showConsole = j.value("showConsole", parsed.showConsole);
+
+        if (storedSchemaVersion == 1) {
+            parsed.window.resizable = true;
+            parsed.window.outputScaleMode = molga::GameOutputScaleMode::Native;
+        }
 
         if (j.contains("scenes") && j["scenes"].is_array()) {
-            scenes.clear();
+            parsed.scenes.clear();
             for (const auto& scene : j["scenes"]) {
                 if (scene.is_string()) {
-                    scenes.push_back(scene.get<std::string>());
+                    parsed.scenes.push_back(scene.get<std::string>());
                 }
             }
         }
 
         if (j.contains("window") && j["window"].is_object()) {
             const auto& w = j["window"];
-            window.width = w.value("width", window.width);
-            window.height = w.value("height", window.height);
-            window.fullscreen = w.value("fullscreen", window.fullscreen);
-            window.resizable = w.value("resizable", window.resizable);
+            parsed.window.width = w.value("width", parsed.window.width);
+            parsed.window.height = w.value("height", parsed.window.height);
+            parsed.window.fullscreen =
+                w.value("fullscreen", parsed.window.fullscreen);
+            parsed.window.resizable =
+                w.value("resizable", parsed.window.resizable);
+            if (storedSchemaVersion >= 2 && w.contains("outputScaleMode")) {
+                if (!w["outputScaleMode"].is_string() ||
+                    !molga::TryParseGameOutputScaleMode(
+                        w["outputScaleMode"].get<std::string>(),
+                        parsed.window.outputScaleMode)) {
+                    return false;
+                }
+            }
         }
+        *this = std::move(parsed);
         return true;
     } catch (const std::exception&) {
         return false;

@@ -5,6 +5,8 @@
 void Collider2D::SerializeBase(nlohmann::json& j) const {
     j["offset"] = { offset.x, offset.y };
     j["isTrigger"] = isTrigger;
+    j["friction"] = friction;
+    j["restitution"] = restitution;
 }
 
 void Collider2D::DeserializeBase(const nlohmann::json& j) {
@@ -14,6 +16,8 @@ void Collider2D::DeserializeBase(const nlohmann::json& j) {
     if (j.contains("isTrigger")) {
         isTrigger = j["isTrigger"];
     }
+    if (j.contains("friction")) SetFriction(j["friction"].get<float>());
+    if (j.contains("restitution")) SetRestitution(j["restitution"].get<float>());
 }
 
 AABB Collider2D::NormalizeBounds(AABB aabb) {

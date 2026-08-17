@@ -1,247 +1,156 @@
 #include "Systems/Input.h"
 #include "doctest.h"
+
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 
-TEST_CASE("Input Action Map Subsystem Tests") {
-    // Initialize Input system
-    Input::Init(nullptr);
+namespace {
 
-    // Initialize default actions
+void BeginTestFrame() {
+    Input::BeginFrame();
+}
+
+} // namespace
+
+TEST_CASE("Input default actions use typed symbolic controls") {
+    Input::Init(0);
     Input::InitializeDefaultActions();
 
-    auto& actions = Input::GetActions();
-    REQUIRE(actions.size() >= 4);
-
-    // Find Horizontal Action
-    Input::Action* horiz = nullptr;
-    for (auto& action : actions) {
-        if (action.name == "Horizontal") {
-            horiz = &action;
-            break;
-        }
-    }
-    REQUIRE(horiz != nullptr);
-    CHECK(horiz->isAxis == true);
-    CHECK(horiz->bindings.size() == 3);
-
-    // Find Jump Action
-    Input::Action* jump = nullptr;
-    for (auto& action : actions) {
-        if (action.name == "Jump") {
-            jump = &action;
-            break;
-        }
-    }
-    REQUIRE(jump != nullptr);
-    CHECK(jump->isAxis == false);
+    const auto& actions = Input::GetActions();
+    REQUIRE(actions.size() == 4);
+    CHECK(actions[0].name == "Horizontal");
+    CHECK(actions[0].bindings[0].control == "D");
+    CHECK(actions[2].name == "Jump");
+    CHECK(actions[2].bindings[0].control == "Space");
+    CHECK(Input::IsValidControl(Input::DeviceType::Keyboard, "Escape"));
+    CHECK_FALSE(Input::IsValidControl(Input::DeviceType::Keyboard, "NotAKey"));
 }
 
-TEST_CASE("Input Action registration and custom bindings") {
-    Input::Init(nullptr);
+TEST_CASE("Input action evaluation uses typed keyboard mouse and gamepad controls") {
+    Input::Init(0);
     auto& actions = Input::GetActions();
-    actions.clear();
+    actions = {
+        {"Shoot", false, {{Input::DeviceType::Mouse, "Left", 1.0f}}},
+        {"Move", true,
+         {{Input::DeviceType::Keyboard, "D", 1.0f},
+          {Input::DeviceType::Keyboard, "A", -1.0f}}},
+        {"Look", true,
+         {{Input::DeviceType::GamepadAxis, "RightX", 1.0f}}}
+    };
 
-    Input::Action customAction;
-    customAction.name = "CustomJump";
-    customAction.isAxis = false;
-
-    Input::Binding spaceBind;
-    spaceBind.device = Input::DeviceType::Keyboard;
-    spaceBind.code = 32; // GLFW_KEY_SPACE
-    spaceBind.multiplier = 1.0f;
-
-    customAction.bindings.push_back(spaceBind);
-    actions.push_back(customAction);
-
-    REQUIRE(actions.size() == 1);
-    CHECK(actions[0].name == "CustomJump");
-    CHECK(actions[0].bindings.size() == 1);
-    CHECK(actions[0].bindings[0].code == 32);
-}
-
-TEST_CASE("Input Action evaluation: Keyboard and Mouse") {
-    Input::Init(nullptr);
-    auto& actions = Input::GetActions();
-    actions.clear();
-
-    // Custom Button Action
-    Input::Action shoot;
-    shoot.name = "Shoot";
-    shoot.isAxis = false;
-
-    Input::Binding leftMouse;
-    leftMouse.device = Input::DeviceType::Mouse;
-    leftMouse.code = 0; // Left click
-    leftMouse.multiplier = 1.0f;
-    shoot.bindings.push_back(leftMouse);
-    actions.push_back(shoot);
-
-    // Custom Axis Action
-    Input::Action move;
-    move.name = "Move";
-    move.isAxis = true;
-
-    Input::Binding dKey;
-    dKey.device = Input::DeviceType::Keyboard;
-    dKey.code = 68; // 'D'
-    dKey.multiplier = 1.0f;
-
-    Input::Binding aKey;
-    aKey.device = Input::DeviceType::Keyboard;
-    aKey.code = 65; // 'A'
-    aKey.multiplier = -1.0f;
-
-    move.bindings.push_back(dKey);
-    move.bindings.push_back(aKey);
-    actions.push_back(move);
-
-    // Initially, nothing pressed
-    Input::SetMouseButtonForTesting(0, false);
-    Input::SetKeyForTesting(68, false);
-    Input::SetKeyForTesting(65, false);
+    BeginTestFrame();
+    Input::SetMouseButtonForTesting(Input::MouseButton::Left, true);
+    Input::SetKeyForTesting(Input::KeyCode::D, true);
+    Input::SetGamepadAxisForTesting(Input::GamepadAxis::RightX, 0.1f);
     Input::Update();
-
-    CHECK(Input::GetAction("Shoot") == false);
-    CHECK(Input::GetAxis("Move") == doctest::Approx(0.0f));
-
-    // Press left mouse button
-    Input::SetMouseButtonForTesting(0, true);
-    Input::Update();
-    CHECK(Input::GetAction("Shoot") == true);
-
-    // Press 'D' (move positive)
-    Input::SetMouseButtonForTesting(0, false);
-    Input::SetKeyForTesting(68, true);
-    Input::Update();
-    CHECK(Input::GetAction("Shoot") == false);
+    CHECK(Input::GetActionDown("Shoot"));
     CHECK(Input::GetAxis("Move") == doctest::Approx(1.0f));
+    CHECK(Input::GetAxis("Look") == doctest::Approx(0.0f));
 
-    // Press both 'D' and 'A' (should cancel out to 0.0f)
-    Input::SetKeyForTesting(65, true);
+    BeginTestFrame();
+    Input::SetKeyForTesting(Input::KeyCode::A, true);
+    Input::SetGamepadAxisForTesting(Input::GamepadAxis::RightX, -0.8f);
     Input::Update();
+    CHECK_FALSE(Input::GetActionDown("Shoot"));
     CHECK(Input::GetAxis("Move") == doctest::Approx(0.0f));
+    CHECK(Input::GetAxis("Look") == doctest::Approx(-0.8f));
 
-    // Release 'D', only 'A' pressed
-    Input::SetKeyForTesting(68, false);
+    BeginTestFrame();
+    Input::SetMouseButtonForTesting(Input::MouseButton::Left, false);
     Input::Update();
-    CHECK(Input::GetAxis("Move") == doctest::Approx(-1.0f));
+    CHECK(Input::GetActionUp("Shoot"));
 }
 
-TEST_CASE("Input Action evaluation: Gamepad buttons and Axis deadzone") {
-    Input::Init(nullptr);
-    auto& actions = Input::GetActions();
-    actions.clear();
+TEST_CASE("Input scroll is accumulated per window and consumed once") {
+    Input::Init(0);
+    constexpr molga::WindowId first = 1;
+    constexpr molga::WindowId second = 2;
 
-    Input::Action customGP;
-    customGP.name = "GamepadAction";
-    customGP.isAxis = true;
+    Input::AddScrollForTesting(first, 1.0f, 2.0f);
+    Input::AddScrollForTesting(first, -0.25f, 3.0f);
+    Input::AddScrollForTesting(second, 9.0f, -4.0f);
 
-    Input::Binding gpAxis;
-    gpAxis.device = Input::DeviceType::GamepadAxis;
-    gpAxis.code = 0;
-    gpAxis.multiplier = 1.0f;
-    customGP.bindings.push_back(gpAxis);
-    actions.push_back(customGP);
+    const InputSnapshot firstFrame = Input::ConsumeScrollForTesting(first);
+    CHECK(firstFrame.scrollX == doctest::Approx(0.75f));
+    CHECK(firstFrame.scrollY == doctest::Approx(5.0f));
+    CHECK(Input::ConsumeScrollForTesting(first).scrollY == doctest::Approx(0.0f));
 
-    // Check deadzone: values below 0.15f should be ignored
-    Input::SetGamepadAxisForTesting(0, 0.1f);
-    Input::Update();
-    CHECK(Input::GetAxis("GamepadAction") == doctest::Approx(0.0f));
-
-    // Values above 0.15f should be read
-    Input::SetGamepadAxisForTesting(0, 0.4f);
-    Input::Update();
-    CHECK(Input::GetAxis("GamepadAction") == doctest::Approx(0.4f));
-
-    // Values below -0.15f
-    Input::SetGamepadAxisForTesting(0, -0.8f);
-    Input::Update();
-    CHECK(Input::GetAxis("GamepadAction") == doctest::Approx(-0.8f));
+    const InputSnapshot other = Input::ConsumeScrollForTesting(second);
+    CHECK(other.scrollX == doctest::Approx(9.0f));
+    CHECK(other.scrollY == doctest::Approx(-4.0f));
 }
 
-TEST_CASE("Input Action Edge detection (Down/Up)") {
-    Input::Init(nullptr);
-    auto& actions = Input::GetActions();
-    actions.clear();
-
-    Input::Action jump;
-    jump.name = "Jump";
-    jump.isAxis = false;
-
-    Input::Binding spaceBind;
-    spaceBind.device = Input::DeviceType::Keyboard;
-    spaceBind.code = 32;
-    spaceBind.multiplier = 1.0f;
-    jump.bindings.push_back(spaceBind);
-    actions.push_back(jump);
-
-    // Frame 0: Not pressed
-    Input::SetKeyForTesting(32, false);
-    Input::Update();
-    CHECK(Input::GetAction("Jump") == false);
-    CHECK(Input::GetActionDown("Jump") == false);
-    CHECK(Input::GetActionUp("Jump") == false);
-
-    // Frame 1: Pressed (Down triggers)
-    Input::SetKeyForTesting(32, true);
-    Input::Update();
-    CHECK(Input::GetAction("Jump") == true);
-    CHECK(Input::GetActionDown("Jump") == true);
-    CHECK(Input::GetActionUp("Jump") == false);
-
-    // Frame 2: Still Pressed (Down becomes false, Action remains true)
-    Input::Update();
-    CHECK(Input::GetAction("Jump") == true);
-    CHECK(Input::GetActionDown("Jump") == false);
-    CHECK(Input::GetActionUp("Jump") == false);
-
-    // Frame 3: Released (Up triggers, Action becomes false)
-    Input::SetKeyForTesting(32, false);
-    Input::Update();
-    CHECK(Input::GetAction("Jump") == false);
-    CHECK(Input::GetActionDown("Jump") == false);
-    CHECK(Input::GetActionUp("Jump") == true);
-
-    // Frame 4: Still Released (Up becomes false)
-    Input::Update();
-    CHECK(Input::GetAction("Jump") == false);
-    CHECK(Input::GetActionDown("Jump") == false);
-    CHECK(Input::GetActionUp("Jump") == false);
+TEST_CASE("Input discards wheel events outside the game output") {
+    Input::Init(0);
+    constexpr molga::WindowId source = 3;
+    Input::AddScrollForTesting(source, 2.0f, 7.0f);
+    const InputSnapshot outside = Input::ConsumeScrollForTesting(source, false);
+    CHECK(outside.scrollX == doctest::Approx(0.0f));
+    CHECK(outside.scrollY == doctest::Approx(0.0f));
+    CHECK(Input::ConsumeScrollForTesting(source).scrollY == doctest::Approx(0.0f));
 }
 
-TEST_CASE("Input Action Serialization and Deserialization") {
-    Input::Init(nullptr);
+TEST_CASE("Input schema v2 round trips symbolic controls") {
+    Input::Init(0);
     Input::InitializeDefaultActions();
+    const nlohmann::json document = Input::SerializeActions();
+    CHECK(document["schemaVersion"] == 2);
+    CHECK(document["actions"][0]["bindings"][0]["control"] == "D");
+    CHECK_FALSE(document["actions"][0]["bindings"][0].contains("code"));
 
-    std::string testFile = "temp_test_input_actions.json";
-    
-    // Save actions
-    auto& actionsBefore = Input::GetActions();
-    size_t sizeBefore = actionsBefore.size();
-    REQUIRE(sizeBefore > 0);
-    
-    // Create copy to compare with
-    std::vector<Input::Action> actionsBeforeCopy = actionsBefore;
-    
-    Input::SaveActions(testFile);
+    const std::filesystem::path path = "temp_test_input_actions.json";
+    std::string error;
+    REQUIRE(Input::SaveActions(path.string(), &error));
+    Input::GetActions().clear();
+    REQUIRE(Input::LoadActions(path.string(), &error));
+    CHECK(Input::GetActions().size() == 4);
+    CHECK(Input::GetActions()[2].bindings[0].control == "Space");
+    std::filesystem::remove(path);
+}
 
-    // Load actions back
-    Input::Init(nullptr); // clears and resets
-    Input::LoadActions(testFile);
+TEST_CASE("Input runtime rejects legacy numeric documents") {
+    Input::Init(0);
+    const nlohmann::json legacy = nlohmann::json::array({
+        {{"name", "Jump"}, {"isAxis", false},
+         {"bindings", nlohmann::json::array({
+             {{"device", "Keyboard"}, {"code", 32}, {"multiplier", 1.0f}}
+         })}}
+    });
+    std::string error;
+    CHECK_FALSE(Input::DeserializeActions(legacy, &error));
+    CHECK(error.find("INPUT_SCHEMA_MIGRATION_REQUIRED") != std::string::npos);
+}
 
-    auto& actionsAfter = Input::GetActions();
-    CHECK(actionsAfter.size() == sizeBefore);
+TEST_CASE("Legacy input conversion maps numeric codes and fails unknown codes") {
+    const nlohmann::json legacy = nlohmann::json::array({
+        {{"name", "Move"}, {"isAxis", true},
+         {"bindings", nlohmann::json::array({
+             {{"device", "Keyboard"}, {"code", 68}, {"multiplier", 1.0f}},
+             {{"device", "GamepadAxis"}, {"code", 0}, {"multiplier", 1.0f}}
+         })}}
+    });
+    nlohmann::json migrated;
+    std::string error;
+    REQUIRE(Input::MigrateLegacyDocument(legacy, migrated, error));
+    CHECK(migrated["schemaVersion"] == 2);
+    CHECK(migrated["actions"][0]["bindings"][0]["control"] == "D");
+    CHECK(migrated["actions"][0]["bindings"][1]["control"] == "LeftX");
 
-    if (actionsAfter.size() == sizeBefore) {
-        for (size_t i = 0; i < sizeBefore; ++i) {
-            CHECK(actionsAfter[i].name == actionsBeforeCopy[i].name);
-            CHECK(actionsAfter[i].isAxis == actionsBeforeCopy[i].isAxis);
-            CHECK(actionsAfter[i].bindings.size() == actionsBeforeCopy[i].bindings.size());
-        }
-    }
+    nlohmann::json invalid = legacy;
+    invalid[0]["bindings"][0]["code"] = 9999;
+    CHECK_FALSE(Input::MigrateLegacyDocument(invalid, migrated, error));
+    CHECK(error.find("unsupported legacy code") != std::string::npos);
 
-    // Clean up
-    std::filesystem::remove(testFile);
+    const nlohmann::json malformedSchema = {
+        {"schemaVersion", "2"}, {"actions", nlohmann::json::array()}
+    };
+    CHECK_FALSE(Input::MigrateLegacyDocument(
+        malformedSchema, migrated, error));
+    CHECK(error.find("legacy array or schema v2") != std::string::npos);
+
+    nlohmann::json malformedMultiplier = legacy;
+    malformedMultiplier[0]["bindings"][0]["multiplier"] = "fast";
+    CHECK_FALSE(Input::MigrateLegacyDocument(
+        malformedMultiplier, migrated, error));
+    CHECK(error.find("non-numeric legacy multiplier") != std::string::npos);
 }

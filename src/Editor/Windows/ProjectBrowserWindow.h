@@ -45,6 +45,10 @@ private:
     void StartCreateScript();
     void StartCreateFolder();
     void StartCreateScene();
+    void StartCreateAnimationClip();
+    void StartCreateAnimatorController();
+    void StartCreateTileSet();
+    void StartCreatePostProcessProfile();
     void FinishCreate();   // 이름 입력 확정
     void CancelCreate();   // 취소
 
@@ -81,8 +85,20 @@ private:
     float padding = 10.0f;
 
     // Inline create state
-    enum class CreateMode { None, Script, Folder, Scene };
+    enum class CreateMode {
+        None,
+        Script,
+        Folder,
+        Scene,
+        AnimationClip,
+        AnimatorController,
+        TileSet,
+        PostProcessProfile
+    };
     CreateMode createMode = CreateMode::None;
     char createNameBuffer[256] = "";
     bool createFocusNextFrame = false;
+
+    char searchBuffer_[128] = "";
+    int typeFilter_ = 0;   // See AssetTypeIndex in the implementation.
 };

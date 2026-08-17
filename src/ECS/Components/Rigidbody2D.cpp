@@ -15,8 +15,10 @@ void Rigidbody2D::Serialize(nlohmann::json& j) const {
     j["gravityScale"] = gravityScale;
     j["mass"] = mass;
     j["linearDamping"] = linearDamping;
+    j["angularDamping"] = angularDamping;
     j["freezeRotation"] = freezeRotation;
     j["velocity"] = { velocity.x, velocity.y };
+    j["angularVelocity"] = angularVelocity;
 }
 
 void Rigidbody2D::Deserialize(const nlohmann::json& j) {
@@ -32,7 +34,10 @@ void Rigidbody2D::Deserialize(const nlohmann::json& j) {
         SetMass(j["mass"].get<float>());
     }
     if (j.contains("linearDamping")) {
-        linearDamping = j["linearDamping"];
+        SetLinearDamping(j["linearDamping"].get<float>());
+    }
+    if (j.contains("angularDamping")) {
+        SetAngularDamping(j["angularDamping"].get<float>());
     }
     if (j.contains("freezeRotation")) {
         freezeRotation = j["freezeRotation"];
@@ -40,6 +45,7 @@ void Rigidbody2D::Deserialize(const nlohmann::json& j) {
     if (j.contains("velocity") && j["velocity"].is_array()) {
         velocity = Vector2(j["velocity"][0], j["velocity"][1]);
     }
+    if (j.contains("angularVelocity")) angularVelocity = j["angularVelocity"].get<float>();
 }
 
 void Rigidbody2D::OnInspectorGUI() {
@@ -65,6 +71,11 @@ void Rigidbody2D::OnInspectorGUI() {
         if (ImGui::DragFloat("Linear Damping", &damping, 0.05f, 0.0f, 100.0f)) {
             SetLinearDamping(damping);
         }
+
+        float angularDamp = angularDamping;
+        if (ImGui::DragFloat("Angular Damping", &angularDamp, 0.05f, 0.0f, 100.0f)) {
+            SetAngularDamping(angularDamp);
+        }
     }
 
     bool freeze = freezeRotation;
@@ -75,6 +86,11 @@ void Rigidbody2D::OnInspectorGUI() {
     float vel[2] = { velocity.x, velocity.y };
     if (ImGui::DragFloat2("Velocity", vel, 0.5f)) {
         SetVelocity(Vector2(vel[0], vel[1]));
+    }
+
+    float angularVel = angularVelocity;
+    if (ImGui::DragFloat("Angular Velocity", &angularVel, 0.5f)) {
+        SetAngularVelocity(angularVel);
     }
 #endif
 }

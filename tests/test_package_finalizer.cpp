@@ -50,13 +50,9 @@ TEST_CASE("FinalizeStagedPackage restores final output when staging rename fails
     test_support::WriteText(finalOutput / "old.txt", "old build");
     test_support::WriteText(stagingOutput / "new.txt", "new build");
 
-    // Make stagingParent read-only to prevent moving stagingOutput out of it
-    fs::permissions(stagingParent, fs::perms::owner_read | fs::perms::owner_exec);
+    PackageFinalizer::FailNextStagingRenameForTesting();
 
     const auto result = PackageFinalizer::FinalizeStagedPackage(stagingOutput, finalOutput);
-
-    // Restore permissions so cleanup in TempDirectory destructor works
-    fs::permissions(stagingParent, fs::perms::owner_all);
 
     CHECK_FALSE(result.ok);
     CHECK(result.error.find("move staged output") != std::string::npos);

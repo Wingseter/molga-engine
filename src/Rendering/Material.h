@@ -4,17 +4,11 @@
 #include <unordered_map>
 #include <nlohmann/json.hpp>
 #include "../Common/Types.h"
+#include "Rendering/BlendMode.h"
+#include "Rendering/RenderQueue.h"
 
 class Texture;
-class Renderer;
 class Shader;
-
-enum class BlendMode {
-    Opaque,
-    Alpha,
-    Additive,
-    Multiply
-};
 
 struct MaterialProperty {
     enum class Type { Float, Vec4, Texture };
@@ -30,11 +24,16 @@ public:
     std::string shaderName = "default";
     Color tint = Color::White();
     std::string mainTexturePath;
+    std::string mainTextureGuid;
     Texture* mainTexture = nullptr;
     BlendMode blendMode = BlendMode::Alpha;
     std::unordered_map<std::string, MaterialProperty> properties;
 
-    void Apply(Renderer* renderer);
+    void SetMainTextureGuid(const std::string& g) { mainTextureGuid = g; }
+    const std::string& GetMainTextureGuid() const { return mainTextureGuid; }
+
+    Shader* ResolveShader() const;
+    molga::BatchKey GetBatchKey() const;
     void ResolveAssets();
 
     void Serialize(nlohmann::json& j) const;

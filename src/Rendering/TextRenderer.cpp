@@ -3,6 +3,10 @@
 #include "Renderer.h"
 #include "Shader.h"
 #include "Sprite.h"
+#include "Rendering/RenderQueue.h"
+#include "Rendering/Utf8.h"
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 // Simple 8x8 bitmap font data (ASCII 32-126)
@@ -200,6 +204,14 @@ static const unsigned char BUILTIN_FONT_DATA[] = {
     0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+namespace {
+
+bool CanCreateBuiltinTexture() {
+    return molga::GraphicsDevice::Current() != nullptr;
+}
+
+} // namespace
+
 TextRenderer& TextRenderer::Get() {
     static TextRenderer instance;
     return instance;
@@ -221,6 +233,7 @@ bool TextRenderer::Init() {
 }
 
 void TextRenderer::Shutdown() {
+    fontAtlas.Clear();
     fontTexture.reset();
     characters.clear();
     initialized = false;
@@ -279,8 +292,12 @@ void TextRenderer::GenerateBuiltinFont() {
         characters[c] = info;
     }
 
-    // Create texture
-    fontTexture = std::make_unique<Texture>(texWidth, texHeight, textureData, 4);
+    // Unit tests and import validation can run without a graphics device.
+    // Metrics remain usable there; editor/runtime initialization creates the
+    // actual fallback atlas after SDL_GPU is ready.
+    if (CanCreateBuiltinTexture()) {
+        fontTexture = std::make_unique<Texture>(texWidth, texHeight, textureData, 4);
+    }
     lineHeight = static_cast<float>(CHAR_HEIGHT);
 
     delete[] textureData;
@@ -299,16 +316,17 @@ void TextRenderer::RenderText(Renderer* renderer, Shader* shader,
         renderer->Begin(shader, nullptr);
     }
 
-    for (char c : text) {
-        if (c == '\n') {
+    for (std::uint32_t codepoint : molga::DecodeUtf8(text)) {
+        if (codepoint == '\n') {
             cursorX = x;
             cursorY += lineHeight * scale * lineSpacing;
             continue;
         }
 
+        const char c = (codepoint >= 32U && codepoint <= 126U)
+            ? static_cast<char>(codepoint) : '?';
         auto it = characters.find(c);
         if (it == characters.end()) {
-            // Unknown character, skip or use space
             cursorX += 8.0f * scale;
             continue;
         }
@@ -336,13 +354,15 @@ float TextRenderer::GetTextWidth(const std::string& text, float scale) const {
     float width = 0.0f;
     float maxWidth = 0.0f;
 
-    for (char c : text) {
-        if (c == '\n') {
+    for (std::uint32_t codepoint : molga::DecodeUtf8(text)) {
+        if (codepoint == '\n') {
             maxWidth = std::max(maxWidth, width);
             width = 0.0f;
             continue;
         }
 
+        const char c = (codepoint >= 32U && codepoint <= 126U)
+            ? static_cast<char>(codepoint) : '?';
         auto it = characters.find(c);
         if (it != characters.end()) {
             width += it->second.xAdvance * scale;
@@ -356,4 +376,239 @@ float TextRenderer::GetTextWidth(const std::string& text, float scale) const {
 
 float TextRenderer::GetTextHeight(float scale) const {
     return lineHeight * scale;
+}
+
+namespace {
+
+int AtlasPixelSize(float fontSizePx) {
+    return std::max(1, std::min(static_cast<int>(std::lround(fontSizePx)), 512));
+}
+
+float SafeScale(float scale) {
+    return std::max(0.0f, scale);
+}
+
+float SafeLineSpacing(float spacing) {
+    return std::max(0.1f, std::min(spacing, 10.0f));
+}
+
+float AlignmentOffset(TextHorizontalAlignment alignment, float width) {
+    if (alignment == TextHorizontalAlignment::Center) return -width * 0.5f;
+    if (alignment == TextHorizontalAlignment::Right) return -width;
+    return 0.0f;
+}
+
+void SetVertex(molga::Vertex2D& vertex, float x, float y, float u, float v,
+               const Color& color) {
+    vertex = {x, y, u, v, color.r, color.g, color.b, color.a};
+}
+
+} // namespace
+
+TextMetrics TextRenderer::MeasureText(const std::string& text,
+                                      const std::string& fontGuid,
+                                      float fontSizePx,
+                                      float scale,
+                                      float requestedLineSpacing) {
+    const int pixelSize = AtlasPixelSize(fontSizePx);
+    const float sizeScale = SafeScale(scale);
+    const float spacing = SafeLineSpacing(requestedLineSpacing);
+    molga::FontFaceMetrics fontMetrics;
+    const bool useFont = fontAtlas.GetMetrics(fontGuid, pixelSize, fontMetrics);
+
+    TextMetrics result;
+    result.lineHeight = (useFont && fontMetrics.lineHeight > 0.0f)
+        ? fontMetrics.lineHeight * sizeScale
+        : static_cast<float>(pixelSize) * sizeScale;
+
+    float lineWidth = 0.0f;
+    std::uint32_t previous = 0U;
+    bool hasPrevious = false;
+    for (std::uint32_t codepoint : molga::DecodeUtf8(text)) {
+        if (codepoint == '\n') {
+            result.width = std::max(result.width, lineWidth);
+            lineWidth = 0.0f;
+            previous = 0U;
+            hasPrevious = false;
+            ++result.lineCount;
+            continue;
+        }
+
+        if (useFont) {
+            if (hasPrevious) {
+                lineWidth += fontAtlas.GetKerning(
+                    fontGuid, pixelSize, previous, codepoint) * sizeScale;
+            }
+            molga::FontAtlasGlyph glyph;
+            if (fontAtlas.GetGlyph(fontGuid, pixelSize, codepoint, glyph)) {
+                lineWidth += glyph.xAdvance * sizeScale;
+            }
+        } else {
+            lineWidth += static_cast<float>(pixelSize) * sizeScale;
+        }
+        previous = codepoint;
+        hasPrevious = true;
+    }
+    result.width = std::max(result.width, lineWidth);
+    result.height = result.lineHeight;
+    if (result.lineCount > 1U) {
+        result.height += static_cast<float>(result.lineCount - 1U) *
+                         result.lineHeight * spacing;
+    }
+    return result;
+}
+
+void TextRenderer::CollectText(molga::RenderQueue& queue, const TextDrawParams& params) {
+    if (params.text.empty()) return;
+
+    const std::vector<std::uint32_t> codepoints = molga::DecodeUtf8(params.text);
+    const int pixelSize = AtlasPixelSize(params.fontSizePx);
+    const float sizeScale = SafeScale(params.scale);
+    const float spacing = SafeLineSpacing(params.lineSpacing);
+    molga::FontFaceMetrics fontMetrics;
+    const bool useFont = fontAtlas.GetMetrics(params.fontGuid, pixelSize, fontMetrics);
+
+    std::vector<float> lineWidths(1U, 0.0f);
+    std::uint32_t previous = 0U;
+    bool hasPrevious = false;
+    for (std::uint32_t codepoint : codepoints) {
+        if (codepoint == '\n') {
+            lineWidths.push_back(0.0f);
+            previous = 0U;
+            hasPrevious = false;
+            continue;
+        }
+        if (useFont) {
+            if (hasPrevious) {
+                lineWidths.back() += fontAtlas.GetKerning(
+                    params.fontGuid, pixelSize, previous, codepoint) * sizeScale;
+            }
+            molga::FontAtlasGlyph glyph;
+            if (fontAtlas.GetGlyph(params.fontGuid, pixelSize, codepoint, glyph)) {
+                lineWidths.back() += glyph.xAdvance * sizeScale;
+            }
+        } else {
+            lineWidths.back() += static_cast<float>(pixelSize) * sizeScale;
+        }
+        previous = codepoint;
+        hasPrevious = true;
+    }
+
+    const float resolvedLineHeight =
+        (useFont && fontMetrics.lineHeight > 0.0f)
+            ? fontMetrics.lineHeight * sizeScale
+            : static_cast<float>(pixelSize) * sizeScale;
+    float cursorY = params.y;
+    std::size_t lineIndex = 0U;
+    float cursorX = params.x + AlignmentOffset(params.alignment, lineWidths.front());
+    float baseline = cursorY + (useFont ? fontMetrics.ascent * sizeScale : 0.0f);
+    previous = 0U;
+    hasPrevious = false;
+
+    for (std::uint32_t codepoint : codepoints) {
+        if (codepoint == '\n') {
+            ++lineIndex;
+            cursorY += resolvedLineHeight * spacing;
+            cursorX = params.x + AlignmentOffset(params.alignment, lineWidths[lineIndex]);
+            baseline = cursorY + (useFont ? fontMetrics.ascent * sizeScale : 0.0f);
+            previous = 0U;
+            hasPrevious = false;
+            continue;
+        }
+
+        if (useFont) {
+            if (hasPrevious) {
+                cursorX += fontAtlas.GetKerning(
+                    params.fontGuid, pixelSize, previous, codepoint) * sizeScale;
+            }
+            molga::FontAtlasGlyph glyph;
+            if (fontAtlas.GetGlyph(params.fontGuid, pixelSize, codepoint, glyph)) {
+                if (glyph.drawable) {
+                    const float x = cursorX + glyph.xOffset * sizeScale;
+                    const float y = baseline + glyph.yOffset * sizeScale;
+                    const float width = glyph.width * sizeScale;
+                    const float height = glyph.height * sizeScale;
+
+                    molga::RenderCommand command;
+                    command.sortKey.cameraPass = params.cameraPass;
+                    command.sortKey.sortingLayer = params.sortingLayer;
+                    command.sortKey.sortingOrder = params.sortingOrder;
+                    command.sortKey.depthOrYSort = params.depthOrYSort;
+                    command.batchKey.shaderName = "batch";
+                    if (glyph.texture && glyph.texture->IsValid()) {
+                        command.batchKey.texture = glyph.texture->Handle();
+                        command.batchKey.textureSampler = glyph.texture->Sampler();
+                        command.batchKey.textureStableId = glyph.texture->StableId();
+                    }
+                    command.batchKey.isBatchable = true;
+                    command.isBatchableSprite = true;
+                    // stb bitmaps and atlas CPU pages use a top-to-bottom row
+                    // order, hence top vertices sample v0 and bottom vertices v1.
+                    SetVertex(command.vertices[0], x, y, glyph.u0, glyph.v0, params.color);
+                    SetVertex(command.vertices[1], x + width, y, glyph.u1, glyph.v0, params.color);
+                    SetVertex(command.vertices[2], x + width, y + height,
+                              glyph.u1, glyph.v1, params.color);
+                    SetVertex(command.vertices[3], x, y + height,
+                              glyph.u0, glyph.v1, params.color);
+                    queue.Submit(command);
+                }
+                cursorX += glyph.xAdvance * sizeScale;
+            }
+        } else {
+            const std::uint32_t displayCodepoint =
+                (codepoint >= 32U && codepoint <= 126U) ? codepoint : '?';
+            const char displayCharacter = static_cast<char>(displayCodepoint);
+            const auto found = characters.find(displayCharacter);
+            const float bitmapScale = static_cast<float>(pixelSize) / 8.0f * sizeScale;
+            if (found != characters.end()) {
+                const CharInfo& glyph = found->second;
+                if (displayCharacter != ' ') {
+                    const float x = cursorX + glyph.xOffset * bitmapScale;
+                    const float y = cursorY + glyph.yOffset * bitmapScale;
+                    const float width = glyph.width * bitmapScale;
+                    const float height = glyph.height * bitmapScale;
+                    molga::RenderCommand command;
+                    command.sortKey.cameraPass = params.cameraPass;
+                    command.sortKey.sortingLayer = params.sortingLayer;
+                    command.sortKey.sortingOrder = params.sortingOrder;
+                    command.sortKey.depthOrYSort = params.depthOrYSort;
+                    command.batchKey.shaderName = "batch";
+                    if (fontTexture && fontTexture->IsValid()) {
+                        command.batchKey.texture = fontTexture->Handle();
+                        command.batchKey.textureSampler = fontTexture->Sampler();
+                        command.batchKey.textureStableId = fontTexture->StableId();
+                    }
+                    command.batchKey.isBatchable = true;
+                    command.isBatchableSprite = true;
+                    SetVertex(command.vertices[0], x, y, glyph.u0, glyph.v0, params.color);
+                    SetVertex(command.vertices[1], x + width, y, glyph.u1, glyph.v0, params.color);
+                    SetVertex(command.vertices[2], x + width, y + height,
+                              glyph.u1, glyph.v1, params.color);
+                    SetVertex(command.vertices[3], x, y + height,
+                              glyph.u0, glyph.v1, params.color);
+                    queue.Submit(command);
+                }
+            }
+            cursorX += static_cast<float>(pixelSize) * sizeScale;
+        }
+        previous = codepoint;
+        hasPrevious = true;
+    }
+}
+
+void TextRenderer::InvalidateFont(const std::string& fontGuid) {
+    fontAtlas.Invalidate(fontGuid);
+}
+
+void TextRenderer::InvalidateAllFonts() {
+    fontAtlas.Clear();
+}
+
+std::size_t TextRenderer::GetAtlasPageCount(const std::string& fontGuid,
+                                            int pixelSize) const {
+    return fontAtlas.PageCount(fontGuid, pixelSize);
+}
+
+std::size_t TextRenderer::GetCachedFontSizeCount() const {
+    return fontAtlas.CachedFontSizeCount();
 }

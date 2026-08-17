@@ -7,7 +7,6 @@
 #include "../ECS/Components/Transform.h"
 #include "../ECS/Components/SpriteRenderer.h"
 #include "../ECS/Components/BoxCollider2D.h"
-#include <GLFW/glfw3.h>
 #include <algorithm>
 
 GameScene::GameScene() : Scene("Game") {
@@ -121,7 +120,7 @@ void GameScene::CreateParticles() {
 
 void GameScene::Update(float dt) {
     // ESC to return to menu
-    if (Input::GetKeyDown(GLFW_KEY_ESCAPE)) {
+    if (Input::GetKeyDown(Input::KeyCode::Escape)) {
         SceneManager::ChangeScene("Menu");
         return;
     }
@@ -136,7 +135,7 @@ void GameScene::Update(float dt) {
     }
 
     // Particle effects: F for spark burst at player position
-    if (Input::GetKeyDown(GLFW_KEY_F)) {
+    if (Input::GetKeyDown(Input::KeyCode::F)) {
         sparkEmitter.SetPosition(playerSprite.x + playerSprite.width / 2,
                                   playerSprite.y + playerSprite.height / 2);
         sparkEmitter.Burst(30);
@@ -152,10 +151,10 @@ void GameScene::Update(float dt) {
 void GameScene::UpdatePlayer(float dt) {
     // Player movement
     float dx = 0.0f, dy = 0.0f;
-    if (Input::GetKey(GLFW_KEY_W) || Input::GetKey(GLFW_KEY_UP))    dy -= 1.0f;
-    if (Input::GetKey(GLFW_KEY_S) || Input::GetKey(GLFW_KEY_DOWN))  dy += 1.0f;
-    if (Input::GetKey(GLFW_KEY_A) || Input::GetKey(GLFW_KEY_LEFT))  dx -= 1.0f;
-    if (Input::GetKey(GLFW_KEY_D) || Input::GetKey(GLFW_KEY_RIGHT)) dx += 1.0f;
+    if (Input::GetKey(Input::KeyCode::W) || Input::GetKey(Input::KeyCode::Up))    dy -= 1.0f;
+    if (Input::GetKey(Input::KeyCode::S) || Input::GetKey(Input::KeyCode::Down))  dy += 1.0f;
+    if (Input::GetKey(Input::KeyCode::A) || Input::GetKey(Input::KeyCode::Left))  dx -= 1.0f;
+    if (Input::GetKey(Input::KeyCode::D) || Input::GetKey(Input::KeyCode::Right)) dx += 1.0f;
 
     // Move and resolve collision
     playerSprite.x += dx * moveSpeed * dt;
@@ -201,11 +200,11 @@ void GameScene::UpdateCamera(float dt, Camera2D* camera) {
     camera->SetPosition(targetCamX, targetCamY);
 
     // Camera zoom
-    if (Input::GetKey(GLFW_KEY_Q)) camera->Zoom(1.0f - dt);
-    if (Input::GetKey(GLFW_KEY_E)) camera->Zoom(1.0f + dt);
+    if (Input::GetKey(Input::KeyCode::Q)) camera->Zoom(1.0f - dt);
+    if (Input::GetKey(Input::KeyCode::E)) camera->Zoom(1.0f + dt);
     float scroll = Input::GetScrollY();
     if (scroll != 0.0f) camera->Zoom(1.0f + scroll * 0.1f);
-    if (Input::GetKeyDown(GLFW_KEY_R)) {
+    if (Input::GetKeyDown(Input::KeyCode::R)) {
         camera->SetZoom(1.0f);
         camera->SetRotation(0.0f);
     }

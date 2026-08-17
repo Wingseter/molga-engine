@@ -2,6 +2,8 @@
 #include "EditorConstants.h"
 #include "EditorTheme.h"
 #include "GameBuilder.h"
+#include "Editor.h"
+#include "Windows/ConsoleWindow.h"
 #include "Project.h"
 #include "../Common/Log.h"
 #include "../Core/SceneSerializer.h"
@@ -28,6 +30,8 @@ bool BuildManager::LoadFromProjectProfile() {
     buildWidth = profile.window.width;
     buildHeight = profile.window.height;
     buildFullscreen = profile.window.fullscreen;
+    buildResizable = profile.window.resizable;
+    buildOutputScaleMode = profile.window.outputScaleMode;
     loadedProjectPath = Project::Get().GetPath();
     profileLoaded = true;
     return true;
@@ -55,6 +59,8 @@ bool BuildManager::SaveToProjectProfile() {
     profile.window.width = buildWidth;
     profile.window.height = buildHeight;
     profile.window.fullscreen = buildFullscreen;
+    profile.window.resizable = buildResizable;
+    profile.window.outputScaleMode = buildOutputScaleMode;
     std::string error;
     if (!profile.Validate(error)) {
         Log::Error("Editor", "Invalid build profile: " + error);
@@ -86,6 +92,21 @@ void BuildManager::RenderBuildWindow(const std::string& currentScenePath) {
         ImGui::InputInt("Width", &buildWidth);
         ImGui::InputInt("Height", &buildHeight);
         ImGui::Checkbox("Fullscreen", &buildFullscreen);
+        ImGui::Checkbox("Resizable", &buildResizable);
+        if (ImGui::BeginCombo(
+                "Output Scale",
+                molga::GameOutputScaleModeName(buildOutputScaleMode))) {
+            for (const auto mode : {molga::GameOutputScaleMode::Native,
+                                    molga::GameOutputScaleMode::IntegerFit}) {
+                const bool selected = buildOutputScaleMode == mode;
+                if (ImGui::Selectable(molga::GameOutputScaleModeName(mode),
+                                      selected)) {
+                    buildOutputScaleMode = mode;
+                }
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
 
         ImGui::Separator();
 
@@ -155,6 +176,12 @@ void BuildManager::Build(const std::string& scenePath,
         SceneSerializer::SaveScene(mainScene, *objects);
     }
 
+    if (auto* console = Editor::Get().GetWindowManager().GetAs<ConsoleWindow>(EditorConstants::WIN_CONSOLE)) {
+        if (console->IsClearOnBuild()) {
+            console->RequestClear();
+        }
+    }
+
     if (!EnsureProfileLoaded()) {
         Log::Error("Editor", "Cannot build because no project build profile is loaded.");
         return;
@@ -172,11 +199,26 @@ void BuildManager::Build(const std::string& scenePath,
 
     isBuilding = true;
 
+    auto& tasks = Editor::Get().GetTaskService();
+    molga::TaskId tid = tasks.Begin("Build Game", molga::TaskCategory::Build);
+    tasks.Update(tid, 0.0f, "Starting build...");
+
     GameBuilder& builder = GameBuilder::Get();
-    if (builder.Build(settings)) {
+    bool ok = builder.Build(settings);
+
+    if (ok) {
+        tasks.Update(tid, 0.2f, "Copying assets...");
+        tasks.Update(tid, 0.4f, "Copying shaders...");
+        tasks.Update(tid, 0.5f, "Copying scenes...");
+        tasks.Update(tid, 0.7f, "Generating game configuration...");
+        tasks.Update(tid, 0.9f, "Copying executable...");
+        tasks.Update(tid, 1.0f, "Build successful!");
+        tasks.Finish(tid, molga::TaskState::Succeeded);
         Log::Info("Editor", "Build successful!");
         Log::Info("Editor", "Output: " + settings.profile.outputPath + "/" + settings.profile.gameName);
     } else {
+        tasks.Update(tid, builder.GetProgress(), "Step failed: " + builder.GetCurrentStep() + " - " + builder.GetLastError());
+        tasks.Finish(tid, molga::TaskState::Failed);
         Log::Error("Editor", "Build failed: " + builder.GetLastError());
     }
 

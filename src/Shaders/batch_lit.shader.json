@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "name": "batch_lit",
+  "source": "batch_lit.hlsl",
+  "vertex": {
+    "entry": "VSMain",
+    "layout": {
+      "stride": 32,
+      "attributes": [
+        { "location": 0, "format": "Float2", "offset": 0 },
+        { "location": 1, "format": "Float2", "offset": 8 },
+        { "location": 2, "format": "Float4", "offset": 16 }
+      ]
+    }
+  },
+  "fragment": { "entry": "PSMain" },
+  "parameters": [],
+  "textures": [
+    { "name": "uTexture", "stage": "fragment", "dimension": "2D" },
+    { "name": "uNormalTexture", "stage": "fragment", "dimension": "2D" },
+    { "name": "uShadowMasks", "stage": "fragment", "dimension": "2DArray" }
+  ]
+}

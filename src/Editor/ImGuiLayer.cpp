@@ -1,20 +1,21 @@
 #include "ImGuiLayer.h"
 #include "FontManager.h"
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
+#include "Core/Bootstrap.h"
+#include "Rendering/Renderer.h"
+#include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_internal.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_opengl3.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_sdlgpu3.h>
 
 bool ImGuiLayer::initialized = false;
-GLFWwindow* ImGuiLayer::currentWindow = nullptr;
+EngineHost* ImGuiLayer::currentHost = nullptr;
 
-void ImGuiLayer::Init(GLFWwindow *window) {
+void ImGuiLayer::Init(EngineHost& host) {
   if (initialized)
     return;
 
-  currentWindow = window;
+  currentHost = &host;
 
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
@@ -36,8 +37,26 @@ void ImGuiLayer::Init(GLFWwindow *window) {
 
   SetModernTheme();
 
-  ImGui_ImplGlfw_InitForOpenGL(window, true);
-  ImGui_ImplOpenGL3_Init("#version 330");
+  auto* window = static_cast<SDL_Window*>(host.NativeWindowHandle());
+  auto* device = static_cast<SDL_GPUDevice*>(
+      host.Graphics().NativeDeviceForImGui());
+  ImGui_ImplSDL3_InitForSDLGPU(window);
+  ImGui_ImplSDLGPU3_InitInfo initInfo{};
+  initInfo.Device = device;
+  initInfo.ColorTargetFormat =
+      SDL_GetGPUSwapchainTextureFormat(device, window);
+  initInfo.MSAASamples = SDL_GPU_SAMPLECOUNT_1;
+  initInfo.SwapchainComposition = SDL_GPU_SWAPCHAINCOMPOSITION_SDR;
+  initInfo.PresentMode = SDL_GPU_PRESENTMODE_VSYNC;
+  if (!ImGui_ImplSDLGPU3_Init(&initInfo)) {
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
+    currentHost = nullptr;
+    return;
+  }
+  host.SetNativeEventObserver([](const void* event) {
+    ImGui_ImplSDL3_ProcessEvent(static_cast<const SDL_Event*>(event));
+  });
 
   initialized = true;
 }
@@ -46,32 +65,57 @@ void ImGuiLayer::Shutdown() {
   if (!initialized)
     return;
 
-  ImGui_ImplOpenGL3_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
+  ImGui_ImplSDLGPU3_Shutdown();
+  if (currentHost) currentHost->SetNativeEventObserver({});
+  ImGui_ImplSDL3_Shutdown();
   ImGui::DestroyContext();
 
   initialized = false;
-  currentWindow = nullptr;
+  currentHost = nullptr;
 }
 
 void ImGuiLayer::BeginFrame() {
-  ImGui_ImplOpenGL3_NewFrame();
-  ImGui_ImplGlfw_NewFrame();
+  ImGui_ImplSDLGPU3_NewFrame();
+  ImGui_ImplSDL3_NewFrame();
   ImGui::NewFrame();
 }
 
-void ImGuiLayer::EndFrame() {
+bool ImGuiLayer::EndFrame(Renderer& renderer, std::string* errorOut) {
   ImGui::Render();
-  ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+  molga::FrameContext* frame = renderer.CurrentFrame();
+  if (!frame) {
+    if (errorOut) *errorOut = "ImGui rendering requires an acquired GPU frame";
+    return false;
+  }
+  std::string error;
+  if (!renderer.PrepareUploads(&error)) {
+    if (errorOut) *errorOut = error;
+    return false;
+  }
+  auto* command = static_cast<SDL_GPUCommandBuffer*>(
+      frame->NativeCommandBufferForImGui());
+  ImDrawData* drawData = ImGui::GetDrawData();
+  ImGui_ImplSDLGPU3_PrepareDrawData(drawData, command);
+  if (!renderer.BeginMainPassForOverlay(&error)) {
+    if (errorOut) *errorOut = error;
+    return false;
+  }
+  auto* renderPass = static_cast<SDL_GPURenderPass*>(
+      frame->NativeRenderPassForImGui());
+  ImGui_ImplSDLGPU3_RenderDrawData(drawData, command, renderPass);
+  if (!renderer.EndMainPassAndSubmit(&error)) {
+    if (errorOut) *errorOut = error;
+    return false;
+  }
 
   // Handle multi-viewport rendering
   ImGuiIO& io = ImGui::GetIO();
   if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-    GLFWwindow* backupContext = glfwGetCurrentContext();
     ImGui::UpdatePlatformWindows();
     ImGui::RenderPlatformWindowsDefault();
-    glfwMakeContextCurrent(backupContext);
   }
+  if (errorOut) errorOut->clear();
+  return true;
 }
 
 void ImGuiLayer::SetModernTheme() {
@@ -83,16 +127,13 @@ void ImGuiLayer::SetModernTheme() {
   const ImVec4 bgDark       = ImVec4(0.059f, 0.059f, 0.102f, 1.0f);  // #0F0F1A
   const ImVec4 bgPanel      = ImVec4(0.102f, 0.102f, 0.180f, 1.0f);  // #1A1A2E
   const ImVec4 bgElevated   = ImVec4(0.145f, 0.145f, 0.212f, 1.0f);  // #252536
-  const ImVec4 bgHover      = ImVec4(0.180f, 0.180f, 0.250f, 1.0f);  // Slightly lighter
 
   // Accent colors
   const ImVec4 accentPurple = ImVec4(0.420f, 0.298f, 0.902f, 1.0f);  // #6B4CE6
   const ImVec4 accentCyan   = ImVec4(0.306f, 0.804f, 0.769f, 1.0f);  // #4ECDC4
-  const ImVec4 accentBlue   = ImVec4(0.231f, 0.510f, 0.965f, 1.0f);  // #3B82F6
 
   // Text colors
   const ImVec4 textPrimary  = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-  const ImVec4 textSecondary= ImVec4(0.627f, 0.627f, 0.690f, 1.0f);  // #A0A0B0
   const ImVec4 textDisabled = ImVec4(0.376f, 0.376f, 0.439f, 1.0f);  // #606070
 
   // Border

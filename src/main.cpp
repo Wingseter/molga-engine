@@ -1,14 +1,14 @@
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-
 #include <iostream>
 #include <sstream>
 #include <memory>
 
+#include "Core/AssetDatabase.h"
+#include "Editor/Watcher/AssetWatcher.h"
 #include "Core/Bootstrap.h"
 #include "Rendering/Shader.h"
 #include "Rendering/ShaderManager.h"
 #include "Rendering/Renderer.h"
+#include "Rendering/RenderSystem2D.h"
 #include "Core/MolgaTime.h"
 #include "Systems/Input.h"
 // removed Core/Scene.h include
@@ -16,17 +16,26 @@
 #include "Editor/ImGuiLayer.h"
 #include "Editor/EditorState.h"
 #include "Editor/Editor.h"
+#include "Core/Profiling/ProfileScope.h"
+#include "Core/Profiling/ProfilerService.h"
 #include "Editor/Windows/ProjectWindow.h"
 #include "Editor/Project.h"
+#include "ECS/BuiltinComponents.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/BoxCollider2D.h"
 #include "ECS/Components/Camera.h"
 #include "Scripting/ScriptManager.h"
 #include "Scripting/BuiltinScripts.h"
+#include "Scripting/ScriptManager.h"
+#include "Scripting/ScriptCompiler.h"
 #include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
 #include "Core/PathService.h"
+#include "Core/BuildPlan.h"
+#include "Core/PrefabRegistry.h"
+#include "Core/PersistentStorage.h"
+#include "Core/PlayerPrefs.h"
 #include "Core/SmokeReport.h"
 #include "Core/EventBus.h"
 #include "Editor/GameBuilder.h"
@@ -37,9 +46,50 @@
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-GLFWwindow* g_window = nullptr;
+static molga::AssetWatcher g_AssetWatcher;
 
 namespace {
+
+struct EditorSceneCatalogData {
+    SceneRuntime::SceneCatalog catalog;
+    std::string currentSceneId;
+    bool valid = false;
+};
+
+EditorSceneCatalogData BuildEditorSceneCatalog(const BuildProfile& profile,
+                                                const std::filesystem::path& projectRoot,
+                                                const std::string& currentScenePath) {
+    EditorSceneCatalogData result;
+    BuildPlan plan;
+    std::string error;
+    if (!BuildPlanBuilder::Build(profile, projectRoot.string(), profile.target,
+                                 "", plan, error)) {
+        Log::Error("SceneRuntime", "Could not build editor scene catalog: " + error);
+        return result;
+    }
+
+    std::error_code pathError;
+    const std::filesystem::path current = currentScenePath.empty()
+        ? std::filesystem::path{}
+        : std::filesystem::weakly_canonical(currentScenePath, pathError);
+    for (const auto& entry : plan.sceneEntries) {
+        result.catalog.emplace(entry.sceneId, entry.sourceAbsolutePath);
+        if (!current.empty()) {
+            std::error_code entryError;
+            const auto candidate = std::filesystem::weakly_canonical(
+                entry.sourceAbsolutePath, entryError);
+            if (!entryError && candidate == current) result.currentSceneId = entry.sceneId;
+        }
+    }
+
+    result.valid = !result.catalog.empty() && !result.currentSceneId.empty();
+    if (!result.valid && !currentScenePath.empty()) {
+        Log::Error("SceneRuntime",
+                   "The active editor scene is not registered in the Build Profile: " +
+                       currentScenePath);
+    }
+    return result;
+}
 
 struct SmokeBuildOptions {
     std::filesystem::path projectRoot;
@@ -57,7 +107,6 @@ std::optional<SmokeBuildOptions> ParseSmokeBuild(int argc, char** argv) {
 int RunSmokeBuild(const SmokeBuildOptions& options) {
     SmokeReport report;
     report.executable = "molga_engine";
-    report.scenePath = "Scenes/main.json";
 
     if (!Project::Get().Open(options.projectRoot.string())) {
         report.status = "error";
@@ -66,8 +115,27 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
         return 3;
     }
 
+    const BuildProfile& profile = Project::Get().GetBuildProfile();
+    report.scenePath = profile.startupScene;
+
+    // Headless builds must initialize the same project asset context as the
+    // interactive editor before deserializing the startup scene. Otherwise
+    // PrefabRegistry searches beside the editor executable and silently omits
+    // otherwise valid project prefab instances from the smoke World.
+    PathService::Get().SetAssetRoot(Project::Get().GetPath());
+    molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+    PrefabRegistry::Get().ScanAssets();
+
+    // Set script compiler path and load script library if present
+    ScriptCompiler::Get().SetProjectPath(options.projectRoot.string());
+    std::string userLibPath = ScriptCompiler::Get().GetCompiledLibraryPath();
+    if (!userLibPath.empty() && std::filesystem::exists(userLibPath)) {
+        ScriptManager::Get().LoadScriptLibrary(userLibPath);
+    }
+
     World world;
-    const auto scenePath = options.projectRoot / "Scenes/main.json";
+    std::filesystem::path p(profile.startupScene);
+    const auto scenePath = p.is_absolute() ? p : options.projectRoot / p;
     if (!world.LoadFromFile(scenePath.string())) {
         report.status = "error";
         report.message = "Could not load smoke scene";
@@ -98,6 +166,8 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
 
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+    RegisterBuiltinComponents();
+    RegisterBuiltinScripts();
 
     if (argc > 1 && std::string_view(argv[1]) == "--smoke-build") {
         const auto options = ParseSmokeBuild(argc, argv);
@@ -120,22 +190,31 @@ int main(int argc, char* argv[]) {
     wc.title = "Molga Engine";
     wc.width = SCR_WIDTH;
     wc.height = SCR_HEIGHT;
-    GLFWwindow* window = EngineInit(wc);
-    if (!window) return -1;
-    g_window = window;
+    auto host = EngineInit(wc);
+    if (!host) return -1;
 
-    ImGuiLayer::Init(window);
+    ImGuiLayer::Init(*host);
 
     // Initialize resources (local to main)
     auto renderer = std::make_unique<Renderer>();
-    renderer->Init();
-    auto vertPath = PathService::Get().EngineResource("Shaders/default.vert").string();
-    auto fragPath = PathService::Get().EngineResource("Shaders/default.frag").string();
-    Shader* shader = ShaderManager::Get().Load("default", vertPath, fragPath);
+    std::string rendererError;
+    if (!renderer->Init(&rendererError)) {
+        std::cerr << "Renderer initialization failed: " << rendererError << '\n';
+        ImGuiLayer::Shutdown();
+        EngineShutdown(host);
+        return -1;
+    }
+    molga::RenderSystem2D::Get().Init();
+    Shader* shader = ShaderManager::Get().Get("default");
+    if (!shader) {
+        std::cerr << "Renderer shader bundle has no default entry\n";
+        molga::RenderSystem2D::Get().Shutdown();
+        renderer.reset();
+        ImGuiLayer::Shutdown();
+        EngineShutdown(host);
+        return -1;
+    }
     SceneDocument sceneDoc;
-
-    // Initialize Scripting
-    RegisterBuiltinScripts();
 
     // Initialize Text Renderer
     TextRenderer::Get().Init();
@@ -148,18 +227,31 @@ int main(int argc, char* argv[]) {
 
     EditorState& editorState = EditorState::Get();
     editorState.SetPlayCallbacks(
-        [&sceneDoc]() {  // Edit → Play
+        [&sceneDoc]() -> bool {  // Edit → Play
+            const auto catalog = BuildEditorSceneCatalog(
+                Project::Get().GetBuildProfile(), Project::Get().GetPath(),
+                Editor::Get().GetCurrentScenePath());
+            if (!catalog.valid) {
+                Log::Error("SceneRuntime",
+                           "Could not enter Play mode without a registered active scene.");
+                return false;
+            }
+            if (!sceneDoc.EnterPlay(catalog.catalog, catalog.currentSceneId)) {
+                Log::Error("SceneRuntime", "Could not enter Play mode with a cloned scene World.");
+                return false;
+            }
             Editor::Get().GetCommandHistory().Clear();
-            sceneDoc.EnterPlay();
-            sceneDoc.ActiveWorld().ResolveAssets();
+            Editor::Get().ResetPlayUIInput();
             Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
             
             World& pw = sceneDoc.ActiveWorld();
             Editor::Get().GetSelection().Rebind(
                 [&pw](unsigned int id) { return pw.FindById(id) != nullptr; });
+            return true;
         },
         [&sceneDoc]() {  // Play/Pause → Stop
             Editor::Get().GetCommandHistory().Clear();
+            Editor::Get().ResetPlayUIInput();
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             sceneDoc.ExitPlay();
             
@@ -183,15 +275,30 @@ int main(int argc, char* argv[]) {
     }
 
     // Project selection loop (if no project loaded yet)
-    while (!glfwWindowShouldClose(window) && !projectLoaded) {
-        glfwPollEvents();
+    while (!host->ShouldClose() && !projectLoaded) {
+        host->PollEvents();
+        if (host->ShouldClose()) break;
+
+        molga::BeginFrameResult acquired = host->BeginFrame();
+        if (acquired.status == molga::FrameAcquireStatus::Unavailable) continue;
+        if (acquired.status == molga::FrameAcquireStatus::Fatal ||
+            !renderer->BeginFrame(std::move(acquired.frame), &rendererError)) {
+            std::cerr << "GPU frame acquisition failed: "
+                      << (acquired.error.empty() ? rendererError : acquired.error)
+                      << '\n';
+            host->RequestClose();
+            break;
+        }
 
         // Clear first, then draw ImGui
         renderer->Clear(0.1f, 0.1f, 0.12f, 1.0f);
 
         ImGuiLayer::BeginFrame();
         projectWindow.OnGUI();
-        ImGuiLayer::EndFrame();
+        if (!ImGuiLayer::EndFrame(*renderer, &rendererError)) {
+            std::cerr << "Editor frame submission failed: " << rendererError << '\n';
+            host->RequestClose();
+        }
 
         // Check if project was selected
         if (projectWindow.HasProjectSelected()) {
@@ -199,34 +306,60 @@ int main(int argc, char* argv[]) {
             std::cout << "[Main] Project selected: " << projectWindow.GetSelectedProjectPath() << std::endl;
         }
 
-        glfwSwapBuffers(window);
     }
 
     if (projectLoaded && Project::Get().IsOpen()) {
         namespace fs = std::filesystem;
         PathService::Get().SetAssetRoot(Project::Get().GetPath());
 
-        const fs::path mainScene = fs::path(Project::Get().GetScenesPath()) / "main.json";
+        molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+        g_AssetWatcher.Prime(Project::Get().GetAssetsPath());
+
+        const BuildProfile& profile = Project::Get().GetBuildProfile();
+        if (!PersistentStorage::ConfigureEditor(Project::Get().GetPath(),
+                                                profile.companyName,
+                                                profile.gameName)) {
+            Log::Error("PersistentStorage", "Could not configure editor Play storage.");
+        }
+        fs::path p(profile.startupScene);
+        const fs::path mainScene = p.is_absolute() ? p : fs::path(Project::Get().GetPath()) / p;
         if (sceneDoc.Open(mainScene.string())) {
             sceneDoc.EditWorld().ResolveAssets();
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             Editor::Get().SetCurrentScenePath(mainScene.string());
             // 씬 로드 후 SceneView 리소스 재주입 (오브젝트 목록 갱신)
             Editor::Get().SetSceneViewResources(renderer.get(), shader);
-            std::cout << "[Main] Loaded project main scene: " << mainScene << std::endl;
+            std::cout << "[Main] Loaded project startup scene: " << mainScene << std::endl;
         } else {
-            std::cerr << "[Main] Project main scene not found or invalid: "
+            std::cerr << "[Main] Project startup scene not found or invalid: "
                       << mainScene << std::endl;
         }
     }
 
-    // If window was not closed during project selection, run editor
-    if (!glfwWindowShouldClose(window)) {
+    if (!host->ShouldClose()) {
         // Main editor loop
-        while (!glfwWindowShouldClose(window)) {
+        while (!host->ShouldClose()) {
+            host->PollEvents();
+            if (host->ShouldClose()) break;
             Time::Update();
-            Input::Update();
+            if (EditorState::Get().IsEditMode()) Input::Update();
+            else if (EditorState::Get().IsPaused()) Input::ReleaseAll();
             float dt = Time::GetDeltaTime();
+
+            if (projectLoaded) {
+                static float assetPollTimer = 0.0f;
+                assetPollTimer += dt;
+                if (assetPollTimer > 0.5f) {
+                    auto ch = g_AssetWatcher.Poll(Project::Get().GetAssetsPath());
+                    for (auto& a : ch.added)   molga::AssetDatabase::Get().OnSourceAdded(a);
+                    for (auto& r : ch.removed) molga::AssetDatabase::Get().OnSourceRemoved(r);
+                    for (auto& m : ch.modified) {
+                        std::string g = molga::AssetDatabase::Get().GuidForSource(m);
+                        if (!g.empty()) molga::AssetDatabase::Get().Reimport(g);
+                    }
+                    assetPollTimer = 0.0f;
+                }
+            }
 
             // Get editor state
             EditorState& editorState = EditorState::Get();
@@ -246,11 +379,13 @@ int main(int argc, char* argv[]) {
             } else if (editorState.IsPaused()) {
                 title << " [PAUSED]";
             }
-            glfwSetWindowTitle(window, title.str().c_str());
+            host->SetTitle(title.str());
 
             // Play 모드에서만 ActiveWorld(=playWorld)를 시뮬레이션한다.
             if (editorState.IsPlayMode() && sceneDoc.IsPlaying()) {
                 float scaledDt = dt * editorState.GetTimeScale();
+
+                Editor::Get().ProcessPlayUIInput();
 
                 Time::AccumulateFixedTime(scaledDt);
                 while (Time::HasPendingFixedStep()) {
@@ -258,51 +393,83 @@ int main(int argc, char* argv[]) {
                     Time::ConsumeFixedStep();
                 }
                 sceneDoc.ActiveWorld().Update(scaledDt);
+                sceneDoc.ActiveWorld().EvaluateAnimations(scaledDt);
                 sceneDoc.ActiveWorld().LateUpdate(scaledDt);
                 sceneDoc.ActiveWorld().FlushDeferred(scaledDt);
             }
+            // Mixer fades and completed one-shot reclamation are engine-level,
+            // so they continue while the editor is paused or in edit mode.
+            Audio::Update(dt);
 
-            // 메인 백버퍼 클리어 (씬 렌더는 SceneViewWindow FBO 안에서 수행)
-            Camera* mainCam = nullptr;
-            for (const auto& obj : sceneDoc.ActiveWorld().Objects()) {
-                if (obj && obj->IsActive()) {
-                    if (auto cam = obj->GetComponent<Camera>()) {
-                        if (cam->IsEnabled() && cam->IsMain()) {
-                            if (!mainCam || cam->GetDepth() > mainCam->GetDepth()) {
-                                mainCam = cam;
-                            }
-                        }
-                    }
+            molga::BeginFrameResult acquired = host->BeginFrame();
+            if (acquired.status == molga::FrameAcquireStatus::Unavailable) continue;
+            if (acquired.status == molga::FrameAcquireStatus::Fatal ||
+                !renderer->BeginFrame(std::move(acquired.frame), &rendererError)) {
+                std::cerr << "GPU frame acquisition failed: "
+                          << (acquired.error.empty() ? rendererError : acquired.error)
+                          << '\n';
+                host->RequestClose();
+                break;
+            }
+
+            // Game output is rendered exclusively by GameViewWindow. The
+            // editor backbuffer only hosts ImGui and remains camera-independent.
+            renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
+
+            // ImGui Editor UI
+            {
+                MOLGA_PROFILE_SCOPE("Editor.UI", molga::ProfileCategory::EditorUI);
+                ImGuiLayer::BeginFrame();
+                Editor::Get().Update(dt);
+                Editor::Get().RenderGUI();
+                if (!ImGuiLayer::EndFrame(*renderer, &rendererError)) {
+                    std::cerr << "Editor frame submission failed: "
+                              << rendererError << '\n';
+                    host->RequestClose();
                 }
             }
 
-            if (mainCam) {
-                Color clearColor = mainCam->GetBackgroundColor();
-                renderer->Clear(clearColor.r, clearColor.g, clearColor.b, clearColor.a);
-            } else {
-                renderer->Clear(0.12f, 0.12f, 0.15f, 1.0f);
-            }
-
-            // ImGui Editor UI
-            ImGuiLayer::BeginFrame();
-            Editor::Get().Update(dt);
-            Editor::Get().RenderGUI();
-            ImGuiLayer::EndFrame();
-
             EventBus::ProcessQueue();
 
-            glfwSwapBuffers(window);
-            glfwPollEvents();
+            // Scene requests made by scripts or queued-event handlers commit only
+            // after the old World has completed all work for this frame.
+            if (sceneDoc.IsPlaying()) {
+                SceneRuntime* sceneRuntime = sceneDoc.PlayRuntime();
+                if (sceneRuntime && sceneRuntime->IsSceneLoadPending() &&
+                    sceneRuntime->CommitPendingLoad()) {
+                    Time::ResetFixedAccumulator();
+                    // Serialized scene IDs are local to a scene. Never let a
+                    // play-mode undo command captured in the outgoing scene
+                    // bind to an unrelated same-ID object after a transition.
+                    Editor::Get().GetCommandHistory().Clear();
+                    Editor::Get().ResetPlayUIInput();
+                    Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+                    Editor::Get().GetSelection().UnlockInspector();
+                    Editor::Get().GetSelection().Clear(molga::SelectionSource::Code);
+                }
+            }
+
+            Editor::Get().PumpScriptReload(editorState.IsEditMode());
+
+            // 한 프레임의 스코프·카운터를 굳혀 ring buffer에 넣는다.
+            molga::FrameCounters frameCounters = Editor::Get().TakeFrameCounters();
+            molga::RenderStats   renderStats   = Editor::Get().TakeRenderStats();
+            molga::ProfilerService::Get().EndFrame(
+                static_cast<unsigned long long>(Time::GetFrameCount()),
+                dt, frameCounters, renderStats);
         }
     }
 
     // Cleanup (deterministic order; unique_ptrs auto-release)
+    sceneDoc.ExitPlay();
+    PlayerPrefs::Shutdown();
     Project::Get().Close();
     Editor::Get().Shutdown();
     ImGuiLayer::Shutdown();
     TextRenderer::Get().Shutdown();
+    molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
     renderer.reset();
-    EngineShutdown();
+    EngineShutdown(host);
     return 0;
 }

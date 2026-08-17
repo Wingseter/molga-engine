@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/World.h"
+#include "Core/SceneRuntime.h"
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -12,14 +13,36 @@ public:
     World& EditWorld() { return editWorld_; }
     const World& EditWorld() const { return editWorld_; }
 
-    World& ActiveWorld() { return playWorld_ ? *playWorld_ : editWorld_; }
-    bool IsPlaying() const { return playWorld_ != nullptr; }
+    World& ActiveWorld() { return playRuntime_ ? playRuntime_->ActiveWorld() : editWorld_; }
+    const World& ActiveWorld() const { return playRuntime_ ? playRuntime_->ActiveWorld() : editWorld_; }
+    bool IsPlaying() const { return playRuntime_ != nullptr; }
 
-    void EnterPlay() {
-        playWorld_ = editWorld_.Clone();
-        playWorld_->StartPending();
+    bool EnterPlay(SceneRuntime::SceneCatalog catalog = {},
+                   std::string currentScenePath = {}) {
+        try {
+            auto runtime = std::make_unique<SceneRuntime>(std::move(catalog));
+            auto playWorld = editWorld_.Clone();
+            if (currentScenePath.empty()) currentScenePath = path_;
+            if (!runtime->SetInitialWorld(std::move(playWorld),
+                                         std::move(currentScenePath), true)) {
+                return false;
+            }
+            playRuntime_ = std::move(runtime);
+        } catch (...) {
+            return false;
+        }
+        return true;
     }
-    void ExitPlay() { playWorld_.reset(); }
+    void ExitPlay() {
+        // A script/event can request Stop while the play World is still on the
+        // callback stack. Keep ownership intact and let the editor retry at the
+        // next safe frame boundary instead of resetting a rejected shutdown.
+        if (playRuntime_ && !playRuntime_->Shutdown()) return;
+        playRuntime_.reset();
+    }
+
+    SceneRuntime* PlayRuntime() { return playRuntime_.get(); }
+    const SceneRuntime* PlayRuntime() const { return playRuntime_.get(); }
 
     bool Open(const std::string& path) {
         World loaded;
@@ -28,7 +51,7 @@ public:
         const std::string sceneName = std::filesystem::path(path).stem().string();
         loaded.SetName(sceneName.empty() ? "Untitled" : sceneName);
         editWorld_ = std::move(loaded);
-        playWorld_.reset();
+        ExitPlay();
         path_ = path;
         return true;
     }
@@ -38,6 +61,6 @@ public:
 
 private:
     World editWorld_;
-    std::unique_ptr<World> playWorld_;
+    std::unique_ptr<SceneRuntime> playRuntime_;
     std::string path_;
 };

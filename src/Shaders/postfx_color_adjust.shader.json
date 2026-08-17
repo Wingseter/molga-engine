@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "name": "postfx_color_adjust",
+  "source": "postfx_color_adjust.hlsl",
+  "vertex": {
+    "entry": "VSMain",
+    "layout": {
+      "stride": 8,
+      "attributes": [
+        { "location": 0, "format": "Float2", "offset": 0 }
+      ]
+    }
+  },
+  "fragment": { "entry": "PSMain" },
+  "parameters": [],
+  "textures": [
+    { "name": "uSource", "stage": "fragment", "dimension": "2D" }
+  ]
+}

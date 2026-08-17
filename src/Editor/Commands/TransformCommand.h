@@ -3,6 +3,7 @@
 #include "Editor/Commands/EditorCommand.h"
 #include "Common/Types.h"
 #include <string>
+#include <vector>
 
 class World;
 class Transform;
@@ -37,6 +38,30 @@ private:
     unsigned int targetId_;
     TransformState before_;
     TransformState after_;
+};
+
+struct MultiTransformEntry {
+    unsigned int targetId = 0;
+    TransformState before;
+    TransformState after;
+};
+
+// One drag over any number of root-most transforms. Missing targets are
+// skipped independently so undo/redo remains safe after object deletion.
+class MultiTransformCommand : public ICommand {
+public:
+    MultiTransformCommand(World* world, std::vector<MultiTransformEntry> entries);
+
+    void Execute() override;
+    void Undo() override;
+    std::string Name() const override { return "Transform Multiple"; }
+
+private:
+    void Apply(bool after);
+    Transform* Resolve(unsigned int id) const;
+
+    World* world_;
+    std::vector<MultiTransformEntry> entries_;
 };
 
 } // namespace molga

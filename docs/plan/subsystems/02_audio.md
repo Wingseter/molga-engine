@@ -1,12 +1,17 @@
 # 02. 사운드 (Audio) 구현 계획
 
 > 작성일: 2026-06-14
+> 상태 갱신: 2026-07-16 — `AudioSource` 통합과 P1 고정 bus/fade까지 완료
 > 범위: `AudioSource`/`AudioListener` ECS 컴포넌트, 직렬화, 런타임 재생, (이후) 공간 음향
 > 관련 문서: [`00_overview.md`](00_overview.md)
 
+> **현재 구현 기준:** `AudioService`가 generation-safe voice를 소유하고 `Master/{Music,SFX,Voice,UI}` bus,
+> GUID one-shot/music/crossfade, bus fade, importer metadata와 no-device 검증을 제공한다. 아래 본문은 2026-06-14의
+> 최초 계획 기록이며, 현재 계약과 잔여 범위는 [P1 구현 계획](../2026-07-16_game_production_p1_plan.md)을 따른다.
+
 ---
 
-## 1. 현재 상태 (코드 증거)
+## 1. 최초 상태 (2026-06-14 코드 증거)
 
 | 자산 | 위치 | 상태 |
 |---|---|---|
@@ -84,7 +89,7 @@ AudioListener : Component (src/ECS/Components/AudioListener.{h,cpp})
 
 ---
 
-## 4. 작업 체크리스트
+## 4. 최초 작업 체크리스트 (역사적 기록)
 
 **1차: 컴포넌트화 (전역 API 위에)**
 - [ ] `AudioSource` 컴포넌트 + 등록 + 직렬화 + `ResolveAssets`(로드) + Inspector
@@ -104,7 +109,7 @@ AudioListener : Component (src/ECS/Components/AudioListener.{h,cpp})
 
 ---
 
-## 5. 완료 기준
+## 5. 최초 완료 기준 (역사적 기록)
 
 - [ ] 오브젝트에 `AudioSource`를 붙이고 클립을 지정하면 Play에서 소리가 난다.
 - [ ] playOnAwake/loop/volume가 저장·로드·빌드에서 보존된다.

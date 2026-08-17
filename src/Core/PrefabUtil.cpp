@@ -1,7 +1,121 @@
 #include "PrefabUtil.h"
+#include "Core/PrefabRegistry.h"
+#include "Core/SceneSerializer.h"
 #include "ECS/GameObject.h"
 #include "ECS/Component.h"
+#include "ECS/Components/Camera.h"
+#include "ECS/Components/PrefabInstance.h"
+#include "ECS/Components/SpriteRenderer.h"
+#include "ECS/Components/TilemapRenderer.h"
 #include <iostream>
+#include <limits>
+#include <unordered_set>
+
+namespace {
+
+bool TryGetModificationTarget(const nlohmann::json& modification,
+                              unsigned int& target) {
+    const auto found = modification.find("target");
+    if (found == modification.end()) return false;
+    if (found->is_number_unsigned()) {
+        const auto raw = found->get<unsigned long long>();
+        if (raw > std::numeric_limits<unsigned int>::max()) return false;
+        target = static_cast<unsigned int>(raw);
+        return true;
+    }
+    if (found->is_number_integer()) {
+        const auto raw = found->get<long long>();
+        if (raw < 0 || static_cast<unsigned long long>(raw) >
+                           std::numeric_limits<unsigned int>::max()) {
+            return false;
+        }
+        target = static_cast<unsigned int>(raw);
+        return true;
+    }
+    return false;
+}
+
+bool IsCameraModification(const nlohmann::json& modification,
+                          const char* key) {
+    const auto component = modification.find("component");
+    const auto property = modification.find("key");
+    return component != modification.end() && component->is_string() &&
+           component->get<std::string>() == "Camera" &&
+           property != modification.end() && property->is_string() &&
+           property->get<std::string>() == key;
+}
+
+nlohmann::json NormalizeCameraOverrideValue(const std::string& key,
+                                            const nlohmann::json& value) {
+    nlohmann::json component = nlohmann::json::object();
+    component[key] = value;
+    return Camera::CanonicalizeSerializedData(component).at(key);
+}
+
+nlohmann::json CanonicalizeComponentSnapshot(
+    const std::string& type, const nlohmann::json& snapshot) {
+    if (type == "Camera") {
+        return Camera::CanonicalizeSerializedData(snapshot);
+    }
+    if (type == "SpriteRenderer") {
+        return SpriteRenderer::CanonicalizeSerializedData(snapshot);
+    }
+    if (type == "TilemapRenderer") {
+        return TilemapRenderer::CanonicalizeSerializedData(snapshot);
+    }
+    return snapshot;
+}
+
+} // namespace
+
+nlohmann::json PrefabUtil::NormalizeModifications(
+    const nlohmann::json& modifications) {
+    if (!modifications.is_array()) return nlohmann::json::array();
+
+    // A modern override is authoritative even if a legacy mirror occurs later
+    // in the array. Track by local target so application is order-independent.
+    std::unordered_set<unsigned int> modernCameraRoleTargets;
+    for (const auto& modification : modifications) {
+        unsigned int target = 0;
+        if (IsCameraModification(modification, "outputRole") &&
+            TryGetModificationTarget(modification, target)) {
+            modernCameraRoleTargets.insert(target);
+        }
+    }
+
+    nlohmann::json normalized = nlohmann::json::array();
+    for (const auto& modification : modifications) {
+        if (!modification.is_object()) {
+            normalized.push_back(modification);
+            continue;
+        }
+
+        nlohmann::json canonical = modification;
+        unsigned int target = 0;
+        const bool hasTarget = TryGetModificationTarget(modification, target);
+        if (IsCameraModification(modification, "isMain")) {
+            if (hasTarget && modernCameraRoleTargets.count(target) != 0U) {
+                continue;
+            }
+            const auto value = modification.find("value");
+            const bool main = value != modification.end() &&
+                              value->is_boolean() && value->get<bool>();
+            canonical["key"] = "outputRole";
+            canonical["value"] = main ? "Primary" : "Disabled";
+        } else if (IsCameraModification(modification, "outputRole") ||
+                   IsCameraModification(modification, "viewport") ||
+                   IsCameraModification(modification, "cullingMask")) {
+            const auto property = modification.find("key");
+            const auto value = modification.find("value");
+            if (property != modification.end() && value != modification.end()) {
+                canonical["value"] = NormalizeCameraOverrideValue(
+                    property->get<std::string>(), *value);
+            }
+        }
+        normalized.push_back(std::move(canonical));
+    }
+    return normalized;
+}
 
 void PrefabUtil::ApplyModifications(
     GameObject* instanceRoot,
@@ -9,6 +123,7 @@ void PrefabUtil::ApplyModifications(
     const std::unordered_map<unsigned int, unsigned int>& idRemap) {
     
     if (!instanceRoot || modifications.is_null() || !modifications.is_array()) return;
+    const nlohmann::json normalized = NormalizeModifications(modifications);
 
     std::vector<GameObject*> subtree;
     instanceRoot->CollectSubtree(subtree);
@@ -17,7 +132,7 @@ void PrefabUtil::ApplyModifications(
         if (obj) runtimeIdMap[obj->GetID()] = obj;
     }
 
-    for (const auto& mod : modifications) {
+    for (const auto& mod : normalized) {
         if (!mod.contains("target") || !mod.contains("component") || !mod.contains("key") || !mod.contains("value")) continue;
 
         unsigned int targetLocalId = mod["target"].get<unsigned int>();
@@ -67,16 +182,16 @@ void PrefabUtil::ApplyModifications(
 
                 foundComp->Deserialize(compJson);
                 if (compJson.contains("enabled")) {
-                    foundComp->SetEnabled(compJson["enabled"].get<bool>());
+                    // Prefab modifications are applied while SceneSerializer is
+                    // assembling a detached object graph. Lifecycle begins only
+                    // after the completed graph is attached to its World.
+                    foundComp->SetEnabledFromSerializedState(
+                        compJson["enabled"].get<bool>());
                 }
             }
         }
     }
 }
-
-#include "Core/SceneSerializer.h"
-#include "Core/PrefabRegistry.h"
-#include "ECS/Components/PrefabInstance.h"
 
 nlohmann::json PrefabUtil::GenerateModifications(
     const GameObject* instanceRoot,
@@ -150,7 +265,8 @@ nlohmann::json PrefabUtil::GenerateModifications(
         if (localObjJson.contains("components")) {
             for (const auto& compJson : localObjJson["components"]) {
                 std::string type = compJson.value("type", "");
-                prefabComps[type] = compJson;
+                prefabComps[type] =
+                    CanonicalizeComponentSnapshot(type, compJson);
             }
         }
 
@@ -162,6 +278,8 @@ nlohmann::json PrefabUtil::GenerateModifications(
             runtimeCompJson["type"] = comp->GetTypeName();
             runtimeCompJson["enabled"] = comp->IsEnabled();
             comp->Serialize(runtimeCompJson);
+            runtimeCompJson = CanonicalizeComponentSnapshot(
+                comp->GetTypeName(), runtimeCompJson);
 
             auto prefabCompIt = prefabComps.find(comp->GetTypeName());
             if (prefabCompIt != prefabComps.end()) {
@@ -198,6 +316,32 @@ nlohmann::json PrefabUtil::GenerateModifications(
     }
 
     return modifications;
+}
+
+GameObject* PrefabUtil::FindNearestInstanceRoot(GameObject* target) {
+    for (GameObject* current = target; current; current = current->GetParent()) {
+        if (current->GetComponent<PrefabInstance>()) return current;
+    }
+    return nullptr;
+}
+
+std::size_t PrefabUtil::RefreshNearestInstanceOverrides(
+    const std::vector<GameObject*>& targets) {
+    std::unordered_set<unsigned int> refreshedRootIds;
+    std::size_t refreshedCount = 0;
+    for (GameObject* target : targets) {
+        GameObject* root = FindNearestInstanceRoot(target);
+        if (!root || !refreshedRootIds.insert(root->GetID()).second) continue;
+
+        auto* instance = root->GetComponent<PrefabInstance>();
+        const nlohmann::json prefab =
+            PrefabRegistry::Get().GetPrefabJson(instance->GetPrefabGuid());
+        if (!prefab.is_object() || !prefab.contains("gameObjects")) continue;
+        instance->SetModifications(GenerateModifications(
+            root, prefab, instance->GetIdRemap()));
+        ++refreshedCount;
+    }
+    return refreshedCount;
 }
 
 bool PrefabUtil::ApplyPrefab(GameObject* instanceRoot) {

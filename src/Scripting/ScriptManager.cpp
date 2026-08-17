@@ -74,6 +74,7 @@ bool ScriptManager::LoadScriptLibrary(const std::string& path) {
 
     libraryHandles[path] = handle;
     loadedLibraries.push_back(path);
+    activeLibraryPath_ = path;
 
     // Look for RegisterScripts function
     using RegisterFunc = void(*)();
@@ -102,7 +103,56 @@ void ScriptManager::UnloadScriptLibrary(const std::string& path) {
             loadedLibraries.erase(libIt);
         }
 
+        if (activeLibraryPath_ == path) {
+            activeLibraryPath_.clear();
+        }
+
         Log::Info("ScriptManager", "Unloaded library: " + path);
+    }
+}
+
+bool ScriptManager::ValidateLibrary(const std::string& path, void*& outHandle, std::string& error) {
+    void* handle = Platform::LoadDynamicLibrary(path.c_str());
+    if (!handle) {
+        error = Platform::GetDynamicLibraryError();
+        return false;
+    }
+
+    using RegisterFunc = void(*)();
+    RegisterFunc registerFunc = reinterpret_cast<RegisterFunc>(
+        Platform::GetSymbol(handle, "RegisterScripts"));
+
+    if (!registerFunc) {
+        Platform::CloseDynamicLibrary(handle);
+        error = "RegisterScripts symbol not found in library";
+        return false;
+    }
+
+    outHandle = handle;
+    return true;
+}
+
+void ScriptManager::SwapToValidatedLibrary(void* newHandle, const std::string& newPath) {
+    if (!activeLibraryPath_.empty()) {
+        UnloadScriptLibrary(activeLibraryPath_);
+    }
+
+    dynamicFactories.clear();
+
+    libraryHandles[newPath] = newHandle;
+    if (std::find(loadedLibraries.begin(), loadedLibraries.end(), newPath) == loadedLibraries.end()) {
+        loadedLibraries.push_back(newPath);
+    }
+    activeLibraryPath_ = newPath;
+
+    using RegisterFunc = void(*)();
+    RegisterFunc registerFunc = reinterpret_cast<RegisterFunc>(
+        Platform::GetSymbol(newHandle, "RegisterScripts"));
+    if (registerFunc) {
+        registerFunc();
+        Log::Info("ScriptManager", "Swapped and registered scripts from: " + newPath);
+    } else {
+        Log::Error("ScriptManager", "Swapped library, but RegisterScripts not found (this shouldn't happen after validation)");
     }
 }
 

@@ -71,6 +71,9 @@ nlohmann::json SceneSerializer::SerializeScene(
                 auto updatedMods = PrefabUtil::GenerateModifications(obj.get(), prefabJson, prefabInst->GetIdRemap());
                 prefabInst->SetModifications(updatedMods);
             }
+            const nlohmann::json normalizedMods =
+                PrefabUtil::NormalizeModifications(prefabInst->GetModifications());
+            prefabInst->SetModifications(normalizedMods);
 
             json strippedJson;
             json piData;
@@ -78,7 +81,7 @@ nlohmann::json SceneSerializer::SerializeScene(
             piData["rootId"] = obj->GetID();
             piData["parentId"] = obj->GetParent()
                 ? static_cast<int>(obj->GetParent()->GetID()) : -1;
-            piData["modifications"] = prefabInst->GetModifications();
+            piData["modifications"] = normalizedMods;
             
             strippedJson["prefabInstance"] = piData;
             objectsArray.push_back(strippedJson);
@@ -144,13 +147,20 @@ bool SceneSerializer::DeserializeScene(
             std::string guid = piData.value("guid", "");
             unsigned int rootId = piData.value("rootId", 0u);
             int parentId = piData.value("parentId", -1);
-            nlohmann::json modifications = piData.value("modifications", json::array());
+            nlohmann::json modifications = PrefabUtil::NormalizeModifications(
+                piData.value("modifications", json::array()));
 
             std::unordered_map<unsigned int, unsigned int> idRemap;
             std::vector<std::shared_ptr<GameObject>> instantiatedObjects;
             GameObject* root = PrefabRegistry::Get().Instantiate(guid, instantiatedObjects, idRemap);
 
-            if (root) {
+            if (!root) {
+                std::cerr << "[SceneSerializer] Could not resolve prefab instance: "
+                          << guid << std::endl;
+                objects.clear();
+                return false;
+            }
+            {
                 unsigned int tempRootId = root->GetID();
                 unsigned int localRootId = 0;
                 for (const auto& [localId, tempId] : idRemap) {
@@ -202,7 +212,8 @@ bool SceneSerializer::DeserializeScene(
                     if (comp) {
                         comp->Deserialize(compJson);
                         if (compJson.contains("enabled"))
-                            comp->SetEnabled(compJson["enabled"].get<bool>());
+                            comp->SetEnabledFromSerializedState(
+                                compJson["enabled"].get<bool>());
                     } else {
                         std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
                     }
@@ -312,7 +323,8 @@ std::shared_ptr<GameObject> SceneSerializer::DeserializeGameObject(const std::st
             if (comp) {
                 comp->Deserialize(compJson);
                 if (compJson.contains("enabled")) {
-                    comp->SetEnabled(compJson["enabled"].get<bool>());
+                    comp->SetEnabledFromSerializedState(
+                        compJson["enabled"].get<bool>());
                 }
             } else {
                 std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
@@ -350,6 +362,7 @@ nlohmann::json SceneSerializer::SerializeSubtree(const GameObject* root) {
                     nlohmann::json mods = (!prefabJson.is_null())
                         ? PrefabUtil::GenerateModifications(obj, prefabJson, pi->GetIdRemap())
                         : pi->GetModifications();
+                    mods = PrefabUtil::NormalizeModifications(mods);
 
                     json piData;
                     piData["guid"] = pi->GetPrefabGuid();
@@ -404,10 +417,29 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
     std::vector<std::shared_ptr<GameObject>>& outObjects,
     std::unordered_map<unsigned int, unsigned int>& idRemap) {
 
-    if (!doc.contains("gameObjects")) {
+    if (!doc.contains("gameObjects") || !doc["gameObjects"].is_array()) {
         std::cerr << "[SceneSerializer] No gameObjects in subtree document" << std::endl;
         return nullptr;
     }
+
+    // A prefab instantiation is all-or-nothing, including every nested branch.
+    // This guard also rolls back partially appended objects when component
+    // deserialization throws.
+    const size_t outputStart = outObjects.size();
+    const auto originalRemap = idRemap;
+    bool committed = false;
+    struct RollbackGuard {
+        std::vector<std::shared_ptr<GameObject>>& objects;
+        std::unordered_map<unsigned int, unsigned int>& remap;
+        size_t start;
+        const std::unordered_map<unsigned int, unsigned int>& original;
+        bool& committed;
+        ~RollbackGuard() {
+            if (committed) return;
+            objects.resize(start);
+            remap = original;
+        }
+    } rollback{outObjects, idRemap, outputStart, originalRemap, committed};
 
     // Guard against cyclic (self-referential) nested prefabs blowing the stack.
     static thread_local int s_nestDepth = 0;
@@ -434,12 +466,18 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
             std::string nestedGuid = piData.value("guid", "");
             unsigned int localRootId = piData.value("rootId", 0u);
             int localParentId = piData.value("parentId", -1);
-            nlohmann::json mods = piData.value("modifications", json::array());
+            nlohmann::json mods = PrefabUtil::NormalizeModifications(
+                piData.value("modifications", json::array()));
 
             std::unordered_map<unsigned int, unsigned int> nestedRemap;
             size_t before = outObjects.size();
             GameObject* nestedRoot = PrefabRegistry::Get().Instantiate(nestedGuid, outObjects, nestedRemap);
-            if (nestedRoot) {
+            if (!nestedRoot) {
+                std::cerr << "[SceneSerializer] Could not resolve nested prefab instance: "
+                          << nestedGuid << std::endl;
+                return nullptr;
+            }
+            {
                 PrefabUtil::ApplyModifications(nestedRoot, mods, nestedRemap);
 
                 auto* pi = nestedRoot->AddComponent<PrefabInstance>();
@@ -460,6 +498,11 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
                 }
                 if (nestedRootPtr) {
                     loaded.push_back({nestedRootPtr, localParentId, localRootId});
+                    if (localParentId == -1 && !rootObj) rootObj = nestedRoot;
+                } else {
+                    std::cerr << "[SceneSerializer] Nested prefab root was not appended: "
+                              << nestedGuid << std::endl;
+                    return nullptr;
                 }
             }
             continue;
@@ -490,7 +533,8 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
                 if (comp) {
                     comp->Deserialize(compJson);
                     if (compJson.contains("enabled"))
-                        comp->SetEnabled(compJson["enabled"].get<bool>());
+                        comp->SetEnabledFromSerializedState(
+                            compJson["enabled"].get<bool>());
                 } else {
                     std::cerr << "[SceneSerializer] Unknown component type: " << type << std::endl;
                 }
@@ -531,6 +575,10 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
         }
     }
 
+    if (!rootObj) {
+        std::cerr << "[SceneSerializer] Prefab subtree has no root object" << std::endl;
+        return nullptr;
+    }
+    committed = true;
     return rootObj;
 }
-

@@ -1,14 +1,17 @@
 #pragma once
 
-struct GLFWwindow;
+#include <string>
+
+class EngineHost;
+class Renderer;
 
 class ImGuiLayer {
 public:
-    static void Init(GLFWwindow* window);
+    static void Init(EngineHost& host);
     static void Shutdown();
 
     static void BeginFrame();
-    static void EndFrame();
+    static bool EndFrame(Renderer& renderer, std::string* errorOut = nullptr);
 
     static void SetDarkTheme();
     static void SetModernTheme();
@@ -19,5 +22,5 @@ public:
 
 private:
     static bool initialized;
-    static GLFWwindow* currentWindow;
+    static EngineHost* currentHost;
 };

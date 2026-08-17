@@ -1,413 +1,175 @@
 # Molga Engine - 프로젝트 현황
 
-## 프로젝트 개요
+## 현재 권위와 지원 범위
 
-**Molga Engine**은 C++17로 개발 중인 커스텀 2D 게임 엔진이다. 에디터(Editor)와 런타임(Runtime) 두 가지 실행 파일로 구성되며, Entity-Component-System(ECS) 아키텍처를 기반으로 한다.
+Molga Engine은 C++17 기반의 2D 게임 엔진이며, SDL3 호스트 위에서 editor와
+standalone runtime을 제공한다. 현재 렌더러 전환 권위 문서는
+[`2026-08-16_sdlgpu_metal_production_renderer.md`](plan/2026-08-16_sdlgpu_metal_production_renderer.md)다.
+창·입력·게임패드·SDL 수명주기의 선행 기준은
+[`2026-08-16_sdl3_platform_migration.md`](plan/2026-08-16_sdl3_platform_migration.md)다.
 
-- **에디터**: ImGui 기반의 GUI 에디터로, 씬 편집, 오브젝트 관리, 프로퍼티 인스펙션 지원
-- **런타임**: 에디터 없이 빌드된 게임을 독립 실행하는 플레이어
+검증된 생산 경계는 **SDL_GPU Metal on macOS 26.5.1 arm64**로 제한한다.
+`CMAKE_OSX_DEPLOYMENT_TARGET=11.0`은 빌드 호환 목표일 뿐 macOS 11 실행 지원
+증거가 아니다. Linux Vulkan과 Windows D3D12는 configure/build/unit/capability
+CI 범위이며 전체 pixel/package/editor E2E는 후속 qualification의
+`NOT REQUIRED` 항목이다.
 
 ## 기술 스택
 
 | 항목 | 기술 |
-|------|------|
+|---|---|
 | 언어 | C++17 |
-| 빌드 시스템 | CMake (>= 3.27), CTest |
-| 그래픽스 | OpenGL 3.3 Core, GLFW, GLAD |
-| UI (에디터) | Dear ImGui (Docking) |
+| 빌드/테스트 | CMake 3.27+, CTest, Debug/Release/ASan/UBSan presets |
+| 플랫폼 | SDL 3.4.14 static |
+| 생산 그래픽스 | SDL_GPU/Metal 단일 backend |
+| 셰이더 공급망 | HLSL descriptor → pinned SDL_shadercross host tool → MSL/SPIR-V/DXIL bundle |
+| 에디터 UI | Dear ImGui Docking + `imgui_impl_sdl3` + `imgui_impl_sdlgpu3` |
 | 오디오 | miniaudio |
-| JSON | nlohmann/json |
-| 이미지 로딩 | stb_image |
-| 플랫폼 | macOS (CoreAudio/AudioToolbox), 크로스플랫폼 의도 |
+| 데이터/이미지 | nlohmann/json, stb_image |
+| 선택 통합 | Marrow runtime via explicit `MOLGA_MARROW_DIR` |
 
-## 디렉토리 구조
+OpenGL, GLAD, GLSL, OpenGL ImGui backend와 런타임 shader compilation은 active
+code/build/package 경로에 포함하지 않는다. 자동 backend fallback이나 프로젝트별
+graphics backend 선택도 제공하지 않는다.
 
-```
+## 소스 구조
+
+```text
 src/
-├── main.cpp              # 에디터 진입점
-├── runtime_main.cpp       # 런타임 진입점
-├── Common/               # 공통 유틸리티
-│   ├── Types.h           # Vector2, Color, AABB, Circle 등
-│   ├── Constants.h       # PI, TWO_PI, COLLISION_EPSILON 등 수학/물리 상수
-│   ├── Log.h/cpp         # 통일된 로깅 유틸리티 (Info/Warn/Error)
-│   └── linmath.h         # 행렬/벡터 수학 라이브러리
-├── Core/                 # 엔진 코어
-│   ├── Bootstrap.h/cpp   # 엔진 초기화/종료 (GLFW, OpenGL, Audio)
-│   ├── Scene.h/cpp       # Scene 기본 클래스 + SceneManager
-│   ├── MolgaTime.h/cpp   # 프레임 타이밍 관리
-│   ├── SceneSerializer.h/cpp  # JSON 씬 직렬화
-│   ├── TextureManager.h/cpp   # 텍스처 캐싱
-│   └── PathConstants.h   # 경로 상수 (Project/Build/Engine/Config)
-├── Rendering/            # 렌더링 시스템
-│   ├── Renderer.h/cpp    # OpenGL 렌더 파이프라인 (상태 머신)
-│   ├── Shader.h/cpp      # GLSL 셰이더 (uniform 캐싱)
-│   ├── Texture.h/cpp     # OpenGL 텍스처
-│   ├── Sprite.h/cpp      # 2D 스프라이트
-│   ├── SpriteSheet.h/cpp # 스프라이트시트 아틀라스
-│   ├── Camera2D.h/cpp    # 2D 카메라
-│   ├── TextRenderer.h/cpp # 텍스트 렌더링
-│   ├── Animation.h/cpp   # 프레임 애니메이션
-│   └── Tilemap.h/cpp     # 타일맵
-├── Systems/              # 엔진 시스템
-│   ├── Audio.h/cpp       # 오디오 (miniaudio)
-│   ├── Input.h/cpp       # 키보드/마우스 입력
-│   └── Particle.h/cpp    # 파티클 이미터
-├── Physics/              # 물리/충돌
-│   └── Collision.h/cpp   # AABB, Circle, 포인트 충돌 감지
-├── UI/                   # 런타임 UI
-│   └── UI.h/cpp          # Panel, Button, ProgressBar
-├── ECS/                  # Entity-Component-System
-│   ├── Component.h/cpp   # 컴포넌트 기본 클래스 (생명주기, 직렬화)
-│   ├── GameObject.h/cpp  # 게임 오브젝트 (O(1) 컴포넌트 조회)
-│   ├── ComponentFactory.h # 컴포넌트 자동 등록 팩토리
-│   └── Components/
-│       ├── Transform.h/cpp      # 위치/회전/스케일
-│       ├── SpriteRenderer.h/cpp # 스프라이트 렌더링
-│       └── BoxCollider2D.h/cpp  # 박스 충돌체
-├── Editor/               # 에디터 시스템
-│   ├── Editor.h/cpp           # 에디터 코디네이터 (메뉴, 플레이 컨트롤)
-│   ├── WindowManager.h/cpp    # 윈도우 등록/가시성/렌더링 관리
-│   ├── SceneOperations.h/cpp  # 씬 CRUD (New/Save/Open)
-│   ├── BuildManager.h/cpp     # 빌드 설정 UI + 빌드 실행
-│   ├── EditorState.h/cpp      # Edit/Play/Pause 모드 관리
-│   ├── EditorConstants.h      # UI 문자열 상수 (윈도우명, 파일명)
-│   ├── EditorTheme.h          # 스타일 상수 (버튼/파일타입 색상)
-│   ├── UIRegistry.h/cpp       # 파일타입/컴포넌트 아이콘 통합 레지스트리
-│   ├── FontManager.h/cpp      # 에디터 폰트/아이콘 관리
-│   ├── ImGuiLayer.h/cpp       # ImGui 초기화/테마
-│   ├── VSCodeIntegration.h/cpp # VS Code 연동
-│   ├── Project.h/cpp          # 프로젝트 관리 (생성/열기/닫기)
-│   ├── GameBuilder.h/cpp      # 독립 실행 게임 빌드
-│   └── Windows/
-│       ├── EditorWindow.h        # 윈도우 기본 클래스
-│       ├── HierarchyWindow.h/cpp # 오브젝트 트리 (생성/삭제/복제/이름변경)
-│       ├── InspectorWindow.h/cpp # 컴포넌트 인스펙터
-│       ├── ProjectBrowserWindow.h/cpp # 파일 브라우저
-│       ├── ProjectWindow.h/cpp   # 프로젝트 선택 화면
-│       ├── ScriptWindow.h/cpp    # 스크립트 관리
-│       ├── SceneViewWindow.h/cpp # 씬 뷰포트
-│       └── StatsWindow.h/cpp    # FPS/통계
-├── Scripting/            # 스크립팅
-│   ├── Script.h/cpp           # 스크립트 기본 클래스
-│   ├── ScriptManager.h/cpp    # builtin/dynamic 이중 레지스트리
-│   ├── ScriptCompiler.h/cpp   # CMake 기반 스크립트 컴파일
-│   └── BuiltinScripts.h/cpp   # PlayerController, Rotator, Oscillator
-├── Scenes/               # 예제 씬
-│   ├── GameScene.h/cpp
-│   └── MenuScene.h/cpp
-├── Platform/             # 플랫폼 추상화
-│   └── Platform.h/cpp
-└── Shaders/              # GLSL 셰이더
-    ├── default.vert
-    └── default.frag
+├── main.cpp                    # editor 진입점
+├── runtime_main.cpp            # packaged runtime 진입점
+├── Common/                     # 타입, 로깅, SHA-256, 수학 유틸리티
+├── Core/                       # SDL host, scene, package/config/smoke report
+├── Rendering/
+│   ├── GraphicsDevice.*        # non-virtual facade+pImpl SDL_GPU RHI
+│   ├── RenderTarget.*          # 명시적 attachment와 texture view
+│   ├── Renderer.*              # frame streaming vertex/index draw
+│   ├── ShaderBundle.*          # manifest/artifact/hash 검증
+│   ├── Shader.*                # immutable bundle entry와 revision/layout
+│   ├── Texture.*               # generation texture+sampler handles
+│   ├── GameOutputRenderer.*    # camera/output/fallback orchestration
+│   └── Lighting/PostProcess/...# 2D lighting, shadow, ordered postfx
+├── Editor/
+│   ├── ImGuiLayer.*            # SDL3 + SDL_GPU backend
+│   ├── ImGuiTextureBridge.*    # editor preview 전용 native bridge
+│   └── Windows/                # Game/Scene/Animation 등 editor windows
+├── ECS/Components/             # sprite, tilemap, particle, Marrow components
+├── Systems/                    # input, particle, audio
+├── Physics/                    # collision/Box2D integration
+├── Scripting/                  # native Script API v3와 package loader
+├── UI/                         # world 이후 합성되는 runtime UI
+├── Shaders/                    # HLSL source + schema-v1 descriptor
+└── Tools/ShaderCompiler.cpp    # host-only molga_shaderc
 
-external/           # 서드파티 (imgui, glfw, glad, miniaudio, nlohmann_json, stb)
-assets/             # 게임 에셋
-tests/              # CTest 기반 테스트 (4개)
-ui_images/          # 에디터 UI 아이콘 리소스
-docs/               # 리팩토링 계획 및 현황 문서
+external/
+├── SDL/                        # pinned recursive submodule
+├── imgui/                      # pinned docking submodule
+└── SDL_shadercross/            # pinned recursive, offline tool 전용
+
+tests/                          # 83 CTest: unit/platform/gpu/pixel/smoke/e2e
+docs/                           # 현재 권위, 계획과 이력
 ```
 
-## 빌드 구조
+## 실행 구조
 
-```
+```text
 CMakeLists.txt
-├── molga_core (STATIC)    # 엔진 코어 라이브러리
-│   └── Rendering/, Systems/, Physics/, UI/, ECS/, Core/, Common/, Scripting/, Platform/
-├── molga_engine (EXE)     # 에디터 실행 파일
-│   └── molga_core + imgui + Editor/ + Scenes/
-├── molga_runtime (EXE)    # 런타임 실행 파일
-│   └── molga_core
-└── tests/                 # CTest 테스트
-    ├── test_types
-    ├── test_collision
-    ├── test_ecs
-    └── test_scene_serializer
+├── molga_core (STATIC)         # backend-neutral engine API + SDL_GPU implementation
+├── molga_shaderc (HOST TOOL)   # HLSL bundle compiler; runtime에는 링크하지 않음
+├── molga_engine (EXE)          # editor + ImGui SDL_GPU renderer
+├── molga_runtime (EXE)         # standalone packaged player
+└── tests/                      # unit, GPU readback, editor/package smoke
 ```
 
-## 구현된 기능
-
-### 1. 코어 엔진 시스템
-
-#### Bootstrap
-- GLFW 윈도우 생성 (OpenGL 3.3 Core Context)
-- GLAD 로더 초기화
-- 알파 블렌딩 활성화
-- Time, Input, Audio 서브시스템 초기화/종료
-- macOS 호환성 처리 (Forward Compat)
-
-#### Renderer (상태 머신 기반)
-- OpenGL 3.3 Core Profile 렌더링 파이프라인
-- Quad 기반 2D 스프라이트 렌더링 (VAO/VBO)
-- Begin/DrawSprite/End 패턴 (State assertion으로 잘못된 호출 순서 방지)
-- 알파 블렌딩, UV 매핑, 텍스처/색상 모드 전환
-
-#### Shader (Uniform 캐싱)
-- GLSL 버텍스/프래그먼트 셰이더 로딩 및 컴파일
-- `unordered_map` 기반 uniform location 캐싱 (매 프레임 GPU 쿼리 제거)
-- SetInt, SetFloat, SetVec2/3/4, SetMat4, SetBool 유니폼 메서드
-
-#### Camera2D
-- 2D 카메라 (위치, 줌, 회전)
-- View/Projection 매트릭스 자동 갱신 (dirty flag)
-- 줌 범위 제한 (`Constants::Camera::MIN_ZOOM` / `MAX_ZOOM`)
-
-#### Time
-- 프레임 Delta Time, FPS, FrameCount 관리
-
-#### Input
-- 키보드 입력 (GetKey, GetKeyDown, GetKeyUp)
-- 마우스 입력 (버튼, 위치, 델타, 스크롤)
-- 프레임 단위 이전 상태 추적
-
-#### Log 유틸리티
-- 통일된 로깅 API: `Log::Info(tag, msg)`, `Log::Warn(tag, msg)`, `Log::Error(tag, msg)`
-- `[태그] [LEVEL] 메시지` 포맷으로 stdout/stderr 출력
-
-#### PathConstants
-- `Paths::Project` — 에디터 프로젝트 디렉토리 상수 (Assets, Scenes, Scripts 등)
-- `Paths::Build` — 빌드 출력 경로 상수
-- `Paths::Engine` — 엔진 셰이더 경로 상수
-- `Paths::Config` — 사용자 설정 디렉토리 상수 (.molga)
-
-#### Constants
-- `Constants::PI`, `TWO_PI`, `DEG_TO_RAD` — 수학 상수
-- `Constants::COLLISION_EPSILON` — 충돌 감지 엡실론
-- `Constants::Camera::MIN_ZOOM`, `MAX_ZOOM` — 카메라 줌 범위
-
-### 2. ECS (Entity-Component-System)
-
-#### GameObject
-- 고유 ID 기반 엔티티 (`SetID`로 직렬화 시 ID 복원)
-- **O(1) 컴포넌트 조회** (`ComponentTypeID` + `unordered_map`)
-- 부모-자식 계층 구조 (2-pass 직렬화로 관계 복원)
-- Active 상태 관리
-- Update/Render 루프
-
-#### Component (기본 클래스)
-- OnAttach/OnDetach 생명주기
-- Update/Render 가상 함수
-- Serialize/Deserialize (JSON 직렬화)
-- OnInspectorGUI (에디터 인스펙터 연동)
-- Enable/Disable 토글 (직렬화 지원)
-
-#### ComponentFactory
-- 매크로 기반 컴포넌트 자동 등록 (`REGISTER_COMPONENT`)
-- 문자열 이름으로 컴포넌트 동적 생성 (역직렬화 지원)
-
-#### Transform 컴포넌트
-- Position (Vector2), Rotation, Scale
-- 월드 좌표 변환 (GetWorldPosition/Rotation/Scale)
-- Translate 유틸리티
-- 직렬화/인스펙터 GUI 연동
-
-#### SpriteRenderer 컴포넌트
-- 텍스처 기반 스프라이트 렌더링
-- 색상(RGBA) 틴팅, FlipX/FlipY
-- Sorting Order
-- 텍스처 경로 기반 로딩 (TextureManager 연동)
-- 직렬화/인스펙터 GUI 지원
-
-#### BoxCollider2D 컴포넌트
-- AABB 충돌 감지
-- Size/Offset 설정, Trigger 모드
-- 월드 좌표 AABB 계산
-
-### 3. 렌더링 & 그래픽스
-
-#### Texture / TextureManager
-- stb_image 기반 이미지 로딩, OpenGL 텍스처 관리
-- TextureManager: 텍스처 캐싱 및 중복 로딩 방지
-
-#### Sprite / SpriteSheet / Animation
-- 스프라이트: 텍스처/색상 기반 2D 표현
-- 스프라이트시트: 아틀라스에서 프레임 추출
-- 애니메이션: 프레임 기반, Play/Pause/Stop/Reset, 루프/비루프
-
-#### TextRenderer
-- 빌트인 폰트 기반 텍스트 렌더링
-
-#### Particle System
-- ParticleEmitter: 위치 기반 파티클 방출, Burst 모드
-- ParticleConfig: 스폰 레이트, 속도, 각도, 중력, 크기, 회전, 수명, 색상 설정
-- 프리셋: Fire, Smoke, Spark, Snow, Explosion
-
-#### Tilemap
-- 타일 기반 맵 시스템, Solid 타일 충돌
-- 월드-타일 좌표 변환, SpriteSheet 기반 렌더링
-
-### 4. 물리 & 충돌
-
-#### Collision
-- AABB vs AABB, Circle vs Circle, AABB vs Circle 충돌 감지
-- Point-in-AABB / Point-in-Circle 테스트
-- 충돌 결과(방향, 깊이) 반환
-
-### 5. 오디오
-
-#### Audio
-- miniaudio 기반 오디오 엔진
-- 사운드 이펙트 / 배경 음악 로드/재생/정지/일시정지/재개
-- 마스터/음악 볼륨 제어
-
-### 6. 스크립팅 시스템
-
-#### Script (기본 클래스)
-- Unity 스타일 생명주기: Start, Update, FixedUpdate, LateUpdate
-- 활성화 콜백: OnEnable, OnDisable
-- 충돌 콜백: OnCollisionEnter/Stay/Exit, OnTriggerEnter/Stay/Exit
-
-#### ScriptManager (builtin/dynamic 이중 레지스트리)
-- **builtin 레지스트리**: 엔진 내장 스크립트 (핫리로드 시 보존)
-- **dynamic 레지스트리**: 사용자 스크립트 (핫리로드 시 교체)
-- 동적 라이브러리(.dylib/.dll/.so) 로딩/언로딩/리로딩
-- `RegisterScript()` — backward-compatible alias for `RegisterDynamic()`
-
-#### ScriptCompiler
-- 프로젝트 내 스크립트 자동 탐색 (변경 감지)
-- CMakeLists.txt + ScriptExports.cpp 자동 생성
-- **exit code 기반 빌드 실패 감지** (문자열 매칭 제거)
-- 스크립트 템플릿(헤더/소스) 생성
-
-#### BuiltinScripts
-- PlayerController: 키보드 이동
-- Rotator: 지속 회전
-- Oscillator: 사인 함수 왕복 운동
-
-### 7. 씬 시스템
-
-#### SceneSerializer
-- JSON 기반 씬 직렬화/역직렬화
-- GameObject ID 복원 (`SetID`)
-- 부모-자식 관계 2-pass 직렬화
-- ComponentFactory 기반 동적 컴포넌트 복원
-- enabled 상태 직렬화
-
-#### SceneManager
-- 다중 씬 관리 (AddScene, RemoveScene, ChangeScene)
-- `ChangeScene()` → `bool` 반환 (씬 존재 검증, `Log::Error` 보고)
-- 지연된 씬 전환 패턴 (pendingScene)
-
-### 8. 에디터
-
-#### Editor (코디네이터)
-- 도킹 기반 멀티 윈도우 레이아웃 (기본 4패널 레이아웃)
-- 메뉴 바: File (New/Open/Save/SaveAs), Edit (Undo/Redo), GameObject, Window, Scripting, Build
-- Play/Pause/Stop 컨트롤 (EditorTheme 색상 적용)
-- 미구현 메뉴 아이템 경고 로깅 (Undo, Redo, Exit)
-- `WindowManager`, `SceneOperations`, `BuildManager`로 책임 위임
-
-#### WindowManager
-- 윈도우 등록/조회/가시성 토글
-- `Register()`, `GetAs<T>()`, `Toggle()`, `RenderAll()`, `RenderWindowMenu()`
-- 모든 에디터 윈도우를 통합 관리
-
-#### SceneOperations
-- `NewScene()`, `SaveScene()`, `SaveSceneAs()`, `OpenScene()`
-- 씬 경로 및 수정 상태(dirty flag) 관리
-
-#### BuildManager
-- 빌드 설정 UI (게임 이름, 출력 경로, 윈도우 크기, 풀스크린)
-- 빌드 실행 및 진행률 추적
-
-#### EditorConstants / EditorTheme
-- 윈도우 이름, 도킹 ID, 기본 파일명 등 문자열 상수 통일
-- 플레이 버튼, 파일 타입, 경고/에러 색상 등 스타일 상수 통일
-
-#### UIRegistry
-- 파일 확장자 → 아이콘/색상 매핑 (GetFileTypeInfo)
-- 컴포넌트 타입 → 아이콘 매핑 (GetComponentInfo)
-- ProjectBrowserWindow, InspectorWindow, HierarchyWindow에서 공유
-
-#### ImGuiLayer
-- Dear ImGui 초기화/종료/프레임 관리
-- 도킹 지원, 다크/모던 테마
-
-#### EditorState
-- Edit / Play / Pause 모드 관리, TimeScale 제어
-
-#### HierarchyWindow
-- 게임 오브젝트 트리 뷰 (부모-자식 계층)
-- 검색 필터
-- **컨텍스트 메뉴**: 오브젝트 생성, 삭제, 복제, 이름변경
-- 컴포넌트 기반 아이콘 표시 (UIRegistry 연동)
-- 인라인 이름 편집 (InputText)
-
-#### InspectorWindow
-- 선택된 오브젝트의 이름/Active 상태 편집
-- 컴포넌트별 OnInspectorGUI 호출
-- 컴포넌트 추가 팝업 (Transform, SpriteRenderer, BoxCollider2D, Scripts)
-- 컴포넌트 아이콘 (UIRegistry 연동)
-
-#### ProjectBrowserWindow
-- 파일 시스템 탐색 (폴더 트리 + 파일 그리드)
-- 브레드크럼 네비게이션, 파일 아이콘/색상 (UIRegistry 연동)
-- 텍스처 드래그 앤 드롭 지원
-- 도킹 이름 일치 ("Project Browser")
-
-#### ProjectWindow
-- 새 프로젝트 생성, 기존 프로젝트 열기, 최근 프로젝트 목록
-
-#### ScriptWindow
-- 스크립트 목록, 생성 다이얼로그, 컴파일 상태
-
-#### SceneViewWindow / StatsWindow
-- SceneViewWindow: 씬 뷰포트 (현재 placeholder)
-- StatsWindow: FPS, Delta Time, Frame Count 표시
-
-#### FontManager / VSCodeIntegration
-- FontManager: 에디터 폰트/아이콘 폰트 관리
-- VSCodeIntegration: VS Code 프로젝트 설정 자동 생성
-
-### 9. 프로젝트 & 빌드
-
-#### Project
-- 프로젝트 생성/열기/닫기
-- 디렉토리 구조 자동 생성 (Assets, Scenes, ProjectSettings, Scripts)
-- 프로젝트 파일(.molga) JSON 저장/로드
-- 최근 프로젝트 관리 (~/.molga/recent_projects.json)
-
-#### GameBuilder
-- 독립 실행 게임 빌드 (에셋/셰이더/씬 복사)
-- game.json 설정 파일 생성, 빌드 진행률 추적
-- 모든 경로에 `fs::exists()` 검증
-
-### 10. 런타임 UI 시스템
-
-#### UIElement / Panel / Button / ProgressBar
-- Panel: 배경 패널 (테두리 지원)
-- Button: 호버/프레스 상태, 클릭 콜백
-- ProgressBar: 값 기반 게이지 바
-- UIManager: UI 요소 추가/제거/업데이트/렌더링
-
-### 11. 테스트
-
-- `test_types` — Vector2, Color, AABB, Circle 타입 테스트
-- `test_collision` — AABB, Circle, 복합 충돌 감지 테스트
-- `test_ecs` — GameObject, Component, Transform 생명주기 테스트
-- `test_scene_serializer` — 씬 직렬화/역직렬화 라운드트립 테스트
-
-## 리팩토링 이력
-
-| Phase | 내용 | 상태 |
-|-------|------|------|
-| Phase 0 | 기준선 확보 (molga_core 추출, CTest, 빌드 경고 해소) | ✅ 완료 |
-| Phase 1 | 메모리 안전성 (unique_ptr, RAII, goto 제거) | ✅ 완료 |
-| Phase 2 | 아키텍처 통일 (Application→Bootstrap, 경로 상수화) | ✅ 완료 |
-| Phase 3 | ECS/씬 모델 개선 (O(1) 조회, ComponentFactory, ID 복원) | ✅ 완료 |
-| Phase 4 | 에디터 구조 개선 (God Class 분리, Log, UIRegistry, 핫리로드 수정) | ✅ 완료 |
-| Phase 5 | 코드 품질 (#pragma once, Constants.h, Shader 캐싱, 디렉토리 재구성) | ✅ 완료 |
-
-## 현재 브랜치
-
-`phase4` — Phase 4-5 리팩토링 완료
-
-## 최근 커밋 히스토리
-
-| 커밋 | 내용 |
-|------|------|
-| `4685a93` | feat: 에디터 인프라 전면 구현 (프로젝트 관리, 빌드, UIRegistry, 로깅) |
-| `9e9910b` | Merge pull request #21 - game_build |
-| `64d567e` | refactor: Phase 3 - ECS/Scene 모델 업그레이드 (O(1) 조회, 자동 팩토리) |
-| `c214198` | refactor: Application → Bootstrap 모듈 추출 |
-| `654df76` | refactor: 리소스 관리 unique_ptr 전환 |
+### SDL host와 RHI
+
+- `Bootstrap`이 SDL init, window, SDL_GPU device, engine subsystem 순으로 생성하고
+  종료 시 GPU idle, resource, device, window, SDL 순으로 해제한다.
+- `GraphicsDevice` public API에는 generation handle과 descriptor만 노출한다.
+  `SDL_GPU*` native pointer는 editor 내부 `ImGuiTextureBridge` 밖으로 유출하지 않는다.
+- `BeginFrame(WindowId)`는 `Acquired`, `Unavailable`, `Fatal`을 구분한다. minimized
+  swapchain은 `Unavailable`, device loss는 보고 후 종료하며 backend 전환을 시도하지 않는다.
+- move-only `FrameContext`가 upload, pass nesting, viewport/scissor, binding, draw와
+  단일 submit/present를 소유한다. upload copy pass는 모든 render pass보다 앞선다.
+- public 좌표, texture origin과 GPU readback은 top-left RGBA다.
+
+### 2D 렌더 경로
+
+- sprite, Korean text atlas, tilemap chunk, particles, runtime UI, grid, picking과
+  Marrow skeletal geometry가 동일한 SDL_GPU command stream을 사용한다.
+- `Renderer`와 `SpriteBatcher`는 frame streaming vertex/index buffer와 stable
+  shader/texture/material ID 기반 draw packet을 사용한다.
+- camera별 shadow → world/HDR → lighting → ordered postfx ping-pong → global UI →
+  presentation → ImGui 순으로 encode한다.
+- postfx 실패는 해당 camera direct resolve, lighting 실패는 해당 camera unlit,
+  shadow 실패는 해당 light unshadowed로 한정한다.
+- pipeline cache key는 shader revision, vertex layout, blend/depth/raster,
+  target format과 sample count를 포함한다.
+
+### 셰이더와 material
+
+- engine shader와 프로젝트 `Assets/Shaders/*.shader.json`은 schema v1 descriptor와
+  HLSL source를 사용한다.
+- `molga_shaderc`가 generated binding include, 16-byte aligned parameter layout,
+  MSL 1.2/SPIR-V/DXIL, reflection JSON과 SHA-256 manifest를 만든다.
+- 수동 HLSL `register`와 런타임 HLSL/GLSL compilation은 거부한다.
+- editor의 Reload Shaders는 staging bundle을 전부 검증한 후 원자 교체하며,
+  실패하면 last-good shader/pipeline을 유지한다.
+- Material의 `shaderName`, blend와 Float/Vec4/Texture property schema는 유지한다.
+  기존 custom GLSL은 자동 변환하지 않으며 HLSL descriptor로 수동 이식해야 한다.
+
+### 에디터와 출력
+
+- ImGui main draw data는 `ImGui_ImplSDLGPU3_PrepareDrawData` 이후 main swapchain
+  render pass에 기록한다. detached viewport는 공식 SDL_GPU backend가 관리한다.
+- Game View, Scene View와 Animation preview는 `ImGuiTextureBridge`만 사용한다.
+- GameOutput request/result, per-camera fallback과 telemetry 계약은 유지한다.
+- resize와 hot reload는 새 allocation 검증 후 교체하며 실패 시 last-good
+  resource를 보존한다.
+
+### package와 native Script ABI
+
+- `game.json` schema v4는 `graphics.api=sdlgpu`, `driver=metal`,
+  `shaderFormat=msl`, 축약 manifest 경로와 SHA-256을 기록한다.
+- macOS package에는 MSL artifact와 축약 manifest만 포함한다. HLSL, SPIR-V,
+  DXIL, shader compiler와 GLSL은 포함하지 않는다.
+- custom shader 누락, 중복, case collision, compile/hash/manifest 오류는 package
+  생성을 중단한다.
+- native Script API는 v3이며 이전 native script package는 새 헤더로 재빌드해야 한다.
+
+## 테스트와 qualification
+
+- 현재 suite는 83개 CTest로 구성된다.
+- RHI unit은 stale handle, usage, pass order/nesting, deterministic pipeline key,
+  upload alignment/overflow, failed resize last-good와 shader reload atomicity를 검사한다.
+- SDL_GPU readback fixture는 top-left RGBA pixel을 channel tolerance로 비교하고
+  sprite/UV/blend, grid, Korean atlas, tilemap/particle, split/PIP,
+  UI-after-world, postfx/HDR, normal map, hard shadow와 pinned Marrow fixture를
+  포함한다.
+- platform/capability tests는 SDL event, focus, window/HiDPI와 native GPU driver
+  capability를 검사한다.
+- `smoke_end_to_end`는 editor build → package → 실제 runtime 실행 → schema/hash,
+  render/pass counters, physics probe와 final pixel report를 검증한다.
+- macOS Debug/Release는 전체 suite, ASan/UBSan은 GUI package E2E 제외 전체 suite가
+  승격 게이트다. validation error는 0이어야 한다.
+
+성능 report는 120-frame warm-up 후 600 frame의 CPU p50/p95, draw/batch/pass,
+upload bytes, resident/peak memory를 기록하지만 현재 단계의 차단 기준은 아니다.
+
+## 주요 구현 기능
+
+- ECS component factory, hierarchy와 JSON scene serialization
+- Camera2D, sprite/spritesheet/animation, text, tilemap, particle와 runtime UI
+- 2D lighting, normal map, hard shadow, post-processing, split/PIP camera output
+- Box2D 기반 physics와 collision/trigger callback
+- miniaudio 기반 effect/music playback
+- native script compile/hot reload와 Script API v3 package validation
+- docked editor, scene hierarchy/inspector/project browser, Game/Scene/Animation previews
+- standalone package builder와 deterministic smoke report
+
+## 현재 브랜치와 기준선
+
+- branch: `finetune`
+- SDL3 platform 선행 commit: `dd2cc4b`
+- SDL_GPU/Metal Stage 2: 구현 및 macOS 로컬 qualification 완료. 이 문서를
+  포함하는 commit이 Stage 2 기준선이다.

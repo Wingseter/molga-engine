@@ -4,10 +4,15 @@
 #include "Core/PathService.h"
 #include "Core/SceneSerializer.h"
 #include "ECS/GameObject.h"
+#include "ECS/Components/Camera.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/Components/PrefabInstance.h"
+#include "ECS/Components/SpriteRenderer.h"
+#include "ECS/Components/TilemapRenderer.h"
 #include "doctest.h"
+#include <algorithm>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 #include <filesystem>
 #include <fstream>
@@ -132,6 +137,139 @@ TEST_CASE("Prefab System: Stripped Serialization and Deserialization with Overri
     CHECK(loadedTransform->GetX() == doctest::Approx(99.0f)); // Overridden value preserved
     CHECK(loadedTransform->GetY() == doctest::Approx(99.0f));
     CHECK(loadedTransform->GetRotation() == doctest::Approx(45.0f)); // Non-overridden value from prefab template
+}
+
+TEST_CASE("Prefab System: missing renderer lighting defaults do not become overrides") {
+    auto instance = std::make_shared<GameObject>("Legacy Renderers");
+    auto* sprite = instance->AddComponent<SpriteRenderer>();
+    auto* tilemap = instance->AddComponent<TilemapRenderer>();
+
+    nlohmann::json spriteTemplate;
+    spriteTemplate["type"] = "SpriteRenderer";
+    spriteTemplate["enabled"] = true;
+    sprite->Serialize(spriteTemplate);
+    spriteTemplate.erase("lightingMode");
+    spriteTemplate.erase("normalMapGuid");
+    spriteTemplate.erase("normalStrength");
+
+    nlohmann::json tilemapTemplate;
+    tilemapTemplate["type"] = "TilemapRenderer";
+    tilemapTemplate["enabled"] = true;
+    tilemap->Serialize(tilemapTemplate);
+    tilemapTemplate.erase("lightingMode");
+
+    constexpr unsigned int localId = 17u;
+    const nlohmann::json prefab = {
+        {"gameObjects", nlohmann::json::array({{
+            {"id", localId},
+            {"name", instance->GetName()},
+            {"tag", instance->GetTag()},
+            {"layer", instance->GetLayer()},
+            {"active", instance->IsActive()},
+            {"components", nlohmann::json::array(
+                {spriteTemplate, tilemapTemplate})}
+        }})}
+    };
+    const std::unordered_map<unsigned int, unsigned int> remap = {
+        {localId, instance->GetID()}};
+
+    CHECK(PrefabUtil::GenerateModifications(
+        instance.get(), prefab, remap).empty());
+
+    sprite->SetLightingMode(SpriteLightingMode2D::Lit);
+    tilemap->SetLightingMode(SpriteLightingMode2D::Lit);
+    const nlohmann::json changed =
+        PrefabUtil::GenerateModifications(instance.get(), prefab, remap);
+    CHECK(std::count_if(changed.begin(), changed.end(),
+        [](const nlohmann::json& modification) {
+            return modification.value("key", "") == "lightingMode";
+        }) == 2);
+}
+
+TEST_CASE("Prefab System: legacy Camera data and isMain overrides normalize canonically") {
+    TempAssetRootFixture fixture;
+    const std::string guid = "legacy-camera-prefab-guid";
+    const nlohmann::json legacyPrefab{
+        {"guid", guid}, {"version", "1.0"},
+        {"gameObjects", nlohmann::json::array({
+            {
+                {"name", "Legacy Camera"}, {"id", 1u},
+                {"tag", "Untagged"}, {"layer", 0}, {"active", true},
+                {"parentId", -1},
+                {"components", nlohmann::json::array({
+                    {{"type", "Camera"}, {"enabled", true}, {"isMain", false}},
+                })},
+            },
+        })},
+    };
+    {
+        std::ofstream file(fixture.tempDir / "legacy-camera.prefab");
+        REQUIRE(file.is_open());
+        file << legacyPrefab.dump(2);
+    }
+    PrefabRegistry::Get().ScanAssets();
+    REQUIRE(PrefabRegistry::Get().HasPrefab(guid));
+
+    // Missing modern Camera defaults in a legacy template are semantically
+    // equal to a pristine runtime component and must not become overrides.
+    std::vector<std::shared_ptr<GameObject>> pristineObjects;
+    std::unordered_map<unsigned int, unsigned int> pristineRemap;
+    GameObject* pristine = PrefabRegistry::Get().Instantiate(
+        guid, pristineObjects, pristineRemap);
+    REQUIRE(pristine != nullptr);
+    Camera* pristineCamera = pristine->GetComponent<Camera>();
+    REQUIRE(pristineCamera != nullptr);
+    CHECK(pristineCamera->GetOutputRole() == CameraOutputRole::Disabled);
+    CHECK(PrefabUtil::GenerateModifications(
+        pristine, PrefabRegistry::Get().GetPrefabJson(guid), pristineRemap).empty());
+
+    const nlohmann::json legacyOverride = nlohmann::json::array({
+        {{"target", 1u}, {"component", "Camera"},
+         {"key", "isMain"}, {"value", true}},
+    });
+    const nlohmann::json scene{
+        {"version", "1.0"}, {"name", "Legacy Camera Instance"},
+        {"gameObjects", nlohmann::json::array({
+            {{"prefabInstance", {
+                {"guid", guid}, {"rootId", 9001u}, {"parentId", -1},
+                {"modifications", legacyOverride},
+            }}},
+        })},
+    };
+
+    std::vector<std::shared_ptr<GameObject>> loaded;
+    REQUIRE(SceneSerializer::DeserializeScene(scene, loaded));
+    REQUIRE(loaded.size() == 1u);
+    Camera* camera = loaded.front()->GetComponent<Camera>();
+    REQUIRE(camera != nullptr);
+    CHECK(camera->GetOutputRole() == CameraOutputRole::Primary);
+    PrefabInstance* instance = loaded.front()->GetComponent<PrefabInstance>();
+    REQUIRE(instance != nullptr);
+    REQUIRE(instance->GetModifications().size() == 1u);
+    CHECK(instance->GetModifications()[0]["key"] == "outputRole");
+    CHECK(instance->GetModifications()[0]["value"] == "Primary");
+
+    const nlohmann::json saved = SceneSerializer::SerializeScene(
+        loaded, "Canonical Camera Instance");
+    const auto& savedMods =
+        saved["gameObjects"][0]["prefabInstance"]["modifications"];
+    REQUIRE(savedMods.size() == 1u);
+    CHECK(savedMods[0]["key"] == "outputRole");
+    CHECK(savedMods[0]["value"] == "Primary");
+
+    // When both eras are present, the modern role is authoritative regardless
+    // of modification order and the legacy mirror is removed.
+    const nlohmann::json conflicting = nlohmann::json::array({
+        {{"target", 1u}, {"component", "Camera"},
+         {"key", "isMain"}, {"value", true}},
+        {{"target", 1u}, {"component", "Camera"},
+         {"key", "outputRole"}, {"value", "Secondary"}},
+    });
+    const nlohmann::json normalized =
+        PrefabUtil::NormalizeModifications(conflicting);
+    REQUIRE(normalized.size() == 1u);
+    CHECK(normalized[0]["key"] == "outputRole");
+    CHECK(normalized[0]["value"] == "Secondary");
 }
 
 TEST_CASE("Prefab System: Apply and Revert") {
@@ -396,7 +534,7 @@ TEST_CASE("Nested Prefab: applying a parent prefab instance preserves the nested
     CHECK(carInstance2->GetComponent<Transform>()->GetX() == doctest::Approx(12.0f)); // applied change
 }
 
-TEST_CASE("Nested Prefab: a self-referential prefab terminates instead of recursing forever") {
+TEST_CASE("Nested Prefab: a self-referential prefab fails atomically") {
     TempAssetRootFixture fixture;
 
     // Hand-craft a prefab whose subtree contains a nested instance of itself.
@@ -421,7 +559,7 @@ TEST_CASE("Nested Prefab: a self-referential prefab terminates instead of recurs
     std::unordered_map<unsigned int, unsigned int> remap;
     GameObject* inst = PrefabRegistry::Get().Instantiate(guid, world.Objects(), remap);
 
-    // Must terminate (depth-guarded) and still produce the root object.
-    REQUIRE(inst != nullptr);
-    CHECK(inst->GetName() == "Cyclic");
+    // Must terminate (depth-guarded) without leaving a truncated instance.
+    CHECK(inst == nullptr);
+    CHECK(world.Objects().empty());
 }

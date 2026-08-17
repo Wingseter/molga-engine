@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Core/BuildProfile.h"
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -25,6 +27,9 @@ private:
     int buildWidth = 800;
     int buildHeight = 600;
     bool buildFullscreen = false;
+    bool buildResizable = true;
+    molga::GameOutputScaleMode buildOutputScaleMode =
+        molga::GameOutputScaleMode::Native;
     bool isBuilding = false;
     bool showBuildWindow = false;
     bool wasShowing = false;

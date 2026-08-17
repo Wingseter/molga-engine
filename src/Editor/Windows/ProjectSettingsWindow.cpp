@@ -1,11 +1,14 @@
 #include "ProjectSettingsWindow.h"
 #include "../EditorConstants.h"
 #include "../../Core/ProjectSettings.h"
+#include "../../Systems/Audio.h"
 #include "../../Systems/Input.h"
 #include "../Project.h"
 #include <imgui.h>
 #include <filesystem>
 #include <vector>
+#include <algorithm>
+#include <cstring>
 
 ProjectSettingsWindow::ProjectSettingsWindow()
     : EditorWindow("Project Settings") {
@@ -178,6 +181,54 @@ void ProjectSettingsWindow::OnGUI() {
             ImGui::EndTabItem();
         }
 
+        if (ImGui::BeginTabItem("Physics 2D")) {
+            float gravity[2] = {settings.gravity.x, settings.gravity.y};
+            if (ImGui::DragFloat2("Gravity (px/s^2)", gravity, 1.0f)) {
+                settings.gravity = Vector2(gravity[0], gravity[1]);
+                modified = true;
+            }
+            float ppm = settings.pixelsPerMeter;
+            if (ImGui::DragFloat("Pixels Per Meter", &ppm, 1.0f, 1.0f, 10000.0f)) {
+                settings.pixelsPerMeter = std::max(ppm, 1.0f);
+                modified = true;
+            }
+            int substeps = settings.substeps;
+            if (ImGui::DragInt("Substeps", &substeps, 1.0f, 1, 32)) {
+                settings.substeps = std::max(substeps, 1);
+                modified = true;
+            }
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Audio")) {
+            ImGui::Text("Fixed Mixer Buses");
+            ImGui::TextDisabled("Master is the final gain; child buses route through it.");
+            ImGui::Separator();
+            for (std::size_t i = 0; i < ProjectSettings::AudioBusCount; ++i) {
+                const AudioBus bus = static_cast<AudioBus>(i);
+                auto& busSettings = settings.audioBusSettings[i];
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::Text("%s", AudioBusName(bus));
+                ImGui::SameLine(100.0f);
+                ImGui::SetNextItemWidth(260.0f);
+                float volume = busSettings.volume;
+                if (ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f")) {
+                    busSettings.volume = volume;
+                    Audio::SetBusVolume(bus, volume);
+                    modified = true;
+                }
+                ImGui::SameLine();
+                bool muted = busSettings.muted;
+                if (ImGui::Checkbox("Mute", &muted)) {
+                    busSettings.muted = muted;
+                    Audio::SetBusMuted(bus, muted);
+                    modified = true;
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndTabItem();
+        }
+
         // --- SORTING LAYERS TAB ---
         if (ImGui::BeginTabItem("Sorting Layers")) {
             ImGui::Text("Sprite Sorting Layers (in render order: top = background/rendered first)");
@@ -318,13 +369,19 @@ void ProjectSettingsWindow::OnGUI() {
                             ImGui::SetNextItemWidth(120.0f);
                             if (ImGui::Combo(("Device" + bindingId).c_str(), &currentDevice, deviceTypes, 4)) {
                                 binding.device = static_cast<Input::DeviceType>(currentDevice);
+                                binding.control = Input::DefaultControl(binding.device);
                                 inputModified = true;
                             }
 
-                            // Code
+                            // Stable symbolic control name (input schema v2)
                             ImGui::SameLine();
-                            ImGui::SetNextItemWidth(80.0f);
-                            if (ImGui::InputInt(("Code" + bindingId).c_str(), &binding.code)) {
+                            ImGui::SetNextItemWidth(110.0f);
+                            char control[64];
+                            std::strncpy(control, binding.control.c_str(), sizeof(control));
+                            control[sizeof(control) - 1] = '\0';
+                            if (ImGui::InputText(("Control" + bindingId).c_str(),
+                                                 control, sizeof(control))) {
+                                binding.control = control;
                                 inputModified = true;
                             }
 
