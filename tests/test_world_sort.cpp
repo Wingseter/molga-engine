@@ -1,7 +1,9 @@
 #include "Core/ProjectSettings.h"
 #include "ECS/Component.h"
 #include "ECS/GameObject.h"
+#ifdef MOLGA_MARROW_SUPPORT
 #include "ECS/Components/MarrowRenderer.h"
+#endif
 #include "ECS/Components/ParticleSystem.h"
 #include "ECS/Components/SpriteRenderer.h"
 #include "ECS/Components/TextRenderer2D.h"
@@ -140,6 +142,7 @@ TEST_CASE("world renderer sorting fields serialize flat with legacy defaults") {
     CHECK(legacyParticles.GetSortingLayer() == "Default");
     CHECK(legacyParticles.GetSortMode() == molga::SortMode2D::Fixed);
 
+#ifdef MOLGA_MARROW_SUPPORT
     MarrowRenderer marrow;
     AuthorYAxisSort(marrow);
     nlohmann::json marrowJson;
@@ -149,6 +152,7 @@ TEST_CASE("world renderer sorting fields serialize flat with legacy defaults") {
     legacyMarrow.Deserialize({{"sortingOrder", 11}});
     CHECK(legacyMarrow.GetSortingLayer() == "Default");
     CHECK(legacyMarrow.GetSortMode() == molga::SortMode2D::Fixed);
+#endif
 
     TilemapRenderer tilemap;
     tilemap.SetSortingLayer("Foreground");
@@ -165,7 +169,7 @@ TEST_CASE("world renderer sorting fields serialize flat with legacy defaults") {
     CHECK(legacyTilemap.GetSortingOrder() == 12);
 }
 
-TEST_CASE("Sprite Particle and Marrow use one resolved component Y key") {
+TEST_CASE("Sprite Particle and enabled Marrow use one resolved component Y key") {
     ProjectSettingsScope settingsScope;
     ProjectSettings::Get().sortingLayers = {"Default", "Foreground"};
 
@@ -197,6 +201,7 @@ TEST_CASE("Sprite Particle and Marrow use one resolved component Y key") {
         CHECK(command.sortKey.depthOrYSort == doctest::Approx(33.5f));
     }
 
+#ifdef MOLGA_MARROW_SUPPORT
     auto marrowObject = std::make_shared<GameObject>("Marrow");
     marrowObject->AddComponent<Transform>()->SetPosition(0.0f, 40.0f);
     auto* marrow = marrowObject->AddComponent<MarrowRenderer>();
@@ -211,6 +216,7 @@ TEST_CASE("Sprite Particle and Marrow use one resolved component Y key") {
     CHECK(marrowKey.sortingLayer == 1);
     CHECK(marrowKey.sortingOrder == -4);
     CHECK(marrowKey.depthOrYSort == doctest::Approx(43.5f));
+#endif
 }
 
 TEST_CASE("Tilemap sorting keeps base layer index and per-layer offset") {
