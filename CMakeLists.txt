@@ -242,6 +242,11 @@ endif()
 target_link_libraries(molga_core PRIVATE molga_warnings)
 target_compile_definitions(molga_core PRIVATE
     MOLGA_SHADER_BUNDLE_DIR="${CMAKE_BINARY_DIR}/ShaderBundle")
+if(WIN32)
+    # miniaudio includes windows.h before Audio.h; prevent the Win32 min/max
+    # macros from corrupting std::numeric_limits and std::clamp/max calls.
+    target_compile_definitions(molga_core PUBLIC NOMINMAX)
+endif()
 
 if(APPLE)
     target_link_libraries(molga_core PUBLIC
