@@ -15,7 +15,8 @@ TEST_CASE("build package requires executable config scene assets and MSL bundle"
 
     fs::create_directories(root / "Scenes");
     fs::create_directories(root / "Assets");
-    test_support::WriteText(root / "SmokeGame", "runtime");
+    const std::string executableName = PackageLayout::ExecutableNameFor("SmokeGame");
+    test_support::WriteText(root / executableName, "runtime");
     test_support::WriteText(root / "Scenes/main.json", "{}");
     const std::string shaderHash =
         test_support::WriteMinimalMslShaderBundle(root);
@@ -25,17 +26,17 @@ TEST_CASE("build package requires executable config scene assets and MSL bundle"
     fs::remove_all(root / "ShaderBundle");
 
     std::string error;
-    CHECK_FALSE(PackageLayout::Validate(root, "SmokeGame", error));
+    CHECK_FALSE(PackageLayout::Validate(root, executableName, error));
     CHECK(error.find("ShaderBundle") != std::string::npos);
 
     test_support::WriteMinimalMslShaderBundle(root);
 
     // asset_catalog.json and placeholder resource are now required
-    CHECK_FALSE(PackageLayout::Validate(root, "SmokeGame", error));
+    CHECK_FALSE(PackageLayout::Validate(root, executableName, error));
     test_support::WriteText(root / "asset_catalog.json", "{\"schemaVersion\":1,\"records\":[]}");
     fs::create_directories(root / "Resources");
     test_support::WriteText(root / "Resources/missing_texture.png", "placeholder");
-    CHECK(PackageLayout::Validate(root, "SmokeGame", error));
+    CHECK(PackageLayout::Validate(root, executableName, error));
 }
 
 TEST_CASE("smoke report round trips through json") {

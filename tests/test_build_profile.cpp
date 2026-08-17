@@ -182,7 +182,7 @@ TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
 
     std::string error;
     // Should fail because Scenes/levels/start.json does not exist yet
-    bool valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    bool valid = PackageLayout::Validate(tmpDir, exeName, error);
     CHECK_FALSE(valid);
     CHECK(error.find("Missing package entry") != std::string::npos);
 
@@ -192,21 +192,21 @@ TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
     { std::ofstream(tmpDir / "Scenes/other.json"); }
 
     // Should now pass
-    valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
     INFO("completed package validation error: " << error);
     CHECK(valid);
     CHECK(error.empty());
 
     // New catalog contract is validated alongside the retained legacy fields.
     writeConfig();
-    valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
     CHECK(valid);
 
     config["startupSceneId"] = "Scenes/not-registered.json";
     config["sceneCatalog"] = {{{"id", "Scenes/levels/start.json"},
                                 {"packagePath", "Scenes/levels/start.json"}}};
     writeConfig();
-    valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
     CHECK_FALSE(valid);
     CHECK(error.find("startupSceneId") != std::string::npos);
 
@@ -216,7 +216,7 @@ TEST_CASE("PackageLayout validates custom scenes listed in game.json") {
     config["sceneCatalog"] = {{{"id", "../outside.json"},
                                 {"packagePath", "../outside.json"}}};
     writeConfig();
-    valid = PackageLayout::Validate(tmpDir, "TestCustomGame", error);
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
     CHECK_FALSE(valid);
     CHECK(error.find("package root") != std::string::npos);
 

@@ -79,7 +79,7 @@ TEST_CASE("PackageLayout script manifest validation") {
     { std::ofstream(tmpDir / "Resources/missing_texture.png") << "placeholder"; }
 
     std::string error;
-    bool valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    bool valid = PackageLayout::Validate(tmpDir, exeName, error);
     INFO("initial package validation error: " << error);
     CHECK(valid);
     CHECK(error.empty());
@@ -87,21 +87,21 @@ TEST_CASE("PackageLayout script manifest validation") {
     {
         std::ofstream(tmpDir / "ShaderBundle/artifacts/forbidden.spv")
             << "forbidden";
-        CHECK_FALSE(PackageLayout::Validate(tmpDir, "TestGame", error));
+        CHECK_FALSE(PackageLayout::Validate(tmpDir, exeName, error));
         CHECK(error.find("forbidden non-MSL") != std::string::npos);
         fs::remove(tmpDir / "ShaderBundle/artifacts/forbidden.spv");
     }
     {
         std::ofstream(tmpDir / "ShaderBundle/artifacts/test.fragment.msl",
                       std::ios::app) << "tampered";
-        CHECK_FALSE(PackageLayout::Validate(tmpDir, "TestGame", error));
+        CHECK_FALSE(PackageLayout::Validate(tmpDir, exeName, error));
         CHECK(error.find("SHA-256 mismatch") != std::string::npos);
         CHECK(test_support::WriteMinimalMslShaderBundle(tmpDir) == shaderHash);
     }
     {
         std::ofstream(tmpDir / "ShaderBundle/manifest.json", std::ios::app)
             << ' ';
-        CHECK_FALSE(PackageLayout::Validate(tmpDir, "TestGame", error));
+        CHECK_FALSE(PackageLayout::Validate(tmpDir, exeName, error));
         CHECK(error.find("manifest SHA-256 mismatch") != std::string::npos);
         CHECK(test_support::WriteMinimalMslShaderBundle(tmpDir) == shaderHash);
     }
@@ -116,7 +116,7 @@ TEST_CASE("PackageLayout script manifest validation") {
         };
         f << config.dump(2);
     }
-    valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
     CHECK(valid);
     CHECK(error.empty());
 
@@ -130,13 +130,13 @@ TEST_CASE("PackageLayout script manifest validation") {
         };
         f << config.dump(2);
     }
-    valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
     CHECK_FALSE(valid);
     CHECK(error.find("missing from package") != std::string::npos);
 
     fs::create_directories(tmpDir / "Scripts");
     { std::ofstream(tmpDir / "Scripts/libUserScripts.dylib"); }
-    valid = PackageLayout::Validate(tmpDir, "TestGame", error);
+    valid = PackageLayout::Validate(tmpDir, exeName, error);
     CHECK(valid);
     CHECK(error.empty());
 
