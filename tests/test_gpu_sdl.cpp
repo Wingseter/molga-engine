@@ -6,7 +6,10 @@ TEST_CASE("SDL_GPU creates a native device and submits a swapchain pass") {
     config.title = "Molga SDL_GPU platform contract";
     config.width = 160;
     config.height = 90;
-    config.visible = false;
+    // Vulkan deliberately returns no swapchain texture for a hidden window.
+    // The capability gate runs inside Xvfb on Linux, so keep this tiny window
+    // drawable in order to exercise an actual acquire, submit, and present.
+    config.visible = true;
     config.graphicsBackend = molga::GraphicsBackend::SdlGpu;
     config.graphicsValidation = true;
 
