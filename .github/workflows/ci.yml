@@ -24,6 +24,7 @@ jobs:
           ref: e4d984535d72b60ad52097a2c067d65c7208b1b2
           path: _maroow
           submodules: recursive
+          lfs: true
       - name: Build pinned Marrow runtime
         run: |
           cmake -S _maroow -B _maroow/build -DCMAKE_BUILD_TYPE=${{ matrix.preset == 'release' && 'Release' || 'Debug' }} -DBUILD_TESTING=OFF
@@ -115,6 +116,7 @@ jobs:
           ref: e4d984535d72b60ad52097a2c067d65c7208b1b2
           path: _maroow
           submodules: recursive
+          lfs: true
       - name: Build pinned Marrow runtime
         run: |
           cmake -S _maroow -B _maroow/build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=OFF
