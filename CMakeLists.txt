@@ -4,6 +4,11 @@ project(molga_engine)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+if(MSVC)
+    # Keep source decoding deterministic on non-English Windows hosts. Vendored
+    # DXC contains UTF-8 source text and promotes code-page warnings to errors.
+    add_compile_options(/utf-8)
+endif()
 if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING
         "Minimum macOS SDK deployment target used for build compatibility")
