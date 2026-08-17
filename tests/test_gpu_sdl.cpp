@@ -22,7 +22,7 @@ TEST_CASE("SDL_GPU creates a native device and submits a swapchain pass") {
     CHECK(info.supportsMsl);
 #elif defined(_WIN32)
     CHECK(info.driver == "direct3d12");
-    CHECK(info.supportsDxbc || info.supportsDxil);
+    CHECK((info.supportsDxbc || info.supportsDxil));
 #else
     CHECK(info.driver == "vulkan");
     CHECK(info.supportsSpirv);
