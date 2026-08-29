@@ -32,6 +32,26 @@ set(build_archives
     "${HARFBUZZ_BUILD}/libharfbuzz.a"
     "${HARFBUZZ_BUILD}/libharfbuzz-icu.a")
 
+# hb-features.h is generated, so unlike every other public header it has no
+# source-tree authority. Pin its expected bytes independently: comparing the
+# installed copy against the build-tree copy alone would let an identically
+# wrong pair agree its way past this boundary.
+set(harfbuzz_generated_header "${HARFBUZZ_BUILD}/src/hb-features.h")
+set(harfbuzz_generated_header_sha
+    "b9f5b0184edfab48fa3953f3b5fe8f72f72db0c08ebf6ccfc2541451c8bbc597")
+
+function(harfbuzz_require_generated_header)
+    if(NOT EXISTS "${harfbuzz_generated_header}")
+        message(FATAL_ERROR
+            "the generated HarfBuzz feature header is missing: ${harfbuzz_generated_header}")
+    endif()
+    file(SHA256 "${harfbuzz_generated_header}" actual_sha)
+    if(NOT actual_sha STREQUAL harfbuzz_generated_header_sha)
+        message(FATAL_ERROR
+            "generated hb-features.h does not match its pinned bytes: ${actual_sha}")
+    endif()
+endfunction()
+
 function(harfbuzz_rerun_build)
     message(STATUS "repairing nested HarfBuzz build outputs")
     execute_process(
@@ -58,6 +78,10 @@ if(missing_build)
         endif()
     endforeach()
 endif()
+
+# Validate the generated header against its pinned bytes before it is trusted
+# as the install authority for the installed copy.
+harfbuzz_require_generated_header()
 
 # Installed archives answer to the build tree; source headers answer to the
 # clean pinned source; the generated header answers to the build tree copy.
