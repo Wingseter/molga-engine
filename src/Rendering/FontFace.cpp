@@ -13,7 +13,7 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
-#include "imstb_truetype.h"
+#include "text/rasterizer/imstb_truetype.h"
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__)

@@ -1,67 +1,60 @@
 {
   "schema": 1,
   "description": "Portable input identities for the vendored text dependency build. Records only repo-relative source identities and approved hashes; it carries no compiler, build result, or absolute path.",
-  "sources": [
-    {
-      "name": "harfbuzz",
-      "path": "external/harfbuzz",
-      "kind": "git-submodule",
-      "commit": "ab5ecbb83985034a76214ac0b2b833dcd590d774",
-      "version": "14.3.1"
-    },
-    {
-      "name": "icu",
-      "path": "external/icu",
-      "kind": "git-submodule",
-      "commit": "21d1eb0f306e1141c10931e914dfc038c06121da",
-      "version": "78.3"
-    },
-    {
-      "name": "stb_truetype",
-      "path": "external/text/rasterizer/imstb_truetype.h",
-      "kind": "vendored-snapshot",
-      "origin": "imgui@b48d1afbe8ee8b238e2961dc363a949dd7304e23:imstb_truetype.h",
-      "sha256": "c51a0f7e7ea760f2366bd3752635ec58e21fccfec4a832501639990ba6ce0528"
+  "harfbuzz": {
+    "commit": "ab5ecbb83985034a76214ac0b2b833dcd590d774",
+    "version": "14.3.1",
+    "sourcePath": "external/harfbuzz",
+    "libraries": [
+      "harfbuzz"
+    ],
+    "options": {
+      "icu": true,
+      "coretext": false,
+      "cairo": false,
+      "freetype": false,
+      "graphite2": false,
+      "glib": false,
+      "gobject": false,
+      "introspection": false,
+      "utils": false,
+      "subset": false,
+      "raster": false,
+      "vector": false,
+      "gpu": false,
+      "sharedLibs": false
     }
-  ],
-  "archives": [
-    {
-      "name": "icu4c-data-bin-l",
-      "member": "icudt78l.dat",
-      "path": "resources/text/icudt78l.dat",
-      "archiveSha256": "982619632b78887f1895b063e96e8c3cc7f99283337c8abbd05aa71635de613c",
-      "sha256": "d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b",
-      "bytes": 33107232
+  },
+  "icu": {
+    "commit": "21d1eb0f306e1141c10931e914dfc038c06121da",
+    "version": "78.3",
+    "sourcePath": "external/icu",
+    "libraries": [
+      "icui18n",
+      "icuuc"
+    ],
+    "options": {
+      "staticImplementation": true,
+      "shared": false,
+      "tools": false,
+      "tests": false,
+      "samples": false,
+      "extras": false,
+      "icuio": false,
+      "layoutex": false
     }
-  ],
-  "logicalArchives": ["harfbuzz", "icuuc", "icui18n"],
-  "options": {
-    "harfbuzz": {
-      "required": {
-        "BUILD_SHARED_LIBS": "OFF",
-        "HB_HAVE_ICU": "ON"
-      },
-      "forbidden": {
-        "HB_HAVE_CORETEXT": "ON",
-        "HB_HAVE_CAIRO": "ON",
-        "HB_HAVE_FREETYPE": "ON",
-        "HB_HAVE_GRAPHITE2": "ON",
-        "HB_HAVE_GLIB": "ON",
-        "HB_HAVE_GOBJECT": "ON",
-        "HB_HAVE_INTROSPECTION": "ON",
-        "HB_BUILD_UTILS": "ON",
-        "HB_BUILD_SUBSET": "ON",
-        "HB_BUILD_RASTER": "ON",
-        "HB_BUILD_VECTOR": "ON",
-        "HB_BUILD_GPU": "ON"
-      }
-    },
-    "icu": {
-      "required": {
-        "U_STATIC_IMPLEMENTATION": "1"
-      },
-      "forbiddenTargets": ["shared", "tools", "samples", "tests", "extras", "icuio"]
-    }
+  },
+  "icuData": {
+    "member": "icudt78l.dat",
+    "path": "resources/text/icudt78l.dat",
+    "archiveSha256": "982619632b78887f1895b063e96e8c3cc7f99283337c8abbd05aa71635de613c",
+    "sha256": "d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b",
+    "bytes": 33107232
+  },
+  "rasterizer": {
+    "path": "external/text/rasterizer/imstb_truetype.h",
+    "origin": "imgui@b48d1afbe8ee8b238e2961dc363a949dd7304e23:imstb_truetype.h",
+    "sha256": "c51a0f7e7ea760f2366bd3752635ec58e21fccfec4a832501639990ba6ce0528"
   },
   "licenses": [
     {

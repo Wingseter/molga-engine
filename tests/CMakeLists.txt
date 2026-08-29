@@ -44,9 +44,23 @@ target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
     MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
 molga_add_test(test_text_dependencies test_text_dependencies.cpp)
-target_compile_definitions(test_text_dependencies PRIVATE
-    MOLGA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
-    MOLGA_BINARY_DIR="${CMAKE_BINARY_DIR}")
+molga_attach_text_provenance_test(test_text_dependencies)
+
+# Step 11b: standalone symbol probes. Deliberately not molga_add_test, whose
+# implicit molga_core link would mask a broken direct dependency helper.
+add_executable(test_text_harfbuzz_link test_text_harfbuzz_link.cpp)
+target_link_libraries(test_text_harfbuzz_link PRIVATE doctest_main molga_warnings)
+molga_attach_text_dependencies(test_text_harfbuzz_link)
+set_target_properties(test_text_harfbuzz_link PROPERTIES ENABLE_EXPORTS ON)
+add_test(NAME test_text_harfbuzz_link COMMAND test_text_harfbuzz_link)
+
+add_executable(test_text_icu_link test_text_icu_link.cpp)
+target_link_libraries(test_text_icu_link PRIVATE doctest_main molga_warnings)
+molga_attach_direct_icu_consumer(test_text_icu_link)
+set_target_properties(test_text_icu_link PROPERTIES ENABLE_EXPORTS ON)
+add_test(NAME test_text_icu_link COMMAND test_text_icu_link)
+set_tests_properties(test_text_harfbuzz_link test_text_icu_link
+                     PROPERTIES LABELS "unit")
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)
 target_include_directories(test_log_sinks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

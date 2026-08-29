@@ -64,6 +64,9 @@ set(SDLSHADERCROSS_INSTALL OFF CACHE BOOL "" FORCE)
 set(SDLSHADERCROSS_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/SDL_shadercross EXCLUDE_FROM_ALL)
 
+# ── Pinned static text dependencies (ICU4C + HarfBuzz) ───────────────────────
+include(${CMAKE_SOURCE_DIR}/cmake/TextDependencies.cmake)
+
 # ── ImGui library ──────────────────────────────────────────────────────────────
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
 add_library(imgui
@@ -217,6 +220,7 @@ endif()
 
 # ── molga_core static library ──────────────────────────────────────────────────
 add_library(molga_core STATIC ${ENGINE_SOURCES})
+molga_attach_text_dependencies(molga_core)
 target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/external/stb
@@ -387,6 +391,11 @@ add_custom_command(TARGET molga_runtime POST_BUILD
 # ── Testing ────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
+
+# Step 11c: machine-local provenance macros must not reach product targets.
+molga_text_audit_macro_scope(
+    molga_core molga_engine molga_runtime
+    test_text_harfbuzz_link test_text_icu_link)
 
 add_test(
     NAME smoke_end_to_end
