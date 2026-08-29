@@ -3,6 +3,7 @@
 #include "Common/LogMessage.h"
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace Log {
 
@@ -16,6 +17,12 @@ void Emit(const LogMessage& m);
 void AddSink(std::shared_ptr<ILogSink> sink);
 void RemoveSink(const std::shared_ptr<ILogSink>& sink);
 void ClearSinks();
+
+// 전역 sink 구성을 잠깐 바꿨다가 원상복구해야 하는 호출처(주로 테스트 scope 어댑터)를
+// 위한 최소 API. SnapshotSinks는 현재 등록 목록의 복사본을 돌려주고, RestoreSinks는
+// 그 목록으로 통째로 되돌린다. 둘 다 thread-safe이며 Emit의 fan-out 동작은 바뀌지 않는다.
+std::vector<std::shared_ptr<ILogSink>> SnapshotSinks();
+void RestoreSinks(std::vector<std::shared_ptr<ILogSink>> sinks);
 
 // 기존 호출처(17파일)를 깨지 않는 편의 함수 — 내부적으로 Emit으로 위임한다.
 void Info(const std::string& tag, const std::string& msg);

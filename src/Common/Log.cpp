@@ -51,6 +51,16 @@ void ClearSinks() {
     g_sinks.clear();
 }
 
+std::vector<std::shared_ptr<ILogSink>> SnapshotSinks() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    return g_sinks;
+}
+
+void RestoreSinks(std::vector<std::shared_ptr<ILogSink>> sinks) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_sinks = std::move(sinks);
+}
+
 static void EmitLegacy(Severity sev, const std::string& tag, const std::string& msg) {
     LogMessage m;
     m.severity = sev;

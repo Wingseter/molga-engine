@@ -45,6 +45,7 @@ target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
 molga_add_test(test_text_dependencies test_text_dependencies.cpp)
 molga_attach_text_provenance_test(test_text_dependencies)
+molga_add_test(test_text_runtime_dependencies test_text_runtime_dependencies.cpp)
 
 # Step 11b: standalone symbol probes. Deliberately not molga_add_test, whose
 # implicit molga_core link would mask a broken direct dependency helper.

@@ -201,6 +201,7 @@ set(ENGINE_SOURCES
     src/Core/Importers/PrefabImporter.cpp
     src/Core/Importers/FontImporter.cpp
     src/Core/Importers/PostProcessProfileImporter.cpp
+    src/Text/TextDiagnostic.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
