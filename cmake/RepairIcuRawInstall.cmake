@@ -14,7 +14,7 @@ if(NOT DEFINED MODE OR NOT MODE STREQUAL "RAW_INSTALL_WRAPPER")
     message(FATAL_ERROR "RepairIcuRawInstall requires MODE=RAW_INSTALL_WRAPPER")
 endif()
 foreach(required ICU_SOURCE ICU_BUILD ICU_RAW_PREFIX MAKE_PROGRAM
-                 EXPECTED_HEADER_COUNT)
+                 EXPECTED_HEADER_COUNT EXPECTED_HEADER_MANIFEST_SHA256)
     if(NOT DEFINED ${required})
         message(FATAL_ERROR "RepairIcuRawInstall requires ${required}")
     endif()
@@ -86,6 +86,22 @@ list(LENGTH header_relatives header_count)
 if(NOT header_count EQUAL EXPECTED_HEADER_COUNT)
     message(FATAL_ERROR
         "expected ${EXPECTED_HEADER_COUNT} pinned ICU headers, found ${header_count}")
+endif()
+
+# TextDependencies.cmake defines what counts as a public header and declares
+# the matching install byproducts. Hashing the same LF-joined manifest here
+# means a narrower or wider definition there cannot leave this wrapper quietly
+# repairing a file the build graph no longer declares just because the two
+# still agree on 203.
+set(header_manifest "")
+foreach(relative IN LISTS header_relatives)
+    string(APPEND header_manifest "${relative}\n")
+endforeach()
+string(SHA256 header_manifest_sha "${header_manifest}")
+if(NOT header_manifest_sha STREQUAL EXPECTED_HEADER_MANIFEST_SHA256)
+    message(FATAL_ERROR
+        "pinned ICU header manifest is ${header_manifest_sha}, "
+        "expected ${EXPECTED_HEADER_MANIFEST_SHA256}")
 endif()
 
 # 3. Compare every consumed installed file against its authority.

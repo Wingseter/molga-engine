@@ -83,6 +83,100 @@ set(molga_text_zero_ar ${CMAKE_COMMAND} -E env ZERO_AR_DATE=1)
 set(molga_text_icu_env ${CMAKE_COMMAND} -E env ZERO_AR_DATE=1 PKG_CONFIG=false
                        ac_cv_prog_PYTHON=)
 
+# ── Pinned ICU public header manifest ─────────────────────────────────────────
+# The nested install flattens common/unicode and i18n/unicode into one
+# include/unicode directory, and byproducts are file-level, so every installed
+# header has to be named to the build graph individually. The list is derived
+# from the clean pinned source rather than from the not-yet-produced install,
+# and the pinned count and manifest digest make a submodule bump fail here
+# instead of silently shrinking the declared byproduct set.
+set(MOLGA_TEXT_ICU_HEADER_COUNT 203)
+set(MOLGA_TEXT_ICU_HEADER_MANIFEST_SHA256
+    "fe6c48d6b56a735a1434c0aabd47c4dbbb2a1f71df26c7fccc98cf74dec8947b")
+
+# Yields every pinned public header's installed path in bytewise manifest
+# order. The source root is canonicalized alongside each entry, so the
+# containment check rejects exactly what it says: anything whose canonical path
+# leaves the canonical source root.
+function(molga_text_collect_icu_installed_headers out_var)
+    file(REAL_PATH "${molga_text_icu_source}" icu_source_canonical)
+    set(header_relatives "")
+    set(installed_headers "")
+    set(installed_basenames "")
+    foreach(component common i18n)
+        # For a clean pinned git checkout, LIST_DIRECTORIES false plus the
+        # symlink rejection below is what "regular files only" reduces to.
+        file(GLOB component_headers
+             LIST_DIRECTORIES false
+             "${molga_text_icu_source}/${component}/unicode/*.h")
+        set(component_basenames "")
+        foreach(header IN LISTS component_headers)
+            if(IS_SYMLINK "${header}")
+                message(FATAL_ERROR
+                    "pinned ICU public header is a symlink: ${header}")
+            endif()
+            file(REAL_PATH "${header}" header_canonical)
+            cmake_path(IS_PREFIX icu_source_canonical "${header_canonical}"
+                       NORMALIZE header_contained)
+            if(NOT header_contained)
+                message(FATAL_ERROR
+                    "pinned ICU public header escapes ${icu_source_canonical}: "
+                    "${header_canonical}")
+            endif()
+            get_filename_component(header_name "${header}" NAME)
+            # Both components install into one flat directory, so two equal
+            # basenames would silently collapse to a single installed file.
+            if(header_name IN_LIST installed_basenames)
+                message(FATAL_ERROR
+                    "pinned ICU public headers collide on one installed name: "
+                    "${header_name} (${header})")
+            endif()
+            list(APPEND installed_basenames "${header_name}")
+            list(APPEND component_basenames "${header_name}")
+        endforeach()
+
+        # Every name in a component shares the "<component>/unicode/" prefix
+        # and "common" sorts before "i18n", so sorting each component's ASCII
+        # basenames and visiting common first is the bytewise order of the
+        # composed names — which the pinned digest below then confirms.
+        # Composing both lists here keeps each installed path paired with the
+        # manifest entry it came from instead of recovering it afterwards.
+        # The component list itself must therefore stay bytewise sorted: the
+        # wrapper in RepairIcuRawInstall.cmake sorts its manifest globally, so
+        # a component inserted out of order would reject a digest re-pinned
+        # from here while blaming the wrong file.
+        list(SORT component_basenames)
+        foreach(header_name IN LISTS component_basenames)
+            list(APPEND header_relatives "${component}/unicode/${header_name}")
+            list(APPEND installed_headers
+                 "${molga_text_icu_raw}/include/unicode/${header_name}")
+        endforeach()
+    endforeach()
+
+    list(LENGTH header_relatives header_count)
+    if(NOT header_count EQUAL MOLGA_TEXT_ICU_HEADER_COUNT)
+        string(REPLACE ";" "\n" header_listing "${header_relatives}")
+        message(FATAL_ERROR
+            "expected ${MOLGA_TEXT_ICU_HEADER_COUNT} pinned ICU public headers, "
+            "found ${header_count}:\n${header_listing}")
+    endif()
+
+    set(header_manifest "")
+    foreach(relative IN LISTS header_relatives)
+        string(APPEND header_manifest "${relative}\n")
+    endforeach()
+    string(SHA256 header_manifest_sha "${header_manifest}")
+    if(NOT header_manifest_sha STREQUAL MOLGA_TEXT_ICU_HEADER_MANIFEST_SHA256)
+        message(FATAL_ERROR
+            "pinned ICU public header manifest is ${header_manifest_sha}, "
+            "expected ${MOLGA_TEXT_ICU_HEADER_MANIFEST_SHA256}")
+    endif()
+
+    set(${out_var} "${installed_headers}" PARENT_SCOPE)
+endfunction()
+
+molga_text_collect_icu_installed_headers(molga_text_icu_installed_headers)
+
 # ── Nested static ICU ─────────────────────────────────────────────────────────
 # Only common, i18n, and the pinned stubdata are built. ICU's full data archive
 # is never built: external icudt78l.dat stays the only runtime data payload.
@@ -103,11 +197,17 @@ ExternalProject_Add(molga_text_icu_external
     INSTALL_COMMAND ${molga_text_icu_env} "${MOLGA_TEXT_MAKE_PROGRAM}" -C common install
             COMMAND ${molga_text_icu_env} "${MOLGA_TEXT_MAKE_PROGRAM}" -C i18n install
     BUILD_IN_SOURCE 0
+    # The build command produces only these four; INSTALL_COMMAND is non-empty,
+    # so the installed copies belong to the install step, not here.
     BUILD_BYPRODUCTS
         "${molga_text_icu_build}/lib/libicuuc.a"
         "${molga_text_icu_build}/lib/libicui18n.a"
         "${molga_text_icu_build}/stubdata/libicudata.a"
         "${molga_text_icu_build}/stubdata/stubdata.ao"
+    # The complete consumed install: two raw archives plus every flattened
+    # public header. Nothing consumed downstream is an undeclared side effect.
+    INSTALL_BYPRODUCTS
+        ${molga_text_icu_installed_headers}
         "${molga_text_icu_raw}/lib/libicuuc.a"
         "${molga_text_icu_raw}/lib/libicui18n.a"
     USES_TERMINAL_BUILD OFF
@@ -124,7 +224,12 @@ add_custom_target(molga_text_icu_raw_install ALL
         "-DICU_BUILD=${molga_text_icu_build}"
         "-DICU_RAW_PREFIX=${molga_text_icu_raw}"
         "-DMAKE_PROGRAM=${MOLGA_TEXT_MAKE_PROGRAM}"
-        "-DEXPECTED_HEADER_COUNT=203"
+        # The wrapper re-enumerates the headers at build time. Handing it this
+        # manifest digest, not just the count, keeps the definition of "public
+        # header" here alone: the two enumerations cannot drift apart without
+        # one of them failing loudly.
+        "-DEXPECTED_HEADER_COUNT=${MOLGA_TEXT_ICU_HEADER_COUNT}"
+        "-DEXPECTED_HEADER_MANIFEST_SHA256=${MOLGA_TEXT_ICU_HEADER_MANIFEST_SHA256}"
         -P "${CMAKE_SOURCE_DIR}/cmake/RepairIcuRawInstall.cmake"
     DEPENDS molga_text_icu_external
     COMMENT "Validating the nested ICU raw install"
