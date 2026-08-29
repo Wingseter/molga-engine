@@ -43,6 +43,10 @@ molga_add_test(test_font              test_font.cpp)
 target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
     MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+molga_add_test(test_text_dependencies test_text_dependencies.cpp)
+target_compile_definitions(test_text_dependencies PRIVATE
+    MOLGA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+    MOLGA_BINARY_DIR="${CMAKE_BINARY_DIR}")
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)
 target_include_directories(test_log_sinks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

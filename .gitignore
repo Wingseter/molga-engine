@@ -477,3 +477,6 @@ ui_images_backup/
 # User Test & Build
 test.png
 test_build.cpp
+
+# Maintainer-only text acquisition scratch
+/.text-acquire-tmp/
