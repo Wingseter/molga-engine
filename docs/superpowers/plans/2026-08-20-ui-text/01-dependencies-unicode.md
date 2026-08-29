@@ -903,7 +903,7 @@
 - Consumes: the existing human-readable logger.
 - Produces: `TextSeverity`, `TextDiagnosticCode`, `StableTextDiagnosticCode`, `ParseStableTextDiagnosticCode`, `SourceByteRange`, `TextDiagnostic`, `TextDiagnosticSink`, `VectorTextDiagnosticSink`, and `LoggerTextDiagnosticSink` keyed by the complete diagnostic context.
 
-- [ ] **Step 1: Add the failing stable-code round-trip test.**
+- [x] **Step 1: Add the failing stable-code round-trip test.**
 
   ```cpp
   TEST_CASE("text diagnostic codes and context keys are stable") {
@@ -932,7 +932,7 @@
   }
   ```
 
-- [ ] **Step 1a: Add the failing collecting-sink/context-key test.**
+- [x] **Step 1a: Add the failing collecting-sink/context-key test.**
 
   ```cpp
   TEST_CASE("vector sink retains records and source range changes identity") {
@@ -951,7 +951,7 @@
   }
   ```
 
-- [ ] **Step 1b: Add the failing bounded logger-rate test.**
+- [x] **Step 1b: Add the failing bounded logger-rate test.**
 
   ```cpp
   TEST_CASE("logger sink suppresses only a remembered complete context key") {
@@ -969,7 +969,7 @@
   }
   ```
 
-- [ ] **Step 1c: Add the failing logger-capacity test.**
+- [x] **Step 1c: Add the failing logger-capacity test.**
 
   ```cpp
   TEST_CASE("logger sink evicts oldest keys and zero capacity never suppresses") {
@@ -991,13 +991,13 @@
   }
   ```
 
-- [ ] **Step 2: Run the diagnostic red gate.**
+- [x] **Step 2: Run the diagnostic red gate.**
 
   Run: `cmake --build --preset debug --target test_text_runtime_dependencies -j`
 
   Expected: compile FAIL because `Text/TextDiagnostic.h` and the stable mapping do not exist.
 
-- [ ] **Step 3: Add the stable severity/code declarations.** Add only these closed enums and forward/reverse function declarations:
+- [x] **Step 3: Add the stable severity/code declarations.** Add only these closed enums and forward/reverse function declarations:
 
   ```cpp
   enum class TextSeverity : std::uint8_t { Info, Warning, Error, Blocker };
@@ -1012,9 +1012,9 @@
       std::string_view) noexcept;
   ```
 
-- [ ] **Step 3a: Implement the closed stable-code mapping.** Map the enum exhaustively to the 13 exact strings in Step 1; an invalid enum returns `TEXT_DIAGNOSTIC_UNKNOWN` without throwing. The reverse parser accepts exactly those 13 strings and returns `nullopt` for numeric values, aliases, or unknown future codes.
+- [x] **Step 3a: Implement the closed stable-code mapping.** Map the enum exhaustively to the 13 exact strings in Step 1; an invalid enum returns `TEXT_DIAGNOSTIC_UNKNOWN` without throwing. The reverse parser accepts exactly those 13 strings and returns `nullopt` for numeric values, aliases, or unknown future codes.
 
-- [ ] **Step 3b: Add the diagnostic value and base-sink records.** Append these exact declarations:
+- [x] **Step 3b: Add the diagnostic value and base-sink records.** Append these exact declarations:
 
   ```cpp
   struct SourceByteRange {
@@ -1040,7 +1040,7 @@
   };
   ```
 
-- [ ] **Step 3c: Add the collecting sink declaration.** Append this exact declaration:
+- [x] **Step 3c: Add the collecting sink declaration.** Append this exact declaration:
 
   ```cpp
   class VectorTextDiagnosticSink final : public TextDiagnosticSink {
@@ -1052,7 +1052,7 @@
   };
   ```
 
-- [ ] **Step 3d: Add the bounded logger-sink declaration.** Append this exact declaration:
+- [x] **Step 3d: Add the bounded logger-sink declaration.** Append this exact declaration:
 
   ```cpp
   class LoggerTextDiagnosticSink final : public TextDiagnosticSink {
@@ -1067,7 +1067,7 @@
   };
   ```
 
-- [ ] **Step 4: Implement the full context key.**
+- [x] **Step 4: Implement the full context key.**
 
   ```cpp
   std::string TextDiagnosticRateLimitKey(const TextDiagnostic& d) {
@@ -1078,19 +1078,19 @@
   }
   ```
 
-- [ ] **Step 4a: Implement the collecting sink.** `VectorTextDiagnosticSink::Report` moves every record into `diagnostics_`; `Diagnostics()` returns that exact vector by const reference without deduplication.
+- [x] **Step 4a: Implement the collecting sink.** `VectorTextDiagnosticSink::Report` moves every record into `diagnostics_`; `Diagnostics()` returns that exact vector by const reference without deduplication.
 
-- [ ] **Step 4b: Implement the bounded logger sink.** Emit through `Log::Emit`, suppress only a currently remembered identical key, and evict the oldest key before inserting beyond `maxRememberedKeys`; zero capacity emits every record.
+- [x] **Step 4b: Implement the bounded logger sink.** Emit through `Log::Emit`, suppress only a currently remembered identical key, and evict the oldest key before inserting beyond `maxRememberedKeys`; zero capacity emits every record.
 
-- [ ] **Step 4c: Add the scoped log-test adapter.** `ScopedRingLogSink` installs the existing `RingBufferSink` in its constructor and restores the prior sink in its destructor so the test leaves global logging unchanged.
+- [x] **Step 4c: Add the scoped log-test adapter.** `ScopedRingLogSink` installs the existing `RingBufferSink` in its constructor and restores the prior sink in its destructor so the test leaves global logging unchanged.
 
-- [ ] **Step 5: Run the diagnostic green gate.**
+- [x] **Step 5: Run the diagnostic green gate.**
 
   Run: `cmake --build --preset debug --target test_text_runtime_dependencies -j && ctest --test-dir build/debug -R '^test_text_runtime_dependencies$' --output-on-failure`
 
   Expected: PASS for exhaustive code mapping and rate-limit context identity.
 
-- [ ] **Step 6: Commit typed diagnostics.**
+- [x] **Step 6: Commit typed diagnostics.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Text/TextDiagnostic.* \
