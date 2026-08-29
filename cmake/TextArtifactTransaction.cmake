@@ -48,6 +48,17 @@ function(_text_path_is_allowed result_var path roots)
     set(${result_var} ${allowed} PARENT_SCOPE)
 endfunction()
 
+# Remove siblings staged by a prepare that never published a journal.
+# Only prepare may call this: once a journal exists, recovery owns cleanup.
+function(_text_discard_prepared_siblings created_siblings transaction_directory)
+    foreach(sibling IN LISTS created_siblings)
+        file(REMOVE "${sibling}")
+    endforeach()
+    if(NOT transaction_directory STREQUAL "")
+        file(REMOVE_RECURSE "${transaction_directory}")
+    endif()
+endfunction()
+
 # Rewrite one journal entry's state and atomically republish the journal.
 function(_text_journal_set_state journal_path index state)
     file(READ "${journal_path}" journal_json)
@@ -132,8 +143,11 @@ function(text_prepare_artifact_transaction result_var journal_path
     file(MAKE_DIRECTORY "${transaction_directory}")
 
     # Stage every new and rollback sibling before any destination is replaced.
-    set(new_siblings "")
-    set(backup_siblings "")
+    # Siblings live beside their destinations, which are tracked repository
+    # paths, so a failure here must remove its own partial work: no journal
+    # exists yet, and journal-driven recovery could never find them.
+    set(created_siblings "")
+    set(prepare_failure "")
     set(entries_json "")
     foreach(pair_index RANGE 0 ${last_pair})
         math(EXPR entry_index "${pair_index} + 1")
@@ -153,10 +167,11 @@ function(text_prepare_artifact_transaction result_var journal_path
         set(new_sibling
             "${destination_parent}/.${destination_name}.molga-new-${transaction_id}-${entry_index}")
         file(COPY_FILE "${staged}" "${new_sibling}")
+        list(APPEND created_siblings "${new_sibling}")
         file(SHA256 "${new_sibling}" new_sibling_sha)
         if(NOT new_sibling_sha STREQUAL staged_sha)
-            message(WARNING "staged sibling hash mismatch for ${destination}")
-            return()
+            set(prepare_failure "staged sibling hash mismatch for ${destination}")
+            break()
         endif()
 
         set(backup_sibling "")
@@ -164,15 +179,14 @@ function(text_prepare_artifact_transaction result_var journal_path
             set(backup_sibling
                 "${destination_parent}/.${destination_name}.molga-backup-${transaction_id}-${entry_index}")
             file(COPY_FILE "${destination}" "${backup_sibling}")
+            list(APPEND created_siblings "${backup_sibling}")
             file(SHA256 "${backup_sibling}" backup_sibling_sha)
             if(NOT backup_sibling_sha STREQUAL destination_sha)
-                message(WARNING "backup sibling hash mismatch for ${destination}")
-                return()
+                set(prepare_failure "backup sibling hash mismatch for ${destination}")
+                break()
             endif()
         endif()
 
-        list(APPEND new_siblings "${new_sibling}")
-        list(APPEND backup_siblings "${backup_sibling}")
         string(APPEND entries_json "
     {
       \"index\": ${entry_index},
@@ -189,6 +203,12 @@ function(text_prepare_artifact_transaction result_var journal_path
             string(APPEND entries_json ",")
         endif()
     endforeach()
+
+    if(prepare_failure)
+        _text_discard_prepared_siblings("${created_siblings}" "${transaction_directory}")
+        message(WARNING "${prepare_failure}")
+        return()
+    endif()
 
     _text_atomic_write("${journal_path}" "{
   \"schema\": 1,
@@ -207,6 +227,8 @@ function(text_prepare_artifact_transaction result_var journal_path
     string(JSON persisted_entries LENGTH "${journal_json}" entries)
     if(NOT persisted_schema EQUAL 1 OR NOT persisted_count EQUAL entry_count
        OR NOT persisted_entries EQUAL entry_count)
+        file(REMOVE "${journal_path}")
+        _text_discard_prepared_siblings("${created_siblings}" "${transaction_directory}")
         message(WARNING "prepared text journal failed read-back validation")
         return()
     endif()
