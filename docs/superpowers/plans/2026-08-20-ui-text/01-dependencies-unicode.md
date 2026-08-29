@@ -92,7 +92,7 @@
 - Consumes: pinned ImGui submodule and `molga::Sha256File(const std::filesystem::path&, std::string*)`.
 - Produces: exact vendored source roots, committed runtime data/licenses/font corpus, schema-1 `dependency-contract.input.json`, and schema-1 `font_manifest.json`.
 
-- [ ] **Step 1: Register the failing immutable-input test.** Add `molga_add_test(test_text_dependencies test_text_dependencies.cpp)`, define `MOLGA_SOURCE_DIR` and `MOLGA_BINARY_DIR` from the exact CMake source/binary directories, and add this actual test:
+- [x] **Step 1: Register the failing immutable-input test.** Add `molga_add_test(test_text_dependencies test_text_dependencies.cpp)`, define `MOLGA_SOURCE_DIR` and `MOLGA_BINARY_DIR` from the exact CMake source/binary directories, and add this actual test:
 
   ```cpp
   #include "doctest.h"
@@ -112,13 +112,13 @@
   }
   ```
 
-- [ ] **Step 2: Run the immutable-input red gate.**
+- [x] **Step 2: Run the immutable-input red gate.**
 
   Run: `cmake --preset debug && cmake --build --preset debug --target test_text_dependencies -j && ctest --test-dir build/debug -R '^test_text_dependencies$' --output-on-failure`
 
   Expected: build succeeds, then the test FAILS because `resources/text/icudt78l.dat` and the new locked fixture tree do not exist; no system dependency is consulted.
 
-- [ ] **Step 3: Pin the HarfBuzz source gitlink.**
+- [x] **Step 3: Pin the HarfBuzz source gitlink.**
 
   ```bash
   git submodule add https://github.com/harfbuzz/harfbuzz.git external/harfbuzz
@@ -129,7 +129,7 @@
 
   Expected: the exact commit comparison succeeds.
 
-- [ ] **Step 4: Pin the ICU source gitlink.**
+- [x] **Step 4: Pin the ICU source gitlink.**
 
   ```bash
   git submodule add https://github.com/unicode-org/icu.git external/icu
@@ -139,13 +139,13 @@
 
   Expected: both lines contain the exact 40-character commits and neither begins with `+`, `-`, or `U`.
 
-- [ ] **Step 5: Register only large binary text artifacts with Git LFS.** Add `/.text-acquire-tmp/` to `.gitignore`, then run:
+- [x] **Step 5: Register only large binary text artifacts with Git LFS.** Add `/.text-acquire-tmp/` to `.gitignore`, then run:
 
   Run: `git lfs track 'resources/text/*.dat' 'tests/fixtures/text/fonts/*.ttf' 'tests/fixtures/text/fonts/*.otf' && git lfs track`
 
   Expected: the three patterns appear once; JSON, CMake, license, and rasterizer source files remain normal Git objects.
 
-- [ ] **Step 6: Stage and verify the text-owned rasterizer snapshot.** In `AcquireTextRuntimeData.cmake`, create the unique acquisition root first and copy the ImGui source only into that root—not its final destination:
+- [x] **Step 6: Stage and verify the text-owned rasterizer snapshot.** In `AcquireTextRuntimeData.cmake`, create the unique acquisition root first and copy the ImGui source only into that root—not its final destination:
 
   ```cmake
   string(RANDOM LENGTH 32 ALPHABET 0123456789abcdef acquire_id)
@@ -163,7 +163,7 @@
 
   Expected: no byte under `external/text/rasterizer` changes before the complete transaction publishes.
 
-- [ ] **Step 7: Implement ICU archive download and exact-member extraction.** Use this executable CMake structure in `AcquireTextRuntimeData.cmake`:
+- [x] **Step 7: Implement ICU archive download and exact-member extraction.** Use this executable CMake structure in `AcquireTextRuntimeData.cmake`:
 
   ```cmake
   set(archive_sha "982619632b78887f1895b063e96e8c3cc7f99283337c8abbd05aa71635de613c")
@@ -196,13 +196,13 @@
   endif()
   ```
 
-- [ ] **Step 8: Stage vendored dependency licenses.** Copy `external/harfbuzz/COPYING`, `external/icu/LICENSE`, and LF-preserving rasterizer lines `5045..5085` into the unique acquisition root, then verify the HarfBuzz/ICU/stb hashes from Global Constraints.
+- [x] **Step 8: Stage vendored dependency licenses.** Copy `external/harfbuzz/COPYING`, `external/icu/LICENSE`, and LF-preserving rasterizer lines `5045..5085` into the unique acquisition root, then verify the HarfBuzz/ICU/stb hashes from Global Constraints.
 
-- [ ] **Step 8a: Stage the pinned Inter license.** Download only `https://raw.githubusercontent.com/rsms/inter/2ce9119398be143fa289c3e180824db1b7ed803e/LICENSE.txt` into the same root and require Inter SHA-256 `262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a`.
+- [x] **Step 8a: Stage the pinned Inter license.** Download only `https://raw.githubusercontent.com/rsms/inter/2ce9119398be143fa289c3e180824db1b7ed803e/LICENSE.txt` into the same root and require Inter SHA-256 `262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a`.
 
-- [ ] **Step 8b: Stage the engine notice base.** Generate the immutable engine-only `ThirdPartyNotices.md` base template in the same root from the four verified logical license names; package-specific font rows remain a later packaging task.
+- [x] **Step 8b: Stage the engine notice base.** Generate the immutable engine-only `ThirdPartyNotices.md` base template in the same root from the four verified logical license names; package-specific font rows remain a later packaging task.
 
-- [ ] **Step 9: Add the exact transaction entrypoint and pair validation.** Define one positional API in `TextArtifactTransaction.cmake`; callers pass a semicolon-separated allowlist of canonical destination roots, then alternating staged and destination paths:
+- [x] **Step 9: Add the exact transaction entrypoint and pair validation.** Define one positional API in `TextArtifactTransaction.cmake`; callers pass a semicolon-separated allowlist of canonical destination roots, then alternating staged and destination paths:
 
   ```cmake
   function(text_publish_artifact_set result_var journal_path inject_failure_at
@@ -243,37 +243,37 @@
 
   Implement the three named helpers in Steps 10–12. Reject semicolons in path arguments, duplicate destinations, a staged path equal to its destination, a missing staged file, or any destination outside the caller-approved source/build roots before changing a destination.
 
-- [ ] **Step 10: Allocate the transaction identity and entry records.** After all staged inputs pass their task-specific size/SHA checks, generate one 128-bit hexadecimal transaction ID and one unique transaction directory beside the journal. For each alternating pair, compute `stagedSha256`, `destinationExisted`, and—when present—`destinationSha256`; reject any unreadable input before creating a publish sibling.
+- [x] **Step 10: Allocate the transaction identity and entry records.** After all staged inputs pass their task-specific size/SHA checks, generate one 128-bit hexadecimal transaction ID and one unique transaction directory beside the journal. For each alternating pair, compute `stagedSha256`, `destinationExisted`, and—when present—`destinationSha256`; reject any unreadable input before creating a publish sibling.
 
-- [ ] **Step 10a: Stage each new same-directory sibling.** Set `newSibling` to `"." + destinationFilename + ".molga-new-" + transactionId + "-" + decimalIndex`, copy the staged file beside its destination, and verify that sibling against `stagedSha256`.
+- [x] **Step 10a: Stage each new same-directory sibling.** Set `newSibling` to `"." + destinationFilename + ".molga-new-" + transactionId + "-" + decimalIndex`, copy the staged file beside its destination, and verify that sibling against `stagedSha256`.
 
-- [ ] **Step 10b: Stage each rollback sibling.** For an existing destination set `backupSibling` to the corresponding `.molga-backup-` name, copy the old bytes beside the destination, and verify `destinationSha256`; record an empty backup path for a previously absent destination. Do not publish any destination until every new/backup sibling verifies.
+- [x] **Step 10b: Stage each rollback sibling.** For an existing destination set `backupSibling` to the corresponding `.molga-backup-` name, copy the old bytes beside the destination, and verify `destinationSha256`; record an empty backup path for a previously absent destination. Do not publish any destination until every new/backup sibling verifies.
 
-- [ ] **Step 11: Persist the prepared journal.** Atomically replace `journal_path` with schema-1 JSON containing the transaction ID, unique directory, every exact path/SHA/existence flag, and per-entry state `prepared`; read it back and validate the complete entry count before publishing index 1.
+- [x] **Step 11: Persist the prepared journal.** Atomically replace `journal_path` with schema-1 JSON containing the transaction ID, unique directory, every exact path/SHA/existence flag, and per-entry state `prepared`; read it back and validate the complete entry count before publishing index 1.
 
-- [ ] **Step 11a: Enter one publish operation durably.** For index `1..N`, atomically mark only that entry `publishing` before touching its destination. If positive `inject_failure_at == index`, branch immediately to rollback.
+- [x] **Step 11a: Enter one publish operation durably.** For index `1..N`, atomically mark only that entry `publishing` before touching its destination. If positive `inject_failure_at == index`, branch immediately to rollback.
 
-- [ ] **Step 11b: Replace and verify one destination.** Call `file(RENAME "${newSibling}" "${destination}" RESULT rename_result)`, verify the destination against `stagedSha256`, and branch to rollback on either error without visiting the next index.
+- [x] **Step 11b: Replace and verify one destination.** Call `file(RENAME "${newSibling}" "${destination}" RESULT rename_result)`, verify the destination against `stagedSha256`, and branch to rollback on either error without visiting the next index.
 
-- [ ] **Step 11c: Close one publish operation durably.** If negative `inject_failure_at == -index`, branch to rollback after the verified rename but before the state update; otherwise atomically mark the entry `published` and continue to the next index.
+- [x] **Step 11c: Close one publish operation durably.** If negative `inject_failure_at == -index`, branch to rollback after the verified rename but before the state update; otherwise atomically mark the entry `published` and continue to the next index.
 
-- [ ] **Step 12: Load and validate a pending journal.** Implement exact API `text_recover_artifact_journal(result_var journal_path allowed_destination_roots)`. At function entry and after a Step 11 failure, parse only schema `1`; canonicalize the caller-supplied roots, require every journal destination/new/backup/transaction path to satisfy exact equality or containment under that independent allowlist, then revalidate every exact path/index/transaction ID and refuse a new transaction until recovery completes. Never trust a root copied from the journal itself.
+- [x] **Step 12: Load and validate a pending journal.** Implement exact API `text_recover_artifact_journal(result_var journal_path allowed_destination_roots)`. At function entry and after a Step 11 failure, parse only schema `1`; canonicalize the caller-supplied roots, require every journal destination/new/backup/transaction path to satisfy exact equality or containment under that independent allowlist, then revalidate every exact path/index/transaction ID and refuse a new transaction until recovery completes. Never trust a root copied from the journal itself.
 
-- [ ] **Step 12a: Classify reverse rollback entries.** Visit every `published` or `publishing` entry in reverse index order. A destination with `stagedSha256` needs restoration, and one already matching the recorded old SHA needs no write; any third SHA is a fatal external conflict that retains the journal and backups for manual recovery.
+- [x] **Step 12a: Classify reverse rollback entries.** Visit every `published` or `publishing` entry in reverse index order. A destination with `stagedSha256` needs restoration, and one already matching the recorded old SHA needs no write; any third SHA is a fatal external conflict that retains the journal and backups for manual recovery.
 
-- [ ] **Step 12b: Restore one destination.** For a destination requiring restoration, rename its verified `backupSibling` back and verify `destinationSha256` when `destinationExisted` is true; otherwise remove only that newly created exact destination and verify it is absent.
+- [x] **Step 12b: Restore one destination.** For a destination requiring restoration, rename its verified `backupSibling` back and verify `destinationSha256` when `destinationExisted` is true; otherwise remove only that newly created exact destination and verify it is absent.
 
-- [ ] **Step 12c: Clean verified transaction artifacts.** Only after every restoration verifies, remove unpublished new siblings, remaining backups, the unique transaction directory, and journal; `text_recover_artifact_journal` then returns `TRUE` to mean the root is safe and has no pending transaction, while the enclosing publisher returns `FALSE` for the injected/current publish failure. An external conflict returns recovery `FALSE` and retains the journal/backups. After a fully successful publish, the publish helper removes the same backup/journal/transaction artifacts and the enclosing publisher returns `TRUE`.
+- [x] **Step 12c: Clean verified transaction artifacts.** Only after every restoration verifies, remove unpublished new siblings, remaining backups, the unique transaction directory, and journal; `text_recover_artifact_journal` then returns `TRUE` to mean the root is safe and has no pending transaction, while the enclosing publisher returns `FALSE` for the injected/current publish failure. An external conflict returns recovery `FALSE` and retains the journal/backups. After a fully successful publish, the publish helper removes the same backup/journal/transaction artifacts and the enclosing publisher returns `TRUE`.
 
-- [ ] **Step 12d: Bound caller cleanup.** Each acquisition caller removes only its exact `${acquire_root}` or fixture temporary directory after successful publication or verified rollback; it never recursively removes the shared `.text-acquire-tmp` parent.
+- [x] **Step 12d: Bound caller cleanup.** Each acquisition caller removes only its exact `${acquire_root}` or fixture temporary directory after successful publication or verified rollback; it never recursively removes the shared `.text-acquire-tmp` parent.
 
-- [ ] **Step 13: Build the offline transaction fixture.** Under `TEXT_TRANSACTION_SELF_TEST=ON`, generate five old synthetic destinations and five different staged files in one uniquely named fixture root, then record all ten SHA values.
+- [x] **Step 13: Build the offline transaction fixture.** Under `TEXT_TRANSACTION_SELF_TEST=ON`, generate five old synthetic destinations and five different staged files in one uniquely named fixture root, then record all ten SHA values.
 
-- [ ] **Step 13a: Exercise one injected failure.** Call the real publisher with the requested `INJECT_PUBLISH_FAILURE_AT`, assert a false result, all five old destination SHA values, and no leftover journal/new/backup files.
+- [x] **Step 13a: Exercise one injected failure.** Call the real publisher with the requested `INJECT_PUBLISH_FAILURE_AT`, assert a false result, all five old destination SHA values, and no leftover journal/new/backup files.
 
-- [ ] **Step 13b: Exercise the clean rerun.** Call the same publisher with injection disabled, assert all five new SHA values, and assert the exact fixture transaction directory/journal are absent.
+- [x] **Step 13b: Exercise the clean rerun.** Call the same publisher with injection disabled, assert all five new SHA values, and assert the exact fixture transaction directory/journal are absent.
 
-- [ ] **Step 13c: Run both crash windows twice.** Execute:
+- [x] **Step 13c: Run both crash windows twice.** Execute:
 
   ```bash
   cmake -DSOURCE_ROOT="$PWD" -DTEXT_TRANSACTION_SELF_TEST=ON \
@@ -288,15 +288,15 @@
 
   Expected: all four runs report `rollback verified; clean publish verified`; before-rename and crash-window failures each preserve all five old destination SHA values, their clean rerun publishes all five new values, and no transaction artifact remains.
 
-- [ ] **Step 14: Add the exact-destination fast path.** After journal recovery, validate the complete runtime destination set and return before network access only when every expected size/hash is already exact.
+- [x] **Step 14: Add the exact-destination fast path.** After journal recovery, validate the complete runtime destination set and return before network access only when every expected size/hash is already exact.
 
-- [ ] **Step 14a: Publish the exact real runtime set.** Pass these eight staged/destination pairs to one publisher call: ICU data → `resources/text/icudt78l.dat`; rasterizer header → `external/text/rasterizer/imstb_truetype.h`; extracted stb license → both `external/text/rasterizer/LICENSE.txt` and `resources/licenses/StbTrueType.txt`; HarfBuzz license → `resources/licenses/HarfBuzz.txt`; ICU license → `resources/licenses/ICU.txt`; Inter license → `assets/fonts/Inter-v4.0-OFL.txt`; notice base → `resources/licenses/ThirdPartyNotices.md`.
+- [x] **Step 14a: Publish the exact real runtime set.** Pass these eight staged/destination pairs to one publisher call: ICU data → `resources/text/icudt78l.dat`; rasterizer header → `external/text/rasterizer/imstb_truetype.h`; extracted stb license → both `external/text/rasterizer/LICENSE.txt` and `resources/licenses/StbTrueType.txt`; HarfBuzz license → `resources/licenses/HarfBuzz.txt`; ICU license → `resources/licenses/ICU.txt`; Inter license → `assets/fonts/Inter-v4.0-OFL.txt`; notice base → `resources/licenses/ThirdPartyNotices.md`.
 
-- [ ] **Step 14b: Run and verify the real runtime transaction.** Run `cmake -DSOURCE_ROOT="$PWD" -P cmake/AcquireTextRuntimeData.cmake`, then require the ICU size and all eight destination hashes.
+- [x] **Step 14b: Run and verify the real runtime transaction.** Run `cmake -DSOURCE_ROOT="$PWD" -P cmake/AcquireTextRuntimeData.cmake`, then require the ICU size and all eight destination hashes.
 
-- [ ] **Step 14c: Prove the fast path is offline and non-replacing.** Add a script-test flag `TEXT_FAIL_ON_NETWORK` whose download wrapper raises `FATAL_ERROR` if called. Record all eight destination SHA/mtime values, run `cmake -DSOURCE_ROOT="$PWD" -DTEXT_FAIL_ON_NETWORK=ON -P cmake/AcquireTextRuntimeData.cmake`, and require identical values plus log marker `all runtime text artifacts already verified`.
+- [x] **Step 14c: Prove the fast path is offline and non-replacing.** Add a script-test flag `TEXT_FAIL_ON_NETWORK` whose download wrapper raises `FATAL_ERROR` if called. Record all eight destination SHA/mtime values, run `cmake -DSOURCE_ROOT="$PWD" -DTEXT_FAIL_ON_NETWORK=ON -P cmake/AcquireTextRuntimeData.cmake`, and require identical values plus log marker `all runtime text artifacts already verified`.
 
-- [ ] **Step 15: Encode the base fixture download rows.** Add these three exact logical destination/source/size/SHA rows to `AcquireTextFixtures.cmake`:
+- [x] **Step 15: Encode the base fixture download rows.** Add these three exact logical destination/source/size/SHA rows to `AcquireTextFixtures.cmake`:
 
   | File | Source commit/path | Bytes | SHA-256 |
   |---|---|---:|---|
@@ -304,7 +304,7 @@
   | `NotoSansArabic-Regular.ttf` | `https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansArabic/NotoSansArabic-Regular.ttf` | 240456 | `ceea25b464a656dc3b26849bab9356740401af62aedf1bfa8b7f0d9b75925b1b` |
   | `NotoSansHebrew-Regular.ttf` | `https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansHebrew/NotoSansHebrew-Regular.ttf` | 26900 | `a7fa16fffb27bedb060a0866267c29e9859aeb9c21cc33f5b3aaf6eb062eca85` |
 
-- [ ] **Step 15a: Encode the Indic/CJK fixture download rows.** Append these three exact rows:
+- [x] **Step 15a: Encode the Indic/CJK fixture download rows.** Append these three exact rows:
 
   | File | Source commit/path | Bytes | SHA-256 |
   |---|---|---:|---|
@@ -312,36 +312,36 @@
   | `NotoSansThai-Regular.ttf` | `https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/hinted/ttf/NotoSansThai/NotoSansThai-Regular.ttf` | 37752 | `404ddfb5ed0aaa6b6ec8a85700d682978992062d67da93903967b56cbd9a4acc` |
   | `NotoSansKR-Regular.otf` | `https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/SubsetOTF/KR/NotoSansKR-Regular.otf` | 4644748 | `69975a0ac8472717870aefeab0a4d52739308d90856b9955313b2ad5e0148d68` |
 
-- [ ] **Step 15b: Encode the immutable fixture-license rows.** Append these two logical destination/source/SHA rows:
+- [x] **Step 15b: Encode the immutable fixture-license rows.** Append these two logical destination/source/SHA rows:
 
   | File | Source commit/path | Bytes | SHA-256 |
   |---|---|---:|---|
   | Noto Fonts license | `https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac/LICENSE` | manifest | `0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb` |
   | Noto CJK license | `https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/LICENSE` | manifest | `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2` |
 
-- [ ] **Step 15c: Download the complete fixture set into one unique root.** For each table row call `file(DOWNLOAD "${url}" "${temporary_path}" EXPECTED_HASH "SHA256=${sha256}" STATUS status)` and fail before publication if any status is nonzero.
+- [x] **Step 15c: Download the complete fixture set into one unique root.** For each table row call `file(DOWNLOAD "${url}" "${temporary_path}" EXPECTED_HASH "SHA256=${sha256}" STATUS status)` and fail before publication if any status is nonzero.
 
-- [ ] **Step 15d: Validate and publish the fixture set once.** Validate every declared size/hash in that unique root, then pass all eight staged/destination pairs to one `text_publish_artifact_set` call using the same rollback journal; never publish a partial table.
+- [x] **Step 15d: Validate and publish the fixture set once.** Validate every declared size/hash in that unique root, then pass all eight staged/destination pairs to one `text_publish_artifact_set` call using the same rollback journal; never publish a partial table.
 
-- [ ] **Step 16: Run the fixture script and verify its transaction.**
+- [x] **Step 16: Run the fixture script and verify its transaction.**
 
   Run: `cmake -DSOURCE_ROOT="$PWD" -P cmake/AcquireTextFixtures.cmake && shasum -a 256 tests/fixtures/text/fonts/* tests/fixtures/text/licenses/*`
 
   Expected: the eight output hashes equal the table, and a second run changes no tracked bytes.
 
-- [ ] **Step 17: Write the portable dependency input manifest.** `dependency-contract.input.json` schema `1` records exact commits, permitted/forbidden options, archive/data/rasterizer/license hashes, stable logical archive names, and repo-relative source identities. It contains neither compiler/build results nor absolute paths.
+- [x] **Step 17: Write the portable dependency input manifest.** `dependency-contract.input.json` schema `1` records exact commits, permitted/forbidden options, archive/data/rasterizer/license hashes, stable logical archive names, and repo-relative source identities. It contains neither compiler/build results nor absolute paths.
 
-- [ ] **Step 18: Write the fixture corpus manifest.** `font_manifest.json` schema `1` records the table, Inter font SHA `64f8be6e55c37e32ef03da99714bf3aa58b8f2099bfe4f759a7578e3b8291123`, and strings `ffi`, `AV`, `x\u0301`, `سلام`, `ن\u200Dن`, `abc שלום 123!`, `क्षि`, `क्\u200Dष`, `กำลัง เก่ง`, `한글 日本語 中文 漢字（、。）`, `！\uFE00`, and `👩\u200D🚀`.
+- [x] **Step 18: Write the fixture corpus manifest.** `font_manifest.json` schema `1` records the table, Inter font SHA `64f8be6e55c37e32ef03da99714bf3aa58b8f2099bfe4f759a7578e3b8291123`, and strings `ffi`, `AV`, `x\u0301`, `سلام`, `ن\u200Dن`, `abc שלום 123!`, `क्षि`, `क्\u200Dष`, `กำลัง เก่ง`, `한글 日本語 中文 漢字（、。）`, `！\uFE00`, and `👩\u200D🚀`.
 
-- [ ] **Step 19: Lock the variable-font rejection fixture.** Add a manifest/test assertion that existing `tests/fixtures/fonts/NotoSansKR-Regular.ttf` has SHA `194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252` and tables `fvar/gvar/avar/HVAR`; never use its modified `OFL.txt` as provenance.
+- [x] **Step 19: Lock the variable-font rejection fixture.** Add a manifest/test assertion that existing `tests/fixtures/fonts/NotoSansKR-Regular.ttf` has SHA `194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252` and tables `fvar/gvar/avar/HVAR`; never use its modified `OFL.txt` as provenance.
 
-- [ ] **Step 20: Run the immutable-input green gate.**
+- [x] **Step 20: Run the immutable-input green gate.**
 
   Run: `cmake -DSOURCE_ROOT="$PWD" -P cmake/AcquireTextRuntimeData.cmake && cmake -DSOURCE_ROOT="$PWD" -P cmake/AcquireTextFixtures.cmake && cmake --build --preset debug --target test_text_dependencies -j && ctest --test-dir build/debug -R '^test_text_dependencies$' --output-on-failure`
 
   Expected: PASS; every acquisition hash matches and repeated execution leaves identical destination bytes.
 
-- [ ] **Step 21: Commit the immutable inputs.**
+- [x] **Step 21: Commit the immutable inputs.**
 
   ```bash
   git add .gitmodules .gitattributes .gitignore tests/CMakeLists.txt \
@@ -386,7 +386,7 @@
 - Consumes: Task 1.1 gitlinks, input contract, data/licenses/rasterizer, and existing `molga_core`.
 - Produces: `molga_text_icuuc` backed by one composite common archive containing the pinned `icudt78_dat` stub symbol, `molga_text_icui18n`, `molga_text_harfbuzz` backed by one deterministic composite of upstream raw `harfbuzz` plus raw `harfbuzz-icu`, `molga_text_rasterizer`, `molga_text_dependencies_ready`, `${CMAKE_BINARY_DIR}/generated/text_dependency_build_lock.json`, `${CMAKE_BINARY_DIR}/generated/text_dependency_contract.json`, and three separate attachment seams: barrier-only, portable-contract C++ consumer, and provenance-test-only. `MOLGA_TEXT_DEPENDENCY_CONTRACT` is defined only for an explicitly registered C++ reader; `MOLGA_TEXT_DEPENDENCY_BUILD_LOCK`, `MOLGA_SOURCE_DIR`, and `MOLGA_BINARY_DIR` are defined only for `test_text_dependencies`. The logical/public ICU archive set remains exactly `icui18n` plus `icuuc`; stubdata is provenance within `icuuc`. The logical/public HarfBuzz set remains exactly one `harfbuzz` archive; the upstream adapter archive is composite provenance only, never a second public target or manifest archive.
 
-- [ ] **Step 1: Add dependency-record JSON helpers.**
+- [x] **Step 1: Add dependency-record JSON helpers.**
 
   ```cpp
   #include <fstream>
@@ -410,11 +410,11 @@
   }
   ```
 
-- [ ] **Step 1a: Add canonical containment/hash helpers.** Include `Common/Sha256.h`. Define `CheckCanonicalPathEquals`, `CheckCanonicalPathUnder`, `CheckEveryIncludeAndArchiveUnderNestedPrefix`, `CheckEveryDependencyArchiveIsStatic`, and `CheckSharedDependencyFieldsEqual` with `std::filesystem::weakly_canonical` plus path-component equality/containment—never a string-prefix test—and an explicit shared-field allowlist matching `dependency-contract.input.json`. `BuildPath(relative)` rejects absolute/empty/escaping input, returns `weakly_canonical(path(MOLGA_BINARY_DIR)/relative)`, and reuses the component containment check. `RequiredSha256File(path)` calls `molga::Sha256File(path,&error)` and throws on a nonempty error/invalid 64-hex digest. `JsonContainsSubstring(node,token)` recursively performs a case-sensitive substring search in every object key and string value; arrays recurse by element, so `libharfbuzz-icu.a` cannot evade a check for `harfbuzz-icu`. `CheckExactObjectKeys(actual,expectedKeys)` rejects every missing/extra key. `CheckExactPortableObjectKeys(actual,input,generatedKeys)` delegates to it and requires the portable object's key set to equal the committed input object's key set plus the explicitly supplied generated keys.
+- [x] **Step 1a: Add canonical containment/hash helpers.** Include `Common/Sha256.h`. Define `CheckCanonicalPathEquals`, `CheckCanonicalPathUnder`, `CheckEveryIncludeAndArchiveUnderNestedPrefix`, `CheckEveryDependencyArchiveIsStatic`, and `CheckSharedDependencyFieldsEqual` with `std::filesystem::weakly_canonical` plus path-component equality/containment—never a string-prefix test—and an explicit shared-field allowlist matching `dependency-contract.input.json`. `BuildPath(relative)` rejects absolute/empty/escaping input, returns `weakly_canonical(path(MOLGA_BINARY_DIR)/relative)`, and reuses the component containment check. `RequiredSha256File(path)` calls `molga::Sha256File(path,&error)` and throws on a nonempty error/invalid 64-hex digest. `JsonContainsSubstring(node,token)` recursively performs a case-sensitive substring search in every object key and string value; arrays recurse by element, so `libharfbuzz-icu.a` cannot evade a check for `harfbuzz-icu`. `CheckExactObjectKeys(actual,expectedKeys)` rejects every missing/extra key. `CheckExactPortableObjectKeys(actual,input,generatedKeys)` delegates to it and requires the portable object's key set to equal the committed input object's key set plus the explicitly supplied generated keys.
 
   `CheckHarfBuzzCompositeProvenanceMatchesFiles(lock)` creates one unique caller-owned temporary directory and a nonexisting `harfbuzz-read-only-result.json`, then invokes the absolute `MOLGA_CMAKE_COMMAND` without a shell using this literal argument vector: `-DMODE=HARFBUZZ_READ_ONLY`, `-DBUILD_LOCK=<MOLGA_TEXT_DEPENDENCY_BUILD_LOCK>`, `-DSOURCE_ROOT=<MOLGA_SOURCE_DIR>`, `-DBINARY_ROOT=<MOLGA_BINARY_DIR>`, `-DRESULT_ROOT=<unique-directory>`, `-DRESULT_FILE=<unique-directory>/harfbuzz-read-only-result.json`, `-P`, `<MOLGA_TEXT_VERIFY_DEPENDENCIES_SCRIPT>`. Require exact exit code `0`, a newly created regular result file, and exact schema-1 object keys `{schemaVersion,mode,rawCoreSha256,rawAdapterSha256,adapterObjectSha256,finalCompositeSha256,filteredMemberDigest,archiverFamily,arPath,ranlibPath,nmPath,arAppendFlags,ranlibFlags,zeroArDate,rawCoreDefinedAdapterSymbols,rawIcuAdapterDefinedAdapterSymbols,compositeDefinedAdapterSymbols}` with integer `schemaVersion:1` and string `mode:"HARFBUZZ_READ_ONLY"`; reject unknown/missing keys or wrong types. Validate those two discriminator fields independently and compare every remaining composite result field with `lock.harfbuzz.icuComposite`. The script canonicalizes the recorded raw-core/raw-adapter/final paths below `${BINARY_ROOT}/text-dependencies`, validates the configured ar/ranlib/nm paths and exact deterministic flags, recomputes all three archive hashes, re-enumerates and exact-name-extracts the sole adapter object inside `RESULT_ROOT`, recomputes its hash and the filtered ordered-member digest, and reruns the raw-zero/adapter-one/composite-one symbol probes. It rejects a preexisting/escaping result, production publication arguments, or any mode other than the closed read-only mode and never publishes JSON or mutates a dependency archive. These helpers and the argv subprocess shim exist only in `test_text_dependencies`.
 
-- [ ] **Step 1b: Add the failing portable/build separation test.**
+- [x] **Step 1b: Add the failing portable/build separation test.**
 
   ```cpp
   TEST_CASE("build provenance and portable dependency contract agree") {
@@ -483,7 +483,7 @@
   }
   ```
 
-- [ ] **Step 1c: Add failing HarfBuzz and direct-ICU symbol probes.**
+- [x] **Step 1c: Add failing HarfBuzz and direct-ICU symbol probes.**
 
   ```cpp
   // tests/test_text_harfbuzz_link.cpp
@@ -515,13 +515,13 @@
   }
   ```
 
-- [ ] **Step 2: Run the dependency-record red gate.**
+- [x] **Step 2: Run the dependency-record red gate.**
 
   Run: `cmake --preset debug && cmake --build --preset debug --target test_text_dependencies -j`
 
   Expected: FAIL because the imported targets and two generated record paths do not exist; configure must not find `/opt/homebrew`, `/usr/local`, or a framework substitute.
 
-- [ ] **Step 3: Define the ICU nested static build.** Before configure, require superproject gitlink OID == submodule `HEAD` == approved ICU commit and an empty `git -C external/icu status --porcelain=v1 --untracked-files=all`; a dirty tracked/untracked submodule fails rather than self-recording new bytes under a pinned HEAD. Configure vendored `external/icu/icu4c/source` into `${CMAKE_BINARY_DIR}/text-dependencies/icu-build` with exact flags `--disable-shared --enable-static --disable-tools --disable-tests --disable-samples --disable-extras --disable-icuio --disable-layoutex --prefix=${CMAKE_BINARY_DIR}/text-dependencies/icu-raw`; reject an unknown/ignored flag in configure output. Build only the exact common, i18n, and pinned stubdata targets, pass `ZERO_AR_DATE=1` to every archive-producing nested command, and bind stubdata to `external/icu/icu4c/source/stubdata/stubdata.cpp`. Invoke configure through `cmake -E env ZERO_AR_DATE=1 PKG_CONFIG=false ac_cv_prog_PYTHON=`. At this pinned revision configure otherwise probes host `pkg-config`/`icu-le-hb` even with layout disabled and spawns Python to generate rules for disabled data/tests. Require the resulting `config.log`, `config.status`, and generated makefiles to carry no resolved host `pkg-config`, `python`, or `icu-le-hb` executable/flags; require configured `PKG_CONFIG`, `PYTHON`, `ICULEHB_CFLAGS`, and `ICULEHB_LIBS` to be exactly empty; require no `Spawning Python` line; and require `data/rules.mk` plus `test/testdata/rules.mk` to contain exactly one terminal newline and no rule. A literal `PKG_CONFIG=false` value, a host executable path, or nonempty layout flags is a failure rather than an accepted disabled state. Do not build ICU's full data archive: external `icudt78l.dat` remains the only runtime data payload.
+- [x] **Step 3: Define the ICU nested static build.** Before configure, require superproject gitlink OID == submodule `HEAD` == approved ICU commit and an empty `git -C external/icu status --porcelain=v1 --untracked-files=all`; a dirty tracked/untracked submodule fails rather than self-recording new bytes under a pinned HEAD. Configure vendored `external/icu/icu4c/source` into `${CMAKE_BINARY_DIR}/text-dependencies/icu-build` with exact flags `--disable-shared --enable-static --disable-tools --disable-tests --disable-samples --disable-extras --disable-icuio --disable-layoutex --prefix=${CMAKE_BINARY_DIR}/text-dependencies/icu-raw`; reject an unknown/ignored flag in configure output. Build only the exact common, i18n, and pinned stubdata targets, pass `ZERO_AR_DATE=1` to every archive-producing nested command, and bind stubdata to `external/icu/icu4c/source/stubdata/stubdata.cpp`. Invoke configure through `cmake -E env ZERO_AR_DATE=1 PKG_CONFIG=false ac_cv_prog_PYTHON=`. At this pinned revision configure otherwise probes host `pkg-config`/`icu-le-hb` even with layout disabled and spawns Python to generate rules for disabled data/tests. Require the resulting `config.log`, `config.status`, and generated makefiles to carry no resolved host `pkg-config`, `python`, or `icu-le-hb` executable/flags; require configured `PKG_CONFIG`, `PYTHON`, `ICULEHB_CFLAGS`, and `ICULEHB_LIBS` to be exactly empty; require no `Spawning Python` line; and require `data/rules.mk` plus `test/testdata/rules.mk` to contain exactly one terminal newline and no rule. A literal `PKG_CONFIG=false` value, a host executable path, or nonempty layout flags is a failure rather than an accepted disabled state. Do not build ICU's full data archive: external `icudt78l.dat` remains the only runtime data payload.
 
 - [ ] **Step 3.1: Declare every raw ICU output to the build graph.** Give the
   nested ICU `ExternalProject_Add` exact `BUILD_BYPRODUCTS` entries for
@@ -543,7 +543,7 @@
   installed headers as `BYPRODUCTS`; no consumed archive/header may be an
   undeclared side effect.
 
-- [ ] **Step 3.1a: Make the ICU raw install a Make-safe repair boundary.**
+- [x] **Step 3.1a: Make the ICU raw install a Make-safe repair boundary.**
   `BUILD_BYPRODUCTS`/`INSTALL_BYPRODUCTS` supply Ninja's file rules but a
   missing byproduct does not uniformly rerun an ExternalProject build/install
   with Make. Therefore make `molga_text_icu_raw_install` an always-checked
@@ -582,19 +582,19 @@
 
   Expected: raw `libicuuc.a`, `libicui18n.a`, pinned `stubdata.cpp`, and exactly one stubdata object/archive exist below the nested build; no system ICU or full `libicudata.a` is selected as a public dependency.
 
-- [ ] **Step 3a: Add the deterministic composite-archive script.** `MergeIcuStubdata.cmake` requires `RAW_ICUUC`, `STUBDATA_SOURCE`, `STUBDATA_ARCHIVE`, `OUTPUT_ICUUC`, `CMAKE_AR_TOOL`, and `CMAKE_RANLIB_TOOL`; canonicalize each input and reject paths outside the nested source/build prefixes. Enumerate the stub archive, filter only `__.SYMDEF`, `__.SYMDEF SORTED`, GNU `/`, and GNU `//`, record the filtered table member, require exactly one remaining regular object, and extract that exact named object into a unique child rather than blanket-running `ar -x`. Reject every unknown non-object and duplicate/colliding regular member before publication.
+- [x] **Step 3a: Add the deterministic composite-archive script.** `MergeIcuStubdata.cmake` requires `RAW_ICUUC`, `STUBDATA_SOURCE`, `STUBDATA_ARCHIVE`, `OUTPUT_ICUUC`, `CMAKE_AR_TOOL`, and `CMAKE_RANLIB_TOOL`; canonicalize each input and reject paths outside the nested source/build prefixes. Enumerate the stub archive, filter only `__.SYMDEF`, `__.SYMDEF SORTED`, GNU `/`, and GNU `//`, record the filtered table member, require exactly one remaining regular object, and extract that exact named object into a unique child rather than blanket-running `ar -x`. Reject every unknown non-object and duplicate/colliding regular member before publication.
 
-- [ ] **Step 3b: Merge the stub object into logical `icuuc`.** Copy raw `libicuuc.a` to a same-directory unique staged output, then append the one stub object after all raw common members. For GNU/LLVM ar invoke `cmake -E env ZERO_AR_DATE=1 <ar> qcsD <stage> <object>`; for Apple ar (whose usage probe has no `D`) invoke `cmake -E env ZERO_AR_DATE=1 <ar> qcs <stage> <object>`. Invoke `<ranlib> -D <stage>` in both cases, fail any unknown archiver family, and atomically rename the staged archive to `${CMAKE_BINARY_DIR}/text-dependencies/icu/lib/libicuuc.a`. Never modify the nested raw archive in place.
+- [x] **Step 3b: Merge the stub object into logical `icuuc`.** Copy raw `libicuuc.a` to a same-directory unique staged output, then append the one stub object after all raw common members. For GNU/LLVM ar invoke `cmake -E env ZERO_AR_DATE=1 <ar> qcsD <stage> <object>`; for Apple ar (whose usage probe has no `D`) invoke `cmake -E env ZERO_AR_DATE=1 <ar> qcs <stage> <object>`. Invoke `<ranlib> -D <stage>` in both cases, fail any unknown archiver family, and atomically rename the staged archive to `${CMAKE_BINARY_DIR}/text-dependencies/icu/lib/libicuuc.a`. Never modify the nested raw archive in place.
 
-- [ ] **Step 3c: Verify the composite before exposing it.** Hash `stubdata.cpp`, the extracted object, raw common archive, and composite common archive; enumerate composite members twice and require byte-identical order. Run `${CMAKE_NM} -g` on the composite and require exactly one definition line matching ` [DRS] _?icudt78_dat$`; ignore—but record—the raw common archive's expected `U` reference, and reject duplicate definitions, a version-mismatched name, or no definition.
+- [x] **Step 3c: Verify the composite before exposing it.** Hash `stubdata.cpp`, the extracted object, raw common archive, and composite common archive; enumerate composite members twice and require byte-identical order. Run `${CMAKE_NM} -g` on the composite and require exactly one definition line matching ` [DRS] _?icudt78_dat$`; ignore—but record—the raw common archive's expected `U` reference, and reject duplicate definitions, a version-mismatched name, or no definition.
 
-- [ ] **Step 3d: Add a target-independent raw-archive red probe.** Do not use the imported targets or `test_text_icu_link`, which are intentionally registered only in Step 11b. Add `tests/probes/icu_stub_link.cpp` as a minimal `main` that directly reads `extern "C" const std::uint8_t icudt78_dat[]`. Add `cmake/ProbeIcuStubdataLink.cmake`, which requires explicit compiler/source/archive/output/expected-success arguments, invokes the C++ compiler driver, and validates both status and captured output. Define `molga_text_icu_raw_link_probe` alongside the nested-build targets; it depends only on `molga_text_icu_raw_install` plus the probe source/script and passes the raw common archive with `EXPECT_SUCCESS=OFF`. The wrapper target succeeds only when the nested link itself fails and its diagnostic names `icudt78_dat`; an unexpected link success or unrelated failure is fatal.
+- [x] **Step 3d: Add a target-independent raw-archive red probe.** Do not use the imported targets or `test_text_icu_link`, which are intentionally registered only in Step 11b. Add `tests/probes/icu_stub_link.cpp` as a minimal `main` that directly reads `extern "C" const std::uint8_t icudt78_dat[]`. Add `cmake/ProbeIcuStubdataLink.cmake`, which requires explicit compiler/source/archive/output/expected-success arguments, invokes the C++ compiler driver, and validates both status and captured output. Define `molga_text_icu_raw_link_probe` alongside the nested-build targets; it depends only on `molga_text_icu_raw_install` plus the probe source/script and passes the raw common archive with `EXPECT_SUCCESS=OFF`. The wrapper target succeeds only when the nested link itself fails and its diagnostic names `icudt78_dat`; an unexpected link success or unrelated failure is fatal.
 
   Run: `cmake --build --preset debug --target molga_text_icu_raw_link_probe -j`
 
   Expected red: the wrapper records the expected nested link failure with undefined `icudt78_dat`; no imported dependency/test target is needed yet.
 
-- [ ] **Step 3e: Build and verify the composite common archive.** Make `molga_text_icu_composite` depend on raw ICU plus stubdata and run `MergeIcuStubdata.cmake`; `molga_text_icu_install` then depends on the composite and installed i18n archive. Define `molga_text_icu_composite_link_probe` with the same minimal source/script and `EXPECT_SUCCESS=ON`, depending on the composite rather than any imported target.
+- [x] **Step 3e: Build and verify the composite common archive.** Make `molga_text_icu_composite` depend on raw ICU plus stubdata and run `MergeIcuStubdata.cmake`; `molga_text_icu_install` then depends on the composite and installed i18n archive. Define `molga_text_icu_composite_link_probe` with the same minimal source/script and `EXPECT_SUCCESS=ON`, depending on the composite rather than any imported target.
 
   Declare `${CMAKE_BINARY_DIR}/text-dependencies/icu/lib/libicuuc.a` as the
   composite command's exact `OUTPUT` and make the target depend on that file;
@@ -606,14 +606,14 @@
 
   Expected green: build PASS and exactly one symbol line; a second clean rebuild produces the same composite SHA-256 and member listing.
 
-- [ ] **Step 3f: Reject dirty HarfBuzz source authority.** Before configure,
+- [x] **Step 3f: Reject dirty HarfBuzz source authority.** Before configure,
   require superproject gitlink OID == `external/harfbuzz` `HEAD` == the approved
   commit and require `git -C external/harfbuzz status --porcelain=v1
   --untracked-files=all` to be empty. A tracked or untracked submodule change
   fails before compilation rather than recording different bytes under a
   pinned HEAD.
 
-- [ ] **Step 4: Define the HarfBuzz nested static build.** Configure vendored `external/harfbuzz` only after `molga_text_icu_composite`, use exact binary root `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-build`, install beneath `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-raw`, and pass this pinned cache matrix: `BUILD_SHARED_LIBS=OFF`, `BUILD_FRAMEWORK=OFF`, `HB_HAVE_ICU=ON`, `HB_HAVE_CORETEXT=OFF`, `HB_HAVE_CAIRO=OFF`, `HB_HAVE_FREETYPE=OFF`, `HB_HAVE_GRAPHITE2=OFF`, `HB_HAVE_GLIB=OFF`, `HB_HAVE_GOBJECT=OFF`, `HB_HAVE_INTROSPECTION=OFF`, `HB_BUILD_UTILS=OFF`, `HB_BUILD_SUBSET=OFF`, `HB_BUILD_RASTER=OFF`, `HB_BUILD_VECTOR=OFF`, `HB_BUILD_GPU=OFF`, and string `HB_BUILD_GPU_DEMO=OFF`; require every entry to retain that exact type/value in the nested cache. At the pinned CMake commit, `HB_HAVE_ICU=ON` deliberately builds core `harfbuzz` from `harfbuzz.cc` and a separate `harfbuzz-icu` from `hb-icu.cc`; do not assume the ICU adapter is inside raw `libharfbuzz.a`. Pin `ICU_INCLUDE_DIR` to the nested ICU install; pin both `ICU_UC_LIBRARY_RELEASE` and `ICU_UC_LIBRARY_DEBUG` to logical composite `libicuuc.a`. Do not rely on singular `ICU_UC_LIBRARY`, which FindICU may overwrite during configuration selection. After configure, verify the exact nested `CMakeCache.txt` include/release/debug selections, verify the raw `hb-icu.cc` compile command carries the nested include root plus `U_STATIC_IMPLEMENTATION`, and verify the standalone driver probe uses the exact static common archive. Upstream install may also emit `lib/cmake/harfbuzz/harfbuzzConfig*.cmake` and `lib/pkgconfig/harfbuzz*.pc` inside the raw prefix, but no Molga step loads or parses them as an input, links through them, stages them, or packages them: they describe the raw upstream split and are intentionally outside the declared/repairable byproduct set. Raw static archive `link.txt` need only be free of dependency include/library/backend host paths because it contains configured host archiver commands. Verify top-level `molga_text_icui18n` separately against nested `libicui18n.a`; pinned HarfBuzz requests only ICU `uc`. Add the nested ICU include root plus `U_STATIC_IMPLEMENTATION` to HarfBuzz C++ compilation because the pinned target does not propagate it to `harfbuzz-icu`. Set `CMAKE_DISABLE_FIND_PACKAGE_Python3=ON` because every Python-using optional branch is disabled, then reject host dependency/backend resolution while permitting and recording the configured host toolchain executables. Wrap every raw HarfBuzz configure/build/install archive-producing command in `cmake -E env ZERO_AR_DATE=1`, including upstream `ar` and `ranlib`; deterministic flags on the later merge alone are insufficient.
+- [x] **Step 4: Define the HarfBuzz nested static build.** Configure vendored `external/harfbuzz` only after `molga_text_icu_composite`, use exact binary root `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-build`, install beneath `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-raw`, and pass this pinned cache matrix: `BUILD_SHARED_LIBS=OFF`, `BUILD_FRAMEWORK=OFF`, `HB_HAVE_ICU=ON`, `HB_HAVE_CORETEXT=OFF`, `HB_HAVE_CAIRO=OFF`, `HB_HAVE_FREETYPE=OFF`, `HB_HAVE_GRAPHITE2=OFF`, `HB_HAVE_GLIB=OFF`, `HB_HAVE_GOBJECT=OFF`, `HB_HAVE_INTROSPECTION=OFF`, `HB_BUILD_UTILS=OFF`, `HB_BUILD_SUBSET=OFF`, `HB_BUILD_RASTER=OFF`, `HB_BUILD_VECTOR=OFF`, `HB_BUILD_GPU=OFF`, and string `HB_BUILD_GPU_DEMO=OFF`; require every entry to retain that exact type/value in the nested cache. At the pinned CMake commit, `HB_HAVE_ICU=ON` deliberately builds core `harfbuzz` from `harfbuzz.cc` and a separate `harfbuzz-icu` from `hb-icu.cc`; do not assume the ICU adapter is inside raw `libharfbuzz.a`. Pin `ICU_INCLUDE_DIR` to the nested ICU install; pin both `ICU_UC_LIBRARY_RELEASE` and `ICU_UC_LIBRARY_DEBUG` to logical composite `libicuuc.a`. Do not rely on singular `ICU_UC_LIBRARY`, which FindICU may overwrite during configuration selection. After configure, verify the exact nested `CMakeCache.txt` include/release/debug selections, verify the raw `hb-icu.cc` compile command carries the nested include root plus `U_STATIC_IMPLEMENTATION`, and verify the standalone driver probe uses the exact static common archive. Upstream install may also emit `lib/cmake/harfbuzz/harfbuzzConfig*.cmake` and `lib/pkgconfig/harfbuzz*.pc` inside the raw prefix, but no Molga step loads or parses them as an input, links through them, stages them, or packages them: they describe the raw upstream split and are intentionally outside the declared/repairable byproduct set. Raw static archive `link.txt` need only be free of dependency include/library/backend host paths because it contains configured host archiver commands. Verify top-level `molga_text_icui18n` separately against nested `libicui18n.a`; pinned HarfBuzz requests only ICU `uc`. Add the nested ICU include root plus `U_STATIC_IMPLEMENTATION` to HarfBuzz C++ compilation because the pinned target does not propagate it to `harfbuzz-icu`. Set `CMAKE_DISABLE_FIND_PACKAGE_Python3=ON` because every Python-using optional branch is disabled, then reject host dependency/backend resolution while permitting and recording the configured host toolchain executables. Wrap every raw HarfBuzz configure/build/install archive-producing command in `cmake -E env ZERO_AR_DATE=1`, including upstream `ar` and `ranlib`; deterministic flags on the later merge alone are insufficient.
 
 - [ ] **Step 4a: Declare and repair every raw HarfBuzz output.** Give the nested ExternalProject exact `BUILD_BYPRODUCTS` entries `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-build/libharfbuzz.a` and `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-build/libharfbuzz-icu.a`. Do not misdeclare a configure output as a build-command byproduct. Instead add an explicit `ExternalProject_Add_Step` named `molga_harfbuzz_generated_header` with `DEPENDEES configure`, `DEPENDERS build`, `DEPENDS` on the clean pinned `src/hb-features.h.in` plus `cmake/RepairHarfBuzzRawInstall.cmake`, and exact `BYPRODUCTS ${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-build/src/hb-features.h`. Its command invokes that script in exact `MODE=GENERATED_HEADER_PREBUILD` with the canonical source/binary/prefix/toolchain/nested-ICU paths and complete typed Step 4 cache matrix; this gives Ninja a real pre-build producer while the later always-checked wrapper covers Make. Give the ExternalProject exact `INSTALL_BYPRODUCTS` entries `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-raw/lib/libharfbuzz.a`, `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz-raw/lib/libharfbuzz-icu.a`, and these pinned installed headers beneath `include/harfbuzz`: `hb-aat-layout.h`, `hb-aat.h`, `hb-blob.h`, `hb-buffer.h`, `hb-common.h`, `hb-cplusplus.hh`, `hb-deprecated.h`, `hb-draw.h`, `hb-face.h`, `hb-features.h`, `hb-font.h`, `hb-icu.h`, `hb-map.h`, `hb-ot-color.h`, `hb-ot-deprecated.h`, `hb-ot-fetch.h`, `hb-ot-font.h`, `hb-ot-layout.h`, `hb-ot-math.h`, `hb-ot-meta.h`, `hb-ot-metrics.h`, `hb-ot-name.h`, `hb-ot-shape.h`, `hb-ot-var.h`, `hb-ot.h`, `hb-paint.h`, `hb-script-list.h`, `hb-set.h`, `hb-shape-plan.h`, `hb-shape.h`, `hb-style.h`, `hb-unicode.h`, `hb-version.h`, and `hb.h`. Verify this exact allowlist after install and reject a missing, extra, duplicate, or escaping public header.
 
@@ -625,21 +625,21 @@
 
   Expected: both raw archives and all 34 headers exist below the nested prefix, and no dependency/include/library/optional-backend cache value or compile/link argument resolves Homebrew, `/usr/local`, CoreText, FreeType, or system ICU. The configured CMake/compiler/SDK/ar/ranlib/nm executable paths are host toolchain provenance, not dependency-resolution failures; the offline gate forbids network/acquisition during this build rather than requiring those tools below the nested prefix. Delete one transitive header such as `hb-blob.h`, rebuild this target under the preset's actual generator, and require the boundary to restore it before any consumer compiles.
 
-- [ ] **Step 4b: Prove the upstream split before merging.** Run `${CMAKE_NM} -g` on both raw archives. Require zero defined lines matching ` [TDS] _?hb_icu_get_unicode_funcs$` in raw core and exactly one in raw `harfbuzz-icu`. When enumerating archive members, filter only the known archive-table pseudo-members `__.SYMDEF`, `__.SYMDEF SORTED`, GNU `/`, and GNU `//`; require exactly one remaining regular adapter object and reject a remaining member-name collision with raw core. Record every filtered pseudo-member and fail on any other non-object entry. This check is tied to the pinned upstream commit and fails closed if its archive layout changes.
+- [x] **Step 4b: Prove the upstream split before merging.** Run `${CMAKE_NM} -g` on both raw archives. Require zero defined lines matching ` [TDS] _?hb_icu_get_unicode_funcs$` in raw core and exactly one in raw `harfbuzz-icu`. When enumerating archive members, filter only the known archive-table pseudo-members `__.SYMDEF`, `__.SYMDEF SORTED`, GNU `/`, and GNU `//`; require exactly one remaining regular adapter object and reject a remaining member-name collision with raw core. Record every filtered pseudo-member and fail on any other non-object entry. This check is tied to the pinned upstream commit and fails closed if its archive layout changes.
 
-- [ ] **Step 4c: Add a target-independent raw HarfBuzz adapter probe.** Create `tests/probes/harfbuzz_icu_link.cpp` as a minimal `main` that includes `hb-icu.h` and returns failure when `hb_icu_get_unicode_funcs()` is null. `ProbeHarfBuzzIcuLink.cmake` requires explicit C++ compiler, both HarfBuzz and ICU include roots, ordered archives, output, expected success, and expected diagnostic symbol; it adds `U_STATIC_IMPLEMENTATION`, invokes the C++ compiler driver, and validates status/output. Define `molga_text_harfbuzz_raw_link_probe` against only raw `libharfbuzz.a` plus ordered ICU archives with `EXPECT_SUCCESS=OFF`; the wrapper succeeds only when the nested link fails for `hb_icu_get_unicode_funcs`.
+- [x] **Step 4c: Add a target-independent raw HarfBuzz adapter probe.** Create `tests/probes/harfbuzz_icu_link.cpp` as a minimal `main` that includes `hb-icu.h` and returns failure when `hb_icu_get_unicode_funcs()` is null. `ProbeHarfBuzzIcuLink.cmake` requires explicit C++ compiler, both HarfBuzz and ICU include roots, ordered archives, output, expected success, and expected diagnostic symbol; it adds `U_STATIC_IMPLEMENTATION`, invokes the C++ compiler driver, and validates status/output. Define `molga_text_harfbuzz_raw_link_probe` against only raw `libharfbuzz.a` plus ordered ICU archives with `EXPECT_SUCCESS=OFF`; the wrapper succeeds only when the nested link fails for `hb_icu_get_unicode_funcs`.
 
-- [ ] **Step 4d: Build one deterministic logical HarfBuzz archive.** `MergeHarfBuzzIcu.cmake` requires raw core, raw adapter, output path, configured ar/ranlib/nm, and canonical allowed roots. Enumerate members, filter only the Step 4b archive-table pseudo-members, and extract the single verified adapter object by its exact name into a unique build child; never use blanket `ar -x`. Reject symlinks/duplicate or colliding remaining member names, copy raw core to a same-directory staged output, append the adapter object after the raw members with the same probed GNU/LLVM-versus-Apple deterministic ar flags and `ZERO_AR_DATE=1` used by the ICU composite, run deterministic ranlib, then atomically publish `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz/lib/libharfbuzz.a`. Never modify either upstream raw archive in place.
+- [x] **Step 4d: Build one deterministic logical HarfBuzz archive.** `MergeHarfBuzzIcu.cmake` requires raw core, raw adapter, output path, configured ar/ranlib/nm, and canonical allowed roots. Enumerate members, filter only the Step 4b archive-table pseudo-members, and extract the single verified adapter object by its exact name into a unique build child; never use blanket `ar -x`. Reject symlinks/duplicate or colliding remaining member names, copy raw core to a same-directory staged output, append the adapter object after the raw members with the same probed GNU/LLVM-versus-Apple deterministic ar flags and `ZERO_AR_DATE=1` used by the ICU composite, run deterministic ranlib, then atomically publish `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz/lib/libharfbuzz.a`. Never modify either upstream raw archive in place.
 
 - [ ] **Step 4e: Verify and own the HarfBuzz composite output.** Declare the final composite archive as the exact `OUTPUT` of its custom command and make `molga_text_harfbuzz_composite` depend on it. Hash raw core, raw adapter, extracted adapter object, filtered ordered member-name list, and final composite; enumerate twice and require byte-identical order. Require exactly one composite definition of `hb_icu_get_unicode_funcs` and no duplicate regular members. In the same canonical build tree, save the raw-core/raw-adapter/final hashes and filtered listings, delete the two build-tree raw archives, their two installed raw copies, and the final composite while leaving the already-built `.o` files, then build only the always-checked raw-install boundary followed by the composite producer. Require the boundary log to show that it invoked the exact nested `harfbuzz` and `harfbuzz-icu` targets under `ZERO_AR_DATE=1`, and require identical raw-core, raw-adapter, adapter-object, filtered-member, and final-composite values. Reinstalling unchanged build-tree archives is not a determinism test; this sequence must re-execute upstream `ar`/`ranlib`. Cross-root Debug archive identity is not claimed because compiler debug strings can embed the build root.
 
-- [ ] **Step 4f: Link the composite without an imported target.** Define `molga_text_harfbuzz_composite_link_probe` with the same minimal source/script, ordered final composite then `libicui18n.a` then composite `libicuuc.a`, and `EXPECT_SUCCESS=ON`. `molga_text_harfbuzz_install` depends on this probe plus the raw installed headers; no public CMake target exists yet.
+- [x] **Step 4f: Link the composite without an imported target.** Define `molga_text_harfbuzz_composite_link_probe` with the same minimal source/script, ordered final composite then `libicui18n.a` then composite `libicuuc.a`, and `EXPECT_SUCCESS=ON`. `molga_text_harfbuzz_install` depends on this probe plus the raw installed headers; no public CMake target exists yet.
 
   Run: `cmake --build --preset debug --target molga_text_harfbuzz_raw_link_probe molga_text_harfbuzz_composite_link_probe -j && nm -g build/debug/text-dependencies/harfbuzz/lib/libharfbuzz.a | rg ' [TDS] _?hb_icu_get_unicode_funcs$'`
 
   Expected: the raw wrapper records the exact missing-adapter failure, the composite link passes, and the final command emits exactly one definition line.
 
-- [ ] **Step 5: Expose the four CMake dependency targets.** Add the four declarations below and encode only the dependency order `ICU install -> HarfBuzz configure/install -> verification barrier`:
+- [x] **Step 5: Expose the four CMake dependency targets.** Add the four declarations below and encode only the dependency order `ICU install -> HarfBuzz configure/install -> verification barrier`:
 
   ```cmake
   # ICU composite/install -> HarfBuzz raw install/composite -> verification barrier.
@@ -652,9 +652,9 @@
 
   Include this module once in the existing external-dependency section, where it defines dependency targets/functions but never references `molga_core`.
 
-- [ ] **Step 5a: Bind deterministic not-yet-built import paths.** Create only the nested install include directories needed for CMake's generate-time existence check. Bind `molga_text_icuuc` exclusively to `${CMAKE_BINARY_DIR}/text-dependencies/icu/lib/libicuuc.a` (the composite, never `icu-raw` or stubdata), bind `molga_text_harfbuzz` exclusively to `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz/lib/libharfbuzz.a` (the composite, never either `harfbuzz-raw` archive), and use the raw install's verified header directory as HarfBuzz's include root. Set every other imported target property to its exact anticipated path below `${CMAKE_BINARY_DIR}/text-dependencies`; do not call `find_path`, `find_library`, `file(REAL_PATH)`, or hash an archive during configure. Any build-time lookup after install uses `NO_DEFAULT_PATH` and that one nested prefix. Add target dependencies from each imported target to the producer that declares its `IMPORTED_LOCATION`, so both target ordering and file-level link edges are known on a clean Ninja/Make build.
+- [x] **Step 5a: Bind deterministic not-yet-built import paths.** Create only the nested install include directories needed for CMake's generate-time existence check. Bind `molga_text_icuuc` exclusively to `${CMAKE_BINARY_DIR}/text-dependencies/icu/lib/libicuuc.a` (the composite, never `icu-raw` or stubdata), bind `molga_text_harfbuzz` exclusively to `${CMAKE_BINARY_DIR}/text-dependencies/harfbuzz/lib/libharfbuzz.a` (the composite, never either `harfbuzz-raw` archive), and use the raw install's verified header directory as HarfBuzz's include root. Set every other imported target property to its exact anticipated path below `${CMAKE_BINARY_DIR}/text-dependencies`; do not call `find_path`, `find_library`, `file(REAL_PATH)`, or hash an archive during configure. Any build-time lookup after install uses `NO_DEFAULT_PATH` and that one nested prefix. Add target dependencies from each imported target to the producer that declares its `IMPORTED_LOCATION`, so both target ordering and file-level link edges are known on a clean Ninja/Make build.
 
-- [ ] **Step 5b: Encode static transitive archive order.** Add the exact properties below. Therefore a normal consumer's link line is HarfBuzz first, then ICU i18n, then ICU common; the repeated common dependency CMake may emit after the i18n transitive is intentional for one-pass static archive resolution, and no consumer lists ICU before the archive that needs it.
+- [x] **Step 5b: Encode static transitive archive order.** Add the exact properties below. Therefore a normal consumer's link line is HarfBuzz first, then ICU i18n, then ICU common; the repeated common dependency CMake may emit after the i18n transitive is intentional for one-pass static archive resolution, and no consumer lists ICU before the archive that needs it.
 
   ```cmake
   set_property(TARGET molga_text_icui18n PROPERTY
@@ -663,7 +663,7 @@
     INTERFACE_LINK_LIBRARIES "molga_text_icui18n;molga_text_icuuc")
   ```
 
-- [ ] **Step 5c: Add the idempotent verification-barrier helper.** Append this exact helper after the imported targets. It is the only helper that adds the build-order edge, so composing normal/direct/portable helpers cannot duplicate it:
+- [x] **Step 5c: Add the idempotent verification-barrier helper.** Append this exact helper after the imported targets. It is the only helper that adds the build-order edge, so composing normal/direct/portable helpers cannot duplicate it:
 
   ```cmake
   function(molga_attach_text_verification_barrier target_name)
@@ -681,7 +681,7 @@
   endfunction()
   ```
 
-- [ ] **Step 5c.1: Add the portable-contract product helper.** This helper
+- [x] **Step 5c.1: Add the portable-contract product helper.** This helper
   exposes only the portable path to a C++ target that actually reads it; CMake
   staging functions continue to use the CMake variable directly. It never
   exposes the machine-local build lock or source/binary roots:
@@ -704,7 +704,7 @@
   endfunction()
   ```
 
-- [ ] **Step 5c.2: Add the provenance-test-only helper.** Reject every target
+- [x] **Step 5c.2: Add the provenance-test-only helper.** Reject every target
   except `test_text_dependencies`; this is the sole compile-definition path for
   the machine-local lock, checkout/build roots, configured CMake executable,
   and verifier script:
@@ -733,7 +733,7 @@
   endfunction()
   ```
 
-- [ ] **Step 5d: Add the idempotent normal text-dependency consumer helper.** Append this exact helper; HarfBuzz supplies its ICU transitives in the archive-safe order from Step 5b. `MOLGA_TEXT_DEPENDENCIES_ATTACHED` is the single target-local attachment authority: a second normal attachment is a strict no-op and may not append another library, compile definition, or barrier dependency.
+- [x] **Step 5d: Add the idempotent normal text-dependency consumer helper.** Append this exact helper; HarfBuzz supplies its ICU transitives in the archive-safe order from Step 5b. `MOLGA_TEXT_DEPENDENCIES_ATTACHED` is the single target-local attachment authority: a second normal attachment is a strict no-op and may not append another library, compile definition, or barrier dependency.
 
   ```cmake
   function(molga_attach_text_dependencies target_name)
@@ -754,7 +754,7 @@
   endfunction()
   ```
 
-- [ ] **Step 5e: Add the direct-ICU test/tool helper.** Append this exact helper; it links ICU i18n before common, adds the static consumer definition/barrier, and does not attach HarfBuzz or the rasterizer:
+- [x] **Step 5e: Add the direct-ICU test/tool helper.** Append this exact helper; it links ICU i18n before common, adds the static consumer definition/barrier, and does not attach HarfBuzz or the rasterizer:
 
   ```cmake
   function(molga_attach_direct_icu_consumer target_name)
@@ -768,32 +768,32 @@
   endfunction()
   ```
 
-- [ ] **Step 5f: Recheck immutable submodule authority at the barrier.** In
+- [x] **Step 5f: Recheck immutable submodule authority at the barrier.** In
   `VerifyTextDependencies.cmake`, immediately before provenance hashing and
   again before JSON publication, repeat for ICU and HarfBuzz the exact superproject
   gitlink == submodule `HEAD` == approved commit comparison and require empty
   `git status --porcelain=v1 --untracked-files=all`. A checkout that changed
   after nested configure fails before either generated JSON is staged.
 
-- [ ] **Step 6: Implement canonical provenance validation.** `VerifyTextDependencies.cmake` resolves source/include/archive paths with `file(REAL_PATH)`, verifies both git commits, requires each recorded source root to equal canonical `external/icu` or `external/harfbuzz`, and rejects an individual source outside its matching root or any output outside `${CMAKE_BINARY_DIR}/text-dependencies` before writing either JSON. Re-run both exact final-composite probes: one and only one `icudt78_dat` definition in logical `icuuc`, and one and only one `hb_icu_get_unicode_funcs` definition in logical `harfbuzz`. Revalidate raw-core zero/raw-adapter one HarfBuzz definitions and fail before publication if any result differs from Steps 3c or 4b–4f.
+- [x] **Step 6: Implement canonical provenance validation.** `VerifyTextDependencies.cmake` resolves source/include/archive paths with `file(REAL_PATH)`, verifies both git commits, requires each recorded source root to equal canonical `external/icu` or `external/harfbuzz`, and rejects an individual source outside its matching root or any output outside `${CMAKE_BINARY_DIR}/text-dependencies` before writing either JSON. Re-run both exact final-composite probes: one and only one `icudt78_dat` definition in logical `icuuc`, and one and only one `hb_icu_get_unicode_funcs` definition in logical `harfbuzz`. Revalidate raw-core zero/raw-adapter one HarfBuzz definitions and fail before publication if any result differs from Steps 3c or 4b–4f.
 
   Add the closed `HARFBUZZ_READ_ONLY` entrypoint from Step 1a. It requires all and only `MODE`, `BUILD_LOCK`, `SOURCE_ROOT`, `BINARY_ROOT`, `RESULT_ROOT`, and `RESULT_FILE`; requires canonical source/binary roots equal the caller arguments; requires `RESULT_ROOT` to be an existing caller-owned directory and `RESULT_FILE` to be its direct nonexisting child; rejects either production JSON destination and any publication/journal/injection argument; and writes only the exact schema-1 result object after every recomputation succeeds. It returns nonzero and leaves no result on an argument, containment, hash, member, tool, flag, or symbol failure. It never calls `text_publish_artifact_set`, never replaces a dependency archive or generated dependency record, and removes only its exact extraction child before returning.
 
   Of the composite-specific HarfBuzz fields, both JSON files share only `libraries:["harfbuzz"]` and final `compositeSha256`. The build lock additionally carries `harfbuzz.icuComposite.{rawCorePath,rawAdapterPath,finalCompositePath,rawCoreSha256,rawAdapterSha256,adapterObjectSha256,finalCompositeSha256,filteredMemberDigest,archiverFamily,arPath,ranlibPath,nmPath,arAppendFlags,ranlibFlags,zeroArDate,rawCoreDefinedAdapterSymbols:0,rawIcuAdapterDefinedAdapterSymbols:1,compositeDefinedAdapterSymbols:1}`. `archiverFamily` is exactly `gnu`, `llvm`, or `apple`; `arAppendFlags` is respectively `qcsD` for GNU/LLVM or `qcs` for Apple; `ranlibFlags` is `-D`; and `zeroArDate` is string `"1"`. Every path is canonical and nested where applicable, the verifier uses the recorded configured tools to recompute every archive-derived value, nested final SHA must equal top-level SHA and the actual archive, and no recorded installed CMake/pkg-config metadata is accepted as provenance. The portable record contains neither `icuComposite`, a `harfbuzz-icu` substring, nor any raw-core/raw-adapter/adapter-object field.
 
-- [ ] **Step 7: Stage the machine-local build lock.** Hash actual static archives and write schema, source/input values, full option matrix, compiler/architecture, canonical absolute source/include/archive paths, logical archive names, and archive SHA values to a unique staged file; do not replace the generated destination yet. Set exact `icu.archiveSha256` keys to `{icui18n,icuuc}`, with `icui18n` equal the installed/final i18n archive and `icuuc` equal the logical common composite. Under `icu.commonComposite`, record raw common SHA, pinned stub source SHA, extracted stub object SHA, final composite SHA, configured ar/ranlib paths and deterministic flags, ordered member-name digest, and the exact successful `icudt78_dat` symbol-probe result; require its final SHA equal `icu.archiveSha256.icuuc`. Under `harfbuzz.icuComposite`, record raw core SHA, raw adapter SHA, extracted adapter-object SHA, final composite SHA, the same configured tool/flag identities, ordered member-name digest, raw-zero/adapter-one/final-one symbol results, and the successful target-independent composite link probe.
+- [x] **Step 7: Stage the machine-local build lock.** Hash actual static archives and write schema, source/input values, full option matrix, compiler/architecture, canonical absolute source/include/archive paths, logical archive names, and archive SHA values to a unique staged file; do not replace the generated destination yet. Set exact `icu.archiveSha256` keys to `{icui18n,icuuc}`, with `icui18n` equal the installed/final i18n archive and `icuuc` equal the logical common composite. Under `icu.commonComposite`, record raw common SHA, pinned stub source SHA, extracted stub object SHA, final composite SHA, configured ar/ranlib paths and deterministic flags, ordered member-name digest, and the exact successful `icudt78_dat` symbol-probe result; require its final SHA equal `icu.archiveSha256.icuuc`. Under `harfbuzz.icuComposite`, record raw core SHA, raw adapter SHA, extracted adapter-object SHA, final composite SHA, the same configured tool/flag identities, ordered member-name digest, raw-zero/adapter-one/final-one symbol results, and the successful target-independent composite link probe.
 
-- [ ] **Step 8: Stage the portable dependency contract.** Build it from an explicit allowlist of shared fields plus repo-relative source identities; recursively reject absolute paths and source/build prefixes. The portable `harfbuzz` object has exactly the keys in the committed schema-1 input `harfbuzz` object plus generated `compositeSha256`; reject every missing/extra key and every key or string-value substring `harfbuzz-icu`, `icuComposite`, `rawCore`, `rawAdapter`, or `adapterObject`. The portable `icu` object has exactly the committed input `icu` keys plus generated `archiveSha256`; its `libraries` is exactly `["icui18n","icuuc"]`, and `archiveSha256` has exactly those two keys and values copied from the verified build lock. Require `archiveSha256.icuuc == commonComposite.finalCompositeSha256`, but keep `commonComposite`, raw common/i18n, stub source/object, `libicudata`, and `icudt78_dat` names/fields build-lock-only. Represent HarfBuzz with exactly `libraries:["harfbuzz"]` plus top-level `compositeSha256`; raw core/adapter/object hashes, member/tool provenance, and `icuComposite` remain build-lock-only. Do not derive the contract by deleting path-looking fields from the build lock, and do not replace the generated destination yet.
+- [x] **Step 8: Stage the portable dependency contract.** Build it from an explicit allowlist of shared fields plus repo-relative source identities; recursively reject absolute paths and source/build prefixes. The portable `harfbuzz` object has exactly the keys in the committed schema-1 input `harfbuzz` object plus generated `compositeSha256`; reject every missing/extra key and every key or string-value substring `harfbuzz-icu`, `icuComposite`, `rawCore`, `rawAdapter`, or `adapterObject`. The portable `icu` object has exactly the committed input `icu` keys plus generated `archiveSha256`; its `libraries` is exactly `["icui18n","icuuc"]`, and `archiveSha256` has exactly those two keys and values copied from the verified build lock. Require `archiveSha256.icuuc == commonComposite.finalCompositeSha256`, but keep `commonComposite`, raw common/i18n, stub source/object, `libicudata`, and `icudt78_dat` names/fields build-lock-only. Represent HarfBuzz with exactly `libraries:["harfbuzz"]` plus top-level `compositeSha256`; raw core/adapter/object hashes, member/tool provenance, and `icuComposite` remain build-lock-only. Do not derive the contract by deleting path-looking fields from the build lock, and do not replace the generated destination yet.
 
-- [ ] **Step 9: Publish the mutually consistent JSON pair.** Compare every shared staged field, then call `text_publish_artifact_set` once with the two generated destinations and a build-directory journal. A mismatch fails before either destination is touched.
+- [x] **Step 9: Publish the mutually consistent JSON pair.** Compare every shared staged field, then call `text_publish_artifact_set` once with the two generated destinations and a build-directory journal. A mismatch fails before either destination is touched.
 
-- [ ] **Step 9a: Test build-record rollback at both crash windows.** Add before-rename `2` and after-rename `-2` injection cases to `test_text_dependencies`; each records the previous pair, invokes the real publisher, and proves both previous JSON bytes are restored with no journal/new/backup sibling left.
+- [x] **Step 9a: Test build-record rollback at both crash windows.** Add before-rename `2` and after-rename `-2` injection cases to `test_text_dependencies`; each records the previous pair, invokes the real publisher, and proves both previous JSON bytes are restored with no journal/new/backup sibling left.
 
-- [ ] **Step 9b: Test clean publication after each injected failure.** In each case rerun the same publisher with injection disabled and assert both generated JSON documents contain the new mutually consistent shared fields.
+- [x] **Step 9b: Test clean publication after each injected failure.** In each case rerun the same publisher with injection disabled and assert both generated JSON documents contain the new mutually consistent shared fields.
 
-- [ ] **Step 10: Add the verification barrier.** `molga_text_dependencies_ready` depends on the ICU install/composite and HarfBuzz raw install/composite/link probe, runs the verifier, and declares both JSON paths as `BYPRODUCTS`. The composed attach helpers add this barrier exactly once and only after their named consumer target exists. A product C++ target that actually reads the portable contract calls `molga_attach_text_portable_contract_consumer` immediately after creation; CMake-only staging uses `${MOLGA_TEXT_DEPENDENCY_CONTRACT}` without adding a compile definition. No product/normal/direct consumer receives the build-lock, source/binary-root, configured-CMake, or verifier-script macro.
+- [x] **Step 10: Add the verification barrier.** `molga_text_dependencies_ready` depends on the ICU install/composite and HarfBuzz raw install/composite/link probe, runs the verifier, and declares both JSON paths as `BYPRODUCTS`. The composed attach helpers add this barrier exactly once and only after their named consumer target exists. A product C++ target that actually reads the portable contract calls `molga_attach_text_portable_contract_consumer` immediately after creation; CMake-only staging uses `${MOLGA_TEXT_DEPENDENCY_CONTRACT}` without adding a compile definition. No product/normal/direct consumer receives the build-lock, source/binary-root, configured-CMake, or verifier-script macro.
 
-- [ ] **Step 10a: Add the missing-byproduct rebuild regression.** Configure a
+- [x] **Step 10a: Add the missing-byproduct rebuild regression.** Configure a
   fresh build tree, build both standalone link probes, then remove one explicit
   build-tree archive at a time (final composite `libharfbuzz.a`, final `libicui18n.a`, composite
   `libicuuc.a`) while leaving both generated JSON records in place. Rebuild the
@@ -802,11 +802,11 @@
   tree, validates each resolved deletion path is below that tree, and never
   removes source or workspace artifacts.
 
-- [ ] **Step 11: Attach the core only after its target exists.** Immediately after root `add_library(molga_core STATIC ${ENGINE_SOURCES})`, call `molga_attach_text_dependencies(molga_core)`; do not place that call in the earlier dependency section.
+- [x] **Step 11: Attach the core only after its target exists.** Immediately after root `add_library(molga_core STATIC ${ENGINE_SOURCES})`, call `molga_attach_text_dependencies(molga_core)`; do not place that call in the earlier dependency section.
 
-- [ ] **Step 11a: Attach the dependency-record test after creation.** Replace Task 1.1's temporary direct `MOLGA_SOURCE_DIR`/`MOLGA_BINARY_DIR` compile definitions: immediately after `molga_add_test(test_text_dependencies test_text_dependencies.cpp)`, call `molga_attach_text_provenance_test(test_text_dependencies)` so this helper is the final sole definition path for the portable/build records, source/binary roots, configured CMake executable, and verifier script. Require `MOLGA_TEXT_PROVENANCE_TEST_ATTACHED=TRUE`; a second helper call is a strict no-op, so each of these six test-private compile definitions occurs exactly once.
+- [x] **Step 11a: Attach the dependency-record test after creation.** Replace Task 1.1's temporary direct `MOLGA_SOURCE_DIR`/`MOLGA_BINARY_DIR` compile definitions: immediately after `molga_add_test(test_text_dependencies test_text_dependencies.cpp)`, call `molga_attach_text_provenance_test(test_text_dependencies)` so this helper is the final sole definition path for the portable/build records, source/binary roots, configured CMake executable, and verifier script. Require `MOLGA_TEXT_PROVENANCE_TEST_ATTACHED=TRUE`; a second helper call is a strict no-op, so each of these six test-private compile definitions occurs exactly once.
 
-- [ ] **Step 11b: Register and attach standalone static symbol probes.** Do not use `molga_add_test`, because its implicit `molga_core` link would mask a broken direct dependency helper. Add these exact standalone targets after `doctest_main` and `molga_warnings` exist; each attach call occurs only after its target exists:
+- [x] **Step 11b: Register and attach standalone static symbol probes.** Do not use `molga_add_test`, because its implicit `molga_core` link would mask a broken direct dependency helper. Add these exact standalone targets after `doctest_main` and `molga_warnings` exist; each attach call occurs only after its target exists:
 
   ```cmake
   add_executable(test_text_harfbuzz_link test_text_harfbuzz_link.cpp)
@@ -824,7 +824,7 @@
                        PROPERTIES LABELS "unit")
   ```
 
-- [ ] **Step 11c: Attach each consumer after creation and audit macro scope.**
+- [x] **Step 11c: Attach each consumer after creation and audit macro scope.**
   `molga_attach_text_provenance_test(test_text_dependencies)` is the only call
   that supplies `MOLGA_TEXT_DEPENDENCY_BUILD_LOCK`, `MOLGA_SOURCE_DIR`,
   `MOLGA_BINARY_DIR`, `MOLGA_CMAKE_COMMAND`, or
@@ -842,9 +842,9 @@
   editor, runtime, and every package target; and require the portable macro only
   on an explicitly registered portable-contract C++ consumer.
 
-- [ ] **Step 11d: Isolate the rasterizer include seam.** Give `molga_text_rasterizer` the interface include root `${CMAKE_SOURCE_DIR}/external` and change only `FontFace.cpp` to `#include "text/rasterizer/imstb_truetype.h"`; verify it no longer reaches the ImGui-private header path and that `U_STATIC_IMPLEMENTATION` is absent from the rasterizer target. Keep the existing `${IMGUI_DIR}` private include on `molga_core` because unrelated engine component sources still include public ImGui headers; this task does not migrate or relink those consumers.
+- [x] **Step 11d: Isolate the rasterizer include seam.** Give `molga_text_rasterizer` the interface include root `${CMAKE_SOURCE_DIR}/external` and change only `FontFace.cpp` to `#include "text/rasterizer/imstb_truetype.h"`; verify it no longer reaches the ImGui-private header path and that `U_STATIC_IMPLEMENTATION` is absent from the rasterizer target. Keep the existing `${IMGUI_DIR}` private include on `molga_core` because unrelated engine component sources still include public ImGui headers; this task does not migrate or relink those consumers.
 
-- [ ] **Step 12: Run the static/portable green gate.**
+- [x] **Step 12: Run the static/portable green gate.**
 
   ```bash
   cmake --preset debug
@@ -865,7 +865,7 @@
 
   Expected: PASS from a clean link, exactly one defined stub-data symbol, exactly one defined HarfBuzz ICU-adapter symbol, the link order is composite HarfBuzz -> i18n -> composite common, the build lock contains both canonical composite provenances, and the portable contract contains no machine path, second HarfBuzz library, or third ICU archive.
 
-- [ ] **Step 13: Commit the build/record boundary.**
+- [x] **Step 13: Commit the build/record boundary.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt cmake/TextDependencies.cmake \
