@@ -16,13 +16,23 @@
 namespace molga::text_test {
 
 // The one configured tree, brought to a verified-good state on first use.
-// Exactly one call per test case: the holder pairs acquisitions against marks
-// to decide whether the tree survives the run.
+// Exactly one call per test case: the holder counts acquisitions against marks
+// to decide whether the tree survives the run, so a case that took the tree
+// twice would let a failure elsewhere go uncounted.
 const std::filesystem::path& SharedRecoveryTree();
 
-// Called at the end of a case that reached its own postcondition. A case that
-// trips a REQUIRE never gets here, and the tree is then kept for inspection.
-void MarkSharedTreeVerified();
+// The entry check, first statement of every case: the tree as this case
+// received it. Paired with the exit check inside MarkSharedTreeVerified so a
+// case that inherits a tree the previous case broke says so, instead of failing
+// as though it broke the tree itself.
+void RequireSharedTreeEntry(const std::filesystem::path& tree);
+
+// The exit check and the mark, in that order and inseparably. Verifying the
+// whole tree here rather than at each call site is what stops a later case from
+// silently dropping the postcondition that makes these cases
+// order-independent. A case that trips a REQUIRE never reaches this, and the
+// tree — including the captured build logs inside it — is then kept.
+void MarkSharedTreeVerified(const std::filesystem::path& tree);
 
 int BuildTreeTarget(const std::filesystem::path& tree, const std::string& target);
 

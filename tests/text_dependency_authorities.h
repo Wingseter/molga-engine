@@ -45,10 +45,21 @@ std::filesystem::path HbInstalledHeader(const std::filesystem::path& tree,
 const std::vector<std::string>& HbArchiveNames();
 std::vector<std::string> HbBuildArchiveDigests(const std::filesystem::path& tree);
 
+// The success line RepairHarfBuzzRawInstall.cmake prints when the whole
+// consumed set checks out, derived from the header count rather than spelled
+// out: the script derives its own number the same way, so a pin bump must not
+// be able to leave a stale literal here asserting the old one.
+std::string HarfBuzzVerifiedLogLine();
+
 std::vector<std::string> PinnedNestedCacheLines(const std::filesystem::path& tree);
 void RequireNestedCacheMatrix(const std::filesystem::path& tree);
 void RequireHarfBuzzInstallMatchesAuthorities(const std::filesystem::path& tree);
 void RequireHarfBuzzTreeVerified(const std::filesystem::path& tree);
 void RequireIcuRawInstallMatchesAuthorities(const std::filesystem::path& tree);
+
+// Both halves of the nested text stack. This is the postcondition every case
+// sharing a recovery tree leaves behind, and text_recovery_tree.cpp is what
+// makes it unforgettable by folding it into the entry and exit checks.
+void RequireTextDependenciesVerified(const std::filesystem::path& tree);
 
 }  // namespace molga::text_test

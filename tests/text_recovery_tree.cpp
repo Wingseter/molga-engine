@@ -1,8 +1,10 @@
 #include "text_recovery_tree.h"
 
+#include "text_dependency_authorities.h"
 #include "text_dependency_test_support.h"
 
 #include <iostream>
+#include <system_error>
 #include <vector>
 
 #include <unistd.h>
@@ -91,21 +93,35 @@ std::filesystem::path ConfigureUnixMakefilesTree(const std::string& slug) {
 
 struct SharedTreeHolder {
     std::filesystem::path path;
-    // Pessimistic. A case that trips a REQUIRE never reaches its own
-    // MarkSharedTreeVerified, so the tree survives for inspection; minutes to
-    // reproduce a failure is exactly the cost this is here to avoid paying
-    // twice. Every assertion in these cases is therefore a REQUIRE: a bare
-    // CHECK would fail the run and still let the case fall through to the mark.
-    bool retain = true;
+    // Counted rather than latched to a bool. A REQUIRE throw aborts only the
+    // case that tripped it — doctest runs the rest — so a single "retain" flag
+    // cleared by each mark would let the cases *after* a failure clear it again
+    // and delete the tree, along with the captured build logs inside it, which
+    // is exactly the evidence the failing case needed and costs five minutes to
+    // reproduce. Pairing acquisitions against marks needs no case count and
+    // cannot be got wrong by adding a case: a case that took the tree and never
+    // marked it keeps the tree, whatever ran afterwards.
+    //
+    // Every assertion in these cases is therefore also a REQUIRE: a bare CHECK
+    // would fail the run and still let the case fall through to its mark.
+    int acquisitions = 0;
+    int marks = 0;
 
     ~SharedTreeHolder() {
         if (path.empty()) return;
-        if (retain) {
-            std::cerr << "retained make-recovery tree for inspection: "
+        if (marks != acquisitions) {
+            std::cerr << "retained make-recovery tree for inspection (" << marks
+                      << " of " << acquisitions << " cases verified it): "
                       << path.string() << "\n";
             return;
         }
-        std::filesystem::remove_all(path);
+        // A destructor is implicitly noexcept, and the throwing overload of
+        // remove_all would turn a filesystem error here — a permission change,
+        // a vanished directory — into std::terminate *after* the run reported
+        // success. A leaked throwaway tree is worth far less than a truthful
+        // exit code, and the next run's slug sweep collects it anyway.
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
     }
 };
 
@@ -126,11 +142,22 @@ const std::filesystem::path& SharedRecoveryTree() {
         // the ICU case's first build a no-op.
         REQUIRE(BuildTreeTarget(holder.path, "molga_text_harfbuzz_raw_install") == 0);
     }
-    holder.retain = true;
+    ++holder.acquisitions;
     return holder.path;
 }
 
-void MarkSharedTreeVerified() { SharedTreeState().retain = false; }
+void RequireSharedTreeEntry(const std::filesystem::path& tree) {
+    INFO("shared tree entry check");
+    RequireTextDependenciesVerified(tree);
+}
+
+void MarkSharedTreeVerified(const std::filesystem::path& tree) {
+    {
+        INFO("shared tree exit check");
+        RequireTextDependenciesVerified(tree);
+    }
+    ++SharedTreeState().marks;
+}
 
 int BuildTreeTarget(const std::filesystem::path& tree, const std::string& target) {
     return RunWithoutShell(

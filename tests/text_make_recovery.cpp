@@ -69,6 +69,17 @@ int RunCapturingOutput(const std::vector<std::string>& argv,
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+// A coupling worth stating plainly: the cases below match strings that
+// cmake/RepairHarfBuzzRawInstall.cmake writes — its three repair announcements
+// ("reconfiguring"/"rebuilding"/"repairing the nested HarfBuzz ..."), the
+// reasons it gives for them, and its closing "verified" line. Rewording any of
+// them, however innocuous the edit looks, turns this into a five-minute red
+// run. That is the price of asserting on behaviour the boundary only exposes by
+// printing it, and it is paid deliberately; the script carries the matching
+// note. The lines this matches from CMake and Make themselves — "Build files
+// have been written to", "Built target X" — are not part of that coupling, and
+// were checked against CLICOLOR_FORCE, MAKEFLAGS=-s, --no-print-directory and
+// -j4.
 bool LogHasLineContaining(const std::vector<std::string>& lines,
                           const std::string& token) {
     return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) {
@@ -133,6 +144,7 @@ TEST_SUITE("text-make-recovery") {
 TEST_CASE("make generator recovery repairs every deleted raw ICU install output"
           * doctest::skip()) {
     const auto& tree = SharedRecoveryTree();
+    RequireSharedTreeEntry(tree);
 
     // Only the wrapper and its ExternalProject dependency, never `all`: the
     // point is what one target's rebuild restores on its own.
@@ -202,10 +214,10 @@ TEST_CASE("make generator recovery repairs every deleted raw ICU install output"
         RequireIcuRawInstallMatchesAuthorities(tree);
     }
 
-    // The HarfBuzz cases run against this same tree, so the ICU repairs must
-    // have left the nested HarfBuzz build exactly as they found it.
-    RequireHarfBuzzTreeVerified(tree);
-    MarkSharedTreeVerified();
+    // The exit check covers the nested HarfBuzz build as well as ICU, which is
+    // the claim that matters here: the HarfBuzz cases run against this same
+    // tree, so these seven repairs must have left it exactly as they found it.
+    MarkSharedTreeVerified(tree);
 }
 
 // Step 4a.1 case A. src/hb-features.h is written by the nested configure, not
@@ -216,7 +228,7 @@ TEST_CASE("make generator recovery repairs every deleted raw ICU install output"
 TEST_CASE("make generator recovery regenerates the deleted HarfBuzz feature header"
           * doctest::skip()) {
     const auto& tree = SharedRecoveryTree();
-    RequireHarfBuzzTreeVerified(tree);
+    RequireSharedTreeEntry(tree);
 
     const auto generated = HbGeneratedHeader(tree);
     const auto installedHeader = HbInstalledHeader(tree, "hb-features.h");
@@ -260,8 +272,7 @@ TEST_CASE("make generator recovery regenerates the deleted HarfBuzz feature head
              "was repaired"));
     REQUIRE(LogHasLineEndingWith(log, "Built target harfbuzz"));
     REQUIRE(LogHasLineEndingWith(log, "Built target harfbuzz-icu"));
-    REQUIRE(LogHasLineContaining(
-        log, "nested HarfBuzz raw install verified: 36 consumed outputs"));
+    REQUIRE(LogHasLineContaining(log, HarfBuzzVerifiedLogLine()));
 
     // Both copies of the generated header are back at the independent pin.
     REQUIRE(RequiredSha256File(generated) == kGeneratedHeaderSha256);
@@ -272,8 +283,7 @@ TEST_CASE("make generator recovery regenerates the deleted HarfBuzz feature head
     // replay precisely so the restored bytes are the bytes that were there.
     REQUIRE(HbBuildArchiveDigests(tree) == archivesBefore);
 
-    RequireHarfBuzzTreeVerified(tree);
-    MarkSharedTreeVerified();
+    MarkSharedTreeVerified(tree);
 }
 
 // Step 4a.1 case B, and the reason the boundary pins hb-features.h by SHA at
@@ -284,7 +294,7 @@ TEST_CASE("make generator recovery regenerates the deleted HarfBuzz feature head
 TEST_CASE("make generator recovery rejects two identically wrong HarfBuzz headers"
           * doctest::skip()) {
     const auto& tree = SharedRecoveryTree();
-    RequireHarfBuzzTreeVerified(tree);
+    RequireSharedTreeEntry(tree);
 
     const auto generated = HbGeneratedHeader(tree);
     const auto installedHeader = HbInstalledHeader(tree, "hb-features.h");
@@ -341,13 +351,13 @@ TEST_CASE("make generator recovery rejects two identically wrong HarfBuzz header
     REQUIRE(LogHasLineContaining(
         log, "repairing the nested HarfBuzz install: installed hb-features.h "
              "does not match " + generated.string()));
+    REQUIRE(LogHasLineContaining(log, HarfBuzzVerifiedLogLine()));
 
     REQUIRE(RequiredSha256File(generated) == kGeneratedHeaderSha256);
     REQUIRE(RequiredSha256File(installedHeader) == kGeneratedHeaderSha256);
     REQUIRE(HbBuildArchiveDigests(tree) == archivesBefore);
 
-    RequireHarfBuzzTreeVerified(tree);
-    MarkSharedTreeVerified();
+    MarkSharedTreeVerified(tree);
 }
 
 // Step 4a.1 case C. hb-blob.h is a transitive include of hb.h that no Molga
@@ -358,7 +368,7 @@ TEST_CASE("make generator recovery rejects two identically wrong HarfBuzz header
 TEST_CASE("make generator recovery restores a deleted transitive HarfBuzz header"
           * doctest::skip()) {
     const auto& tree = SharedRecoveryTree();
-    RequireHarfBuzzTreeVerified(tree);
+    RequireSharedTreeEntry(tree);
 
     const auto installedBlob = HbInstalledHeader(tree, "hb-blob.h");
     INFO("victim " << installedBlob.string());
@@ -388,6 +398,7 @@ TEST_CASE("make generator recovery restores a deleted transitive HarfBuzz header
         LogHasLineContaining(log, "reconfiguring the nested HarfBuzz build:"));
     REQUIRE_FALSE(
         LogHasLineContaining(log, "rebuilding the nested HarfBuzz archives:"));
+    REQUIRE(LogHasLineContaining(log, HarfBuzzVerifiedLogLine()));
 
     // Byte-identical to the clean pinned source, not to some other installed
     // copy, and restored before the target that every consumer depends on
@@ -396,8 +407,7 @@ TEST_CASE("make generator recovery restores a deleted transitive HarfBuzz header
     REQUIRE(RequiredSha256File(installedBlob) == pinned);
     REQUIRE(HbBuildArchiveDigests(tree) == archivesBefore);
 
-    RequireHarfBuzzTreeVerified(tree);
-    MarkSharedTreeVerified();
+    MarkSharedTreeVerified(tree);
 }
 
 }  // TEST_SUITE("text-make-recovery")

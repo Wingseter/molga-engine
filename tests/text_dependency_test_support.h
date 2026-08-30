@@ -56,11 +56,20 @@ inline bool PathIsUnder(const std::filesystem::path& candidate,
 inline std::string RequiredSha256File(const std::filesystem::path& path) {
     std::string error;
     const std::string digest = molga::Sha256File(path, &error);
+    // One assertion, not three. The recovery run calls this several hundred
+    // times, and a separate length check and hex check per call only restate
+    // that Sha256File's own output is well formed — they can fail for no other
+    // reason. Three assertions per call buried the run's real work under
+    // roughly a thousand copies of the same claim and made a failure listing
+    // harder to read, not easier.
+    //
     // Parenthesized: doctest streams the first message operand with operator*,
     // which binds tighter than the string concatenation.
-    REQUIRE_MESSAGE(error.empty(), (path.string() + ": " + error));
-    REQUIRE(digest.size() == 64);
-    REQUIRE(digest.find_first_not_of("0123456789abcdef") == std::string::npos);
+    const bool wellFormed =
+        error.empty() && digest.size() == 64 &&
+        digest.find_first_not_of("0123456789abcdef") == std::string::npos;
+    REQUIRE_MESSAGE(wellFormed,
+                    (path.string() + ": " + (error.empty() ? digest : error)));
     return digest;
 }
 

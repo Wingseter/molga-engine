@@ -33,6 +33,14 @@ std::vector<std::string> HbBuildArchiveDigests(const std::filesystem::path& tree
     return digests;
 }
 
+std::string HarfBuzzVerifiedLogLine() {
+    // RepairHarfBuzzRawInstall.cmake computes this as the allowlist length plus
+    // the two archives, so the same arithmetic here is what keeps the two from
+    // drifting when the pinned submodule gains or loses a public header.
+    return "nested HarfBuzz raw install verified: " +
+           std::to_string(kHarfBuzzInstalledHeaderCount + 2) + " consumed outputs";
+}
+
 // The complete Step 4 cache matrix, plus the three configure values that are
 // part of the same one argument vector without being matrix entries.
 // TextDependencies.cmake hands the boundary that matrix, so the boundary alone
@@ -144,6 +152,15 @@ void RequireIcuRawInstallMatchesAuthorities(const std::filesystem::path& tree) {
         if (entry.is_regular_file()) ++installed;
     }
     REQUIRE(installed == kIcuInstalledHeaderCount);
+}
+
+void RequireTextDependenciesVerified(const std::filesystem::path& tree) {
+    // Both halves, not just the one a given case touched. The HarfBuzz cases do
+    // not deliberately disturb ICU, but they do rebuild through the same target
+    // graph, and a shared tree is only order-independent if what each case
+    // hands on is the whole tree rather than its own corner of it.
+    RequireIcuRawInstallMatchesAuthorities(tree);
+    RequireHarfBuzzTreeVerified(tree);
 }
 
 }  // namespace molga::text_test

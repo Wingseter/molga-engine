@@ -244,6 +244,12 @@ function(harfbuzz_generated_header_problem out_var)
 endfunction()
 
 # ── Repair primitives ─────────────────────────────────────────────────────────
+# The three announcements below, the reasons they are given, and the closing
+# "nested HarfBuzz raw install verified" line are matched as substrings by
+# tests/text_make_recovery.cpp: printing is the only way this boundary exposes
+# which repair it chose, so the proofs assert on the wording. Rewording one is
+# not a cosmetic edit — it turns that suite red for five minutes until the test
+# is updated to match.
 # The exact pinned Step 4 configure command. The argument vector is spliced in
 # verbatim rather than rebuilt from named parts, so this is the same command the
 # ExternalProject configures with by construction rather than by review: an
