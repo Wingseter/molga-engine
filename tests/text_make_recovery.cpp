@@ -24,6 +24,8 @@
 #include <utility>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -77,9 +79,11 @@ int RunCapturingOutput(const std::vector<std::string>& argv,
 // run. That is the price of asserting on behaviour the boundary only exposes by
 // printing it, and it is paid deliberately; the script carries the matching
 // note. The lines this matches from CMake and Make themselves — "Build files
-// have been written to", "Built target X" — are not part of that coupling, and
+// have been written to", "Built target X", and Step 4e's "static library
+// libharfbuzz.a" / "libharfbuzz-icu.a" — are not part of that coupling, and
 // were checked against CLICOLOR_FORCE, MAKEFLAGS=-s, --no-print-directory and
-// -j4.
+// -j4. That list is exhaustive: a new tool-owned line matched anywhere below
+// belongs in it, or the hardening claim starts covering strings it never saw.
 bool LogHasLineContaining(const std::vector<std::string>& lines,
                           const std::string& token) {
     return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) {
@@ -90,12 +94,32 @@ bool LogHasLineContaining(const std::vector<std::string>& lines,
 // Whole-line suffix matching, never a bare substring test: "Built target
 // harfbuzz" is a substring of "Built target harfbuzz-icu", so a substring test
 // would let one rebuilt target stand in for the proof that both were invoked.
+bool LineEndsWith(const std::string& line, const std::string& suffix) {
+    return line.size() >= suffix.size() &&
+           line.compare(line.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
 bool LogHasLineEndingWith(const std::vector<std::string>& lines,
                           const std::string& suffix) {
     return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) {
-        return line.size() >= suffix.size() &&
-               line.compare(line.size() - suffix.size(), suffix.size(), suffix) == 0;
+        return LineEndsWith(line, suffix);
     });
+}
+
+// The one line carrying ${token}, so several claims about a single command are
+// claims about that command rather than about lines that merely coexist in the
+// log. Requiring exactly one match is the point: two would mean the repair ran
+// twice and the caller's reasoning about which invocation it is reading no
+// longer holds.
+std::string TheLineContaining(const std::vector<std::string>& lines,
+                              const std::string& token) {
+    std::vector<std::string> matches;
+    for (const auto& line : lines) {
+        if (line.find(token) != std::string::npos) matches.push_back(line);
+    }
+    REQUIRE_MESSAGE(matches.size() == 1,
+                    (token + ": " + std::to_string(matches.size()) + " lines"));
+    return matches.front();
 }
 
 std::filesystem::path HbLogDir(const std::filesystem::path& tree) {
@@ -126,6 +150,143 @@ void WriteFileUnder(const std::filesystem::path& target,
     REQUIRE_MESSAGE(PathIsUnder(resolved, tree), resolved.string());
     REQUIRE_MESSAGE(std::filesystem::is_regular_file(resolved), resolved.string());
     WriteFileBytes(resolved, bytes);
+}
+
+// ── Step 4e support ───────────────────────────────────────────────────────────
+
+// The line harfbuzz_rerun_build prints before it runs. It is the only place the
+// boundary states the command it is about to execute, and the script builds the
+// announcement from the same list it then passes to execute_process.
+constexpr char kArchiveCommandAnnouncement[] = "nested HarfBuzz archive command: ";
+
+// The five values Step 4e compares, in the order it names them.
+const std::vector<std::string>& CompositeProvenanceKeys() {
+    static const std::vector<std::string> keys = {
+        "rawCoreSha256", "rawAdapterSha256", "adapterObjectSha256",
+        "filteredMemberDigest", "finalCompositeSha256"};
+    return keys;
+}
+
+// Re-derive the composite provenance from the files on disk through
+// VerifyTextDependencies' closed read-only mode, which is the same function the
+// publishing barrier runs. Deriving it here instead — parsing `ar -t` and
+// filtering pseudo-members in the test — would be a second definition of
+// "filtered member digest" free to drift from the one the build lock records.
+//
+// The mode reads only paths and tool identities out of the lock and recomputes
+// every digest, so the lock this tree published before the deletions below is a
+// valid input to the run that follows them.
+nlohmann::json ReadOnlyCompositeProvenance(const std::filesystem::path& tree,
+                                           const std::filesystem::path& resultRoot,
+                                           const std::string& resultName) {
+    // Runs twice per case, so every REQUIRE below needs to say which of the two
+    // it belongs to.
+    INFO("read-only provenance " << resultName);
+    const auto resultFile = resultRoot / resultName;
+    REQUIRE(PathIsUnder(resultFile, tree));
+    REQUIRE(std::filesystem::is_directory(resultRoot));
+    REQUIRE_FALSE(std::filesystem::exists(resultFile));
+
+    REQUIRE_MESSAGE(
+        RunWithoutShell({
+            MOLGA_CMAKE_COMMAND,
+            "-DMODE=HARFBUZZ_READ_ONLY",
+            "-DBUILD_LOCK=" +
+                (tree / "generated/text_dependency_build_lock.json").string(),
+            std::string("-DSOURCE_ROOT=") + MOLGA_SOURCE_DIR,
+            "-DBINARY_ROOT=" + tree.string(),
+            "-DRESULT_ROOT=" + resultRoot.string(),
+            "-DRESULT_FILE=" + resultFile.string(),
+            "-P",
+            MOLGA_TEXT_VERIFY_DEPENDENCIES_SCRIPT,
+        }) == 0,
+        resultFile.string());
+    REQUIRE_MESSAGE(std::filesystem::is_regular_file(resultFile),
+                    resultFile.string());
+
+    std::ifstream input(resultFile);
+    REQUIRE_MESSAGE(input.good(), resultFile.string());
+    const auto result = nlohmann::json::parse(input);
+
+    // A value that went missing or empty would make every comparison against it
+    // trivially true, which is the one way this proof could pass while proving
+    // nothing. Checked here rather than at the comparison, so it covers the
+    // recording and the re-derivation alike.
+    for (const auto& key : CompositeProvenanceKeys()) {
+        INFO("recorded " << key);
+        REQUIRE(result.contains(key));
+        REQUIRE(result.at(key).is_string());
+        const std::string value = result.at(key).get<std::string>();
+        REQUIRE(value.size() == 64);
+        REQUIRE(value.find_first_not_of("0123456789abcdef") == std::string::npos);
+    }
+    return result;
+}
+
+// The archiver's own ordered member listing. This is the raw table, not the
+// filtered one — filtering is a pure function of it, so identical raw listings
+// imply identical filtered listings without this file owning a second copy of
+// what "filtered" means.
+//
+// filteredMemberDigest already carries the proof, so diagnosis is this
+// helper's whole warrant: doctest has no insertion operator for a vector of
+// strings and prints the comparison as `{?} == {?}`. The listing therefore
+// stays on disk in the retained tree, and the caller has to name both files in
+// its own INFO — a listing diff is what makes a member-order change readable.
+std::vector<std::string> ArchiveMemberListing(const std::string& ar,
+                                              const std::filesystem::path& archive,
+                                              const std::filesystem::path& listingPath) {
+    INFO("member listing of " << archive.string() << " in " << listingPath.string());
+    REQUIRE(RunCapturingOutput({ar, "-t", archive.string()}, listingPath) == 0);
+    auto listing = ReadLines(listingPath);
+    REQUIRE_FALSE(listing.empty());
+    return listing;
+}
+
+// Every compiled object behind the two nested archive targets, by content.
+// Step 4e leaves these in place deliberately, and "they were not touched" is
+// the load-bearing claim that makes the archives' byte identity a statement
+// about `ar` rather than about a recompile that happened to agree.
+//
+// Hashed rather than timestamped. There are two objects, so the digests are
+// nearly free, and a modification time is only a proxy: a recompile landing
+// inside one timestamp tick — plausible on a coarse-resolution volume, and
+// this test deliberately does its work in seconds — would pass a mtime check
+// while changing the bytes that went into the archive.
+std::vector<std::pair<std::string, std::string>>
+NestedObjectDigests(const std::filesystem::path& tree) {
+    std::vector<std::pair<std::string, std::string>> digests;
+    for (const char* target : {"harfbuzz.dir", "harfbuzz-icu.dir"}) {
+        const auto root = HbBuildDir(tree) / "CMakeFiles" / target;
+        REQUIRE_MESSAGE(std::filesystem::is_directory(root), root.string());
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".o") continue;
+            digests.emplace_back(entry.path().string(),
+                                 RequiredSha256File(entry.path()));
+        }
+    }
+    // A layout change that moved the objects would otherwise leave this
+    // comparing two empty vectors and reporting success.
+    REQUIRE_FALSE(digests.empty());
+    std::sort(digests.begin(), digests.end());
+    return digests;
+}
+
+// Compared entry by entry rather than vector against vector, for the same
+// reason the listings above are written to disk: doctest would print the whole
+// comparison as `{?} == {?}` and name neither the object nor the phase it
+// failed in.
+void RequireNestedObjectsUnchanged(
+    const std::filesystem::path& tree, const std::string& phase,
+    const std::vector<std::pair<std::string, std::string>>& expected) {
+    INFO("nested objects " << phase);
+    const auto actual = NestedObjectDigests(tree);
+    REQUIRE(actual.size() == expected.size());
+    for (std::size_t i = 0; i < actual.size(); ++i) {
+        INFO("object " << actual[i].first);
+        REQUIRE(actual[i].first == expected[i].first);
+        REQUIRE(actual[i].second == expected[i].second);
+    }
 }
 
 }  // namespace
@@ -248,11 +409,11 @@ TEST_CASE("make generator recovery regenerates the deleted HarfBuzz feature head
     std::filesystem::create_directories(HbLogDir(tree));
     const auto logPath = HbLogDir(tree) / "deleted-generated-header.log";
     REQUIRE(PathIsUnder(logPath, tree));
+    INFO("build log " << logPath.string());
     REQUIRE(RunCapturingOutput({MOLGA_CMAKE_COMMAND, "--build", tree.string(),
                                 "--target", "molga_text_harfbuzz_raw_install"},
                                logPath) == 0);
     const auto log = ReadLines(logPath);
-    INFO("build log " << logPath.string());
 
     // The pinned configure was re-run, and it was re-run against this nested
     // build directory: its argument vector is spliced verbatim from
@@ -326,11 +487,11 @@ TEST_CASE("make generator recovery rejects two identically wrong HarfBuzz header
     std::filesystem::create_directories(HbLogDir(tree));
     const auto logPath = HbLogDir(tree) / "identical-corruption.log";
     REQUIRE(PathIsUnder(logPath, tree));
+    INFO("build log " << logPath.string());
     REQUIRE(RunCapturingOutput({MOLGA_CMAKE_COMMAND, "--build", tree.string(),
                                 "--target", "molga_text_harfbuzz_raw_install"},
                                logPath) == 0);
     const auto log = ReadLines(logPath);
-    INFO("build log " << logPath.string());
 
     // The crux. The reason names the *build-tree* header and the digest it was
     // measured against, which is only possible if the check was the independent
@@ -382,11 +543,11 @@ TEST_CASE("make generator recovery restores a deleted transitive HarfBuzz header
     std::filesystem::create_directories(HbLogDir(tree));
     const auto logPath = HbLogDir(tree) / "deleted-transitive-header.log";
     REQUIRE(PathIsUnder(logPath, tree));
+    INFO("build log " << logPath.string());
     REQUIRE(RunCapturingOutput({MOLGA_CMAKE_COMMAND, "--build", tree.string(),
                                 "--target", "molga_text_harfbuzz_raw_install"},
                                logPath) == 0);
     const auto log = ReadLines(logPath);
-    INFO("build log " << logPath.string());
 
     REQUIRE(LogHasLineContaining(
         log, "repairing the nested HarfBuzz install: installed " +
@@ -407,6 +568,164 @@ TEST_CASE("make generator recovery restores a deleted transitive HarfBuzz header
     REQUIRE(RequiredSha256File(installedBlob) == pinned);
     REQUIRE(HbBuildArchiveDigests(tree) == archivesBefore);
 
+    MarkSharedTreeVerified(tree);
+}
+
+// Step 4e. Every other case here asks whether a repair restores a file; this
+// one asks whether it restores the same bytes after the tools that produce them
+// have genuinely re-run.
+//
+// Five files go: both build-tree raw archives, both installed copies of them,
+// and the final composite. The compiled objects stay. That combination is what
+// makes the sequence a rebuild rather than a reinstall — with no archive left
+// anywhere in the tree there is nothing to copy back, so the only thing that
+// can produce `harfbuzz-build/libharfbuzz.a` again is upstream's own `ar`
+// followed by `ranlib`, running over objects that were never touched.
+//
+// Identity is claimed inside this one tree only. A Debug object file can carry
+// the build root in its debug strings, so two trees at different paths are not
+// expected to agree and asserting that they do would be a flaky test rather
+// than a stronger one.
+TEST_CASE("make generator recovery rebuilds a byte-identical HarfBuzz composite"
+          * doctest::skip()) {
+    const auto& tree = SharedRecoveryTree();
+    RequireSharedTreeEntry(tree);
+
+    const auto hbBuild = HbBuildDir(tree);
+    const auto rawCore = hbBuild / "libharfbuzz.a";
+    const auto rawAdapter = hbBuild / "libharfbuzz-icu.a";
+    const auto installedCore = HbRawDir(tree) / "lib/libharfbuzz.a";
+    const auto installedAdapter = HbRawDir(tree) / "lib/libharfbuzz-icu.a";
+    const auto composite = HbCompositeArchive(tree);
+    std::filesystem::create_directories(HbLogDir(tree));
+
+    // ── 1. Record what the tree currently holds ──────────────────────────────
+    const auto resultRoot = tree / "harfbuzz-determinism";
+    REQUIRE(PathIsUnder(resultRoot, tree));
+    std::filesystem::remove_all(resultRoot);
+    std::filesystem::create_directories(resultRoot);
+
+    const auto before = ReadOnlyCompositeProvenance(tree, resultRoot, "before.json");
+    const std::string ar = before.at("arPath").get<std::string>();
+    const std::vector<std::filesystem::path> listed = {rawCore, rawAdapter, composite};
+    std::vector<std::filesystem::path> listingPathsBefore;
+    std::vector<std::vector<std::string>> listingsBefore;
+    for (std::size_t i = 0; i < listed.size(); ++i) {
+        listingPathsBefore.push_back(
+            resultRoot / ("members-before-" + std::to_string(i) + ".txt"));
+        listingsBefore.push_back(
+            ArchiveMemberListing(ar, listed[i], listingPathsBefore.back()));
+    }
+    const auto objectsBefore = NestedObjectDigests(tree);
+    const auto archivesBefore = HbBuildArchiveDigests(tree);
+
+    // ── 2. Delete exactly five files, and no object ──────────────────────────
+    for (const auto& victim : {rawCore, rawAdapter, installedCore,
+                               installedAdapter, composite}) {
+        RemoveFileUnder(victim, tree);
+    }
+    RequireNestedObjectsUnchanged(tree, "after the deletions", objectsBefore);
+
+    // ── 3. The raw-install boundary alone, then the composite producer alone ─
+    const auto boundaryLog = HbLogDir(tree) / "determinism-raw-install.log";
+    REQUIRE(PathIsUnder(boundaryLog, tree));
+    INFO("boundary log " << boundaryLog.string());
+    REQUIRE(RunCapturingOutput({MOLGA_CMAKE_COMMAND, "--build", tree.string(),
+                                "--target", "molga_text_harfbuzz_raw_install"},
+                               boundaryLog) == 0);
+    const auto boundary = ReadLines(boundaryLog);
+
+    // ── 4. The boundary rebuilt, and rebuilt the two nested targets ──────────
+    // The reason names the deleted build-tree archive, so the rebuild was
+    // triggered by the missing archive rather than by a reconfigure — and no
+    // reconfigure happened, which is what leaves the objects reusable.
+    REQUIRE(LogHasLineContaining(
+        boundary, "rebuilding the nested HarfBuzz archives: " + rawCore.string() +
+                      " is missing"));
+    REQUIRE_FALSE(
+        LogHasLineContaining(boundary, "reconfiguring the nested HarfBuzz build:"));
+
+    // The exact command, read off the single line that announces it: the two
+    // nested targets by name, under ZERO_AR_DATE=1, against this build
+    // directory. Three claims about one line rather than three lines, because
+    // the environment and the targets only mean anything together.
+    const std::string announced =
+        TheLineContaining(boundary, kArchiveCommandAnnouncement);
+    INFO("announced " << announced);
+    REQUIRE(announced.find(" -E env ZERO_AR_DATE=1 ") != std::string::npos);
+    REQUIRE(LineEndsWith(announced, " --build " + hbBuild.string() +
+                                        " --target harfbuzz harfbuzz-icu"));
+
+    // The crux of the whole case: Make prints this only when it executes the
+    // archive recipe, and that recipe is CMakeFiles/<target>.dir/link.txt —
+    // `ar` and then `ranlib`. A sequence that merely reinstalled unchanged
+    // build-tree archives cannot produce either line. The language word is
+    // deliberately outside the match: upstream compiles the core from a C
+    // amalgamation and the adapter from C++, so Make says "Linking C" for one
+    // and "Linking CXX" for the other.
+    REQUIRE(LogHasLineEndingWith(boundary, "static library libharfbuzz.a"));
+    REQUIRE(LogHasLineEndingWith(boundary, "static library libharfbuzz-icu.a"));
+    REQUIRE(LogHasLineEndingWith(boundary, "Built target harfbuzz"));
+    REQUIRE(LogHasLineEndingWith(boundary, "Built target harfbuzz-icu"));
+
+    // Only then the install side, and only because the copies were deleted.
+    REQUIRE(LogHasLineContaining(
+        boundary, "repairing the nested HarfBuzz install: installed " +
+                      installedCore.string() + " is missing"));
+    REQUIRE(LogHasLineContaining(boundary, HarfBuzzVerifiedLogLine()));
+
+    // Nothing was recompiled, so the archives above were assembled from exactly
+    // the objects that were already there.
+    RequireNestedObjectsUnchanged(tree, "after the rebuild", objectsBefore);
+    // HbBuildArchiveDigests hashes exactly the two archives and names the one
+    // that is missing, so it is also the existence check.
+    REQUIRE(HbBuildArchiveDigests(tree) == archivesBefore);
+
+    // The composite producer on its own. Its output was deleted, so the
+    // file-level rule the custom command declares is what runs; the boundary
+    // ahead of it in the graph now has nothing left to repair.
+    const auto producerLog = HbLogDir(tree) / "determinism-composite.log";
+    REQUIRE(PathIsUnder(producerLog, tree));
+    INFO("producer log " << producerLog.string());
+    REQUIRE(RunCapturingOutput({MOLGA_CMAKE_COMMAND, "--build", tree.string(),
+                                "--target", "molga_text_harfbuzz_composite"},
+                               producerLog) == 0);
+    const auto producer = ReadLines(producerLog);
+    REQUIRE_FALSE(
+        LogHasLineContaining(producer, "rebuilding the nested HarfBuzz archives:"));
+    REQUIRE_FALSE(
+        LogHasLineContaining(producer, "repairing the nested HarfBuzz install:"));
+    REQUIRE(std::filesystem::is_regular_file(composite));
+
+    // ── 5. Every recorded value, re-derived the same way, unchanged ──────────
+    const auto after = ReadOnlyCompositeProvenance(tree, resultRoot, "after.json");
+    for (const auto& key : CompositeProvenanceKeys()) {
+        INFO("provenance value " << key);
+        REQUIRE(after.at(key) == before.at(key));
+    }
+    // And nothing else the mode reports moved either — the archiver family, its
+    // append flags, the three tool paths, and the three adapter symbol counts.
+    //
+    // Known scope: archiverFamily is whatever this host resolved, so the
+    // determinism claim is proved on one family per run. ZERO_AR_DATE=1 is
+    // Apple ar's variable and VerifyTextDependencies branches apple -> "qcs"
+    // against "qcsD" elsewhere, so a GNU or LLVM ar takes a path no proof in
+    // this suite has yet exercised.
+    REQUIRE(after == before);
+
+    for (std::size_t i = 0; i < listed.size(); ++i) {
+        const auto listingPathAfter =
+            resultRoot / ("members-after-" + std::to_string(i) + ".txt");
+        // Both files by name: doctest prints the vectors as `{?} == {?}`, so
+        // these two paths in the retained tree are the whole diagnosis.
+        INFO("member listing of " << listed[i].string() << ": "
+                                  << listingPathsBefore[i].string() << " vs "
+                                  << listingPathAfter.string());
+        REQUIRE(ArchiveMemberListing(ar, listed[i], listingPathAfter) ==
+                listingsBefore[i]);
+    }
+
+    std::filesystem::remove_all(resultRoot);
     MarkSharedTreeVerified(tree);
 }
 

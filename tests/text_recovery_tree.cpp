@@ -145,10 +145,18 @@ const std::filesystem::path& SharedRecoveryTree() {
     if (holder.path.empty()) {
         holder.path = ConfigureUnixMakefilesTree(kRecoveryTreeSlug);
         MESSAGE("Make-generator recovery tree: " << holder.path.string());
-        // Bring it to the state every case starts from. The HarfBuzz wrapper
-        // pulls the whole ICU chain behind it, so this one build also leaves
-        // the ICU case's first build a no-op.
-        REQUIRE(BuildTreeTarget(holder.path, "molga_text_harfbuzz_raw_install") == 0);
+        // Bring it to the state every case starts from. The verification
+        // barrier is the widest target in the text graph — it pulls both
+        // composites, both link probes and the whole ICU chain behind it — so
+        // this one build leaves the ICU case's first build a no-op and every
+        // HarfBuzz case a configured tree.
+        //
+        // It is the barrier rather than the HarfBuzz wrapper because the
+        // barrier is what publishes this tree's own build lock, and the Step 4e
+        // determinism proof re-derives its five composite values through
+        // VerifyTextDependencies' HARFBUZZ_READ_ONLY mode, which reads the
+        // archive and tool paths out of that lock.
+        REQUIRE(BuildTreeTarget(holder.path, "molga_text_dependencies_ready") == 0);
     }
     return holder.path;
 }

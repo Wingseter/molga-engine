@@ -19,6 +19,9 @@ std::filesystem::path HbInstalledHeader(const std::filesystem::path& tree,
                                         const std::string& name) {
     return HbRawDir(tree) / "include/harfbuzz" / name;
 }
+std::filesystem::path HbCompositeArchive(const std::filesystem::path& tree) {
+    return tree / "text-dependencies/harfbuzz/lib/libharfbuzz.a";
+}
 
 const std::vector<std::string>& HbArchiveNames() {
     static const std::vector<std::string> names = {"libharfbuzz.a", "libharfbuzz-icu.a"};

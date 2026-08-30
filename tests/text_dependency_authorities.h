@@ -41,6 +41,10 @@ std::filesystem::path HbGeneratedHeader(const std::filesystem::path& tree);
 std::filesystem::path HbInstalledHeader(const std::filesystem::path& tree,
                                         const std::string& name);
 
+// The published logical archive the composite producer owns, as distinct from
+// the two raw archives beside it under harfbuzz-build.
+std::filesystem::path HbCompositeArchive(const std::filesystem::path& tree);
+
 // The two build-tree archives, in the order the repair boundary names them.
 const std::vector<std::string>& HbArchiveNames();
 std::vector<std::string> HbBuildArchiveDigests(const std::filesystem::path& tree);

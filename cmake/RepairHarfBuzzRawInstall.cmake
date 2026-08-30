@@ -244,7 +244,8 @@ function(harfbuzz_generated_header_problem out_var)
 endfunction()
 
 # ── Repair primitives ─────────────────────────────────────────────────────────
-# The three announcements below, the reasons they are given, and the closing
+# The three announcements below, the reasons they are given, the archive
+# command line "nested HarfBuzz archive command:" prints, and the closing
 # "nested HarfBuzz raw install verified" line are matched as substrings by
 # tests/text_make_recovery.cpp: printing is the only way this boundary exposes
 # which repair it chose, so the proofs assert on the wording. Rewording one is
@@ -281,12 +282,23 @@ endfunction()
 # holds exactly harfbuzz and harfbuzz-icu. Turning on HB_BUILD_SUBSET or
 # HB_BUILD_UTILS would add targets this repair would then quietly skip, so that
 # matrix change has to come here too.
+#
+# The command is written once, announced, and then run, so the announcement
+# cannot describe something this function does not execute. Step 4e's
+# determinism proof has to show that upstream's own ar and ranlib re-ran under
+# ZERO_AR_DATE=1 against these two targets, and a log naming only the reason
+# cannot show it; a separately worded copy of the command could show a
+# rebuild that never happened.
 function(harfbuzz_rerun_build reason)
     message(STATUS "rebuilding the nested HarfBuzz archives: ${reason}")
+    set(build_command
+        "${CMAKE_COMMAND}" -E env ZERO_AR_DATE=1
+        "${CMAKE_COMMAND}" --build "${harfbuzz_build}"
+        --target harfbuzz harfbuzz-icu)
+    string(REPLACE ";" " " announced_command "${build_command}")
+    message(STATUS "nested HarfBuzz archive command: ${announced_command}")
     execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E env ZERO_AR_DATE=1
-                "${CMAKE_COMMAND}" --build "${harfbuzz_build}"
-                --target harfbuzz harfbuzz-icu
+        COMMAND ${build_command}
         RESULT_VARIABLE build_result)
     if(NOT build_result EQUAL 0)
         message(FATAL_ERROR "rebuilding the nested HarfBuzz archives failed")
