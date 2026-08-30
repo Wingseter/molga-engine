@@ -322,6 +322,161 @@ add_custom_target(molga_text_icu_composite_link_probe
     COMMENT "Probing that composite ICU common resolves icudt78_dat"
     VERBATIM)
 
+# ── Pinned HarfBuzz Step 4 cache matrix ───────────────────────────────────────
+# One definition, three uses: it configures the nested project below, the repair
+# boundary asserts it line for line against the nested CMakeCache.txt, and that
+# same boundary replays it when it has to re-run configure. A second
+# hand-maintained copy would only ever have to agree with this one, and
+# eventually would not.
+#
+# Every entry is a whole typed cache line, so the assertion pins the type as
+# well as the value: HB_BUILD_GPU_DEMO is upstream STRING rather than BOOL, and
+# the three ICU entries carry the PATH/FILEPATH types FindICU declares for them.
+set(MOLGA_TEXT_HARFBUZZ_CACHE_MATRIX
+    "BUILD_SHARED_LIBS:BOOL=OFF"
+    "BUILD_FRAMEWORK:BOOL=OFF"
+    "HB_HAVE_ICU:BOOL=ON"
+    "HB_HAVE_CORETEXT:BOOL=OFF"
+    "HB_HAVE_CAIRO:BOOL=OFF"
+    "HB_HAVE_FREETYPE:BOOL=OFF"
+    "HB_HAVE_GRAPHITE2:BOOL=OFF"
+    "HB_HAVE_GLIB:BOOL=OFF"
+    "HB_HAVE_GOBJECT:BOOL=OFF"
+    "HB_HAVE_INTROSPECTION:BOOL=OFF"
+    "HB_BUILD_UTILS:BOOL=OFF"
+    "HB_BUILD_SUBSET:BOOL=OFF"
+    "HB_BUILD_RASTER:BOOL=OFF"
+    "HB_BUILD_VECTOR:BOOL=OFF"
+    "HB_BUILD_GPU:BOOL=OFF"
+    "HB_BUILD_GPU_DEMO:STRING=OFF"
+    "CMAKE_DISABLE_FIND_PACKAGE_Python3:BOOL=ON"
+    "ICU_INCLUDE_DIR:PATH=${molga_text_icu_raw}/include"
+    "ICU_UC_LIBRARY_RELEASE:FILEPATH=${molga_text_icu_composite_archive}"
+    "ICU_UC_LIBRARY_DEBUG:FILEPATH=${molga_text_icu_composite_archive}")
+
+# No configure argument may carry a ";" inside its value. Every consumer of
+# these lists — CMAKE_ARGS, the numbered channels below — expands them
+# unquoted, so a correctly escaped "-DCMAKE_OSX_ARCHITECTURES=arm64\;x86_64",
+# which is exactly what an author would reasonably write, silently becomes
+# "...=arm64" plus a bare "x86_64". Every length and count computed after that
+# point agrees with the split, so nothing downstream can tell that one value
+# was cut in half; the nested configure would just receive a stray positional.
+# This has to be checked at each definition, by name, because that is the last
+# moment the escaping still exists — one unquoted ${list} expansion destroys it.
+function(molga_text_hb_require_separator_free list_var)
+    foreach(entry IN LISTS ${list_var})
+        if(entry MATCHES ";")
+            message(FATAL_ERROR
+                "${list_var} holds an entry containing ';', which this build's "
+                "argument plumbing cannot carry: ${entry}")
+        endif()
+    endforeach()
+endfunction()
+
+molga_text_hb_require_separator_free(MOLGA_TEXT_HARFBUZZ_CACHE_MATRIX)
+
+# Toolchain, prefix, and flags belong to the same exact configure command but
+# are not part of the pinned Step 4 matrix. Pinned HarfBuzz does not propagate
+# the nested ICU include root or U_STATIC_IMPLEMENTATION to its harfbuzz-icu
+# target, which is what CMAKE_CXX_FLAGS is carrying.
+set(molga_text_hb_cxx_flags
+    "-I${molga_text_icu_raw}/include -DU_STATIC_IMPLEMENTATION")
+set(molga_text_hb_toolchain_args
+    "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+    "-DCMAKE_INSTALL_PREFIX=${molga_text_hb_raw}"
+    "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+    "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+    "-DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}"
+    "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+molga_text_hb_require_separator_free(molga_text_hb_toolchain_args)
+# The flags are one argument, so a separator would make them two.
+list(LENGTH molga_text_hb_cxx_flags molga_text_hb_cxx_flags_length)
+if(NOT molga_text_hb_cxx_flags_length EQUAL 1)
+    message(FATAL_ERROR
+        "molga_text_hb_cxx_flags must be a single argument, found "
+        "${molga_text_hb_cxx_flags_length}: ${molga_text_hb_cxx_flags}")
+endif()
+
+# ── The one configure argument vector ─────────────────────────────────────────
+# This is the whole of what the nested configure is given, and the repair
+# boundary replays this exact list rather than a second description of it.
+# Re-listing the toolchain half on the script side is what would let a new
+# argument added here reach the ExternalProject and silently miss the replay —
+# nothing asserts a toolchain entry, because the cache assertion only covers the
+# 20 pinned matrix lines. Anything appended here therefore reaches both.
+set(molga_text_hb_configure_args ${molga_text_hb_toolchain_args})
+foreach(entry IN LISTS MOLGA_TEXT_HARFBUZZ_CACHE_MATRIX)
+    list(APPEND molga_text_hb_configure_args "-D${entry}")
+endforeach()
+list(APPEND molga_text_hb_configure_args
+     "-DCMAKE_CXX_FLAGS=${molga_text_hb_cxx_flags}")
+
+# Both lists cross into the repair script as one numbered argument per entry
+# plus an exact count, because ExternalProject_Add_Step collapses a ";"-joined
+# list argument down to its first element: a single list argument would arrive
+# silently truncated to one entry.
+#
+# The list is taken by name rather than through ARGN, because one unquoted
+# ${list} expansion flattens an escaped separator before the callee could see
+# it; re-checking here then still means something for a future caller that
+# builds a channel from a list this file has not already vetted.
+function(molga_text_hb_number_channel out_var prefix list_var)
+    molga_text_hb_require_separator_free(${list_var})
+    set(numbered "")
+    set(index 0)
+    foreach(entry IN LISTS ${list_var})
+        list(APPEND numbered "-D${prefix}${index}=${entry}")
+        math(EXPR index "${index} + 1")
+    endforeach()
+    list(APPEND numbered "-D${prefix}COUNT=${index}")
+    set(${out_var} "${numbered}" PARENT_SCOPE)
+endfunction()
+
+molga_text_hb_number_channel(molga_text_hb_configure_channel
+    "HARFBUZZ_CONFIGURE_ARG_" molga_text_hb_configure_args)
+molga_text_hb_number_channel(molga_text_hb_matrix_channel
+    "HARFBUZZ_CACHE_ENTRY_" MOLGA_TEXT_HARFBUZZ_CACHE_MATRIX)
+
+# ── Pinned HarfBuzz public header allowlist ───────────────────────────────────
+# Byproducts are file-level, so every consumed installed header is named to the
+# build graph individually. 33 of these install verbatim from the pinned source;
+# hb-features.h is a configure output with no source-tree authority, which is
+# why RepairHarfBuzzRawInstall.cmake pins its bytes independently instead of
+# comparing two possibly-identical-and-wrong copies to each other.
+#
+# This is the only editable copy of the list. The repair script pins the count
+# and the digest of the LF-joined manifest, so a narrower or wider definition
+# here fails loudly rather than leaving the boundary quietly repairing files the
+# build graph no longer declares.
+set(MOLGA_TEXT_HARFBUZZ_PUBLIC_HEADERS
+    hb-aat-layout.h hb-aat.h hb-blob.h hb-buffer.h hb-common.h hb-cplusplus.hh
+    hb-deprecated.h hb-draw.h hb-face.h hb-features.h hb-font.h hb-icu.h
+    hb-map.h hb-ot-color.h hb-ot-deprecated.h hb-ot-fetch.h hb-ot-font.h
+    hb-ot-layout.h hb-ot-math.h hb-ot-meta.h hb-ot-metrics.h hb-ot-name.h
+    hb-ot-shape.h hb-ot-var.h hb-ot.h hb-paint.h hb-script-list.h hb-set.h
+    hb-shape-plan.h hb-shape.h hb-style.h hb-unicode.h hb-version.h hb.h)
+
+set(molga_text_hb_installed_headers "")
+foreach(header IN LISTS MOLGA_TEXT_HARFBUZZ_PUBLIC_HEADERS)
+    list(APPEND molga_text_hb_installed_headers
+         "${molga_text_hb_raw}/include/harfbuzz/${header}")
+endforeach()
+
+# Everything both repair modes need. The generated header is produced by the
+# nested configure, so the boundary has to be able to replay that exact command
+# rather than only report that the header is wrong.
+set(molga_text_hb_repair_common
+    "-DHARFBUZZ_SOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+    "-DHARFBUZZ_DEPS_ROOT=${molga_text_deps_root}"
+    "-DHARFBUZZ_SOURCE=${molga_text_hb_source}"
+    "-DHARFBUZZ_BUILD=${molga_text_hb_build}"
+    "-DHARFBUZZ_RAW_PREFIX=${molga_text_hb_raw}"
+    # -G is not part of CMAKE_ARGS: ExternalProject appends it itself, so the
+    # replay has to be told the generator separately.
+    "-DHARFBUZZ_GENERATOR=${CMAKE_GENERATOR}"
+    ${molga_text_hb_configure_channel}
+    ${molga_text_hb_matrix_channel})
+
 # ── Nested static HarfBuzz ────────────────────────────────────────────────────
 # At the pinned commit HB_HAVE_ICU=ON deliberately splits the ICU adapter into a
 # separate libharfbuzz-icu.a; that split is merged below, never assumed away.
@@ -332,41 +487,21 @@ ExternalProject_Add(molga_text_harfbuzz_external
     UPDATE_COMMAND ""
     PATCH_COMMAND ""
     CMAKE_COMMAND ${molga_text_zero_ar} "${CMAKE_COMMAND}"
-    CMAKE_ARGS
-        "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
-        "-DCMAKE_INSTALL_PREFIX=${molga_text_hb_raw}"
-        "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-        "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-        "-DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}"
-        "-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
-        "-DBUILD_SHARED_LIBS:BOOL=OFF"
-        "-DBUILD_FRAMEWORK:BOOL=OFF"
-        "-DHB_HAVE_ICU:BOOL=ON"
-        "-DHB_HAVE_CORETEXT:BOOL=OFF"
-        "-DHB_HAVE_CAIRO:BOOL=OFF"
-        "-DHB_HAVE_FREETYPE:BOOL=OFF"
-        "-DHB_HAVE_GRAPHITE2:BOOL=OFF"
-        "-DHB_HAVE_GLIB:BOOL=OFF"
-        "-DHB_HAVE_GOBJECT:BOOL=OFF"
-        "-DHB_HAVE_INTROSPECTION:BOOL=OFF"
-        "-DHB_BUILD_UTILS:BOOL=OFF"
-        "-DHB_BUILD_SUBSET:BOOL=OFF"
-        "-DHB_BUILD_RASTER:BOOL=OFF"
-        "-DHB_BUILD_VECTOR:BOOL=OFF"
-        "-DHB_BUILD_GPU:BOOL=OFF"
-        "-DHB_BUILD_GPU_DEMO:STRING=OFF"
-        "-DCMAKE_DISABLE_FIND_PACKAGE_Python3:BOOL=ON"
-        "-DICU_INCLUDE_DIR=${molga_text_icu_raw}/include"
-        "-DICU_UC_LIBRARY_RELEASE=${molga_text_icu_composite_archive}"
-        "-DICU_UC_LIBRARY_DEBUG=${molga_text_icu_composite_archive}"
-        # Pinned HarfBuzz does not propagate these to the harfbuzz-icu target.
-        "-DCMAKE_CXX_FLAGS=-I${molga_text_icu_raw}/include -DU_STATIC_IMPLEMENTATION"
+    CMAKE_ARGS ${molga_text_hb_configure_args}
     BUILD_COMMAND ${molga_text_zero_ar} "${CMAKE_COMMAND}" --build <BINARY_DIR>
     INSTALL_COMMAND ${molga_text_zero_ar} "${CMAKE_COMMAND}" --install <BINARY_DIR>
     DEPENDS molga_text_icu_composite
+    # The build command produces exactly these two. The installed copies belong
+    # to the install step and hb-features.h to configure, so neither is listed
+    # here: a misdeclared byproduct teaches the generator the wrong producer.
     BUILD_BYPRODUCTS
         "${molga_text_hb_build}/libharfbuzz.a"
         "${molga_text_hb_build}/libharfbuzz-icu.a"
+    # The complete consumed install: two raw archives plus the 34 pinned public
+    # headers. Upstream's installed CMake export and pkg-config files are
+    # deliberately absent — nothing consumes them.
+    INSTALL_BYPRODUCTS
+        ${molga_text_hb_installed_headers}
         "${molga_text_hb_raw}/lib/libharfbuzz.a"
         "${molga_text_hb_raw}/lib/libharfbuzz-icu.a"
     USES_TERMINAL_BUILD OFF
@@ -374,12 +509,34 @@ ExternalProject_Add(molga_text_harfbuzz_external
     LOG_BUILD ON
     LOG_INSTALL ON)
 
+# src/hb-features.h is written by the nested configure, not by its build
+# command, so it cannot honestly be a BUILD_BYPRODUCTS entry. This step is its
+# real producer: it sits between configure and build, owns that one output, and
+# gives a file-level generator something to schedule when the header goes
+# missing. The always-checked wrapper below covers Make, which only touches a
+# deleted byproduct rather than remaking it.
+ExternalProject_Add_Step(molga_text_harfbuzz_external molga_harfbuzz_generated_header
+    COMMAND "${CMAKE_COMMAND}"
+        "-DMODE=GENERATED_HEADER_PREBUILD"
+        ${molga_text_hb_repair_common}
+        -P "${CMAKE_SOURCE_DIR}/cmake/RepairHarfBuzzRawInstall.cmake"
+    DEPENDEES configure
+    DEPENDERS build
+    DEPENDS "${molga_text_hb_source}/src/hb-features.h.in"
+            "${CMAKE_SOURCE_DIR}/cmake/RepairHarfBuzzRawInstall.cmake"
+            "${CMAKE_SOURCE_DIR}/cmake/TextArchiveTools.cmake"
+    BYPRODUCTS "${molga_text_hb_build}/src/hb-features.h"
+    COMMENT "Checking the generated HarfBuzz feature header")
+
+# Make does not reliably rerun an ExternalProject step when only a byproduct is
+# deleted, so the consumed set is revalidated by an always-checked wrapper.
 add_custom_target(molga_text_harfbuzz_raw_install ALL
     COMMAND "${CMAKE_COMMAND}"
         "-DMODE=RAW_INSTALL_WRAPPER"
-        "-DHARFBUZZ_SOURCE=${molga_text_hb_source}"
-        "-DHARFBUZZ_BUILD=${molga_text_hb_build}"
-        "-DHARFBUZZ_RAW_PREFIX=${molga_text_hb_raw}"
+        ${molga_text_hb_repair_common}
+        # The wrapper is the only mode with an install to check, so it is the
+        # only one handed the allowlist; the pre-build step rejects it.
+        "-DHARFBUZZ_PUBLIC_HEADERS=${MOLGA_TEXT_HARFBUZZ_PUBLIC_HEADERS}"
         -P "${CMAKE_SOURCE_DIR}/cmake/RepairHarfBuzzRawInstall.cmake"
     DEPENDS molga_text_harfbuzz_external
     COMMENT "Validating the nested HarfBuzz raw install"
