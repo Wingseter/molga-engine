@@ -8,18 +8,18 @@
 // targets that close that hole, and these cases are the evidence that they do.
 // Running any of them under Ninja would prove nothing.
 //
-// Split out of test_text_dependencies.cpp: same executable, same six
-// target-scoped provenance macros, but the minutes-long cases are kept away
-// from the seconds-long ones.
+// Every case here deletes or corrupts something and then requires the wrapper
+// to put it back. The one case that asserts about the nested build without
+// breaking anything lives in text_harfbuzz_host_resolution.cpp, because it is
+// generator-independent and does not belong to this claim.
 
+#include "text_dependency_authorities.h"
 #include "text_dependency_test_support.h"
+#include "text_recovery_tree.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cstddef>
 #include <filesystem>
-#include <iostream>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,96 +30,6 @@
 using namespace molga::text_test;
 
 namespace {
-
-// ── Make-generator recovery harness ───────────────────────────────────────────
-// The nested ICU install flattens both public header directories into one, and
-// the pinned submodule fixes how many files that is; TextDependencies.cmake
-// fails the configure if the count ever drifts from this.
-constexpr int kIcuInstalledHeaderCount = 203;
-
-std::string CMakeCacheEntry(const std::filesystem::path& tree,
-                            const std::string& key) {
-    std::ifstream cache(tree / "CMakeCache.txt");
-    REQUIRE_MESSAGE(cache.good(), (tree / "CMakeCache.txt").string());
-    const std::string prefix = key + "=";
-    std::string line;
-    while (std::getline(cache, line)) {
-        if (line.rfind(prefix, 0) == 0) return line.substr(prefix.size());
-    }
-    return {};
-}
-
-// A run killed by a ctest timeout, a Ctrl-C, or a cancelled CI job never
-// reaches its own cleanup, and nothing else collects what it left: `make clean`
-// does not descend into a nested tree, and each one carries a complete nested
-// ICU build. Sweeping every sibling of this slug also clears this pid's own
-// slot, so the caller does not need to.
-//
-// This assumes one recovery run at a time per slug. RUN_SERIAL covers
-// ctest-against-ctest, but a developer starting this binary by hand beside a
-// running ctest will have their sweep delete the other run's in-flight tree and
-// kill it mid-build. Accepted deliberately: the casualty is a throwaway tree,
-// and pid-liveness checking would cost more than the leak it prevents.
-void RemoveStaleTrees(const std::string& slug) {
-    const std::string prefix = slug + "-";
-    // Every match is collected before any is removed: unlinking entries while
-    // readdir is still walking the same directory can skip siblings, which
-    // would silently leave exactly the leak this is here to collect.
-    std::vector<std::filesystem::path> stale;
-    for (const auto& entry : std::filesystem::directory_iterator(BinaryRoot())) {
-        if (entry.path().filename().string().rfind(prefix, 0) == 0) {
-            stale.push_back(entry.path());
-        }
-    }
-    for (const auto& leaked : stale) {
-        // Guarded on the resolved path but removed by the entry itself.
-        // remove_all follows a symlink, so a link named with this prefix would
-        // resolve to something that passes both guards and then destroy the
-        // real directory it points at; unlinking the entry removes the link.
-        // directory_iterator already guarantees it is a direct child here, so
-        // resolution is what introduces the escape, not what prevents it.
-        const auto resolved = std::filesystem::weakly_canonical(leaked);
-        REQUIRE_MESSAGE(PathIsUnder(resolved, BinaryRoot()), resolved.string());
-        REQUIRE(resolved != std::filesystem::weakly_canonical(BinaryRoot()));
-        std::filesystem::remove_all(leaked);
-    }
-}
-
-// A throwaway full build tree pinned to the generator whose byproduct handling
-// this file has to prove things about. The slug is a parameter only so the
-// sweep above and the tree name cannot disagree; every case in this file shares
-// one tree through SharedRecoveryTree() below, because a second slug would mean
-// paying the configure and the whole nested ICU build again.
-std::filesystem::path ConfigureUnixMakefilesTree(const std::string& slug) {
-    const auto tree = BinaryRoot() / (slug + "-" + std::to_string(::getpid()));
-    REQUIRE(PathIsUnder(tree, BinaryRoot()));
-    RemoveStaleTrees(slug);
-    std::filesystem::create_directories(tree);
-
-    REQUIRE(RunWithoutShell({MOLGA_CMAKE_COMMAND,
-                             "-S", MOLGA_SOURCE_DIR,
-                             "-B", tree.string(),
-                             "-G", "Unix Makefiles",
-                             "-DCMAKE_BUILD_TYPE=Debug",
-                             // box2d is the one dependency the project fetches
-                             // over the network, and a virgin binary dir would
-                             // re-clone it. Point it at the checkout this build
-                             // tree already has so an offline run — or a GitHub
-                             // outage — cannot fail a proof about ICU.
-                             "-DFETCHCONTENT_SOURCE_DIR_BOX2D=" +
-                                 (BinaryRoot() / "_deps/box2d-src").string()}) == 0);
-
-    // Ninja gives every declared byproduct a real file-level rule, so the
-    // repair path under test would never be reached. A tree that silently came
-    // up on another generator voids the proof rather than weakening it.
-    REQUIRE(CMakeCacheEntry(tree, "CMAKE_GENERATOR:INTERNAL") == "Unix Makefiles");
-    return tree;
-}
-
-int BuildTreeTarget(const std::filesystem::path& tree, const std::string& target) {
-    return RunWithoutShell(
-        {MOLGA_CMAKE_COMMAND, "--build", tree.string(), "--target", target});
-}
 
 // RunWithoutShell inherits this process's stdout, which is what puts a failing
 // build's output straight into the ctest log, and several callers depend on
@@ -159,23 +69,6 @@ int RunCapturingOutput(const std::vector<std::string>& argv,
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
-std::vector<std::string> ReadLines(const std::filesystem::path& path) {
-    std::ifstream input(path);
-    REQUIRE_MESSAGE(input.good(), path.string());
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(input, line)) {
-        // Trailing whitespace would defeat the suffix matching below, and a
-        // build tool's progress line is not a place to be precious about it.
-        while (!line.empty() &&
-               std::isspace(static_cast<unsigned char>(line.back()))) {
-            line.pop_back();
-        }
-        lines.push_back(line);
-    }
-    return lines;
-}
-
 bool LogHasLineContaining(const std::vector<std::string>& lines,
                           const std::string& token) {
     return std::any_of(lines.begin(), lines.end(), [&](const std::string& line) {
@@ -192,6 +85,10 @@ bool LogHasLineEndingWith(const std::vector<std::string>& lines,
         return line.size() >= suffix.size() &&
                line.compare(line.size() - suffix.size(), suffix.size(), suffix) == 0;
     });
+}
+
+std::filesystem::path HbLogDir(const std::filesystem::path& tree) {
+    return tree / "make-recovery-logs";
 }
 
 // Deleting build output is the whole method here, so every path is resolved and
@@ -220,365 +117,6 @@ void WriteFileUnder(const std::filesystem::path& target,
     WriteFileBytes(resolved, bytes);
 }
 
-// ── One shared tree for every case in this file ──────────────────────────────
-constexpr char kRecoveryTreeSlug[] = "text-make-recovery";
-
-// The configure is about a minute and the nested ICU build about three more, so
-// a tree per case would multiply four minutes by the number of proofs. One tree
-// is shared instead, which imposes the rule that every case must leave it
-// verified-good — which is also what makes the cases order-independent.
-struct SharedTreeHolder {
-    std::filesystem::path path;
-    // Pessimistic. A case that trips a REQUIRE never reaches its own
-    // MarkSharedTreeVerified, so the tree survives for inspection; minutes to
-    // reproduce a failure is exactly the cost this is here to avoid paying
-    // twice. Every assertion in these cases is therefore a REQUIRE: a bare
-    // CHECK would fail the run and still let the case fall through to the mark.
-    bool retain = true;
-
-    ~SharedTreeHolder() {
-        if (path.empty()) return;
-        if (retain) {
-            std::cerr << "retained make-recovery tree for inspection: "
-                      << path.string() << "\n";
-            return;
-        }
-        std::filesystem::remove_all(path);
-    }
-};
-
-SharedTreeHolder& SharedTreeState() {
-    static SharedTreeHolder holder;
-    return holder;
-}
-
-const std::filesystem::path& SharedRecoveryTree() {
-    SharedTreeHolder& holder = SharedTreeState();
-    if (holder.path.empty()) {
-        holder.path = ConfigureUnixMakefilesTree(kRecoveryTreeSlug);
-        MESSAGE("Make-generator recovery tree: " << holder.path.string());
-        // Bring it to the state every case starts from. The HarfBuzz wrapper
-        // pulls the whole ICU chain behind it, so this one build also leaves
-        // the ICU case's first build a no-op.
-        REQUIRE(BuildTreeTarget(holder.path, "molga_text_harfbuzz_raw_install") == 0);
-    }
-    holder.retain = true;
-    return holder.path;
-}
-
-void MarkSharedTreeVerified() { SharedTreeState().retain = false; }
-
-// The wrapper's own postcondition for ICU: every consumed installed file equals
-// the authority it was copied from — archives from the build tree, headers from
-// the clean pinned source. Re-checked after each repair so restoring the deleted
-// file by disturbing a sibling still fails.
-void RequireRawInstallMatchesAuthorities(const std::filesystem::path& tree) {
-    const auto icuBuild = tree / "text-dependencies/icu-build";
-    const auto icuRaw = tree / "text-dependencies/icu-raw";
-    for (const char* archive : {"libicuuc.a", "libicui18n.a"}) {
-        REQUIRE_MESSAGE(RequiredSha256File(icuRaw / "lib" / archive) ==
-                            RequiredSha256File(icuBuild / "lib" / archive),
-                        archive);
-    }
-    REQUIRE(RequiredSha256File(icuRaw / "include/unicode/utypes.h") ==
-            RequiredSha256File(SourceRoot() /
-                               "external/icu/icu4c/source/common/unicode/utypes.h"));
-
-    int installed = 0;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(icuRaw / "include/unicode")) {
-        if (entry.is_regular_file()) ++installed;
-    }
-    REQUIRE(installed == kIcuInstalledHeaderCount);
-}
-
-// ── Step 4a.1: the raw HarfBuzz install ──────────────────────────────────────
-// hb-features.h is written by the nested configure, so unlike the other 33
-// public headers it has no source-tree authority to answer to.
-// RepairHarfBuzzRawInstall.cmake pins its bytes independently, and this is the
-// same pin stated where the build cannot supply it: a boundary checked only
-// against the values the build hands it agrees with any build at all.
-constexpr char kGeneratedHeaderSha256[] =
-    "b9f5b0184edfab48fa3953f3b5fe8f72f72db0c08ebf6ccfc2541451c8bbc597";
-
-constexpr int kHarfBuzzInstalledHeaderCount = 34;
-
-std::filesystem::path HbBuildDir(const std::filesystem::path& tree) {
-    return tree / "text-dependencies/harfbuzz-build";
-}
-std::filesystem::path HbRawDir(const std::filesystem::path& tree) {
-    return tree / "text-dependencies/harfbuzz-raw";
-}
-std::filesystem::path HbGeneratedHeader(const std::filesystem::path& tree) {
-    return HbBuildDir(tree) / "src/hb-features.h";
-}
-std::filesystem::path HbInstalledHeader(const std::filesystem::path& tree,
-                                        const std::string& name) {
-    return HbRawDir(tree) / "include/harfbuzz" / name;
-}
-std::filesystem::path HbLogDir(const std::filesystem::path& tree) {
-    return tree / "make-recovery-logs";
-}
-
-// The two build-tree archives, in the order the repair boundary names them.
-const std::vector<std::string>& HbArchiveNames() {
-    static const std::vector<std::string> names = {"libharfbuzz.a", "libharfbuzz-icu.a"};
-    return names;
-}
-
-std::vector<std::string> HbBuildArchiveDigests(const std::filesystem::path& tree) {
-    std::vector<std::string> digests;
-    for (const auto& name : HbArchiveNames()) {
-        digests.push_back(RequiredSha256File(HbBuildDir(tree) / name));
-    }
-    return digests;
-}
-
-// The complete Step 4 cache matrix, plus the three configure values that are
-// part of the same one argument vector without being matrix entries.
-// TextDependencies.cmake hands the boundary that matrix, so the boundary alone
-// can only ever prove "the cache matches what I was given"; stating it here,
-// independently of the build, is what makes it "the cache matches what Step 4
-// pins". The toolchain half of the vector is deliberately absent — compiler,
-// SDK and deployment target are host provenance, not something to pin.
-std::vector<std::string> PinnedNestedCacheLines(const std::filesystem::path& tree) {
-    const std::string deps = (tree / "text-dependencies").string();
-    return {
-        "BUILD_SHARED_LIBS:BOOL=OFF",
-        "BUILD_FRAMEWORK:BOOL=OFF",
-        "HB_HAVE_ICU:BOOL=ON",
-        "HB_HAVE_CORETEXT:BOOL=OFF",
-        "HB_HAVE_CAIRO:BOOL=OFF",
-        "HB_HAVE_FREETYPE:BOOL=OFF",
-        "HB_HAVE_GRAPHITE2:BOOL=OFF",
-        "HB_HAVE_GLIB:BOOL=OFF",
-        "HB_HAVE_GOBJECT:BOOL=OFF",
-        "HB_HAVE_INTROSPECTION:BOOL=OFF",
-        "HB_BUILD_UTILS:BOOL=OFF",
-        "HB_BUILD_SUBSET:BOOL=OFF",
-        "HB_BUILD_RASTER:BOOL=OFF",
-        "HB_BUILD_VECTOR:BOOL=OFF",
-        "HB_BUILD_GPU:BOOL=OFF",
-        // Upstream declares this one STRING rather than BOOL, and the pin is on
-        // the whole typed line, so a silent retype is a mismatch here too.
-        "HB_BUILD_GPU_DEMO:STRING=OFF",
-        "CMAKE_DISABLE_FIND_PACKAGE_Python3:BOOL=ON",
-        "ICU_INCLUDE_DIR:PATH=" + deps + "/icu-raw/include",
-        "ICU_UC_LIBRARY_RELEASE:FILEPATH=" + deps + "/icu/lib/libicuuc.a",
-        "ICU_UC_LIBRARY_DEBUG:FILEPATH=" + deps + "/icu/lib/libicuuc.a",
-        "CMAKE_BUILD_TYPE:STRING=Debug",
-        "CMAKE_INSTALL_PREFIX:PATH=" + deps + "/harfbuzz-raw",
-        // Pinned HarfBuzz propagates neither the nested ICU include root nor
-        // U_STATIC_IMPLEMENTATION to its harfbuzz-icu target, which is the whole
-        // reason this flag string is part of the configure command.
-        "CMAKE_CXX_FLAGS:STRING=-I" + deps +
-            "/icu-raw/include -DU_STATIC_IMPLEMENTATION",
-    };
-}
-
-void RequireNestedCacheMatrix(const std::filesystem::path& tree) {
-    const auto lines = ReadLines(HbBuildDir(tree) / "CMakeCache.txt");
-    REQUIRE_FALSE(lines.empty());
-    for (const auto& expected : PinnedNestedCacheLines(tree)) {
-        INFO("pinned nested cache line " << expected);
-        REQUIRE(std::find(lines.begin(), lines.end(), expected) != lines.end());
-    }
-}
-
-// The wrapper's postcondition for HarfBuzz: the two installed archives equal
-// the build-tree archives beside them, the 33 verbatim headers equal the clean
-// pinned submodule, and the generated header equals the independent pin in both
-// of its copies. Nothing here is ever compared against another installed copy.
-void RequireHarfBuzzInstallMatchesAuthorities(const std::filesystem::path& tree) {
-    const auto build = HbBuildDir(tree);
-    const auto raw = HbRawDir(tree);
-    for (const auto& name : HbArchiveNames()) {
-        INFO("installed archive " << name);
-        REQUIRE(std::filesystem::is_regular_file(raw / "lib" / name));
-        REQUIRE(RequiredSha256File(raw / "lib" / name) ==
-                RequiredSha256File(build / name));
-    }
-    REQUIRE(RequiredSha256File(HbGeneratedHeader(tree)) == kGeneratedHeaderSha256);
-
-    int headers = 0;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(raw / "include/harfbuzz")) {
-        const std::string name = entry.path().filename().string();
-        INFO("installed header " << name);
-        // A symlink would hash-match its authority while pointing consumers at
-        // bytes outside the nested prefix, so it is not an installed header.
-        REQUIRE_FALSE(entry.is_symlink());
-        REQUIRE(entry.is_regular_file());
-        const std::string expected =
-            name == "hb-features.h"
-                ? std::string(kGeneratedHeaderSha256)
-                : RequiredSha256File(SourceRoot() / "external/harfbuzz/src" / name);
-        REQUIRE(RequiredSha256File(entry.path()) == expected);
-        ++headers;
-    }
-    REQUIRE(headers == kHarfBuzzInstalledHeaderCount);
-}
-
-// What every case must be able to say about the tree when it hands it on.
-void RequireHarfBuzzTreeVerified(const std::filesystem::path& tree) {
-    RequireNestedCacheMatrix(tree);
-    RequireHarfBuzzInstallMatchesAuthorities(tree);
-}
-
-// ── No host dependency resolution ────────────────────────────────────────────
-// The plan's ruling, implemented literally: the configured CMake, compiler,
-// SDK, ar, ranlib and nm paths are how the host toolchain is recorded, not a
-// dependency that leaked in. So a Homebrew CMake is provenance while a Homebrew
-// include directory is a finding. This set is the exemption, so a new entry
-// nobody anticipated fails loudly rather than slipping through.
-const std::set<std::string>& ToolchainProvenanceCacheEntries() {
-    static const std::set<std::string> entries = {
-        "CMAKE_ADDR2LINE", "CMAKE_AR", "CMAKE_COMMAND", "CMAKE_CPACK_COMMAND",
-        "CMAKE_CTEST_COMMAND", "CMAKE_C_COMPILER", "CMAKE_C_COMPILER_AR",
-        "CMAKE_C_COMPILER_RANLIB", "CMAKE_CXX_COMPILER", "CMAKE_CXX_COMPILER_AR",
-        "CMAKE_CXX_COMPILER_RANLIB", "CMAKE_DLLTOOL", "CMAKE_EDIT_COMMAND",
-        "CMAKE_INSTALL_NAME_TOOL", "CMAKE_LINKER", "CMAKE_MAKE_PROGRAM",
-        "CMAKE_MT", "CMAKE_NM", "CMAKE_OBJCOPY", "CMAKE_OBJDUMP",
-        "CMAKE_OSX_SYSROOT", "CMAKE_RANLIB", "CMAKE_READELF", "CMAKE_ROOT",
-        "CMAKE_STRIP", "CMAKE_TAPI", "CMAKE_UNAME"};
-    return entries;
-}
-
-std::string ToLower(std::string text) {
-    for (char& character : text) {
-        character = static_cast<char>(
-            std::tolower(static_cast<unsigned char>(character)));
-    }
-    return text;
-}
-
-// ';' separates CMake list values and '[' ']' bracket FindPackage's recorded
-// details; without them two adjacent absolute paths arrive as one word.
-std::vector<std::string> SplitWords(const std::string& text) {
-    static const std::string kDelimiters = " \t\r\n;[]\"'";
-    std::vector<std::string> words;
-    std::size_t start = 0;
-    while (start < text.size()) {
-        const auto end = text.find_first_of(kDelimiters, start);
-        if (end == std::string::npos) {
-            words.push_back(text.substr(start));
-            break;
-        }
-        if (end > start) words.push_back(text.substr(start, end - start));
-        start = end + 1;
-    }
-    return words;
-}
-
-// One word naming an absolute path: either the word itself starts with '/', or
-// it is a compiler flag with the path glued on. A word such as
-// CMakeFiles/harfbuzz-icu.dir/src/hb-icu.cc.o is deliberately not one — taking
-// everything from its first '/' would manufacture "/harfbuzz-icu.dir/..." and
-// the ICU containment rule below would then reject a relative object path.
-bool AbsolutePathToken(const std::string& word, std::string* out) {
-    if (!word.empty() && word.front() == '/') {
-        *out = word;
-        return true;
-    }
-    for (const char* flag : {"-isystem", "-iframework", "-isysroot",
-                             "--sysroot=", "-I", "-L", "-F"}) {
-        const std::string prefix(flag);
-        if (word.size() > prefix.size() &&
-            word.compare(0, prefix.size(), prefix) == 0 &&
-            word[prefix.size()] == '/') {
-            *out = word.substr(prefix.size());
-            return true;
-        }
-    }
-    return false;
-}
-
-// The five things the plan forbids the nested build from resolving, applied one
-// word at a time so a single exempt word — the archiver at the head of a link
-// line, say — does not exempt everything beside it.
-void CollectHostResolution(const std::string& origin, const std::string& word,
-                           bool toolchainProvenance,
-                           const std::filesystem::path& tree,
-                           std::vector<std::string>& findings) {
-    const std::string lowered = ToLower(word);
-    // CoreText and FreeType are optional backends pinned OFF. Their names
-    // appear in cache entry names and in upstream's doc comments, neither of
-    // which is scanned; a *value* naming either is a backend that resolved.
-    for (const char* forbidden : {"coretext", "freetype"}) {
-        if (lowered.find(forbidden) != std::string::npos) {
-            findings.push_back(origin + ": " + forbidden + " in " + word);
-        }
-    }
-    if (!toolchainProvenance) {
-        for (const char* forbidden : {"/opt/homebrew", "/usr/local"}) {
-            if (lowered.find(forbidden) != std::string::npos) {
-                findings.push_back(origin + ": " + forbidden + " in " + word);
-            }
-        }
-    }
-    std::string token;
-    if (!AbsolutePathToken(word, &token)) return;
-    if (ToLower(token).find("icu") == std::string::npos) return;
-    // A resolved ICU path is expected — HB_HAVE_ICU is ON. A resolved ICU path
-    // outside this tree is the system installation the vendoring exists to
-    // avoid, which is what "no system ICU" actually means here.
-    if (!PathIsUnder(token, tree)) {
-        findings.push_back(origin + ": ICU outside the tree: " + token);
-    }
-}
-
-void CollectFromNestedCache(const std::filesystem::path& tree,
-                            std::vector<std::string>& findings) {
-    for (const auto& line : ReadLines(HbBuildDir(tree) / "CMakeCache.txt")) {
-        if (line.empty() || line.front() == '#' || line.rfind("//", 0) == 0) continue;
-        const auto separator = line.find('=');
-        if (separator == std::string::npos) continue;
-        const std::string typedName = line.substr(0, separator);
-        const std::string value = line.substr(separator + 1);
-        const std::string name = typedName.substr(0, typedName.find(':'));
-        const bool provenance = ToolchainProvenanceCacheEntries().count(name) != 0;
-        for (const auto& word : SplitWords(value)) {
-            CollectHostResolution("cache " + typedName, word, provenance, tree,
-                                  findings);
-        }
-    }
-}
-
-void CollectFromGeneratedArguments(const std::filesystem::path& tree,
-                                   std::vector<std::string>& findings) {
-    for (const char* target : {"harfbuzz.dir", "harfbuzz-icu.dir"}) {
-        for (const char* file : {"flags.make", "link.txt"}) {
-            const auto path = HbBuildDir(tree) / "CMakeFiles" / target / file;
-            // A generator layout change that moved these would otherwise leave
-            // this case scanning nothing and reporting success.
-            REQUIRE_MESSAGE(std::filesystem::is_regular_file(path), path.string());
-            const bool linkLine = std::string(file) == "link.txt";
-            for (const auto& line : ReadLines(path)) {
-                if (line.empty() || line.front() == '#') continue;
-                const auto words = SplitWords(line);
-                for (std::size_t i = 0; i < words.size(); ++i) {
-                    // The archiver invoked at the head of a link line, and the
-                    // SDK that follows -isysroot, are the host toolchain the
-                    // plan rules legitimate. Everything else on the line is a
-                    // dependency the nested configure resolved.
-                    const bool provenance =
-                        (linkLine && i == 0) ||
-                        (i > 0 && (words[i - 1] == "-isysroot" ||
-                                   words[i - 1] == "--sysroot"));
-                    CollectHostResolution(path.string(), words[i], provenance,
-                                          tree, findings);
-                }
-            }
-        }
-    }
-}
-
-std::string JoinLines(const std::vector<std::string>& lines) {
-    std::string joined;
-    for (const auto& line : lines) joined += "\n  " + line;
-    return joined;
-}
-
 }  // namespace
 
 // Step 3.1b: the raw-ICU repair wrapper, proved under the generator it exists
@@ -599,7 +137,7 @@ TEST_CASE("make generator recovery repairs every deleted raw ICU install output"
     // Only the wrapper and its ExternalProject dependency, never `all`: the
     // point is what one target's rebuild restores on its own.
     REQUIRE(BuildTreeTarget(tree, "molga_text_icu_raw_install") == 0);
-    RequireRawInstallMatchesAuthorities(tree);
+    RequireIcuRawInstallMatchesAuthorities(tree);
 
     const auto icuBuild = tree / "text-dependencies/icu-build";
     const auto icuRaw = tree / "text-dependencies/icu-raw";
@@ -614,7 +152,7 @@ TEST_CASE("make generator recovery repairs every deleted raw ICU install output"
     // are the bytes that were there: a repair that rebuilds something different
     // would silently republish a different archive downstream.
     for (const auto& victim : buildOutputs) {
-        // RequireRawInstallMatchesAuthorities runs at eight call sites and
+        // RequireIcuRawInstallMatchesAuthorities runs at eight call sites and
         // compares bare 64-hex strings. doctest's context scopes are stack
         // based and propagate into callees, so this names the failing repair
         // instead of leaving CI pointing at a helper line.
@@ -635,7 +173,7 @@ TEST_CASE("make generator recovery repairs every deleted raw ICU install output"
             REQUIRE_MESSAGE(RequiredSha256File(restored) == before[i],
                             (victim + " -> " + buildOutputs[i]));
         }
-        RequireRawInstallMatchesAuthorities(tree);
+        RequireIcuRawInstallMatchesAuthorities(tree);
     }
 
     // Phase B. The installed tree is what consumers actually read, and it is
@@ -661,7 +199,7 @@ TEST_CASE("make generator recovery repairs every deleted raw ICU install output"
         const auto repaired = icuRaw / relative;
         REQUIRE_MESSAGE(std::filesystem::is_regular_file(repaired), relative);
         REQUIRE_MESSAGE(RequiredSha256File(repaired) == expected, relative);
-        RequireRawInstallMatchesAuthorities(tree);
+        RequireIcuRawInstallMatchesAuthorities(tree);
     }
 
     // The HarfBuzz cases run against this same tree, so the ICU repairs must
@@ -859,42 +397,6 @@ TEST_CASE("make generator recovery restores a deleted transitive HarfBuzz header
     REQUIRE(HbBuildArchiveDigests(tree) == archivesBefore);
 
     RequireHarfBuzzTreeVerified(tree);
-    MarkSharedTreeVerified();
-}
-
-// Step 4a.1 case D. The vendoring exists so that nothing in the text stack
-// resolves a host installation, and the nested HarfBuzz configure is the one
-// place with a find_package call that could. This reads what that configure
-// actually decided — its cache, and the compile and link arguments it generated
-// for both archive targets — rather than what the build was asked for.
-TEST_CASE("nested HarfBuzz resolves no host dependency" * doctest::skip()) {
-    const auto& tree = SharedRecoveryTree();
-    RequireHarfBuzzTreeVerified(tree);
-
-    // The plan's Expected list: both raw archives and all 34 headers below the
-    // nested prefix. RequireHarfBuzzInstallMatchesAuthorities already proved
-    // their bytes; this is the containment half of the same claim.
-    for (const auto& name : HbArchiveNames()) {
-        INFO("installed archive " << name);
-        REQUIRE(PathIsUnder(HbRawDir(tree) / "lib" / name, tree));
-    }
-    int headers = 0;
-    for (const auto& entry :
-         std::filesystem::directory_iterator(HbRawDir(tree) / "include/harfbuzz")) {
-        INFO("installed header " << entry.path().string());
-        REQUIRE(PathIsUnder(entry.path(), tree));
-        ++headers;
-    }
-    REQUIRE(headers == kHarfBuzzInstalledHeaderCount);
-
-    // Collected rather than asserted one at a time: a configuration that
-    // resolved a host installation usually does it in several places at once,
-    // and finding them one rerun at a time costs minutes each.
-    std::vector<std::string> findings;
-    CollectFromNestedCache(tree, findings);
-    CollectFromGeneratedArguments(tree, findings);
-    REQUIRE_MESSAGE(findings.empty(), JoinLines(findings));
-
     MarkSharedTreeVerified();
 }
 

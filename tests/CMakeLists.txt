@@ -48,7 +48,11 @@ molga_add_test(test_text_dependencies test_text_dependencies.cpp)
 # so text_make_recovery.cpp inherits all six provenance macros from the single
 # molga_attach_text_provenance_test call below — which hard-fails for any target
 # name but this one, so a second executable is not an option here.
-target_sources(test_text_dependencies PRIVATE text_make_recovery.cpp)
+target_sources(test_text_dependencies PRIVATE
+    text_dependency_authorities.cpp
+    text_recovery_tree.cpp
+    text_make_recovery.cpp
+    text_harfbuzz_host_resolution.cpp)
 molga_attach_text_provenance_test(test_text_dependencies)
 
 # Step 3.1b: the raw-ICU repair wrapper only has a job to do under the Make

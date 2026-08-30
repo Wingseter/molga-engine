@@ -1,20 +1,22 @@
 #pragma once
 
-// Helpers shared by the two translation units of test_text_dependencies:
-// test_text_dependencies.cpp (the fast provenance cases) and
-// text_make_recovery.cpp (the heavy generator-recovery proofs).
+// Helpers shared by the translation units of test_text_dependencies:
+// test_text_dependencies.cpp (the fast provenance cases), text_make_recovery.cpp
+// (the generator-recovery proofs), text_harfbuzz_host_resolution.cpp, and the
+// text_dependency_authorities / text_recovery_tree pairs behind them.
 //
 // The six machine-local provenance macros are attached with
-// target_compile_definitions, so they are target-scoped and both translation
-// units see them; molga_attach_text_provenance_test stays the single caller
-// and test_text_dependencies stays the single target it accepts.
+// target_compile_definitions, so they are target-scoped and every translation
+// unit sees them; molga_attach_text_provenance_test stays the single caller and
+// test_text_dependencies stays the single target it accepts.
 //
-// Only what both files need lives here. Anything one file alone uses stays in
-// that file, so this header does not slowly become the place every helper
-// goes.
+// Only what more than one of those needs lives here. Anything one file alone
+// uses stays in that file, so this header does not slowly become the place
+// every helper goes.
 
 #include "doctest.h"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -60,6 +62,24 @@ inline std::string RequiredSha256File(const std::filesystem::path& path) {
     REQUIRE(digest.size() == 64);
     REQUIRE(digest.find_first_not_of("0123456789abcdef") == std::string::npos);
     return digest;
+}
+
+inline std::vector<std::string> ReadLines(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    REQUIRE_MESSAGE(input.good(), path.string());
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(input, line)) {
+        // Trailing whitespace would defeat suffix matching on build-log lines,
+        // and a build tool's progress output is not a place to be precious
+        // about it.
+        while (!line.empty() &&
+               std::isspace(static_cast<unsigned char>(line.back()))) {
+            line.pop_back();
+        }
+        lines.push_back(line);
+    }
+    return lines;
 }
 
 inline std::string ReadFileBytes(const std::filesystem::path& path) {
