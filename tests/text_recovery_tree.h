@@ -16,9 +16,11 @@
 namespace molga::text_test {
 
 // The one configured tree, brought to a verified-good state on first use.
-// Exactly one call per test case: the holder counts acquisitions against marks
-// to decide whether the tree survives the run, so a case that took the tree
-// twice would let a failure elsewhere go uncounted.
+// Exactly one call per test case, paired with exactly one MarkSharedTreeVerified:
+// the holder counts acquisitions against marks to decide whether the tree
+// survives the run. Calling this twice in a case leaves marks permanently below
+// acquisitions, so every green run then retains the tree and reports a failure
+// that did not happen; marking twice is the error that could hide a real one.
 const std::filesystem::path& SharedRecoveryTree();
 
 // The entry check, first statement of every case: the tree as this case

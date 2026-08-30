@@ -134,6 +134,14 @@ SharedTreeHolder& SharedTreeState() {
 
 const std::filesystem::path& SharedRecoveryTree() {
     SharedTreeHolder& holder = SharedTreeState();
+    // Counted before the first-use build, not after it. The build below can
+    // throw, and a tree whose own first build just failed is the most
+    // informative one there is — four minutes of it. Incrementing afterwards
+    // would leave marks == acquisitions == 0 and let the destructor delete it,
+    // which a full run masks (the next case bumps the count and fails its entry
+    // check) but `--test-case=` isolation does not. The success path is
+    // unaffected either way.
+    ++holder.acquisitions;
     if (holder.path.empty()) {
         holder.path = ConfigureUnixMakefilesTree(kRecoveryTreeSlug);
         MESSAGE("Make-generator recovery tree: " << holder.path.string());
@@ -142,7 +150,6 @@ const std::filesystem::path& SharedRecoveryTree() {
         // the ICU case's first build a no-op.
         REQUIRE(BuildTreeTarget(holder.path, "molga_text_harfbuzz_raw_install") == 0);
     }
-    ++holder.acquisitions;
     return holder.path;
 }
 

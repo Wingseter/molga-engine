@@ -44,8 +44,8 @@ target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
     MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
 molga_add_test(test_text_dependencies test_text_dependencies.cpp)
-# One executable, two translation units. Compile definitions are target-scoped,
-# so text_make_recovery.cpp inherits all six provenance macros from the single
+# One executable, five translation units. Compile definitions are target-scoped,
+# so every source added here inherits all six provenance macros from the single
 # molga_attach_text_provenance_test call below — which hard-fails for any target
 # name but this one, so a second executable is not an option here.
 target_sources(test_text_dependencies PRIVATE
