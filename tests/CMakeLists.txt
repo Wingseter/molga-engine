@@ -45,6 +45,27 @@ target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
 molga_add_test(test_text_dependencies test_text_dependencies.cpp)
 molga_attach_text_provenance_test(test_text_dependencies)
+
+# Step 3.1b: the raw-ICU repair wrapper only has a job to do under the Make
+# generator, and proving it needs a from-scratch nested ICU build in a
+# throwaway tree — minutes, not the seconds the `unit` sweep budgets. So the
+# heavy cases carry doctest's skip decorator and are reached only here, through
+# a second entry on the same executable. --no-skip lifts the decorator, and the
+# selector is the suite the cases declare themselves into rather than a prose
+# title prefix, which would couple this entry to how a case happens to be named.
+add_test(NAME test_text_make_recovery
+         COMMAND test_text_dependencies --no-skip
+                 "--test-suite=text-make-recovery")
+set_tests_properties(test_text_make_recovery PROPERTIES
+    LABELS "text-recovery"
+    RUN_SERIAL TRUE
+    TIMEOUT 1800
+    # A filter that stopped matching would leave this entry running zero test
+    # cases and still exiting 0 — a green no-op. FAIL_REGULAR_EXPRESSION is
+    # ANDed with the exit code, unlike PASS_REGULAR_EXPRESSION, which replaces
+    # it, so the exit code still decides everything else.
+    FAIL_REGULAR_EXPRESSION "test cases: +0 ")
+
 molga_add_test(test_text_runtime_dependencies test_text_runtime_dependencies.cpp)
 
 # Step 11b: standalone symbol probes. Deliberately not molga_add_test, whose
