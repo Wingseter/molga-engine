@@ -38,9 +38,12 @@
 #include "Core/PlayerPrefs.h"
 #include "Core/SmokeReport.h"
 #include "Core/EventBus.h"
+#include "Text/TextDiagnostic.h"
+#include "Text/TextRuntimeDependencies.h"
 #include "Editor/GameBuilder.h"
 #include <imgui.h>
 #include <optional>
+#include <string_view>
 
 // Settings
 const unsigned int SCR_WIDTH = 800;
@@ -162,13 +165,61 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
     return 0;
 }
 
+// ── Text runtime lifetime ────────────────────────────────────────────────────
+
+// Test-only startup seam. --text-test-return-after-services=<code> returns
+// <code> from the scoped startup function immediately after the text lifetime
+// is established, so a test can observe the unwind order without a window.
+std::optional<int> ParseTextTestReturnAfterServices(int argc, char* argv[]) {
+    static constexpr std::string_view kFlag =
+        "--text-test-return-after-services=";
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument.rfind(kFlag, 0) != 0) continue;
+        const std::string value(argument.substr(kFlag.size()));
+        try {
+            return std::stoi(value);
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
+void EmitTextLifetimeEvent(const char* event) {
+    std::cout << "MOLGA_TEXT_LIFETIME " << event << std::endl;
+}
+
+// Emits its event when destroyed, so declaration order alone fixes where the
+// event lands in the unwind sequence: a marker declared before an owner is
+// destroyed after that owner.
+class TextLifetimeScopeMarker {
+public:
+    TextLifetimeScopeMarker(bool enabled, const char* event)
+        : enabled_(enabled), event_(event) {}
+    TextLifetimeScopeMarker(const TextLifetimeScopeMarker&)            = delete;
+    TextLifetimeScopeMarker& operator=(const TextLifetimeScopeMarker&) = delete;
+    ~TextLifetimeScopeMarker() {
+        if (enabled_) EmitTextLifetimeEvent(event_);
+    }
+
+private:
+    bool        enabled_ = false;
+    const char* event_   = nullptr;
+};
+
 }  // namespace
 
-int main(int argc, char* argv[]) {
-    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
-    RegisterBuiltinComponents();
-    RegisterBuiltinScripts();
-
+// Everything after PathService::InitFromExecutable runs inside this scope. The
+// text runtime lifetime guard is declared here, ahead of every text service,
+// renderer and host handle below, so each of the returns further down unwinds
+// them in reverse and leaves the guard's u_cleanup last. std::exit, _Exit and
+// quick_exit are banned in this scope, and no text service may be owned by a
+// static: either would skip exactly the destructors this ordering depends on.
+int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
+                        int textSeamCode) {
+    // Headless packaging runs before the text lifetime: it constructs no Game
+    // View text service, so it has nothing to unwind past.
     if (argc > 1 && std::string_view(argv[1]) == "--smoke-build") {
         const auto options = ParseSmokeBuild(argc, argv);
         if (!options) {
@@ -178,6 +229,46 @@ int main(int argc, char* argv[]) {
             return 2;
         }
         return RunSmokeBuild(*options);
+    }
+
+    // The one ICU lifetime this process gets, established before any Game View
+    // text service exists. On failure the ImGui shell stays fully usable: the
+    // typed diagnostic is reported through the editor log, Game View text is
+    // marked unavailable, and no fallback text renderer is attempted.
+    molga::text::LoggerTextDiagnosticSink textDiagnostics(/*maxRememberedKeys=*/64);
+    std::optional<molga::text::TextRuntimeLifetimeGuard> textGuard =
+        molga::text::TextRuntimeLifetimeGuard::Create(
+            molga::text::TextDependencyConfig::FromEngineTextRoot(
+                PathService::Get().EngineResource("Engine/Text"),
+                /*packagedRuntime=*/false),
+            textDiagnostics);
+    if (!textGuard) {
+        // TextRuntimeDependencies::Get().IsReady() stays false for the rest of
+        // the process, and that is the availability signal every Game View text
+        // service consults before it constructs an ICU or HarfBuzz object.
+        Log::Error("text-runtime",
+                   "Game View text is unavailable: the verified Engine/Text "
+                   "pair beside the editor could not be loaded. The editor "
+                   "shell remains usable.");
+    }
+
+    // Declared after the guard, so its destructor runs immediately before the
+    // guard's and marks the instant guard shutdown begins.
+    const TextLifetimeScopeMarker textGuardShutdownMarker(
+        textSeamRequested, "runtime_guard_shutdown");
+
+    if (textSeamRequested) {
+        // Stands in for the Game View text host every later milestone declares
+        // here: a client handle that must be gone before the guard shuts down.
+        const TextLifetimeScopeMarker textHandleMarker(
+            true, "last_text_handle_destroyed");
+        std::optional<molga::text::TextRuntimeClientHandle> textClient =
+            molga::text::TextRuntimeClientHandle::Acquire();
+        if (!textClient) {
+            std::cerr << "Text runtime is not ready; no client handle\n";
+            return 6;
+        }
+        return textSeamCode;
     }
 
     // Check for project path argument
@@ -472,4 +563,26 @@ int main(int argc, char* argv[]) {
     renderer.reset();
     EngineShutdown(host);
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+    RegisterBuiltinComponents();
+    RegisterBuiltinScripts();
+
+    const std::optional<int> textSeam =
+        ParseTextTestReturnAfterServices(argc, argv);
+    const int code = RunEditorAfterPaths(argc, argv, textSeam.has_value(),
+                                         textSeam.value_or(0));
+
+    // The scoped function has returned, so the guard is destroyed. A runtime
+    // that reached ready state and is no longer ready is one whose terminal
+    // u_cleanup has already run.
+    if (textSeam) {
+        if (!molga::text::TextRuntimeDependencies::Get().IsReady()) {
+            EmitTextLifetimeEvent("u_cleanup");
+        }
+        EmitTextLifetimeEvent("process_return");
+    }
+    return code;
 }

@@ -202,6 +202,7 @@ set(ENGINE_SOURCES
     src/Core/Importers/FontImporter.cpp
     src/Core/Importers/PostProcessProfileImporter.cpp
     src/Text/TextDiagnostic.cpp
+    src/Text/TextRuntimeDependencies.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
@@ -307,6 +308,7 @@ set(EDITOR_SOURCES
 
 # ── Main editor executable ─────────────────────────────────────────────────────
 add_executable(molga_engine src/main.cpp ${EDITOR_SOURCES})
+molga_stage_text_runtime_resources(molga_engine)
 target_link_libraries(molga_engine PRIVATE molga_core imgui)
 
 add_executable(molga_migrate src/Tools/InputMigrator.cpp)
@@ -362,6 +364,7 @@ set_target_properties(molga_engine PROPERTIES ENABLE_EXPORTS ON)
 
 # ── Runtime executable ─────────────────────────────────────────────────────────
 add_executable(molga_runtime src/runtime_main.cpp)
+molga_stage_text_runtime_resources(molga_runtime)
 target_link_libraries(molga_runtime PRIVATE molga_core)
 target_link_libraries(molga_runtime PRIVATE molga_warnings)
 add_dependencies(molga_runtime molga_shader_bundle)

@@ -6,6 +6,8 @@
 #include "../Core/PackageFinalizer.h"
 #include "../Core/GameConfig.h"
 #include "../Common/Sha256.h"
+#include "../Text/TextDiagnostic.h"
+#include "../Text/TextRuntimeDependencies.h"
 #include "../Core/ProjectSettings.h"
 #include "../Platform/Process.h"
 #include "../Systems/Input.h"
@@ -488,6 +490,17 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         molga::ActiveReportSink().ReportTiming("Build: Copy placeholder resource", ms, "");
     }
 
+    // Step: Copy the verified Engine/Text pair
+    {
+        long long t0 = molga::NowNanos();
+        if (!CopyTextRuntimeResources(stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Copy text runtime resources", ms, "");
+    }
+
     // Step 5: Generate game config
     currentStep = "Generating game configuration...";
     progress = 0.7f;
@@ -820,6 +833,82 @@ bool GameBuilder::EmitAssetCatalog(const std::string& outputPath) {
         lastError = "Failed to emit asset catalog: " + std::string(e.what());
         return false;
     }
+}
+
+// The packaged runtime verifies its Engine/Text pair before it does anything
+// else and returns 4 without one, so the package has to carry it. The source is
+// the editor's own staged root — the output of StageTextRuntimeResources.cmake
+// — and never a source-tree path, never resources/text/, never the working
+// directory: an executable directory that was never resolved fails the build
+// rather than letting a relative path find something beside the caller.
+//
+// This flat executable-directory copy is the development layout. Task 16.2
+// replaces it with Contents/Resources bundle staging plus the
+// TextRuntimeManifest, and switches packaged initialization to
+// packagedRuntime=true; it should extend this seam rather than add a second
+// staging path beside it.
+//
+// Fail-closed on every branch. A silently text-less package is exactly the
+// failure this milestone exists to prevent, so there is deliberately no
+// "copy if present" degradation.
+bool GameBuilder::CopyTextRuntimeResources(const std::string& outputPath) {
+    molga::text::VectorTextDiagnosticSink diagnostics;
+    const auto fail = [&diagnostics](std::string message,
+                                     std::string remediation) {
+        molga::text::TextDiagnostic diagnostic;
+        diagnostic.code        = molga::text::TextDiagnosticCode::DependencyInvalid;
+        diagnostic.severity    = molga::text::TextSeverity::Blocker;
+        diagnostic.subsystem   = "text-packaging";
+        diagnostic.message     = std::move(message);
+        diagnostic.remediation = std::move(remediation);
+        diagnostics.Report(std::move(diagnostic));
+        return false;
+    };
+
+    try {
+        const fs::path sourceRoot =
+            PathService::Get().EngineResource("Engine/Text");
+        if (sourceRoot.empty() || !sourceRoot.is_absolute()) {
+            fail("the executable directory was never resolved, so the verified "
+                 "Engine/Text root is the relative path " + sourceRoot.string(),
+                 "call PathService::InitFromExecutable before building a package");
+        } else {
+            const fs::path contractSource =
+                sourceRoot / "text_dependency_contract.json";
+            const fs::path dataSource = sourceRoot / "icudt78l.dat";
+            if (!fs::is_regular_file(contractSource)) {
+                fail("the verified dependency contract is missing: " +
+                         contractSource.string(),
+                     "rebuild the editor so its Engine/Text staging target "
+                     "republishes the verified pair");
+            } else if (molga::text::VerifyPackagedIcuDataFile(dataSource,
+                                                              diagnostics)) {
+                const fs::path destRoot = fs::path(outputPath) / "Engine" / "Text";
+                fs::create_directories(destRoot);
+                fs::copy_file(contractSource, destRoot / contractSource.filename(),
+                              fs::copy_options::overwrite_existing);
+                fs::copy_file(dataSource, destRoot / dataSource.filename(),
+                              fs::copy_options::overwrite_existing);
+                return true;
+            }
+        }
+    } catch (const std::exception& e) {
+        fail(std::string("could not stage the packaged Engine/Text pair: ") +
+                 e.what(),
+             "rebuild the editor and retry the package build");
+    }
+
+    // The typed record is the contract; lastError is how the build surfaces it.
+    lastError.clear();
+    for (const molga::text::TextDiagnostic& diagnostic : diagnostics.Diagnostics()) {
+        if (!lastError.empty()) lastError += "; ";
+        lastError += molga::text::StableTextDiagnosticCode(diagnostic.code);
+        lastError += ": " + diagnostic.message +
+                     " (remediation: " + diagnostic.remediation + ")";
+        Log::Error(diagnostic.subsystem, lastError);
+    }
+    if (lastError.empty()) lastError = "Failed to copy text runtime resources";
+    return false;
 }
 
 bool GameBuilder::CopyPlaceholderResource(const std::string& outputPath) {

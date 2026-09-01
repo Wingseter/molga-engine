@@ -5,13 +5,25 @@
 #include "Text/TextDiagnostic.h"
 #include "doctest.h"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+extern char** environ;
 
 namespace {
 
@@ -394,5 +406,304 @@ TEST_CASE("logger sink maps every text severity onto the logger severity") {
         const std::vector<Log::LogMessage> messages = log.Messages();
         REQUIRE(messages.size() == 1);
         CHECK(messages[0].severity == logSeverity);
+    }
+}
+
+// ── Fresh-process ICU lifetime probes ────────────────────────────────────────
+// This executable never initializes ICU or HarfBuzz. A successful ICU lifetime
+// is terminal — hb_icu_get_unicode_funcs() caches ICU normalizer pointers
+// process-statically, so nothing can restart one — which is why every
+// not-ready, post-cleanup and tamper observation below is made by spawning a
+// fresh molga_text_runtime_probe child instead of stopping and restoring ICU
+// here. This parent owns the probe executable and both immutable roots; the
+// child receives them only as literal argv and derives nothing from its own
+// path or from the working directory.
+
+namespace {
+
+namespace fs = std::filesystem;
+
+// The exact schema-1 record molga_text_runtime_probe writes. A missing, extra
+// or wrongly typed key is a parse failure, never a silently defaulted field.
+struct TextRuntimeProbeReport {
+    std::string              mode;
+    bool                     firstInitialize           = false;
+    bool                     readyBeforeShutdown       = false;
+    bool                     harfbuzzIcuProbe          = false;
+    bool                     secondInitializeAttempted = false;
+    bool                     secondInitialize          = false;
+    int                      icuCallsBeforePublish     = -1;
+    int                      icuCallsAfterTerminal     = -1;
+    bool                     terminallyCleaned         = false;
+    std::vector<std::string> diagnosticCodes;
+};
+
+// The closed mode set. The parent rejects anything else before spawning, so a
+// typo cannot reach the child and be reported as a generic nonzero exit.
+const std::vector<std::string>& ProbeModes() {
+    static const std::vector<std::string> modes = {
+        "tampered-data", "nonportable-contract", "terminal-nonrestart",
+        "staged-valid",  "dev-missing-contract", "dev-tampered-data"};
+    return modes;
+}
+
+std::string ReadAllBytes(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    REQUIRE_MESSAGE(input.good(), path.string());
+    return std::string(std::istreambuf_iterator<char>(input),
+                       std::istreambuf_iterator<char>());
+}
+
+// One unique canonical directory per probe run, removed — and only it —
+// through RAII so a failing CHECK cannot leak a 33 MB copy into the temp root.
+class CallerTempRoot {
+public:
+    CallerTempRoot() {
+        static unsigned counter = 0;
+        const fs::path base = fs::canonical(fs::temp_directory_path());
+        fs::path       candidate;
+        do {
+            candidate = base / ("molga-text-runtime-probe-" +
+                                std::to_string(static_cast<long>(::getpid())) +
+                                "-" + std::to_string(counter++));
+        } while (fs::exists(candidate));
+        REQUIRE(fs::create_directory(candidate));
+        path_ = fs::canonical(candidate);
+    }
+
+    CallerTempRoot(const CallerTempRoot&)            = delete;
+    CallerTempRoot& operator=(const CallerTempRoot&) = delete;
+
+    ~CallerTempRoot() {
+        std::error_code error;
+        fs::remove_all(path_, error);
+    }
+
+    const fs::path& Path() const noexcept { return path_; }
+
+private:
+    fs::path path_;
+};
+
+struct SpawnOutcome {
+    int         exitCode = -1;
+    std::string standardOutput;
+    std::string standardError;
+};
+
+// posix_spawn with no shell: every argument reaches the child verbatim, so a
+// path containing a space or a shell metacharacter cannot change the command.
+SpawnOutcome SpawnCaptured(const std::vector<std::string>& argv,
+                           const fs::path&                 scratchRoot) {
+    const fs::path outPath = scratchRoot / "stdout.txt";
+    const fs::path errPath = scratchRoot / "stderr.txt";
+
+    posix_spawn_file_actions_t actions;
+    REQUIRE(posix_spawn_file_actions_init(&actions) == 0);
+    REQUIRE(posix_spawn_file_actions_addopen(
+                &actions, STDOUT_FILENO, outPath.c_str(),
+                O_WRONLY | O_CREAT | O_TRUNC, 0644) == 0);
+    REQUIRE(posix_spawn_file_actions_addopen(
+                &actions, STDERR_FILENO, errPath.c_str(),
+                O_WRONLY | O_CREAT | O_TRUNC, 0644) == 0);
+
+    std::vector<char*> raw;
+    raw.reserve(argv.size() + 1);
+    for (const std::string& argument : argv) {
+        raw.push_back(const_cast<char*>(argument.c_str()));
+    }
+    raw.push_back(nullptr);
+
+    SpawnOutcome outcome;
+    pid_t        pid    = 0;
+    const int    spawned = posix_spawn(&pid, raw[0], &actions, nullptr,
+                                       raw.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    REQUIRE(spawned == 0);
+
+    int status = 0;
+    REQUIRE(::waitpid(pid, &status, 0) == pid);
+    outcome.exitCode       = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    outcome.standardOutput = ReadAllBytes(outPath);
+    outcome.standardError  = ReadAllBytes(errPath);
+    return outcome;
+}
+
+TextRuntimeProbeReport ParseProbeReport(const fs::path& path,
+                                        const std::string& expectedMode) {
+    const std::string bytes = ReadAllBytes(path);
+    nlohmann::json    document = nlohmann::json::parse(bytes, nullptr, false);
+    REQUIRE_MESSAGE(!document.is_discarded(), bytes);
+    REQUIRE(document.is_object());
+    // Exact schema: the ten declared keys and nothing else.
+    REQUIRE(document.size() == 10);
+    for (const char* key : {"mode", "firstInitialize", "readyBeforeShutdown",
+                            "harfbuzzIcuProbe", "secondInitializeAttempted",
+                            "secondInitialize", "icuCallsBeforePublish",
+                            "icuCallsAfterTerminal", "terminallyCleaned",
+                            "diagnosticCodes"}) {
+        REQUIRE_MESSAGE(document.contains(key), key);
+    }
+
+    TextRuntimeProbeReport report;
+    REQUIRE(document.at("mode").is_string());
+    report.mode = document.at("mode").get<std::string>();
+    REQUIRE(report.mode == expectedMode);
+    const auto readBool = [&document](const char* key) {
+        REQUIRE_MESSAGE(document.at(key).is_boolean(), key);
+        return document.at(key).get<bool>();
+    };
+    const auto readCount = [&document](const char* key) {
+        REQUIRE_MESSAGE(document.at(key).is_number_unsigned(), key);
+        return document.at(key).get<int>();
+    };
+    report.firstInitialize           = readBool("firstInitialize");
+    report.readyBeforeShutdown       = readBool("readyBeforeShutdown");
+    report.harfbuzzIcuProbe          = readBool("harfbuzzIcuProbe");
+    report.secondInitializeAttempted = readBool("secondInitializeAttempted");
+    report.secondInitialize          = readBool("secondInitialize");
+    report.icuCallsBeforePublish     = readCount("icuCallsBeforePublish");
+    report.icuCallsAfterTerminal     = readCount("icuCallsAfterTerminal");
+    report.terminallyCleaned         = readBool("terminallyCleaned");
+    REQUIRE(document.at("diagnosticCodes").is_array());
+    for (const auto& entry : document.at("diagnosticCodes")) {
+        REQUIRE(entry.is_string());
+        report.diagnosticCodes.push_back(entry.get<std::string>());
+    }
+    return report;
+}
+
+TextRuntimeProbeReport RunTextRuntimeProbe(const std::string& mode) {
+    // The single portable-contract read this process performs. Requiring the
+    // barrier's contract bytes to equal the fixture root's staged copy is what
+    // makes the child's --fixture-root the verified pair and not just some
+    // directory that happens to hold two files with the right names.
+    const fs::path contract = fs::canonical(MOLGA_TEXT_DEPENDENCY_CONTRACT);
+    const fs::path fixtureRoot =
+        fs::canonical(MOLGA_TEXT_RUNTIME_FIXTURE_ROOT);
+    const fs::path developmentRoot =
+        fs::canonical(MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT);
+    REQUIRE(ReadAllBytes(contract) ==
+            ReadAllBytes(fixtureRoot / "text_dependency_contract.json"));
+    REQUIRE_MESSAGE(std::find(ProbeModes().begin(), ProbeModes().end(), mode) !=
+                        ProbeModes().end(),
+                    mode);
+
+    const CallerTempRoot temp;
+    const fs::path       report = temp.Path() / "probe-report.json";
+    REQUIRE_FALSE(fs::exists(report));
+
+    const SpawnOutcome outcome = SpawnCaptured(
+        {MOLGA_TEXT_RUNTIME_PROBE, "--mode", mode, "--fixture-root",
+         fixtureRoot.string(), "--development-root", developmentRoot.string(),
+         "--report", report.string()},
+        temp.Path());
+    REQUIRE_MESSAGE(outcome.exitCode == 0,
+                    (mode + " exited " + std::to_string(outcome.exitCode) +
+                     "\nstdout:\n" + outcome.standardOutput + "\nstderr:\n" +
+                     outcome.standardError));
+    return ParseProbeReport(report, mode);
+}
+
+// ── Application startup-seam unwind order ────────────────────────────────────
+
+// $<TARGET_FILE_DIR:molga_engine>/Engine/Text is the one development root this
+// target is given; the two development executables are its grandparent's
+// direct children. Deriving them here keeps the compile-definition set on this
+// target exactly the three the plan names.
+fs::path DevelopmentExecutableDir() {
+    return fs::path(MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT).parent_path().parent_path();
+}
+
+std::vector<std::string> LifetimeEvents(const std::string& standardOutput) {
+    static constexpr std::string_view kPrefix = "MOLGA_TEXT_LIFETIME ";
+    std::vector<std::string>          events;
+    std::size_t                       begin = 0;
+    while (begin < standardOutput.size()) {
+        std::size_t end = standardOutput.find('\n', begin);
+        if (end == std::string::npos) end = standardOutput.size();
+        const std::string line = standardOutput.substr(begin, end - begin);
+        if (line.rfind(kPrefix, 0) == 0) events.push_back(line.substr(kPrefix.size()));
+        begin = end + 1;
+    }
+    return events;
+}
+
+}  // namespace
+
+TEST_CASE("ICU tamper fails before publishing ready state") {
+    const auto report = RunTextRuntimeProbe("tampered-data");
+    CHECK_FALSE(report.firstInitialize);
+    CHECK_FALSE(report.readyBeforeShutdown);
+    CHECK(report.icuCallsBeforePublish == 0);
+    CHECK(report.diagnosticCodes == std::vector<std::string>{
+        "TEXT_DEPENDENCY_INVALID"});
+}
+
+TEST_CASE("nonportable dependency contract fails before every ICU call") {
+    const auto report = RunTextRuntimeProbe("nonportable-contract");
+    CHECK_FALSE(report.firstInitialize);
+    CHECK(report.icuCallsBeforePublish == 0);
+    CHECK(report.diagnosticCodes == std::vector<std::string>{
+        "TEXT_DEPENDENCY_INVALID"});
+}
+
+TEST_CASE("successful ICU and HarfBuzz lifetime cannot restart after cleanup") {
+    const auto report = RunTextRuntimeProbe("terminal-nonrestart");
+    CHECK(report.firstInitialize);
+    CHECK(report.readyBeforeShutdown);
+    CHECK(report.harfbuzzIcuProbe);
+    CHECK(report.secondInitializeAttempted);
+    CHECK_FALSE(report.secondInitialize);
+    CHECK(report.icuCallsAfterTerminal == 0);
+    CHECK(report.terminallyCleaned);
+    CHECK(report.diagnosticCodes.back() == "TEXT_DEPENDENCY_INVALID");
+}
+
+TEST_CASE("built development Engine Text root initializes exact staged pair") {
+    const auto report = RunTextRuntimeProbe("staged-valid");
+    CHECK(report.firstInitialize);
+    CHECK(report.readyBeforeShutdown);
+    CHECK(report.terminallyCleaned);
+}
+
+TEST_CASE("development Engine Text root fails closed when missing or tampered") {
+    for (const std::string mode :
+         {"dev-missing-contract", "dev-tampered-data"}) {
+        const auto report = RunTextRuntimeProbe(mode);
+        CHECK_FALSE(report.firstInitialize);
+        CHECK(report.icuCallsBeforePublish == 0);
+        CHECK(report.diagnosticCodes == std::vector<std::string>{
+            "TEXT_DEPENDENCY_INVALID"});
+    }
+}
+
+TEST_CASE("editor and runtime startup seams unwind text state in order") {
+    // The seam returns a nonzero code through the real scoped startup function.
+    // Because the guard is declared ahead of every text handle, ordinary stack
+    // unwinding destroys the last client handle first and begins guard shutdown
+    // next; by the time that function has returned the terminal u_cleanup has
+    // run, which main observes as a runtime that reached ready state and is no
+    // longer ready, and only then does the process return. A text owner
+    // declared outside the guard's scope reorders these four lines.
+    const std::vector<std::string> expected = {
+        "last_text_handle_destroyed", "runtime_guard_shutdown", "u_cleanup",
+        "process_return"};
+    const fs::path executableDir = DevelopmentExecutableDir();
+    for (const char* executable : {"molga_engine", "molga_runtime"}) {
+        for (const int code : {17, 18}) {
+            const CallerTempRoot temp;
+            const SpawnOutcome   outcome = SpawnCaptured(
+                  {(executableDir / executable).string(),
+                   "--text-test-return-after-services=" + std::to_string(code)},
+                  temp.Path());
+            const std::string context = std::string(executable) + " " +
+                                        std::to_string(code) + "\nstdout:\n" +
+                                        outcome.standardOutput + "\nstderr:\n" +
+                                        outcome.standardError;
+            REQUIRE_MESSAGE(outcome.exitCode == code, context);
+            CHECK_MESSAGE(LifetimeEvents(outcome.standardOutput) == expected,
+                          context);
+        }
     }
 }

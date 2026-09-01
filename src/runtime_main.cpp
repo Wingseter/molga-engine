@@ -53,11 +53,14 @@
 #include "Scripting/ScriptPackageLoader.h"
 #include "Rendering/FontFace.h"
 #include "Rendering/Utf8.h"
+#include "Text/TextDiagnostic.h"
+#include "Text/TextRuntimeDependencies.h"
 #include <nlohmann/json.hpp>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #if defined(__APPLE__)
@@ -628,11 +631,102 @@ PackagedPhysicsProbe ProbePackagedStagePhysics(World& world) {
     return result;
 }
 
+// ── Text runtime lifetime ────────────────────────────────────────────────────
+
+// Test-only startup seam. --text-test-return-after-services=<code> returns
+// <code> from the scoped startup function immediately after the text lifetime
+// is established, so a test can observe the unwind order without a window.
+std::optional<int> ParseTextTestReturnAfterServices(int argc, char* argv[]) {
+    static constexpr std::string_view kFlag =
+        "--text-test-return-after-services=";
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument.rfind(kFlag, 0) != 0) continue;
+        const std::string value(argument.substr(kFlag.size()));
+        try {
+            return std::stoi(value);
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+    }
+    return std::nullopt;
+}
+
+void EmitTextLifetimeEvent(const char* event) {
+    std::cout << "MOLGA_TEXT_LIFETIME " << event << std::endl;
+}
+
+// Emits its event when destroyed, so declaration order alone fixes where the
+// event lands in the unwind sequence: a marker declared before an owner is
+// destroyed after that owner.
+class TextLifetimeScopeMarker {
+public:
+    TextLifetimeScopeMarker(bool enabled, const char* event)
+        : enabled_(enabled), event_(event) {}
+    TextLifetimeScopeMarker(const TextLifetimeScopeMarker&)            = delete;
+    TextLifetimeScopeMarker& operator=(const TextLifetimeScopeMarker&) = delete;
+    ~TextLifetimeScopeMarker() {
+        if (enabled_) EmitTextLifetimeEvent(event_);
+    }
+
+private:
+    bool        enabled_ = false;
+    const char* event_   = nullptr;
+};
+
 }  // namespace
 
-int main(int argc, char* argv[]) {
-    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
-    RegisterBuiltinComponents();
+// Everything after PathService::InitFromExecutable runs inside this scope. The
+// text runtime lifetime guard is created first, ahead of SDL, the window, the
+// renderer, scripts, assets and scenes, and every one of those owners is
+// declared after it. Every return below — argument, window, renderer, script,
+// asset or scene failure — therefore unwinds them in reverse and releases all
+// text handles before guard shutdown and u_cleanup. std::exit, _Exit and
+// quick_exit are banned in this scope, and no cleanup callback may retain a
+// text resource past this function.
+int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
+                         int textSeamCode) {
+    const std::filesystem::path engineTextRoot =
+        PathService::Get().EngineResource("Engine/Text");
+    molga::text::VectorTextDiagnosticSink textDiagnostics;
+    std::optional<molga::text::TextRuntimeLifetimeGuard> textGuard =
+        molga::text::TextRuntimeLifetimeGuard::Create(
+            molga::text::TextDependencyConfig::FromEngineTextRoot(
+                engineTextRoot, /*packagedRuntime=*/false),
+            textDiagnostics);
+    if (!textGuard) {
+        for (const molga::text::TextDiagnostic& diagnostic :
+             textDiagnostics.Diagnostics()) {
+            std::cerr << molga::text::StableTextDiagnosticCode(diagnostic.code)
+                      << ": " << diagnostic.message << '\n'
+                      << "  remediation: " << diagnostic.remediation << '\n';
+        }
+        std::cerr << "  contract: "
+                  << (engineTextRoot / "text_dependency_contract.json") << '\n'
+                  << "  data: " << (engineTextRoot / "icudt78l.dat")
+                  << " (33107232 bytes, SHA-256 d5cf2a40dccbe471781ec7af85693bf"
+                     "f542ff12f0b670c9630c4e72d60714b8b)\n";
+        return 4;
+    }
+
+    // Declared after the guard, so its destructor runs immediately before the
+    // guard's and marks the instant guard shutdown begins.
+    const TextLifetimeScopeMarker textGuardShutdownMarker(
+        textSeamRequested, "runtime_guard_shutdown");
+
+    if (textSeamRequested) {
+        // Stands in for the text services every later milestone declares here:
+        // a client handle that must be gone before the guard shuts down.
+        const TextLifetimeScopeMarker textHandleMarker(
+            true, "last_text_handle_destroyed");
+        std::optional<molga::text::TextRuntimeClientHandle> textClient =
+            molga::text::TextRuntimeClientHandle::Acquire();
+        if (!textClient) {
+            std::cerr << "Text runtime is not ready; no client handle\n";
+            return 6;
+        }
+        return textSeamCode;
+    }
 
     const auto smoke = ParseRuntimeSmoke(argc, argv);
     if (!smoke) {
@@ -1319,4 +1413,25 @@ int main(int argc, char* argv[]) {
     EngineShutdown(host);
 
     return exitCode;
+}
+
+int main(int argc, char* argv[]) {
+    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+    RegisterBuiltinComponents();
+
+    const std::optional<int> textSeam =
+        ParseTextTestReturnAfterServices(argc, argv);
+    const int code = RunRuntimeAfterPaths(argc, argv, textSeam.has_value(),
+                                          textSeam.value_or(0));
+
+    // The scoped function has returned, so the guard is destroyed. A runtime
+    // that reached ready state and is no longer ready is one whose terminal
+    // u_cleanup has already run.
+    if (textSeam) {
+        if (!molga::text::TextRuntimeDependencies::Get().IsReady()) {
+            EmitTextLifetimeEvent("u_cleanup");
+        }
+        EmitTextLifetimeEvent("process_return");
+    }
+    return code;
 }

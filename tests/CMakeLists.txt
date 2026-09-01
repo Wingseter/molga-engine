@@ -14,6 +14,38 @@ function(molga_add_test TEST_NAME TEST_SOURCE)
     set_tests_properties(${TEST_NAME} PROPERTIES LABELS "unit")
 endfunction()
 
+# ── One text runtime resource root for every session-backed test ─────────────
+# Step 9f: exactly one staged Engine/Text pair serves every test executable in
+# this directory. It is never derived from the working directory or from an
+# application target directory.
+molga_define_text_runtime_resource_stage(molga_text_test_runtime_resources
+    "${CMAKE_CURRENT_BINARY_DIR}/Engine/Text")
+
+# Session-backed text test: one process, one ICU lifetime, initialized once in
+# main and cleaned up once immediately before the process returns. It links the
+# header-only doctest interface and never doctest_main, so text_doctest_main.cpp
+# is the executable's only main. Every session-backed ready test is a normal
+# HarfBuzz/ICU consumer, so the helper attaches the normal text dependencies
+# itself; a later explicit call to the same helper is the property-guarded
+# no-op. A direct-ICU-only or not-ready process must use a different helper.
+function(molga_add_text_test target_name source_name)
+    add_executable("${target_name}"
+        "${source_name}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/text_doctest_main.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TextRuntimeTestSession.cpp")
+    target_link_libraries("${target_name}" PRIVATE
+        molga_core doctest molga_warnings)
+    target_include_directories("${target_name}" PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_definitions("${target_name}" PRIVATE
+        MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text")
+    add_dependencies("${target_name}" molga_text_test_runtime_resources)
+    molga_attach_text_dependencies("${target_name}")
+    set_target_properties("${target_name}" PROPERTIES ENABLE_EXPORTS ON)
+    add_test(NAME "${target_name}" COMMAND "${target_name}")
+    set_tests_properties("${target_name}" PROPERTIES LABELS "unit;text-runtime")
+endfunction()
+
 molga_add_test(test_types             test_types.cpp)
 molga_add_test(test_guid              test_guid.cpp)
 molga_add_test(test_asset_meta        test_asset_meta.cpp)
@@ -76,6 +108,101 @@ set_tests_properties(test_text_make_recovery PROPERTIES
     FAIL_REGULAR_EXPRESSION "test cases: +0 ")
 
 molga_add_test(test_text_runtime_dependencies test_text_runtime_dependencies.cpp)
+
+# ── Step 9h: the fresh-process ICU lifetime child ────────────────────────────
+# One observation per process, because a successful ICU lifetime is terminal.
+# The probe owns no root and no path compile definition and is not a CTest of
+# its own: the parent below hands it both immutable roots as literal argv.
+add_executable(molga_text_runtime_probe
+    text_runtime_probe_main.cpp
+    TextRuntimeDependenciesTestAccess.cpp)
+target_link_libraries(molga_text_runtime_probe PRIVATE molga_core molga_warnings)
+target_include_directories(molga_text_runtime_probe PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_attach_text_dependencies(molga_text_runtime_probe)
+
+# The parent owns the probe executable and both immutable roots. It receives the
+# portable contract path and the verification barrier, and deliberately no
+# build-lock, source or binary macro. It keeps its existing doctest main and
+# never initializes a text session of its own.
+molga_attach_text_portable_contract_consumer(test_text_runtime_dependencies)
+target_compile_definitions(test_text_runtime_dependencies PRIVATE
+    MOLGA_TEXT_RUNTIME_PROBE="$<TARGET_FILE:molga_text_runtime_probe>"
+    MOLGA_TEXT_RUNTIME_FIXTURE_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"
+    MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT="$<TARGET_FILE_DIR:molga_engine>/Engine/Text")
+# The first three own the child and the two roots its cases name. The two
+# development executables and the runtime's own staged root are here because
+# the startup-seam case runs both binaries as subprocesses, so building this
+# test alone has to produce them too.
+add_dependencies(test_text_runtime_dependencies
+    molga_text_runtime_probe
+    molga_text_test_runtime_resources
+    molga_engine_text_runtime_resources
+    molga_runtime_text_runtime_resources
+    molga_engine
+    molga_runtime)
+# Launches application subprocesses, so it does not share the runner with the
+# other smoke entries.
+set_tests_properties(test_text_runtime_dependencies PROPERTIES RUN_SERIAL TRUE)
+
+molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
+
+# ── Step 9g.1: normal text attachment happens exactly once ───────────────────
+# molga_add_text_test already attached the normal dependencies. This second,
+# deliberately redundant call is the legacy/explicit case the property guard
+# turns into a no-op, and the assertions below prove it perturbed nothing: not
+# the static archive order, not the definition set, not the barrier edge.
+molga_attach_text_dependencies(test_text_runtime_session)
+
+function(molga_text_require_single_list_item target_name property_name expected)
+    get_property(items TARGET "${target_name}" PROPERTY "${property_name}")
+    set(found 0)
+    foreach(item IN LISTS items)
+        if(item STREQUAL expected)
+            math(EXPR found "${found} + 1")
+        endif()
+    endforeach()
+    if(NOT found EQUAL 1)
+        message(FATAL_ERROR
+            "${target_name}.${property_name} must contain exactly one "
+            "${expected}, found ${found}")
+    endif()
+endfunction()
+
+foreach(attached_property MOLGA_TEXT_DEPENDENCIES_ATTACHED
+                          MOLGA_TEXT_VERIFICATION_BARRIER_ATTACHED)
+    get_property(attached_value TARGET test_text_runtime_session
+                 PROPERTY "${attached_property}")
+    if(NOT attached_value STREQUAL "TRUE")
+        message(FATAL_ERROR
+            "test_text_runtime_session.${attached_property} is "
+            "'${attached_value}', expected TRUE")
+    endif()
+endforeach()
+molga_text_require_single_list_item(test_text_runtime_session
+    LINK_LIBRARIES molga_text_harfbuzz)
+molga_text_require_single_list_item(test_text_runtime_session
+    LINK_LIBRARIES molga_text_rasterizer)
+molga_text_require_single_list_item(test_text_runtime_session
+    COMPILE_DEFINITIONS U_STATIC_IMPLEMENTATION)
+molga_text_require_single_list_item(test_text_runtime_session
+    MANUALLY_ADDED_DEPENDENCIES molga_text_dependencies_ready)
+
+get_property(session_portable_contract TARGET test_text_runtime_session
+             PROPERTY MOLGA_TEXT_PORTABLE_CONTRACT_ATTACHED)
+if(session_portable_contract)
+    message(FATAL_ERROR
+        "test_text_runtime_session must not receive the portable contract path")
+endif()
+foreach(forbidden_macro MOLGA_TEXT_DEPENDENCY_CONTRACT
+                        ${MOLGA_TEXT_MACHINE_LOCAL_MACROS})
+    molga_text_count_macro(count test_text_runtime_session "${forbidden_macro}")
+    if(NOT count EQUAL 0)
+        message(FATAL_ERROR
+            "test_text_runtime_session must not define ${forbidden_macro}, "
+            "found ${count}")
+    endif()
+endforeach()
 
 # Step 11b: standalone symbol probes. Deliberately not molga_add_test, whose
 # implicit molga_core link would mask a broken direct dependency helper.

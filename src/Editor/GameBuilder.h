@@ -36,6 +36,7 @@ private:
     bool CopyUserScripts(const std::string& outputPath, std::string& outLibraryPath);
     bool EmitAssetCatalog(const std::string& outputPath);
     bool CopyPlaceholderResource(const std::string& outputPath);
+    bool CopyTextRuntimeResources(const std::string& outputPath);
 
     std::string lastError;
     float progress = 0.0f;

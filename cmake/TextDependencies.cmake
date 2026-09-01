@@ -795,3 +795,59 @@ function(molga_text_audit_macro_scope)
     endforeach()
     message(STATUS "text dependency macro scope audit passed")
 endfunction()
+
+# ── Development Engine/Text staging ───────────────────────────────────────────
+# Editor and development runtime read only
+# $<TARGET_FILE_DIR>/Engine/Text/{text_dependency_contract.json,icudt78l.dat}.
+# These helpers put the barrier-verified pair there and keep it there.
+#
+# Packaging handoff: Milestone 16 must call molga_stage_text_runtime_resources
+# for its molga_runtime_dev target and copy the same verified Engine/Text pair
+# into the final runtime bundle before switching packaged initialization to
+# packagedRuntime=true. Package staging may not bypass
+# StageTextRuntimeResources.cmake or substitute a source-tree path. The
+# TextRuntimeManifest it writes must contain exactly one logical harfbuzz
+# record whose SHA is the portable harfbuzz.compositeSha256, exactly one
+# icui18n record, and exactly one logical icuuc record whose SHA is the
+# composite common SHA. Raw harfbuzz-icu, raw core/adapter/object provenance
+# and ICU stub source/object provenance stay build-lock-only and may not become
+# additional manifest libraries.
+#
+# Until then GameBuilder::CopyTextRuntimeResources copies the editor's own
+# staged pair — the output of this script, re-verified through
+# molga::text::VerifyPackagedIcuDataFile — into the flat development package,
+# because the packaged runtime verifies that pair before anything else and
+# returns 4 without it. That is the same Engine/Text pair the approved bundle
+# layout already lists, arriving early in the development-compatible flat root.
+# Task 16.2 extends that seam into Contents/Resources staging plus the
+# TextRuntimeManifest; it must not become a second staging path beside it.
+function(molga_define_text_runtime_resource_stage stage_name destination_root)
+  if(TARGET "${stage_name}")
+    message(FATAL_ERROR "text runtime stage already exists: ${stage_name}")
+  endif()
+  if("${destination_root}" STREQUAL "")
+    message(FATAL_ERROR "text runtime destination is empty: ${stage_name}")
+  endif()
+  add_custom_target("${stage_name}"
+    COMMAND "${CMAKE_COMMAND}"
+      "-DCONTRACT_SOURCE=${MOLGA_TEXT_DEPENDENCY_CONTRACT}"
+      "-DICU_DATA_SOURCE=${CMAKE_SOURCE_DIR}/resources/text/icudt78l.dat"
+      "-DDESTINATION_ROOT=${destination_root}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/StageTextRuntimeResources.cmake"
+    DEPENDS molga_text_dependencies_ready
+            "${CMAKE_SOURCE_DIR}/resources/text/icudt78l.dat"
+    VERBATIM)
+endfunction()
+
+function(molga_stage_text_runtime_resources target_name)
+  if(NOT TARGET "${target_name}")
+    message(FATAL_ERROR "text runtime resource target does not exist: ${target_name}")
+  endif()
+  set(stage_target "${target_name}_text_runtime_resources")
+  if(TARGET "${stage_target}")
+    message(FATAL_ERROR "text runtime resources already attached: ${target_name}")
+  endif()
+  molga_define_text_runtime_resource_stage("${stage_target}"
+    "$<TARGET_FILE_DIR:${target_name}>/Engine/Text")
+  add_dependencies("${target_name}" "${stage_target}")
+endfunction()
