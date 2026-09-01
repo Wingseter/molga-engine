@@ -55,6 +55,10 @@ public:
                                                TextDiagnosticSink&);
     void                            Shutdown();
     bool                            IsReady() const noexcept;
+    // Beyond Step 3's block, and needed by Step 1i: IsReady() is false both
+    // before a lifetime and after one, so only this distinguishes "u_cleanup
+    // has run" from "the guard was never created".
+    bool                            WasTerminallyCleaned() const noexcept;
     const std::string&              DependencyContractSha256() const noexcept;
     std::size_t                     OutstandingClientHandleCount() const noexcept;
 
@@ -93,6 +97,7 @@ public:
 
 private:
     explicit TextRuntimeClientHandle(std::uint64_t token) noexcept;
+    void          Release() noexcept;
     std::uint64_t token_ = 0;  // 0 means moved-from and owns nothing.
 };
 
@@ -111,6 +116,7 @@ public:
 
 private:
     explicit TextRuntimeLifetimeGuard(bool active) noexcept;
+    void Release() noexcept;
     bool active_ = false;
 };
 

@@ -52,6 +52,26 @@ const std::set<std::string>& IcuKeys() {
         "version"};
     return keys;
 }
+// The locked structure does not stop at depth two. An unknown or missing key
+// inside an options object is exactly as much evidence that something other
+// than the verification barrier wrote this record.
+const std::set<std::string>& HarfBuzzOptionKeys() {
+    static const std::set<std::string> keys = {
+        "cairo", "coretext", "freetype", "glib", "gobject", "gpu", "graphite2",
+        "icu", "introspection", "raster", "sharedLibs", "subset", "utils",
+        "vector"};
+    return keys;
+}
+const std::set<std::string>& IcuOptionKeys() {
+    static const std::set<std::string> keys = {
+        "extras", "icuio", "layoutex", "samples", "shared",
+        "staticImplementation", "tests", "tools"};
+    return keys;
+}
+const std::set<std::string>& IcuArchiveShaKeys() {
+    static const std::set<std::string> keys = {"icui18n", "icuuc"};
+    return keys;
+}
 
 void ReportDependencyInvalid(TextDiagnosticSink& sink, std::string message,
                              std::string remediation) {
@@ -139,6 +159,19 @@ bool VerifyPortableContract(const fs::path& path, std::string& sha256Out,
     }
     if (!KeysAre(document.at("icu"), IcuKeys())) {
         errorOut = "dependency contract has unknown or missing icu fields";
+        return false;
+    }
+    if (!KeysAre(document.at("harfbuzz").at("options"), HarfBuzzOptionKeys())) {
+        errorOut = "dependency contract has unknown or missing harfbuzz options";
+        return false;
+    }
+    if (!KeysAre(document.at("icu").at("options"), IcuOptionKeys())) {
+        errorOut = "dependency contract has unknown or missing icu options";
+        return false;
+    }
+    if (!KeysAre(document.at("icu").at("archiveSha256"), IcuArchiveShaKeys())) {
+        errorOut =
+            "dependency contract has unknown or missing icu archive hashes";
         return false;
     }
     if (ContainsAbsolutePath(document)) {
@@ -288,6 +321,10 @@ bool TextRuntimeDependencies::IsReady() const noexcept {
     return lifecycle_ == Lifecycle::Ready;
 }
 
+bool TextRuntimeDependencies::WasTerminallyCleaned() const noexcept {
+    return lifecycle_ == Lifecycle::TerminallyCleaned;
+}
+
 const std::string& TextRuntimeDependencies::DependencyContractSha256() const noexcept {
     static const std::string empty;
     return state_ ? state_->dependencyContractSha256 : empty;
@@ -388,14 +425,19 @@ bool TextRuntimeDependencies::Initialize(const TextDependencyConfig& config,
     // routed call can ever land on a table a later Install swapped in.
     g_lifecycleTransitioned = true;
 
-    const detail::IcuRuntimeApi& api                = ActiveApi();
-    int                          status             = static_cast<int>(U_ZERO_ERROR);
-    bool                         commonDataAccepted = false;
+    const detail::IcuRuntimeApi& api    = ActiveApi();
+    int                          status = static_cast<int>(U_ZERO_ERROR);
     std::string                  failedCall;
+    // Diagnostic only. It never gates the unwind below: any ICU-call failure is
+    // treated as terminal, including a first-call udata_setCommonData failure,
+    // because ICU has been entered and this process must not retry. That is
+    // stricter than Step 7's literal wording, which unwinds only when "a later
+    // ICU call fails", and it is what the terminal-nonrestart probe asserts.
+    bool commonDataAcceptedForDiagnostic = false;
 
     api.setCommonData(aligned, &status);
     if (U_SUCCESS(static_cast<UErrorCode>(status))) {
-        commonDataAccepted = true;
+        commonDataAcceptedForDiagnostic = true;
         api.setFileAccess(static_cast<int>(UDATA_ONLY_PACKAGES), &status);
         if (U_SUCCESS(static_cast<UErrorCode>(status))) {
             api.init(&status);
@@ -416,8 +458,9 @@ bool TextRuntimeDependencies::Initialize(const TextDependencyConfig& config,
         ReportDependencyInvalid(
             sink,
             failedCall + " failed with ICU status " + std::to_string(status) +
-                (commonDataAccepted ? " after common data was accepted"
-                                    : " before common data was accepted"),
+                (commonDataAcceptedForDiagnostic
+                     ? " after common data was accepted"
+                     : " before common data was accepted"),
             kFreshProcessRemediation);
         return false;
     }
@@ -472,16 +515,24 @@ TextRuntimeClientHandle::TextRuntimeClientHandle(
 
 TextRuntimeClientHandle& TextRuntimeClientHandle::operator=(
     TextRuntimeClientHandle&& other) noexcept {
-    if (this != &other) std::swap(token_, other.token_);
+    if (this == &other) return *this;
+    // Discharge this handle's own lease before taking the source's, then
+    // deactivate the source, so the token count is exact and exactly one
+    // object owns each lease.
+    Release();
+    token_       = other.token_;
+    other.token_ = 0;
     return *this;
 }
 
-TextRuntimeClientHandle::~TextRuntimeClientHandle() {
+void TextRuntimeClientHandle::Release() noexcept {
     if (token_ == 0) return;
     TextRuntimeDependencies& runtime = TextRuntimeDependencies::Get();
     if (runtime.state_) runtime.state_->clientTokens.erase(token_);
     token_ = 0;
 }
+
+TextRuntimeClientHandle::~TextRuntimeClientHandle() { Release(); }
 
 // ── Application lifetime guard ───────────────────────────────────────────────
 
@@ -504,15 +555,18 @@ TextRuntimeLifetimeGuard::TextRuntimeLifetimeGuard(
 
 TextRuntimeLifetimeGuard& TextRuntimeLifetimeGuard::operator=(
     TextRuntimeLifetimeGuard&& other) noexcept {
-    // Swap rather than drop: assigning over a live guard must neither run
-    // u_cleanup in the middle of an assignment nor silently lose the
-    // obligation. The source carries the old state out and performs exactly
-    // the cleanup this guard would have, so still only one guard ever does.
-    if (this != &other) std::swap(active_, other.active_);
+    if (this == &other) return *this;
+    // Assigning over a live guard discharges this guard's own obligation here
+    // rather than handing it back to the source: the source is deactivated, so
+    // the cleanup happens at this object's assignment point and exactly one
+    // guard ever performs it.
+    Release();
+    active_       = other.active_;
+    other.active_ = false;
     return *this;
 }
 
-TextRuntimeLifetimeGuard::~TextRuntimeLifetimeGuard() {
+void TextRuntimeLifetimeGuard::Release() noexcept {
     if (!active_) return;
     active_                          = false;
     TextRuntimeDependencies& runtime = TextRuntimeDependencies::Get();
@@ -525,5 +579,7 @@ TextRuntimeLifetimeGuard::~TextRuntimeLifetimeGuard() {
     }
     runtime.Shutdown();
 }
+
+TextRuntimeLifetimeGuard::~TextRuntimeLifetimeGuard() { Release(); }
 
 }  // namespace molga::text

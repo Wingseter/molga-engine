@@ -429,6 +429,14 @@ int Run(const Arguments& arguments) {
         TextRuntimeDependencies& runtime = TextRuntimeDependencies::Get();
         RunOneLifetime(arguments.fixtureRoot, sink, report,
                        /*probeHarfBuzz=*/true);
+        // The lifecycle has transitioned, so the private hook must now refuse
+        // to replace the table. Nothing may swap a counting or forwarding
+        // table under a runtime that has already entered — or left — ICU.
+        if (molga::text_test::InstallCountingIcuRuntimeApi()) {
+            Fail("the ICU runtime table was replaced after a lifecycle "
+                 "transition");
+            return 3;
+        }
         // An extra Shutdown from the terminal state is a no-op that must reach
         // no ICU entry point, and a second Initialize must be rejected before
         // one. Neither may touch the HarfBuzz funcs cached above.

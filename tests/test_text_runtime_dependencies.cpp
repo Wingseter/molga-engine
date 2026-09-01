@@ -667,6 +667,22 @@ TEST_CASE("built development Engine Text root initializes exact staged pair") {
     CHECK(report.terminallyCleaned);
 }
 
+// Deliberately a separate case rather than a CHECK inside the verbatim
+// staged-valid block, so those blocks stay byte-for-byte as planned.
+//
+// Every other ICU-count assertion in this file is that a counter equals zero,
+// and a counting table that was never reached also reads zero. If the runtime
+// ever called ICU directly instead of through detail::IcuRuntimeApi, all six
+// modes would still pass and this task's central claim — no ICU call before
+// validation — would be vacuous. Requiring the three calls a successful
+// lifetime must make (udata_setCommonData, udata_setFileAccess, u_init) is
+// what keeps the seam provably live.
+TEST_CASE("a successful lifetime routes exactly three calls through the counted table") {
+    const auto report = RunTextRuntimeProbe("staged-valid");
+    REQUIRE(report.firstInitialize);
+    CHECK(report.icuCallsBeforePublish == 3);
+}
+
 TEST_CASE("development Engine Text root fails closed when missing or tampered") {
     for (const std::string mode :
          {"dev-missing-contract", "dev-tampered-data"}) {
@@ -683,12 +699,12 @@ TEST_CASE("editor and runtime startup seams unwind text state in order") {
     // Because the guard is declared ahead of every text handle, ordinary stack
     // unwinding destroys the last client handle first and begins guard shutdown
     // next; by the time that function has returned the terminal u_cleanup has
-    // run, which main observes as a runtime that reached ready state and is no
-    // longer ready, and only then does the process return. A text owner
+    // run, which main observes as a lifecycle that actually reached
+    // TerminallyCleaned, and only then does the process return. A text owner
     // declared outside the guard's scope reorders these four lines.
     const std::vector<std::string> expected = {
-        "last_text_handle_destroyed", "runtime_guard_shutdown", "u_cleanup",
-        "process_return"};
+        "last_text_handle_destroyed", "runtime_guard_shutdown_begins",
+        "u_cleanup", "process_return"};
     const fs::path executableDir = DevelopmentExecutableDir();
     for (const char* executable : {"molga_engine", "molga_runtime"}) {
         for (const int code : {17, 18}) {

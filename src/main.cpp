@@ -254,8 +254,11 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
 
     // Declared after the guard, so its destructor runs immediately before the
     // guard's and marks the instant guard shutdown begins.
+    // Named for what it observes, not for what follows it: this marker is
+    // destroyed immediately before the guard, so it marks the instant guard
+    // shutdown is about to begin, not its completion.
     const TextLifetimeScopeMarker textGuardShutdownMarker(
-        textSeamRequested, "runtime_guard_shutdown");
+        textSeamRequested, "runtime_guard_shutdown_begins");
 
     if (textSeamRequested) {
         // Stands in for the Game View text host every later milestone declares
@@ -308,6 +311,9 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     SceneDocument sceneDoc;
 
     // Initialize Text Renderer
+    // Step 10a forward risk: this singleton's storage outlives main. See the
+    // note at its Shutdown() call. Task 8.2 must give it a non-static owner
+    // declared after the text lifetime guard.
     TextRenderer::Get().Init();
 
     // Initialize Editor
@@ -557,6 +563,13 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     Project::Get().Close();
     Editor::Get().Shutdown();
     ImGuiLayer::Shutdown();
+    // Step 10a forward risk: TextRenderer::Get() is a Meyers singleton, so the
+    // object itself outlives main and is destroyed after the guard's
+    // u_cleanup. That is a real Step 10a violation the moment this renderer
+    // becomes ICU/HarfBuzz-backed; today it is only stb_truetype (no hb_ or
+    // unicode/ anywhere in src/Rendering/TextRenderer.*), so the explicit
+    // Shutdown() below is what releases its resources inside this scope.
+    // Task 8.2 must give it a non-static owner declared after the guard.
     TextRenderer::Get().Shutdown();
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
@@ -575,11 +588,11 @@ int main(int argc, char* argv[]) {
     const int code = RunEditorAfterPaths(argc, argv, textSeam.has_value(),
                                          textSeam.value_or(0));
 
-    // The scoped function has returned, so the guard is destroyed. A runtime
-    // that reached ready state and is no longer ready is one whose terminal
-    // u_cleanup has already run.
+    // The scoped function has returned, so the guard is destroyed. Gate on the
+    // terminal state itself: !IsReady() is also true for a process whose guard
+    // was never created, which would make this event prove nothing.
     if (textSeam) {
-        if (!molga::text::TextRuntimeDependencies::Get().IsReady()) {
+        if (molga::text::TextRuntimeDependencies::Get().WasTerminallyCleaned()) {
             EmitTextLifetimeEvent("u_cleanup");
         }
         EmitTextLifetimeEvent("process_return");
