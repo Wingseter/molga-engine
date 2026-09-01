@@ -1130,7 +1130,7 @@
 - Consumes: verified portable contract, `icudt78l.dat`, ICU static targets, and `TextDiagnosticSink`.
 - Produces: `TextDependencyConfig::{FromEngineTextRoot}`, terminal single-lifetime `TextRuntimeDependencies::{Get,Initialize,Shutdown,IsReady,DependencyContractSha256,OutstandingClientHandleCount}`, move-only `TextRuntimeLifetimeGuard::Create`, process-wide test fixture `TextRuntimeTestSession`, fresh-process not-ready probes, `molga_define_text_runtime_resource_stage(stage_name,destination_root)`, `molga_stage_text_runtime_resources(target_name)`, `molga_add_text_test(target_name,source_name)`, and verified development files `Engine/Text/{text_dependency_contract.json,icudt78l.dat}`; all later ICU/HarfBuzz objects require `IsReady()==true`, and no successful process lifetime is restarted after terminal cleanup.
 
-- [ ] **Step 1: Add the failing fresh-process lifecycle and tamper cases.** The doctest parent never initializes ICU. Create `molga_text_runtime_probe` from `tests/text_runtime_probe_main.cpp` plus the test-only ICU-call recorder; the child receives no compiled source/development root and never derives one from cwd. Its exact CLI is `--mode <closed-value> --fixture-root <canonical-root> --development-root <canonical-root> --report <new-direct-child-of-caller-temp-root>`. Allowed modes are `tampered-data`, `nonportable-contract`, `terminal-nonrestart`, `staged-valid`, `dev-missing-contract`, and `dev-tampered-data`; reject duplicates, unknown switches/modes, noncanonical/symlink roots, an existing report, a report whose parent is not an existing canonical directory, or a report that is not a direct child of that caller-owned root before initialization. Each child executes one mode, atomically writes schema-1 `{mode,firstInitialize,readyBeforeShutdown,harfbuzzIcuProbe,secondInitializeAttempted,secondInitialize,icuCallsBeforePublish,icuCallsAfterTerminal,terminallyCleaned,diagnosticCodes}`, performs at most one successful lifetime, and returns immediately after terminal cleanup.
+- [x] **Step 1: Add the failing fresh-process lifecycle and tamper cases.** The doctest parent never initializes ICU. Create `molga_text_runtime_probe` from `tests/text_runtime_probe_main.cpp` plus the test-only ICU-call recorder; the child receives no compiled source/development root and never derives one from cwd. Its exact CLI is `--mode <closed-value> --fixture-root <canonical-root> --development-root <canonical-root> --report <new-direct-child-of-caller-temp-root>`. Allowed modes are `tampered-data`, `nonportable-contract`, `terminal-nonrestart`, `staged-valid`, `dev-missing-contract`, and `dev-tampered-data`; reject duplicates, unknown switches/modes, noncanonical/symlink roots, an existing report, a report whose parent is not an existing canonical directory, or a report that is not a direct child of that caller-owned root before initialization. Each child executes one mode, atomically writes schema-1 `{mode,firstInitialize,readyBeforeShutdown,harfbuzzIcuProbe,secondInitializeAttempted,secondInitialize,icuCallsBeforePublish,icuCallsAfterTerminal,terminallyCleaned,diagnosticCodes}`, performs at most one successful lifetime, and returns immediately after terminal cleanup.
 
   The parent target alone receives exact `MOLGA_TEXT_RUNTIME_PROBE`, `MOLGA_TEXT_RUNTIME_FIXTURE_ROOT`, and `MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT` definitions. As its one portable-contract C++ read, `RunTextRuntimeProbe(mode)` canonicalizes `MOLGA_TEXT_DEPENDENCY_CONTRACT`, requires its bytes to equal `fixtureRoot/text_dependency_contract.json`, then rejects an unknown mode before spawning, canonicalizes both compiled roots, creates one unique canonical caller temp root plus nonexisting report child, and invokes the probe without a shell using the literal argv `[probe,"--mode",mode,"--fixture-root",fixtureRoot,"--development-root",developmentRoot,"--report",report]`. It captures exit/stdout/stderr, requires exit `0`, parses the exact report schema, and removes only its temp root through RAII; the parent never initializes ICU/HarfBuzz. Add the cases without helper implementations so the target first exposes the missing runtime API:
 
@@ -1145,7 +1145,7 @@
   }
   ```
 
-- [ ] **Step 1a: Add the failing nonportable-contract/zero-ICU-call test.**
+- [x] **Step 1a: Add the failing nonportable-contract/zero-ICU-call test.**
 
   ```cpp
   TEST_CASE("nonportable dependency contract fails before every ICU call") {
@@ -1157,7 +1157,7 @@
   }
   ```
 
-- [ ] **Step 1b: Add the failing terminal non-restart probe.** Run this entire body in one dedicated child and return immediately afterward:
+- [x] **Step 1b: Add the failing terminal non-restart probe.** Run this entire body in one dedicated child and return immediately afterward:
 
   ```cpp
   TEST_CASE("successful ICU and HarfBuzz lifetime cannot restart after cleanup") {
@@ -1176,11 +1176,11 @@
   The second failure is `DependencyInvalid` with remediation to start a fresh
   process. It never calls the cached HarfBuzz ICU funcs after cleanup.
 
-- [ ] **Step 1c: Implement isolated dependency-tree test helpers in the child.** Define `CopyValidTextDependencyTree`, `FlipOneByte`, and `RewriteContractField` in `text_runtime_probe_main.cpp` using a uniquely named canonical child of the report's validated parent root, binary read/write, and RAII cleanup; never alter committed data. The parent passes the two immutable read-only roots as literal CLI values and never passes a mutation path.
+- [x] **Step 1c: Implement isolated dependency-tree test helpers in the child.** Define `CopyValidTextDependencyTree`, `FlipOneByte`, and `RewriteContractField` in `text_runtime_probe_main.cpp` using a uniquely named canonical child of the report's validated parent root, binary read/write, and RAII cleanup; never alter committed data. The parent passes the two immutable read-only roots as literal CLI values and never passes a mutation path.
 
-- [ ] **Step 1d: Add the ICU call-count seam.** Route `udata_setCommonData`, `udata_setFileAccess`, `u_init`, and `u_cleanup` through the production-private runtime API table. A test-only companion TU used only by `molga_text_runtime_probe` installs counting forwarding functions before the first initialization; production retains the default table. The private hook rejects replacement after any lifecycle transition and the test companion cannot be linked into editor/runtime. Count calls before ready publication separately from calls attempted after terminal cleanup.
+- [x] **Step 1d: Add the ICU call-count seam.** Route `udata_setCommonData`, `udata_setFileAccess`, `u_init`, and `u_cleanup` through the production-private runtime API table. A test-only companion TU used only by `molga_text_runtime_probe` installs counting forwarding functions before the first initialization; production retains the default table. The private hook rejects replacement after any lifecycle transition and the test companion cannot be linked into editor/runtime. Count calls before ready publication separately from calls attempted after terminal cleanup.
 
-- [ ] **Step 1e: Add the failing staged-development-root test.** Define `MOLGA_TEXT_RUNTIME_FIXTURE_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"` and `MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT="$<TARGET_FILE_DIR:molga_engine>/Engine/Text"` only on the existing parent `test_text_runtime_dependencies` target now (without staging dependencies yet), then add:
+- [x] **Step 1e: Add the failing staged-development-root test.** Define `MOLGA_TEXT_RUNTIME_FIXTURE_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"` and `MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT="$<TARGET_FILE_DIR:molga_engine>/Engine/Text"` only on the existing parent `test_text_runtime_dependencies` target now (without staging dependencies yet), then add:
 
   ```cpp
   TEST_CASE("built development Engine Text root initializes exact staged pair") {
@@ -1191,7 +1191,7 @@
   }
   ```
 
-- [ ] **Step 1f: Add the failing missing/tampered development-root test.**
+- [x] **Step 1f: Add the failing missing/tampered development-root test.**
 
   ```cpp
   TEST_CASE("development Engine Text root fails closed when missing or tampered") {
@@ -1206,9 +1206,9 @@
   }
   ```
 
-- [ ] **Step 1g: Implement isolated staged-root mutations in the child.** Add `enum class DevRootMutation { RemoveContract, TamperIcuData };`. `CopyStagedEngineTextRoot()` creates a unique RAII temporary directory beneath the validated caller temp root, copies only the passed immutable development root's `text_dependency_contract.json` and `icudt78l.dat`, and returns paths to those copies. `ApplyDevRootMutation(RemoveContract)` removes only the copied contract; `ApplyDevRootMutation(TamperIcuData)` opens only the copied data file in binary read/write mode, seeks to byte `4096`, writes `oldByte ^ 0x80`, flushes, and requires unchanged size.
+- [x] **Step 1g: Implement isolated staged-root mutations in the child.** Add `enum class DevRootMutation { RemoveContract, TamperIcuData };`. `CopyStagedEngineTextRoot()` creates a unique RAII temporary directory beneath the validated caller temp root, copies only the passed immutable development root's `text_dependency_contract.json` and `icudt78l.dat`, and returns paths to those copies. `ApplyDevRootMutation(RemoveContract)` removes only the copied contract; `ApplyDevRootMutation(TamperIcuData)` opens only the copied data file in binary read/write mode, seeks to byte `4096`, writes `oldByte ^ 0x80`, flushes, and requires unchanged size.
 
-- [ ] **Step 1h: Add the failing process-session lifetime test.** Put this case in the new session-backed `test_text_runtime_session.cpp`; it observes the one process lifetime without stopping it:
+- [x] **Step 1h: Add the failing process-session lifetime test.** Put this case in the new session-backed `test_text_runtime_session.cpp`; it observes the one process lifetime without stopping it:
 
   ```cpp
   TEST_CASE("text test session owns one exact staged runtime") {
@@ -1220,15 +1220,15 @@
   }
   ```
 
-- [ ] **Step 1i: Add the failing app-unwind order test.** Run editor/runtime startup seams in subprocess mode for `--text-test-return-after-services=17` and `--text-test-return-after-services=18`, record lifetime events, and require `last_text_handle_destroyed < runtime_guard_shutdown < u_cleanup < process_return` for both nonzero early returns. The seam returns through the real scoped startup function and may not call `std::exit`, `_Exit`, `quick_exit`, or terminate the process before destructors.
+- [x] **Step 1i: Add the failing app-unwind order test.** Run editor/runtime startup seams in subprocess mode for `--text-test-return-after-services=17` and `--text-test-return-after-services=18`, record lifetime events, and require `last_text_handle_destroyed < runtime_guard_shutdown < u_cleanup < process_return` for both nonzero early returns. The seam returns through the real scoped startup function and may not call `std::exit`, `_Exit`, `quick_exit`, or terminate the process before destructors.
 
-- [ ] **Step 2: Run the lifetime red gate.**
+- [x] **Step 2: Run the lifetime red gate.**
 
   Run: `cmake --build --preset debug --target test_text_runtime_dependencies -j`
 
   Expected: compile FAIL because `TextRuntimeDependencies` does not exist.
 
-- [ ] **Step 3: Add the exact public lifetime API.**
+- [x] **Step 3: Add the exact public lifetime API.**
 
   ```cpp
   struct TextDependencyConfig {
@@ -1267,13 +1267,13 @@
   };
   ```
 
-- [ ] **Step 3a: Implement the exact root-to-config mapping.** `FromEngineTextRoot(root, packaged)` returns an all-empty-path config carrying `packaged` when `root.empty()`, otherwise returns `{root / "text_dependency_contract.json", root / "icudt78l.dat", packaged}` without probing a source tree or current working directory. `Initialize` reports either empty path as one `DependencyInvalid` before ICU calls.
+- [x] **Step 3a: Implement the exact root-to-config mapping.** `FromEngineTextRoot(root, packaged)` returns an all-empty-path config carrying `packaged` when `root.empty()`, otherwise returns `{root / "text_dependency_contract.json", root / "icudt78l.dat", packaged}` without probing a source tree or current working directory. `Initialize` reports either empty path as one `DependencyInvalid` before ICU calls.
 
-- [ ] **Step 4: Implement portable-contract verification.** Parse schema `1`, reject unknown/missing locked dependency fields and any absolute path, hash the exact contract bytes, and keep the SHA in an unpublished local `State` candidate.
+- [x] **Step 4: Implement portable-contract verification.** Parse schema `1`, reject unknown/missing locked dependency fields and any absolute path, hash the exact contract bytes, and keep the SHA in an unpublished local `State` candidate.
 
-- [ ] **Step 5: Implement exact ICU-data validation.** Read the configured file without mutating it, require size `33107232`, compute SHA-256 `d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b`, and return one `DependencyInvalid` before any ICU call when either differs.
+- [x] **Step 5: Implement exact ICU-data validation.** Read the configured file without mutating it, require size `33107232`, compute SHA-256 `d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b`, and return one `DependencyInvalid` before any ICU call when either differs.
 
-- [ ] **Step 6: Implement aligned ICU initialization in this exact order.**
+- [x] **Step 6: Implement aligned ICU initialization in this exact order.**
 
   ```text
   allocate 16-byte-aligned immutable storage and copy the data
@@ -1285,17 +1285,17 @@
 
   Publish `state_` only after `U_SUCCESS(status)` from every call.
 
-- [ ] **Step 7: Implement partial-failure unwind.** Validation/hash/path failures that occur before the first ICU call leave `Lifecycle::NeverInitialized` and may be retried deterministically. Track whether common data was accepted; if a later ICU call fails, invoke `u_cleanup`, release aligned storage, set `Lifecycle::TerminallyCleaned`, emit one `DependencyInvalid`, and leave `state_ == nullptr`. Once `Ready` has been published, `Shutdown` is the only transition and ends in `TerminallyCleaned`. Every `Initialize` from `Ready` or `TerminallyCleaned` returns one `DependencyInvalid` before any ICU/HarfBuzz call; remediation is to start a fresh process.
+- [x] **Step 7: Implement partial-failure unwind.** Validation/hash/path failures that occur before the first ICU call leave `Lifecycle::NeverInitialized` and may be retried deterministically. Track whether common data was accepted; if a later ICU call fails, invoke `u_cleanup`, release aligned storage, set `Lifecycle::TerminallyCleaned`, emit one `DependencyInvalid`, and leave `state_ == nullptr`. Once `Ready` has been published, `Shutdown` is the only transition and ends in `TerminallyCleaned`. Every `Initialize` from `Ready` or `TerminallyCleaned` returns one `DependencyInvalid` before any ICU/HarfBuzz call; remediation is to start a fresh process.
 
-- [ ] **Step 8: Separate client leases from runtime-owned handles.** Every service/face/analyzer/shaper handle gets a weak client-lifetime token registered in `State`; `OutstandingClientHandleCount` counts live external tokens but not `State`'s own common-data/internal ICU handles. `Shutdown()` requires zero live client tokens, then clears runtime-owned ICU/HarfBuzz handles while the common-data buffer and ICU runtime remain alive.
+- [x] **Step 8: Separate client leases from runtime-owned handles.** Every service/face/analyzer/shaper handle gets a weak client-lifetime token registered in `State`; `OutstandingClientHandleCount` counts live external tokens but not `State`'s own common-data/internal ICU handles. `Shutdown()` requires zero live client tokens, then clears runtime-owned ICU/HarfBuzz handles while the common-data buffer and ICU runtime remain alive.
 
-- [ ] **Step 8a: Release ICU state in the required order.** After handles are gone, call terminal `u_cleanup`, release aligned common-data storage, reset `state_`, and set `Lifecycle::TerminallyCleaned`. No code in that process may subsequently call an ICU API or a HarfBuzz object backed by `hb_icu_get_unicode_funcs`; normal application/test mains return immediately after this cleanup.
+- [x] **Step 8a: Release ICU state in the required order.** After handles are gone, call terminal `u_cleanup`, release aligned common-data storage, reset `state_`, and set `Lifecycle::TerminallyCleaned`. No code in that process may subsequently call an ICU API or a HarfBuzz object backed by `hb_icu_get_unicode_funcs`; normal application/test mains return immediately after this cleanup.
 
-- [ ] **Step 8b: Make shutdown terminal and idempotent.** `Shutdown` returns immediately from `NeverInitialized` or `TerminallyCleaned`; from `Ready` it performs Step 8a exactly once. The `terminal-nonrestart` child checks not-ready state, an extra no-op `Shutdown`, and a second `Initialize` rejection with zero ICU calls. Do not add a repeat-cycle test.
+- [x] **Step 8b: Make shutdown terminal and idempotent.** `Shutdown` returns immediately from `NeverInitialized` or `TerminallyCleaned`; from `Ready` it performs Step 8a exactly once. The `terminal-nonrestart` child checks not-ready state, an extra no-op `Shutdown`, and a second `Initialize` rejection with zero ICU calls. Do not add a repeat-cycle test.
 
-- [ ] **Step 8c: Implement the move-only app lifetime guard.** `Create` calls `Initialize` and returns `nullopt` on failure; a live guard's destructor first fail-fasts if `OutstandingClientHandleCount()!=0`, then calls `Shutdown`, which clears only runtime-owned handles before `u_cleanup`. Moving transfers `active_` and deactivates the source so exactly one guard performs cleanup.
+- [x] **Step 8c: Implement the move-only app lifetime guard.** `Create` calls `Initialize` and returns `nullopt` on failure; a live guard's destructor first fail-fasts if `OutstandingClientHandleCount()!=0`, then calls `Shutdown`, which clears only runtime-owned handles before `u_cleanup`. Moving transfers `active_` and deactivates the source so exactly one guard performs cleanup.
 
-- [ ] **Step 8d: Add the exact common test-session API.** Put this test-only interface in `tests/TextRuntimeTestSession.h`; it deliberately has no stop/restore seam:
+- [x] **Step 8d: Add the exact common test-session API.** Put this test-only interface in `tests/TextRuntimeTestSession.h`; it deliberately has no stop/restore seam:
 
   ```cpp
   class TextRuntimeTestSession {
@@ -1315,9 +1315,9 @@
   };
   ```
 
-- [ ] **Step 8e: Implement session initialization and checked terminal shutdown.** `Initialize` calls `TextDependencyConfig::FromEngineTextRoot(engineTextRoot_, false)` exactly once and returns success only after ready state; the executable main then calls `Install(&session)` exactly once. `ShutdownAfterTests` first sets `shutdownRequested_`, fails if any handle remains, otherwise performs terminal shutdown, clears the installed pointer, and requires not-ready/terminal state immediately before main returns. The destructor invokes the same checked terminal shutdown when still installed so an exception cannot bypass `u_cleanup`; a previously successful explicit shutdown makes it a no-op. No test case may call shutdown directly or recreate the session; not-ready/post-cleanup behavior belongs to fresh child executables.
+- [x] **Step 8e: Implement session initialization and checked terminal shutdown.** `Initialize` calls `TextDependencyConfig::FromEngineTextRoot(engineTextRoot_, false)` exactly once and returns success only after ready state; the executable main then calls `Install(&session)` exactly once. `ShutdownAfterTests` first sets `shutdownRequested_`, fails if any handle remains, otherwise performs terminal shutdown, clears the installed pointer, and requires not-ready/terminal state immediately before main returns. The destructor invokes the same checked terminal shutdown when still installed so an exception cannot bypass `u_cleanup`; a previously successful explicit shutdown makes it a no-op. No test case may call shutdown directly or recreate the session; not-ready/post-cleanup behavior belongs to fresh child executables.
 
-- [ ] **Step 8f: Implement the dedicated doctest executable main.** `tests/text_doctest_main.cpp` owns the only main for text-runtime tests:
+- [x] **Step 8f: Implement the dedicated doctest executable main.** `tests/text_doctest_main.cpp` owns the only main for text-runtime tests:
 
   ```cpp
   #define DOCTEST_CONFIG_IMPLEMENT
@@ -1334,11 +1334,11 @@
   }
   ```
 
-- [ ] **Step 9: Isolate lifecycle mutation by process.** `test_text_runtime_dependencies` launches one child per probe mode; `test_text_runtime_session` and every `molga_add_text_test` executable initialize once in main and clean up once immediately before process return. Set `RUN_SERIAL TRUE` only on a test whose parent manipulates a shared on-disk staged fixture or app subprocess artifact; ordinary session-backed Unicode/font/shaping/layout/cache cases are independent processes and remain parallel-safe. No target contains an in-process shutdown/restore helper.
+- [x] **Step 9: Isolate lifecycle mutation by process.** `test_text_runtime_dependencies` launches one child per probe mode; `test_text_runtime_session` and every `molga_add_text_test` executable initialize once in main and clean up once immediately before process return. Set `RUN_SERIAL TRUE` only on a test whose parent manipulates a shared on-disk staged fixture or app subprocess artifact; ordinary session-backed Unicode/font/shaping/layout/cache cases are independent processes and remain parallel-safe. No target contains an in-process shutdown/restore helper.
 
-- [ ] **Step 9a: Validate staging inputs before touching the development root.** In `StageTextRuntimeResources.cmake`, require `CONTRACT_SOURCE`, `ICU_DATA_SOURCE`, and `DESTINATION_ROOT`; require both sources to be regular files, then require ICU size `33107232` and SHA-256 `d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b`. Compute `contract_source_sha` only after those checks.
+- [x] **Step 9a: Validate staging inputs before touching the development root.** In `StageTextRuntimeResources.cmake`, require `CONTRACT_SOURCE`, `ICU_DATA_SOURCE`, and `DESTINATION_ROOT`; require both sources to be regular files, then require ICU size `33107232` and SHA-256 `d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b`. Compute `contract_source_sha` only after those checks.
 
-- [ ] **Step 9b: Stage and transactionally publish the exact pair.** Make `DESTINATION_ROOT`, take the exact process lock below, include `TextArtifactTransaction.cmake`, and require successful recovery of `${DESTINATION_ROOT}/.molga-text-runtime-journal.json` before any fast path. If both destination hashes already match, return; otherwise copy both sources into one random 128-bit child staging directory and verify their hashes.
+- [x] **Step 9b: Stage and transactionally publish the exact pair.** Make `DESTINATION_ROOT`, take the exact process lock below, include `TextArtifactTransaction.cmake`, and require successful recovery of `${DESTINATION_ROOT}/.molga-text-runtime-journal.json` before any fast path. If both destination hashes already match, return; otherwise copy both sources into one random 128-bit child staging directory and verify their hashes.
 
   ```cmake
   file(MAKE_DIRECTORY "${DESTINATION_ROOT}")
@@ -1358,7 +1358,7 @@
   set(stage_root "${DESTINATION_ROOT}/.molga-stage-${stage_id}")
   ```
 
-- [ ] **Step 9c: Publish the verified staged pair.** After the exact-hash fast path or staged-copy checks, call:
+- [x] **Step 9c: Publish the verified staged pair.** After the exact-hash fast path or staged-copy checks, call:
 
   ```cmake
   text_publish_artifact_set(published
@@ -1372,7 +1372,7 @@
 
   Fail unless `published` is true and both destination hashes still match; remove only that exact `stage_root` after success. A failed recovery/publish retains its journal/rollback evidence and fails the build.
 
-- [ ] **Step 9d: Add the reusable explicit-root staging helper.** Append this function to `TextDependencies.cmake`; the always-run target repairs deletion/tampering even when a consumer does not relink:
+- [x] **Step 9d: Add the reusable explicit-root staging helper.** Append this function to `TextDependencies.cmake`; the always-run target repairs deletion/tampering even when a consumer does not relink:
 
   ```cmake
   function(molga_define_text_runtime_resource_stage stage_name destination_root)
@@ -1394,7 +1394,7 @@
   endfunction()
   ```
 
-- [ ] **Step 9e: Add the exact target-scoped staging wrapper.** Append this function after the explicit-root helper:
+- [x] **Step 9e: Add the exact target-scoped staging wrapper.** Append this function after the explicit-root helper:
 
   ```cmake
   function(molga_stage_text_runtime_resources target_name)
@@ -1411,9 +1411,9 @@
   endfunction()
   ```
 
-- [ ] **Step 9f: Create one exact text-test resource root.** In `tests/CMakeLists.txt`, call `molga_define_text_runtime_resource_stage(molga_text_test_runtime_resources "${CMAKE_CURRENT_BINARY_DIR}/Engine/Text")` once and define `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"` only on session-backed test executables. Never derive it from the current working directory or an application target directory.
+- [x] **Step 9f: Create one exact text-test resource root.** In `tests/CMakeLists.txt`, call `molga_define_text_runtime_resource_stage(molga_text_test_runtime_resources "${CMAKE_CURRENT_BINARY_DIR}/Engine/Text")` once and define `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"` only on session-backed test executables. Never derive it from the current working directory or an application target directory.
 
-- [ ] **Step 9g: Add the exact session-backed test helper.** Define this beside `molga_add_test`; it links the header-only `doctest` interface, never `doctest_main`, so the executable has exactly one main. Every session-backed ready test is a normal HarfBuzz/ICU consumer, so this helper itself must call `molga_attach_text_dependencies` after creating the target. A later legacy/explicit call to the same normal helper is permitted but is the Step 5d property-guarded no-op; a direct-ICU-only or not-ready process must use a different generic helper instead of `molga_add_text_test`.
+- [x] **Step 9g: Add the exact session-backed test helper.** Define this beside `molga_add_test`; it links the header-only `doctest` interface, never `doctest_main`, so the executable has exactly one main. Every session-backed ready test is a normal HarfBuzz/ICU consumer, so this helper itself must call `molga_attach_text_dependencies` after creating the target. A later legacy/explicit call to the same normal helper is permitted but is the Step 5d property-guarded no-op; a direct-ICU-only or not-ready process must use a different generic helper instead of `molga_add_text_test`.
 
   ```cmake
   function(molga_add_text_test target_name source_name)
@@ -1435,23 +1435,23 @@
   endfunction()
   ```
 
-- [ ] **Step 9g.1: Prove normal attachment is exactly once.** After registering `test_text_runtime_session` through `molga_add_text_test`, deliberately call `molga_attach_text_dependencies(test_text_runtime_session)` once more. At configure time require target properties `MOLGA_TEXT_DEPENDENCIES_ATTACHED` and `MOLGA_TEXT_VERIFICATION_BARRIER_ATTACHED` to equal `TRUE`; count exact list items and require one `molga_text_harfbuzz` and one `molga_text_rasterizer` in `LINK_LIBRARIES`, one `U_STATIC_IMPLEMENTATION` in `COMPILE_DEFINITIONS`, and one `molga_text_dependencies_ready` in `MANUALLY_ADDED_DEPENDENCIES`. Require `MOLGA_TEXT_PORTABLE_CONTRACT_ATTACHED` to be unset/false and require zero `MOLGA_TEXT_DEPENDENCY_CONTRACT`, `MOLGA_TEXT_DEPENDENCY_BUILD_LOCK`, `MOLGA_SOURCE_DIR`, `MOLGA_BINARY_DIR`, `MOLGA_CMAKE_COMMAND`, or `MOLGA_TEXT_VERIFY_DEPENDENCIES_SCRIPT` definitions on this target. Any absent/duplicate/forbidden item is `FATAL_ERROR`. This regression proves the common helper supplies only the ready-test link/barrier boundary and that an existing explicit re-attachment cannot perturb static link order, definitions, or the barrier.
+- [x] **Step 9g.1: Prove normal attachment is exactly once.** After registering `test_text_runtime_session` through `molga_add_text_test`, deliberately call `molga_attach_text_dependencies(test_text_runtime_session)` once more. At configure time require target properties `MOLGA_TEXT_DEPENDENCIES_ATTACHED` and `MOLGA_TEXT_VERIFICATION_BARRIER_ATTACHED` to equal `TRUE`; count exact list items and require one `molga_text_harfbuzz` and one `molga_text_rasterizer` in `LINK_LIBRARIES`, one `U_STATIC_IMPLEMENTATION` in `COMPILE_DEFINITIONS`, and one `molga_text_dependencies_ready` in `MANUALLY_ADDED_DEPENDENCIES`. Require `MOLGA_TEXT_PORTABLE_CONTRACT_ATTACHED` to be unset/false and require zero `MOLGA_TEXT_DEPENDENCY_CONTRACT`, `MOLGA_TEXT_DEPENDENCY_BUILD_LOCK`, `MOLGA_SOURCE_DIR`, `MOLGA_BINARY_DIR`, `MOLGA_CMAKE_COMMAND`, or `MOLGA_TEXT_VERIFY_DEPENDENCIES_SCRIPT` definitions on this target. Any absent/duplicate/forbidden item is `FATAL_ERROR`. This regression proves the common helper supplies only the ready-test link/barrier boundary and that an existing explicit re-attachment cannot perturb static link order, definitions, or the barrier.
 
-- [ ] **Step 9h: Register the child probe and session self-test.** Create `molga_text_runtime_probe` from `text_runtime_probe_main.cpp` and `TextRuntimeDependenciesTestAccess.cpp`, link `molga_core`, attach normal HarfBuzz/ICU text dependencies, give it no root/path compile definition, and do not register it as a CTest. Immediately after the existing parent `test_text_runtime_dependencies` exists, call `molga_attach_text_portable_contract_consumer(test_text_runtime_dependencies)` and define exact `MOLGA_TEXT_RUNTIME_PROBE="$<TARGET_FILE:molga_text_runtime_probe>"`, `MOLGA_TEXT_RUNTIME_FIXTURE_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"`, and `MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT="$<TARGET_FILE_DIR:molga_engine>/Engine/Text"` there. Add parent target dependencies on the probe, `molga_text_test_runtime_resources`, and `molga_engine_text_runtime_resources`; keep the parent on its existing doctest main without text-session initialization. This parent owns the executable and both immutable roots and receives the portable path/barrier but no build-lock/source/binary macro. Register `test_text_runtime_session` through `molga_add_text_test`; Tasks 3.1–7.2 register their ready Unicode/font/shaping/atlas/cache/layout targets through the same helper and therefore already receive normal text dependencies. Any retained explicit normal attach after those registrations is the verified idempotent no-op. Standalone link probes and explicit not-ready child executables retain dedicated mains.
+- [x] **Step 9h: Register the child probe and session self-test.** Create `molga_text_runtime_probe` from `text_runtime_probe_main.cpp` and `TextRuntimeDependenciesTestAccess.cpp`, link `molga_core`, attach normal HarfBuzz/ICU text dependencies, give it no root/path compile definition, and do not register it as a CTest. Immediately after the existing parent `test_text_runtime_dependencies` exists, call `molga_attach_text_portable_contract_consumer(test_text_runtime_dependencies)` and define exact `MOLGA_TEXT_RUNTIME_PROBE="$<TARGET_FILE:molga_text_runtime_probe>"`, `MOLGA_TEXT_RUNTIME_FIXTURE_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"`, and `MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT="$<TARGET_FILE_DIR:molga_engine>/Engine/Text"` there. Add parent target dependencies on the probe, `molga_text_test_runtime_resources`, and `molga_engine_text_runtime_resources`; keep the parent on its existing doctest main without text-session initialization. This parent owns the executable and both immutable roots and receives the portable path/barrier but no build-lock/source/binary macro. Register `test_text_runtime_session` through `molga_add_text_test`; Tasks 3.1–7.2 register their ready Unicode/font/shaping/atlas/cache/layout targets through the same helper and therefore already receive normal text dependencies. Any retained explicit normal attach after those registrations is the verified idempotent no-op. Standalone link probes and explicit not-ready child executables retain dedicated mains.
 
-- [ ] **Step 9i: Attach existing development executables after creation.** Call `molga_stage_text_runtime_resources(molga_engine)` immediately after the editor target exists and `molga_stage_text_runtime_resources(molga_runtime)` immediately after the runtime target exists. The parent test's dependency on `molga_engine_text_runtime_resources` owns the exact development root named by its generator-expression compile definition; its dependency on `molga_text_test_runtime_resources` owns the fixture root. The child receives both only as literal argv. Never derive a root from the working directory or from the probe executable path.
+- [x] **Step 9i: Attach existing development executables after creation.** Call `molga_stage_text_runtime_resources(molga_engine)` immediately after the editor target exists and `molga_stage_text_runtime_resources(molga_runtime)` immediately after the runtime target exists. The parent test's dependency on `molga_engine_text_runtime_resources` owns the exact development root named by its generator-expression compile definition; its dependency on `molga_text_test_runtime_resources` owns the fixture root. The child receives both only as literal argv. Never derive a root from the working directory or from the probe executable path.
 
-- [ ] **Step 10: Wire editor lifetime and failure behavior.** After `PathService::InitFromExecutable`, enter a scoped `RunEditorAfterPaths` function, create `TextRuntimeLifetimeGuard` from `TextDependencyConfig::FromEngineTextRoot(PathService::Get().EngineResource("Engine/Text"), false)` before constructing Game View text services, and declare every text service/renderer/host handle after the guard. On failure retain the ImGui shell, expose the typed diagnostic, and mark Game View text unavailable without attempting a fallback renderer.
+- [x] **Step 10: Wire editor lifetime and failure behavior.** After `PathService::InitFromExecutable`, enter a scoped `RunEditorAfterPaths` function, create `TextRuntimeLifetimeGuard` from `TextDependencyConfig::FromEngineTextRoot(PathService::Get().EngineResource("Engine/Text"), false)` before constructing Game View text services, and declare every text service/renderer/host handle after the guard. On failure retain the ImGui shell, expose the typed diagnostic, and mark Game View text unavailable without attempting a fallback renderer.
 
-- [ ] **Step 10a: Route every editor return through stack unwinding.** Keep all post-initialization early returns inside `RunEditorAfterPaths`; destroy scene/UI/text services and all ICU/HarfBuzz-owning handles before the earlier-declared guard. Ban `std::exit`, `_Exit`, `quick_exit`, and static text-service owners in this scope so the guard's `u_cleanup` is last.
+- [x] **Step 10a: Route every editor return through stack unwinding.** Keep all post-initialization early returns inside `RunEditorAfterPaths`; destroy scene/UI/text services and all ICU/HarfBuzz-owning handles before the earlier-declared guard. Ban `std::exit`, `_Exit`, `quick_exit`, and static text-service owners in this scope so the guard's `u_cleanup` is last.
 
-- [ ] **Step 11: Wire development-runtime lifetime and exit behavior.** After `PathService::InitFromExecutable`, enter `RunRuntimeAfterPaths`, create the guard from `PathService::Get().EngineResource("Engine/Text")` with `packagedRuntime=false` before SDL/window/renderer/scripts/assets/scenes, and declare all of those owners afterward; on guard-creation failure print stable code, failed path/hash and remediation and return `4`.
+- [x] **Step 11: Wire development-runtime lifetime and exit behavior.** After `PathService::InitFromExecutable`, enter `RunRuntimeAfterPaths`, create the guard from `PathService::Get().EngineResource("Engine/Text")` with `packagedRuntime=false` before SDL/window/renderer/scripts/assets/scenes, and declare all of those owners afterward; on guard-creation failure print stable code, failed path/hash and remediation and return `4`.
 
-- [ ] **Step 11a: Route every runtime return through stack unwinding.** Every return after guard creation remains inside `RunRuntimeAfterPaths`, including argument, window, renderer, script, asset, and scene failures. Reverse destruction releases all text handles before guard shutdown and `u_cleanup`; no cleanup callback may retain a text resource past the function.
+- [x] **Step 11a: Route every runtime return through stack unwinding.** Every return after guard creation remains inside `RunRuntimeAfterPaths`, including argument, window, renderer, script, asset, and scene failures. Reverse destruction releases all text handles before guard shutdown and `u_cleanup`; no cleanup callback may retain a text resource past the function.
 
-- [ ] **Step 11b: Preserve the packaging handoff.** Document beside the helper that Milestone 16 must invoke `molga_stage_text_runtime_resources` for its `molga_runtime_dev` target and copy the same verified `Engine/Text` pair into the final runtime bundle before switching packaged initialization to `packagedRuntime=true`; package staging may not bypass `StageTextRuntimeResources.cmake` or substitute source-tree paths. Its `TextRuntimeManifest` must contain exactly one logical `harfbuzz` record whose SHA is the portable `harfbuzz.compositeSha256`, exactly one `icui18n` record, and exactly one logical `icuuc` record whose SHA is the composite common SHA. Raw `harfbuzz-icu`, raw core/adapter/object provenance, and ICU stub source/object provenance remain build-lock-only and may not become additional manifest libraries.
+- [x] **Step 11b: Preserve the packaging handoff.** Document beside the helper that Milestone 16 must invoke `molga_stage_text_runtime_resources` for its `molga_runtime_dev` target and copy the same verified `Engine/Text` pair into the final runtime bundle before switching packaged initialization to `packagedRuntime=true`; package staging may not bypass `StageTextRuntimeResources.cmake` or substitute source-tree paths. Its `TextRuntimeManifest` must contain exactly one logical `harfbuzz` record whose SHA is the portable `harfbuzz.compositeSha256`, exactly one `icui18n` record, and exactly one logical `icuuc` record whose SHA is the composite common SHA. Raw `harfbuzz-icu`, raw core/adapter/object provenance, and ICU stub source/object provenance remain build-lock-only and may not become additional manifest libraries.
 
-- [ ] **Step 12: Run lifetime, startup, and regression green gates.**
+- [x] **Step 12: Run lifetime, startup, and regression green gates.**
 
   ```bash
   cmake --build --preset debug --target molga_engine_text_runtime_resources \
@@ -1463,7 +1463,7 @@
 
   Expected: focused tests and the complete Debug suite pass; a tampered temporary data copy never reaches ready state or window creation.
 
-- [ ] **Step 13: Commit the verified lifetime.**
+- [x] **Step 13: Commit the verified lifetime.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt cmake/TextDependencies.cmake \
@@ -1476,6 +1476,49 @@
   ```
 
 **Exit:** ICU has one verified process lifetime, both development executables consume the build-verified `Engine/Text` pair, aligned data outlives `u_cleanup`, and startup failures follow the approved editor/runtime terminal actions.
+
+**Implementation record (2026-09-01).** Commits `57a6ffc` (feature), `f7628f3` and
+`56217e2` (review fixes). Debug suite 89/89 (baseline 88 + `test_text_runtime_session`).
+Spec compliance and code quality both reviewed; approved departures from this task's letter:
+
+- `src/Editor/GameBuilder.{h,cpp}` are added beyond the Files/`git add` list. Step 11's
+  fail-closed runtime guard otherwise breaks `smoke_end_to_end`, whose flat development
+  package carries no `Engine/Text` pair. GameBuilder now copies the editor's verified pair
+  (via `PathService::EngineResource("Engine/Text")`, the `StageTextRuntimeResources.cmake`
+  output) into the package root, fail-closed on a missing/tampered source. Design §12 keeps
+  the flat layout as a development-compatible input and the canonical bundle already lists
+  `Engine/Text/icudt78l.dat`, so this is an early subset of the approved layout, not a
+  layout change. Task 16.2 replaces it with `Contents/Resources` staging.
+- Public surface beyond Step 3's block, each structurally forced: `TextRuntimeClientHandle`
+  (Step 8's tokens are unusable without an acquire path), `namespace detail`'s ICU API table
+  (Step 1d, no internal header exists), and `WasTerminallyCleaned()` (Step 1i needs to
+  distinguish terminal from never-initialised; verified that no existing accessor does).
+- One added `TEST_CASE` asserting the positive pre-publish ICU call count (3). Without it a
+  regression bypassing the counted table would leave every `icuCalls*` assertion vacuously
+  true. Added as a separate case so the fourteen verbatim blocks stay byte-exact.
+- Step 7 is implemented strictly: *any* ICU-call failure is terminal, not only a later one.
+  `commonDataAcceptedForDiagnostic` shapes the message and never gates the unwind.
+- `Initialize` hashes the aligned buffer it hands `udata_setCommonData` instead of
+  re-verifying the file, which is TOCTOU-free and avoids a second 33 MB read; it shares the
+  pinned constants with `VerifyPackagedIcuDataFile`.
+
+Carried forward, with owners:
+
+- **Task 16.2 precondition:** ~100 lines (`ParseTextTestReturnAfterServices`,
+  `EmitTextLifetimeEvent`, `TextLifetimeScopeMarker`) are duplicated between `src/main.cpp`
+  and `src/runtime_main.cpp`. Step 11b schedules `molga_runtime_dev` as a third copy —
+  extract to one shared seam before adding that target.
+- **Task 8.2 precondition:** `TextRenderer::Get()` is a Meyers singleton destroyed after
+  `u_cleanup`, which Step 10a bans. Harmless while the renderer touches no ICU/HarfBuzz;
+  it needs a non-static owner declared after the guard once it is migrated.
+- **Not coverable under this task:** guard move-assignment cannot be exercised in-process
+  (`Create` is its only constructor and refuses once a lifetime exists); the test asserts
+  that refusal instead. Closing it properly would need a seventh probe mode, which Step 1's
+  closed mode list forbids.
+- **Pre-existing flake, unrelated:** `test_text_make_recovery` failed once at 915 s with
+  `CMAKE_C_COMPILER not set, after EnableLanguage` from DXC's `check_include_file` inside
+  `external/SDL_shadercross` (`CMakeLists.txt:65`, three lines before this subsystem is
+  included at line 68).
 
 ---
 
