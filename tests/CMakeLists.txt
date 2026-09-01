@@ -182,6 +182,12 @@ add_dependencies(test_text_runtime_dependencies
 # other smoke entries.
 set_tests_properties(test_text_runtime_dependencies PROPERTIES RUN_SERIAL TRUE)
 
+# Milestone 3: signed 26.6 fixed point and, later in this file, byte-preserving
+# Unicode decode/analysis. Session-backed like the other text-runtime tests
+# even though Task 3.1 itself has no ICU dependency, because later tasks in
+# this same executable do.
+molga_add_text_test(test_unicode_text test_unicode_text.cpp)
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────

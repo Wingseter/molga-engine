@@ -174,6 +174,7 @@ set(ENGINE_SOURCES
     src/Common/StdoutSink.cpp
     src/Common/FileSink.cpp
     src/Common/SmokeReportSink.cpp
+    src/Common/Fixed26_6.cpp
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
     src/Core/Profiling/ProfilerService.cpp
