@@ -3,6 +3,8 @@
 #include "Common/LogSink.h"
 #include "Common/RingBufferSink.h"
 #include "Text/TextDiagnostic.h"
+#include "Common/Sha256.h"
+#include "Text/TextRuntimeDependencies.h"
 #include "doctest.h"
 
 #include <nlohmann/json.hpp>
@@ -498,13 +500,25 @@ SpawnOutcome SpawnCaptured(const std::vector<std::string>& argv,
     const fs::path outPath = scratchRoot / "stdout.txt";
     const fs::path errPath = scratchRoot / "stderr.txt";
 
-    posix_spawn_file_actions_t actions;
-    REQUIRE(posix_spawn_file_actions_init(&actions) == 0);
+    // doctest's REQUIRE throws, so the file actions and any spawned child have
+    // to be owned by something that unwinds. Only reachable when the harness
+    // itself is broken, but this harness gets copied for later milestones.
+    struct FileActions {
+        posix_spawn_file_actions_t value{};
+        bool                       initialized = false;
+        FileActions() { initialized = posix_spawn_file_actions_init(&value) == 0; }
+        FileActions(const FileActions&)            = delete;
+        FileActions& operator=(const FileActions&) = delete;
+        ~FileActions() {
+            if (initialized) posix_spawn_file_actions_destroy(&value);
+        }
+    } actions;
+    REQUIRE(actions.initialized);
     REQUIRE(posix_spawn_file_actions_addopen(
-                &actions, STDOUT_FILENO, outPath.c_str(),
+                &actions.value, STDOUT_FILENO, outPath.c_str(),
                 O_WRONLY | O_CREAT | O_TRUNC, 0644) == 0);
     REQUIRE(posix_spawn_file_actions_addopen(
-                &actions, STDERR_FILENO, errPath.c_str(),
+                &actions.value, STDERR_FILENO, errPath.c_str(),
                 O_WRONLY | O_CREAT | O_TRUNC, 0644) == 0);
 
     std::vector<char*> raw;
@@ -515,14 +529,26 @@ SpawnOutcome SpawnCaptured(const std::vector<std::string>& argv,
     raw.push_back(nullptr);
 
     SpawnOutcome outcome;
-    pid_t        pid    = 0;
-    const int    spawned = posix_spawn(&pid, raw[0], &actions, nullptr,
+    pid_t        pid     = 0;
+    const int    spawned = posix_spawn(&pid, raw[0], &actions.value, nullptr,
                                        raw.data(), environ);
-    posix_spawn_file_actions_destroy(&actions);
     REQUIRE(spawned == 0);
+
+    // Reaps the child even if the wait assertion below throws.
+    struct ChildReaper {
+        pid_t pid    = 0;
+        bool  reaped = false;
+        ~ChildReaper() {
+            if (!reaped) {
+                int discarded = 0;
+                ::waitpid(pid, &discarded, 0);
+            }
+        }
+    } reaper{pid, false};
 
     int status = 0;
     REQUIRE(::waitpid(pid, &status, 0) == pid);
+    reaper.reaped = true;
     outcome.exitCode       = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     outcome.standardOutput = ReadAllBytes(outPath);
     outcome.standardError  = ReadAllBytes(errPath);
@@ -721,5 +747,221 @@ TEST_CASE("editor and runtime startup seams unwind text state in order") {
             CHECK_MESSAGE(LifetimeEvents(outcome.standardOutput) == expected,
                           context);
         }
+    }
+}
+
+// ── Validation that never reaches ICU ────────────────────────────────────────
+// Everything below runs in this process, which is allowed precisely because
+// each case hands Initialize a configuration rejected during pure validation,
+// before the first ICU call. Every case re-asserts that the runtime is still
+// not ready, so a regression that let one of them through would be caught here
+// rather than by this executable quietly acquiring an ICU lifetime.
+
+namespace {
+
+nlohmann::json ValidContractDocument() {
+    const std::string bytes = ReadAllBytes(
+        fs::path(MOLGA_TEXT_RUNTIME_FIXTURE_ROOT) / "text_dependency_contract.json");
+    nlohmann::json document = nlohmann::json::parse(bytes, nullptr, false);
+    REQUIRE_FALSE(document.is_discarded());
+    return document;
+}
+
+void WriteText(const fs::path& path, const std::string& text) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    REQUIRE(output.good());
+    output.write(text.data(), static_cast<std::streamsize>(text.size()));
+    output.flush();
+    REQUIRE(output.good());
+}
+
+// Initializes from a root holding only the given contract text. Returns the one
+// diagnostic message so a case can prove *which* check rejected it.
+std::string InitializeRejectionMessage(const std::string& contractText) {
+    const CallerTempRoot temp;
+    WriteText(temp.Path() / "text_dependency_contract.json", contractText);
+    molga::text::VectorTextDiagnosticSink sink;
+    const bool initialized = molga::text::TextRuntimeDependencies::Get().Initialize(
+        molga::text::TextDependencyConfig::FromEngineTextRoot(
+            temp.Path(), /*packagedRuntime=*/false),
+        sink);
+    CHECK_FALSE(initialized);
+    CHECK_FALSE(molga::text::TextRuntimeDependencies::Get().IsReady());
+    REQUIRE(sink.Diagnostics().size() == 1);
+    CHECK(sink.Diagnostics()[0].code ==
+          molga::text::TextDiagnosticCode::DependencyInvalid);
+    CHECK_FALSE(sink.Diagnostics()[0].remediation.empty());
+    return sink.Diagnostics()[0].message;
+}
+
+bool Mentions(const std::string& message, const std::string& needle) {
+    return message.find(needle) != std::string::npos;
+}
+
+}  // namespace
+
+TEST_CASE("the untampered contract passes verification, so rejections mean something") {
+    // Non-vacuity guard for every case below. The temp root holds a byte-exact
+    // copy of the staged contract and no icudt78l.dat, so verification must get
+    // all the way past the contract and fail on the missing data instead.
+    const std::string message =
+        InitializeRejectionMessage(ReadAllBytes(
+            fs::path(MOLGA_TEXT_RUNTIME_FIXTURE_ROOT) /
+            "text_dependency_contract.json"));
+    CHECK(Mentions(message, "ICU data"));
+    CHECK_FALSE(Mentions(message, "contract"));
+}
+
+TEST_CASE("the portable contract is rejected at every locked level") {
+    nlohmann::json document = ValidContractDocument();
+
+    SUBCASE("unknown top-level field") {
+        document["extra"] = 1;
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()),
+                       "top-level"));
+    }
+    SUBCASE("missing top-level field") {
+        document.erase("icu");
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()),
+                       "top-level"));
+    }
+    SUBCASE("wrong schema") {
+        document["schema"] = 2;
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()), "schema"));
+    }
+    SUBCASE("malformed JSON") {
+        CHECK(Mentions(InitializeRejectionMessage("{ not json"), "valid JSON"));
+    }
+    SUBCASE("unknown harfbuzz field") {
+        document["harfbuzz"]["extra"] = false;
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()),
+                       "harfbuzz fields"));
+    }
+    // The three key sets finding 6 added. Without these the option objects were
+    // accepted whatever they contained.
+    SUBCASE("unknown harfbuzz option") {
+        document["harfbuzz"]["options"]["newFlag"] = false;
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()),
+                       "harfbuzz options"));
+    }
+    SUBCASE("missing icu option") {
+        document["icu"]["options"].erase("tools");
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()),
+                       "icu options"));
+    }
+    SUBCASE("unknown icu archive hash") {
+        document["icu"]["archiveSha256"]["icuio"] = std::string(64, 'a');
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()),
+                       "archive hashes"));
+    }
+    SUBCASE("absolute path anywhere in the record") {
+        document["icu"]["sourcePath"] = "/checkout/external/icu";
+        CHECK(Mentions(InitializeRejectionMessage(document.dump()),
+                       "absolute path"));
+    }
+}
+
+TEST_CASE("an empty or relative Engine Text root is refused before any ICU call") {
+    // PathService::EngineResource yields the relative "Engine/Text" when the
+    // executable directory was never resolved. Resolving that against the
+    // caller's working directory is the fallback the milestone forbids, so the
+    // rejection lives in Initialize where all three call sites are covered.
+    using molga::text::TextDependencyConfig;
+    using molga::text::TextRuntimeDependencies;
+    for (const std::string root : {"", "Engine/Text", "./Engine/Text"}) {
+        molga::text::VectorTextDiagnosticSink sink;
+        CHECK_FALSE(TextRuntimeDependencies::Get().Initialize(
+            TextDependencyConfig::FromEngineTextRoot(root, false), sink));
+        CHECK_FALSE(TextRuntimeDependencies::Get().IsReady());
+        REQUIRE(sink.Diagnostics().size() == 1);
+        CHECK(Mentions(sink.Diagnostics()[0].message, "empty or relative"));
+    }
+    // FromEngineTextRoot's specified mapping is unchanged: an empty root still
+    // yields all-empty paths and carries the packaged flag through.
+    const TextDependencyConfig empty = TextDependencyConfig::FromEngineTextRoot("", true);
+    CHECK(empty.dependencyContract.empty());
+    CHECK(empty.icuData.empty());
+    CHECK(empty.packagedRuntime);
+}
+
+TEST_CASE("packaged ICU data verification rejects each way a file can be wrong") {
+    const CallerTempRoot temp;
+    molga::text::VectorTextDiagnosticSink sink;
+
+    const fs::path missing = temp.Path() / "absent.dat";
+    CHECK_FALSE(molga::text::VerifyPackagedIcuDataFile(missing, sink));
+
+    const fs::path tooSmall = temp.Path() / "small.dat";
+    WriteText(tooSmall, "not 33107232 bytes");
+    CHECK_FALSE(molga::text::VerifyPackagedIcuDataFile(tooSmall, sink));
+
+    // Right size, wrong bytes: the size check alone cannot see this, which is
+    // why the SHA exists. resize_file makes the 33 MB sparse and instant.
+    const fs::path wrongBytes = temp.Path() / "zeros.dat";
+    WriteText(wrongBytes, "");
+    fs::resize_file(wrongBytes, molga::text::kPackagedIcuDataBytes);
+    REQUIRE(fs::file_size(wrongBytes) == molga::text::kPackagedIcuDataBytes);
+    CHECK_FALSE(molga::text::VerifyPackagedIcuDataFile(wrongBytes, sink));
+
+    REQUIRE(sink.Diagnostics().size() == 3);
+    for (const molga::text::TextDiagnostic& diagnostic : sink.Diagnostics()) {
+        CHECK(diagnostic.code == molga::text::TextDiagnosticCode::DependencyInvalid);
+        CHECK_FALSE(diagnostic.remediation.empty());
+    }
+    // And it accepts the staged file, so the three rejections above are not
+    // just "this function always says no".
+    CHECK(molga::text::VerifyPackagedIcuDataFile(
+        fs::path(MOLGA_TEXT_RUNTIME_FIXTURE_ROOT) / "icudt78l.dat", sink));
+    CHECK(sink.Diagnostics().size() == 3);
+}
+
+TEST_CASE("the probe refuses every malformed command line") {
+    // These were hand-verified during implementation; automating them is what
+    // keeps the child's argv contract from eroding. Exit 2 is its argument
+    // rejection, distinct from 3 for a failed run.
+    const CallerTempRoot temp;
+    const fs::path fixtureRoot = fs::canonical(MOLGA_TEXT_RUNTIME_FIXTURE_ROOT);
+    const fs::path developmentRoot = fs::canonical(MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT);
+    const std::string probe = MOLGA_TEXT_RUNTIME_PROBE;
+    const std::vector<std::string> base = {
+        probe, "--mode", "staged-valid", "--fixture-root", fixtureRoot.string(),
+        "--development-root", developmentRoot.string(), "--report",
+        (temp.Path() / "unused.json").string()};
+
+    const fs::path existing = temp.Path() / "already-there.json";
+    WriteText(existing, "{}");
+
+    std::vector<std::pair<std::string, std::vector<std::string>>> cases;
+    auto with = [&base](std::size_t index, const std::string& value) {
+        std::vector<std::string> argv = base;
+        argv[index] = value;
+        return argv;
+    };
+    cases.emplace_back("unknown mode", with(2, "bogus"));
+    cases.emplace_back("noncanonical fixture root",
+                       with(4, (fixtureRoot / ".." / "Text").string()));
+    cases.emplace_back("relative development root", with(6, "Engine/Text"));
+    cases.emplace_back("report is not a direct child",
+                       with(8, (temp.Path() / "sub" / "r.json").string()));
+    cases.emplace_back("report already exists", with(8, existing.string()));
+
+    std::vector<std::string> duplicated = base;
+    duplicated.insert(duplicated.begin() + 1, {"--mode", "staged-valid"});
+    cases.emplace_back("duplicate switch", duplicated);
+
+    std::vector<std::string> unknownSwitch = base;
+    unknownSwitch.insert(unknownSwitch.begin() + 1, {"--bogus", "x"});
+    cases.emplace_back("unknown switch", unknownSwitch);
+
+    std::vector<std::string> missingValue = {probe, "--mode"};
+    cases.emplace_back("missing value", missingValue);
+
+    for (const auto& entry : cases) {
+        // Plain locals, not a structured binding: doctest's message macro
+        // captures them in a lambda, and capturing a binding is C++20.
+        const std::string  name = entry.first;
+        const CallerTempRoot scratch;
+        const SpawnOutcome   outcome = SpawnCaptured(entry.second, scratch.Path());
+        CHECK_MESSAGE(outcome.exitCode == 2, (name + ": " + outcome.standardError));
     }
 }

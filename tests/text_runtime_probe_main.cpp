@@ -193,22 +193,27 @@ public:
     }
 
     ScopedDirectory& operator=(ScopedDirectory&& other) noexcept {
-        if (this != &other) {
-            path_ = std::move(other.path_);
-            other.path_.clear();
-        }
+        if (this == &other) return *this;
+        // Discharge this object's own directory before taking the source's,
+        // so assigning over a live ScopedDirectory cannot abandon a tree.
+        Remove();
+        path_ = std::move(other.path_);
+        other.path_.clear();
         return *this;
     }
 
-    ~ScopedDirectory() {
-        if (path_.empty()) return;
-        std::error_code error;
-        fs::remove_all(path_, error);
-    }
+    ~ScopedDirectory() { Remove(); }
 
     const fs::path& Path() const noexcept { return path_; }
 
 private:
+    void Remove() noexcept {
+        if (path_.empty()) return;
+        std::error_code error;
+        fs::remove_all(path_, error);
+        path_.clear();
+    }
+
     fs::path path_;
 };
 
@@ -392,7 +397,7 @@ void RunOneLifetime(const fs::path& root, molga::text::TextDiagnosticSink& sink,
         report.harfbuzzIcuProbe = ProbeHarfBuzzIcuFuncs();
     }
     runtime.Shutdown();
-    report.terminallyCleaned = report.firstInitialize && !runtime.IsReady();
+    report.terminallyCleaned = runtime.WasTerminallyCleaned();
 }
 
 int Run(const Arguments& arguments) {

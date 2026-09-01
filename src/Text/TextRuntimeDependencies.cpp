@@ -25,6 +25,26 @@ namespace {
 // aligned; the copy therefore has to outlive every ICU call, u_cleanup last.
 constexpr std::size_t kIcuDataAlignment = 16;
 
+// std::aligned_alloc is C11/C++17 but the MSVC CRT does not provide it, and its
+// _aligned_malloc must be released with _aligned_free rather than std::free.
+// Allocation and release therefore go through this one pair so the two halves
+// can never drift apart on a platform this library is built for.
+void* AllocateAligned(std::size_t size) {
+#if defined(_MSC_VER)
+    return _aligned_malloc(size, kIcuDataAlignment);
+#else
+    return std::aligned_alloc(kIcuDataAlignment, size);
+#endif
+}
+
+void FreeAligned(void* pointer) noexcept {
+#if defined(_MSC_VER)
+    _aligned_free(pointer);
+#else
+    std::free(pointer);
+#endif
+}
+
 constexpr const char* kSubsystem = "text-runtime";
 constexpr const char* kRestoreIcuDataRemediation =
     "restore the verified icudt78l.dat by rebuilding the Engine/Text staging "
@@ -305,7 +325,7 @@ struct TextRuntimeDependencies::State {
     std::uint64_t                    nextToken = 1;
 
     ~State() {
-        if (alignedData != nullptr) std::free(alignedData);
+        if (alignedData != nullptr) FreeAligned(alignedData);
     }
 };
 
@@ -345,11 +365,20 @@ bool TextRuntimeDependencies::Initialize(const TextDependencyConfig& config,
             kFreshProcessRemediation);
         return false;
     }
-    if (config.dependencyContract.empty() || config.icuData.empty()) {
+    // Empty or relative, rejected here rather than at each call site.
+    // PathService::EngineResource is executableDir_ / rel, and
+    // InitFromExecutable leaves executableDir_ empty when the platform lookup
+    // fails and argv0 carries no directory — which yields the *relative* path
+    // "Engine/Text", not an empty one. Resolving that against the caller's
+    // working directory is the one fallback this milestone exists to forbid,
+    // so the check belongs where every present and future caller passes.
+    if (config.dependencyContract.empty() || config.icuData.empty() ||
+        !config.dependencyContract.is_absolute() ||
+        !config.icuData.is_absolute()) {
         ReportDependencyInvalid(
-            sink, "text dependency configuration has an empty path",
-            "point the runtime at a built Engine/Text root containing "
-            "text_dependency_contract.json and icudt78l.dat");
+            sink, "text dependency configuration has an empty or relative path",
+            "point the runtime at an absolute, built Engine/Text root "
+            "containing text_dependency_contract.json and icudt78l.dat");
         return false;
     }
 
@@ -385,7 +414,7 @@ bool TextRuntimeDependencies::Initialize(const TextDependencyConfig& config,
     const std::size_t byteCount = static_cast<std::size_t>(kPackagedIcuDataBytes);
     static_assert(kPackagedIcuDataBytes % kIcuDataAlignment == 0,
                   "the pinned ICU data size must be a multiple of the alignment");
-    candidate->alignedData = std::aligned_alloc(kIcuDataAlignment, byteCount);
+    candidate->alignedData = AllocateAligned(byteCount);
     if (candidate->alignedData == nullptr) {
         ReportDependencyInvalid(
             sink, "could not allocate aligned ICU common data storage",
@@ -485,7 +514,9 @@ void TextRuntimeDependencies::Shutdown() {
     // none yet; the faces, break iterators and shapers that Milestones 4-8 add
     // to State are cleared at this point, before the terminal cleanup below.
 
-    g_lifecycleTransitioned = true;
+    // g_lifecycleTransitioned is already true: this point is reachable only
+    // from Ready, which only Initialize sets, and Initialize sets the flag
+    // before its own first ICU call.
     ActiveApi().cleanup();
     // Only now may the aligned common data go away, and only now is the
     // lifetime terminal. No ICU API and no HarfBuzz object backed by

@@ -633,6 +633,10 @@ PackagedPhysicsProbe ProbePackagedStagePhysics(World& world) {
 
 // ── Text runtime lifetime ────────────────────────────────────────────────────
 
+// A present-but-malformed seam value returns this instead of nullopt, so the
+// caller fails fast rather than falling through to a real application launch.
+constexpr int kTextSeamParseError = 2;
+
 // Test-only startup seam. --text-test-return-after-services=<code> returns
 // <code> from the scoped startup function immediately after the text lifetime
 // is established, so a test can observe the unwind order without a window.
@@ -646,7 +650,13 @@ std::optional<int> ParseTextTestReturnAfterServices(int argc, char* argv[]) {
         try {
             return std::stoi(value);
         } catch (const std::exception&) {
-            return std::nullopt;
+            // Present but unparseable is not the same as absent. Returning
+            // nullopt here would launch the real application instead of the
+            // seam, which in CI reads as a mystifying hang rather than a
+            // broken argument.
+            std::cerr << "Invalid --text-test-return-after-services value: "
+                      << value << '\n';
+            return kTextSeamParseError;
         }
     }
     return std::nullopt;
@@ -674,8 +684,6 @@ private:
     const char* event_   = nullptr;
 };
 
-}  // namespace
-
 // Everything after PathService::InitFromExecutable runs inside this scope. The
 // text runtime lifetime guard is created first, ahead of SDL, the window, the
 // renderer, scripts, assets and scenes, and every one of those owners is
@@ -688,6 +696,11 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
                          int textSeamCode) {
     const std::filesystem::path engineTextRoot =
         PathService::Get().EngineResource("Engine/Text");
+    // Collected, not logged: Step 11 requires this process to print the stable
+    // code, the failed paths and the expected hash to stderr and return 4,
+    // where Step 10 has the editor log and keep its shell. The difference from
+    // src/main.cpp is required, not drift, and must survive any later
+    // extraction of the shared seam.
     molga::text::VectorTextDiagnosticSink textDiagnostics;
     std::optional<molga::text::TextRuntimeLifetimeGuard> textGuard =
         molga::text::TextRuntimeLifetimeGuard::Create(
@@ -703,14 +716,12 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         }
         std::cerr << "  contract: "
                   << (engineTextRoot / "text_dependency_contract.json") << '\n'
-                  << "  data: " << (engineTextRoot / "icudt78l.dat")
-                  << " (33107232 bytes, SHA-256 d5cf2a40dccbe471781ec7af85693bf"
-                     "f542ff12f0b670c9630c4e72d60714b8b)\n";
+                  << "  data: " << (engineTextRoot / "icudt78l.dat") << " ("
+                  << molga::text::kPackagedIcuDataBytes << " bytes, SHA-256 "
+                  << molga::text::kPackagedIcuDataSha256 << ")\n";
         return 4;
     }
 
-    // Declared after the guard, so its destructor runs immediately before the
-    // guard's and marks the instant guard shutdown begins.
     // Named for what it observes, not for what follows it: this marker is
     // destroyed immediately before the guard, so it marks the instant guard
     // shutdown is about to begin, not its completion.
@@ -1428,6 +1439,8 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
 
     return exitCode;
 }
+
+}  // namespace
 
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);

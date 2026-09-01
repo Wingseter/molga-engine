@@ -121,6 +121,43 @@ target_include_directories(molga_text_runtime_probe PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}")
 molga_attach_text_dependencies(molga_text_runtime_probe)
 
+# The header claims this companion links only into the probe. That was true by
+# convention alone; detail::InstallIcuRuntimeApi is a normal exported symbol, so
+# nothing stopped a later target from listing the source. Assert it, in the same
+# configure-time style as molga_text_audit_macro_scope.
+function(molga_text_require_source_only_in expected_target source_name)
+    get_property(expected_sources TARGET "${expected_target}" PROPERTY SOURCES)
+    set(found FALSE)
+    foreach(source IN LISTS expected_sources)
+        get_filename_component(source_leaf "${source}" NAME)
+        if(source_leaf STREQUAL source_name)
+            set(found TRUE)
+        endif()
+    endforeach()
+    if(NOT found)
+        message(FATAL_ERROR
+            "${expected_target} must compile ${source_name}")
+    endif()
+    foreach(other_target ${ARGN})
+        if(NOT TARGET "${other_target}")
+            continue()
+        endif()
+        get_property(other_sources TARGET "${other_target}" PROPERTY SOURCES)
+        foreach(source IN LISTS other_sources)
+            get_filename_component(source_leaf "${source}" NAME)
+            if(source_leaf STREQUAL source_name)
+                message(FATAL_ERROR
+                    "${source_name} is test-only and must not be compiled into "
+                    "${other_target}")
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
+molga_text_require_source_only_in(molga_text_runtime_probe
+    "TextRuntimeDependenciesTestAccess.cpp"
+    molga_core molga_engine molga_runtime
+    test_text_runtime_dependencies test_text_runtime_session)
+
 # The parent owns the probe executable and both immutable roots. It receives the
 # portable contract path and the verification barrier, and deliberately no
 # build-lock, source or binary macro. It keeps its existing doctest main and

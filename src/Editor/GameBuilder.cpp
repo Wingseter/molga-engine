@@ -905,7 +905,9 @@ bool GameBuilder::CopyTextRuntimeResources(const std::string& outputPath) {
         lastError += molga::text::StableTextDiagnosticCode(diagnostic.code);
         lastError += ": " + diagnostic.message +
                      " (remediation: " + diagnostic.remediation + ")";
-        Log::Error(diagnostic.subsystem, lastError);
+        // The record, not the accumulator: logging lastError here would repeat
+        // every earlier diagnostic on each line once more than one can appear.
+        Log::Error(diagnostic.subsystem, diagnostic.message);
     }
     if (lastError.empty()) lastError = "Failed to copy text runtime resources";
     return false;

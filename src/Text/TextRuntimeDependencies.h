@@ -42,6 +42,18 @@ struct TextDependencyConfig {
 
 // The one ICU lifetime a process gets.
 //
+// Thread contract: single-threaded, and deliberately unsynchronized. Every
+// operation on this class and on the handles below — Initialize, Shutdown,
+// TextRuntimeClientHandle acquire and release, and the detail table install —
+// must happen on one thread. State::clientTokens, State::nextToken, the
+// lifecycle field and the process-static API table carry no locking, so two
+// threads acquiring handles concurrently is a torn unordered_set, not a
+// slow path. This mirrors TextDiagnostic.h: text processing is a main-thread
+// deterministic CPU phase, with no background shaping until that design is
+// amended. When it is, the token set needs a mutex the way RingBufferSink has
+// one — and note that client handles are exactly what an off-thread shaper
+// would construct, so this is the contract that will bind first.
+//
 // It is one-way. Once Initialize publishes ready state, Shutdown is the only
 // remaining transition and it ends in TerminallyCleaned forever, because
 // hb_icu_get_unicode_funcs() caches ICU normalizer pointers process-statically
@@ -82,7 +94,8 @@ private:
 
 // Weak client-lifetime token. Every ICU/HarfBuzz-backed service, face,
 // analyzer or shaper an application owns holds one for exactly as long as it
-// can still touch ICU. Shutdown requires all of them to be gone first. The
+// can still touch ICU. Acquire and release are single-threaded; see the thread
+// contract on TextRuntimeDependencies above. Shutdown requires all of them to be gone first. The
 // runtime's own common-data and internal ICU handles are deliberately not
 // counted here: they belong to State, not to a client.
 class TextRuntimeClientHandle {

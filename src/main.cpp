@@ -167,6 +167,10 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
 
 // ── Text runtime lifetime ────────────────────────────────────────────────────
 
+// A present-but-malformed seam value returns this instead of nullopt, so the
+// caller fails fast rather than falling through to a real application launch.
+constexpr int kTextSeamParseError = 2;
+
 // Test-only startup seam. --text-test-return-after-services=<code> returns
 // <code> from the scoped startup function immediately after the text lifetime
 // is established, so a test can observe the unwind order without a window.
@@ -180,7 +184,13 @@ std::optional<int> ParseTextTestReturnAfterServices(int argc, char* argv[]) {
         try {
             return std::stoi(value);
         } catch (const std::exception&) {
-            return std::nullopt;
+            // Present but unparseable is not the same as absent. Returning
+            // nullopt here would launch the real application instead of the
+            // seam, which in CI reads as a mystifying hang rather than a
+            // broken argument.
+            std::cerr << "Invalid --text-test-return-after-services value: "
+                      << value << '\n';
+            return kTextSeamParseError;
         }
     }
     return std::nullopt;
@@ -208,8 +218,6 @@ private:
     const char* event_   = nullptr;
 };
 
-}  // namespace
-
 // Everything after PathService::InitFromExecutable runs inside this scope. The
 // text runtime lifetime guard is declared here, ahead of every text service,
 // renderer and host handle below, so each of the returns further down unwinds
@@ -235,6 +243,12 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // text service exists. On failure the ImGui shell stays fully usable: the
     // typed diagnostic is reported through the editor log, Game View text is
     // marked unavailable, and no fallback text renderer is attempted.
+    //
+    // The sink type differs from the runtime's on purpose and must survive any
+    // later extraction of this seam: Step 10 has the editor keep running and
+    // surface the diagnostic through its console, so it logs; Step 11 has the
+    // runtime print and exit 4, so it collects instead. Flattening the two into
+    // one helper would erase a required difference in failure policy.
     molga::text::LoggerTextDiagnosticSink textDiagnostics(/*maxRememberedKeys=*/64);
     std::optional<molga::text::TextRuntimeLifetimeGuard> textGuard =
         molga::text::TextRuntimeLifetimeGuard::Create(
@@ -252,8 +266,6 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
                    "shell remains usable.");
     }
 
-    // Declared after the guard, so its destructor runs immediately before the
-    // guard's and marks the instant guard shutdown begins.
     // Named for what it observes, not for what follows it: this marker is
     // destroyed immediately before the guard, so it marks the instant guard
     // shutdown is about to begin, not its completion.
@@ -577,6 +589,8 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     EngineShutdown(host);
     return 0;
 }
+
+}  // namespace
 
 int main(int argc, char* argv[]) {
     PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);

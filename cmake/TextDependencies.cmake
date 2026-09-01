@@ -839,6 +839,13 @@ function(molga_define_text_runtime_resource_stage stage_name destination_root)
     VERBATIM)
 endfunction()
 
+# Note for whoever adds the third consumer: molga_engine and molga_runtime both
+# land in the same output directory, so their two always-run stage targets
+# resolve to one destination root and each hashes ~66 MB (source verify plus
+# fast-path check) on every build, serialized on the file(LOCK). The lock keeps
+# that correct; the duplicated work is pure waste. It is not deduplicated here
+# because the destination is a generator expression and cannot be compared at
+# configure time. Milestone 16's molga_runtime_dev makes it 3x.
 function(molga_stage_text_runtime_resources target_name)
   if(NOT TARGET "${target_name}")
     message(FATAL_ERROR "text runtime resource target does not exist: ${target_name}")
