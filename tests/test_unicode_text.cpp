@@ -1,10 +1,17 @@
 #include "Common/Fixed26_6.h"
+#include "Rendering/Utf8.h"
 #include "Text/TextDiagnostic.h"
+#include "Text/UnicodeAnalysis.h"
 #include "Text/UnicodeTextBuffer.h"
+#include "UnicodeTextAnalyzerTestAccess.h"
 
 #include "doctest.h"
 
+#include <unicode/uscript.h>
+
+#include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -812,4 +819,720 @@ TEST_CASE("reversed ranges and offsets inside the final scalar are rejected") {
     // The exact end-of-text boundary is still accepted, so the rejections above
     // are about the partial scalar and not about querying near the end.
     CHECK(trailing->Utf16ForSourceBytes({0, 5}) == Utf16Range{0, 3});
+}
+
+// ── Task 3.3: ICU grapheme, line-break, script and BiDi analysis ─────────────
+
+namespace {
+
+using molga::text::AnalysisItem;
+using molga::text::BaseDirection;
+using molga::text::TextAnalysisOptions;
+using molga::text::UnicodeAnalysis;
+
+// Step 1j. The only door into the analyzer these cases use. It goes through the
+// public buffer and the public analyzer, never ICU, and requires both optionals
+// before dereferencing either, so no case below can read a stale payload out of
+// a disengaged optional and pass against a stubbed failure.
+UnicodeAnalysis AnalyzeFixture(std::string utf8,
+                               TextAnalysisOptions options = {}) {
+    molga::text::VectorTextDiagnosticSink sink;
+    auto buffer = molga::text::UnicodeTextBuffer::Build(std::move(utf8), sink);
+    REQUIRE(buffer);
+    auto analysis =
+        molga::text::UnicodeTextAnalyzer::Analyze(*buffer, options, sink);
+    REQUIRE(analysis);
+    return std::move(*analysis);
+}
+
+bool HasDiagnostic(const molga::text::VectorTextDiagnosticSink& sink,
+                   molga::text::TextDiagnosticCode code) {
+    for (const auto& diagnostic : sink.Diagnostics()) {
+        if (diagnostic.code == code) return true;
+    }
+    return false;
+}
+
+// Step 1j. Every boundary vector this file reads is required to be sorted, so a
+// linear scan would hide an implementation that emits boundaries out of order.
+bool ContainsBoundary(const std::vector<std::uint32_t>& boundaries,
+                      std::uint32_t offset) {
+    return std::binary_search(boundaries.begin(), boundaries.end(), offset);
+}
+
+bool AllLineBreaksAreGraphemeAligned(const UnicodeAnalysis& analysis) {
+    for (const std::uint32_t boundary : analysis.LineBreakBoundaries()) {
+        if (!ContainsBoundary(analysis.GraphemeBoundaries(), boundary)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Step 1i. The single item covering one grapheme, or nullptr. Written as an
+// exhaustive scan with an overlap check rather than "first match wins" because
+// an item set that double-covers one grapheme and skips the next still yields a
+// perfectly plausible-looking level vector.
+const AnalysisItem* CoveringItem(const UnicodeAnalysis& analysis,
+                                 std::uint32_t begin, std::uint32_t end) {
+    const AnalysisItem* covering = nullptr;
+    for (const auto& item : analysis.Items()) {
+        if (begin < item.sourceBytes.begin || end > item.sourceBytes.end) {
+            continue;
+        }
+        if (covering != nullptr) return nullptr;  // overlap
+        covering = &item;
+    }
+    return covering;
+}
+
+// Step 1i. One slot per adjacent grapheme-boundary pair, each filled from the
+// single covering item. A gap or an overlap leaves the sentinel in place and
+// fails the case; 0xFF can never collide with a real level, whose ceiling is
+// UBIDI_MAX_EXPLICIT_LEVEL + 1 == 126.
+std::vector<std::uint8_t> EmbeddingLevelsByGrapheme(
+    const UnicodeAnalysis& analysis) {
+    constexpr std::uint8_t kUnfilled = 0xFF;
+    const auto& boundaries = analysis.GraphemeBoundaries();
+    REQUIRE(boundaries.size() >= 1);
+    std::vector<std::uint8_t> levels(boundaries.size() - 1, kUnfilled);
+    for (std::size_t slot = 0; slot < levels.size(); ++slot) {
+        const AnalysisItem* covering =
+            CoveringItem(analysis, boundaries[slot], boundaries[slot + 1]);
+        REQUIRE(covering != nullptr);
+        levels[slot] = covering->embeddingLevel;
+    }
+    return levels;
+}
+
+// Step 1i. The covering item's resolved script, so the case asserts what the
+// analyzer actually decided rather than re-deriving it from the scalar.
+std::int32_t ScriptAtGrapheme(const UnicodeAnalysis& analysis,
+                              std::size_t graphemeIndex) {
+    const auto& boundaries = analysis.GraphemeBoundaries();
+    REQUIRE(graphemeIndex + 1 < boundaries.size());
+    const AnalysisItem* covering = CoveringItem(
+        analysis, boundaries[graphemeIndex], boundaries[graphemeIndex + 1]);
+    REQUIRE(covering != nullptr);
+    return covering->scriptCode;
+}
+
+// Step 1i. Flagged items in logical order, adjacent duplicates removed only.
+// Not a set: two paragraphs that both claim to start at the same byte is a
+// defect this must be able to show, and sorting or de-duplicating globally
+// would erase it.
+std::vector<std::uint32_t> ParagraphStartBytes(const UnicodeAnalysis& analysis) {
+    std::vector<std::uint32_t> starts;
+    for (const auto& item : analysis.Items()) {
+        if (!item.paragraphStart) continue;
+        if (!starts.empty() && starts.back() == item.sourceBytes.begin) continue;
+        starts.push_back(item.sourceBytes.begin);
+    }
+    return starts;
+}
+
+std::vector<std::uint32_t> ParagraphEndBytes(const UnicodeAnalysis& analysis) {
+    std::vector<std::uint32_t> ends;
+    for (const auto& item : analysis.Items()) {
+        if (!item.paragraphEnd) continue;
+        if (!ends.empty() && ends.back() == item.sourceBytes.end) continue;
+        ends.push_back(item.sourceBytes.end);
+    }
+    return ends;
+}
+
+// The whole point of the analysis layer: every item boundary is a real authored
+// UTF-8 offset, reachable in both mapping directions, and the items tile the
+// source with no gap and no overlap. An analyzer that reported ICU's UTF-16
+// offsets directly would pass every level and script assertion in this file and
+// fail only here.
+bool AllItemBoundariesMapToOriginalBytes(
+    const molga::text::UnicodeTextBuffer& buffer,
+    const UnicodeAnalysis& analysis) {
+    const auto& graphemes = analysis.GraphemeBoundaries();
+    std::uint32_t nextByte = 0;
+    std::uint32_t nextUnit = 0;
+    std::uint32_t nextGrapheme = 0;
+    for (const auto& item : analysis.Items()) {
+        if (item.sourceBytes.begin != nextByte) return false;
+        if (item.sourceBytes.end <= item.sourceBytes.begin) return false;
+        if (item.utf16Units.begin != nextUnit) return false;
+        if (item.graphemes.begin != nextGrapheme) return false;
+        // Both directions, so a widened or clamped range cannot pass.
+        if (!(buffer.Utf16ForSourceBytes(item.sourceBytes) == item.utf16Units)) {
+            return false;
+        }
+        if (!(buffer.SourceBytesForUtf16(item.utf16Units) == item.sourceBytes)) {
+            return false;
+        }
+        // The grapheme range must name the same span in the boundary vector.
+        if (item.graphemes.end >= graphemes.size()) return false;
+        if (graphemes[item.graphemes.begin] != item.sourceBytes.begin) {
+            return false;
+        }
+        if (graphemes[item.graphemes.end] != item.sourceBytes.end) return false;
+        nextByte = item.sourceBytes.end;
+        nextUnit = item.utf16Units.end;
+        nextGrapheme = item.graphemes.end;
+    }
+    return nextByte == buffer.OriginalUtf8().size() &&
+           nextUnit == buffer.SanitizedUtf16().size() &&
+           static_cast<std::size_t>(nextGrapheme) + 1 == graphemes.size();
+}
+
+} // namespace
+
+TEST_CASE("analysis preserves grapheme boundaries and exact BiDi levels") {
+    molga::text::VectorTextDiagnosticSink sink;
+    auto buffer = molga::text::UnicodeTextBuffer::Build(u8"abc שלום 123!", sink);
+    REQUIRE(buffer);
+    auto analysis = molga::text::UnicodeTextAnalyzer::Analyze(
+        *buffer, {"und", molga::text::BaseDirection::Auto}, sink);
+    REQUIRE(analysis);
+    CHECK(analysis->GraphemeBoundaries().front() == 0);
+    CHECK(analysis->GraphemeBoundaries().back() == buffer->OriginalUtf8().size());
+    CHECK(EmbeddingLevelsByGrapheme(*analysis) ==
+          std::vector<std::uint8_t>{0,0,0,0,1,1,1,1,1,2,2,2,0});
+    CHECK(AllItemBoundariesMapToOriginalBytes(*buffer, *analysis));
+}
+
+TEST_CASE("combining ZWJ and variation sequences remain one grapheme") {
+    const auto combining = AnalyzeFixture(u8"x\u0301");
+    const auto zwj = AnalyzeFixture(u8"👩\u200D🚀");
+    const auto variation = AnalyzeFixture(u8"❤️");
+    const auto variationSupplement = AnalyzeFixture(u8"！\uFE00");
+    CHECK(combining.GraphemeBoundaries().size() - 1 == 1);
+    CHECK(zwj.GraphemeBoundaries().size() - 1 == 1);
+    CHECK(variation.GraphemeBoundaries().size() - 1 == 1);
+    CHECK(variationSupplement.GraphemeBoundaries().size() - 1 == 1);
+}
+
+TEST_CASE("CRLF is one grapheme and one explicit paragraph separator") {
+    const auto analysis = AnalyzeFixture("A\r\nB\n");
+    CHECK(analysis.GraphemeBoundaries() ==
+          std::vector<std::uint32_t>{0, 1, 3, 4, 5});
+    CHECK(ContainsBoundary(analysis.LineBreakBoundaries(), 3));
+    CHECK(ContainsBoundary(analysis.LineBreakBoundaries(), 5));
+    CHECK_FALSE(ContainsBoundary(analysis.LineBreakBoundaries(), 2));
+    CHECK(ParagraphStartBytes(analysis) ==
+          std::vector<std::uint32_t>{0, 3});
+    CHECK(ParagraphEndBytes(analysis) ==
+          std::vector<std::uint32_t>{3, 5});
+}
+
+TEST_CASE("Latin Arabic common and inherited scalars resolve by context") {
+    const auto analysis = AnalyzeFixture(u8"A·x\u0301 سـ");
+    CHECK(ScriptAtGrapheme(analysis, 0) == USCRIPT_LATIN);
+    CHECK(ScriptAtGrapheme(analysis, 1) == USCRIPT_LATIN);
+    CHECK(ScriptAtGrapheme(analysis, 2) == USCRIPT_LATIN);
+    CHECK(ScriptAtGrapheme(analysis, 4) == USCRIPT_ARABIC);
+    CHECK(ScriptAtGrapheme(analysis, 5) == USCRIPT_ARABIC);
+}
+
+TEST_CASE("ICU supplies Thai opportunities and CJK punctuation prohibitions") {
+    const auto thai = AnalyzeFixture(
+        u8"ภาษาไทย", {"th", molga::text::BaseDirection::Auto});
+    CHECK(ContainsBoundary(thai.LineBreakBoundaries(), 12));
+    CHECK(ContainsBoundary(thai.LineBreakBoundaries(), 21));
+    const auto cjk = AnalyzeFixture(
+        u8"漢字（、。）", {"ja", molga::text::BaseDirection::Auto});
+    CHECK(ContainsBoundary(cjk.LineBreakBoundaries(), 3));
+    CHECK_FALSE(ContainsBoundary(cjk.LineBreakBoundaries(), 9));
+    CHECK_FALSE(ContainsBoundary(cjk.LineBreakBoundaries(), 12));
+    CHECK_FALSE(ContainsBoundary(cjk.LineBreakBoundaries(), 15));
+    CHECK(ContainsBoundary(cjk.LineBreakBoundaries(), 18));
+    CHECK(AllLineBreaksAreGraphemeAligned(thai));
+    CHECK(AllLineBreaksAreGraphemeAligned(cjk));
+}
+
+TEST_CASE("invalid ICU locale fails without ad hoc analysis") {
+    molga::text::VectorTextDiagnosticSink sink;
+    auto buffer = molga::text::UnicodeTextBuffer::Build("A", sink);
+    REQUIRE(buffer);
+    CHECK_FALSE(molga::text::UnicodeTextAnalyzer::Analyze(
+        *buffer, {"en--US", molga::text::BaseDirection::Auto}, sink));
+    CHECK(HasDiagnostic(sink,
+          molga::text::TextDiagnosticCode::LayoutInvalid));
+}
+
+TEST_CASE("analysis records resolved locales rules and unique generation") {
+    const auto first = AnalyzeFixture(u8"ภาษาไทย", {"th-TH", BaseDirection::Auto});
+    const auto second = AnalyzeFixture(u8"ภาษาไทย", {"th-TH", BaseDirection::Auto});
+    CHECK_FALSE(first.Identity().resolvedGraphemeLocale.empty());
+    CHECK_FALSE(first.Identity().resolvedLineBreakLocale.empty());
+    CHECK(first.Identity().graphemeRuleIdentity.size() == 64);
+    CHECK(first.Identity().lineBreakRuleIdentity.size() == 64);
+    CHECK(first.Identity().resolvedGraphemeLocale ==
+          second.Identity().resolvedGraphemeLocale);
+    CHECK(first.Identity().resolvedLineBreakLocale ==
+          second.Identity().resolvedLineBreakLocale);
+    CHECK(first.Identity().graphemeRuleIdentity ==
+          second.Identity().graphemeRuleIdentity);
+    CHECK(first.Identity().lineBreakRuleIdentity ==
+          second.Identity().lineBreakRuleIdentity);
+    CHECK(first.Identity().analysisGeneration !=
+          second.Identity().analysisGeneration);
+}
+
+// The two break kinds must not collapse onto one digest. Nothing above would
+// notice: both identities are 64 hex characters and both are stable across
+// runs, so an implementation that hashed the character rules twice — or that
+// dropped the `kind` field from the canonical stream — satisfies every
+// assertion in the case above.
+TEST_CASE("character and line rule identities are distinct and locale sensitive") {
+    const auto root = AnalyzeFixture(u8"ภาษาไทย");
+    CHECK(root.Identity().graphemeRuleIdentity !=
+          root.Identity().lineBreakRuleIdentity);
+    // Japanese tailors the line rules, so a digest built from the requested
+    // locale string alone — or from nothing but the ICU version — would make
+    // these equal.
+    const auto japanese =
+        AnalyzeFixture(u8"漢字（、。）", {"ja", BaseDirection::Auto});
+    CHECK(japanese.Identity().lineBreakRuleIdentity !=
+          root.Identity().lineBreakRuleIdentity);
+    CHECK(japanese.Identity().resolvedLineBreakLocale !=
+          root.Identity().resolvedLineBreakLocale);
+    // The other half of the same claim, and the reason the pair is asserted
+    // together: Japanese tailors LINE breaking only, so the character identity
+    // must be untouched by it. Assigning one iterator's rules or locale to the
+    // other field passes every inequality above and fails exactly here.
+    CHECK(japanese.Identity().graphemeRuleIdentity ==
+          root.Identity().graphemeRuleIdentity);
+    CHECK(japanese.Identity().resolvedGraphemeLocale ==
+          root.Identity().resolvedGraphemeLocale);
+}
+
+// Step 1h. Serialized against every other case in this executable only by
+// doctest's single-threaded runner: the allocator is process-wide, so the
+// override has to be undone before the case returns or every later analysis
+// becomes a silent nullopt.
+TEST_CASE("the analysis generation issues UINT64_MAX once and never wraps") {
+    molga::text::VectorTextDiagnosticSink sink;
+    auto buffer = molga::text::UnicodeTextBuffer::Build("A", sink);
+    REQUIRE(buffer);
+    {
+        const auto restore = molga::text_test::UnicodeTextAnalyzerTestAccess::
+            SetNextGeneration(UINT64_MAX);
+
+        const auto last =
+            molga::text::UnicodeTextAnalyzer::Analyze(*buffer, {}, sink);
+        REQUIRE(last);
+        CHECK(last->Identity().analysisGeneration == UINT64_MAX);
+
+        molga::text::VectorTextDiagnosticSink exhausted;
+        const std::uint64_t before =
+            molga::text_test::IcuObjectCreationCountForTest();
+        CHECK_FALSE(molga::text::UnicodeTextAnalyzer::Analyze(
+            *buffer, {}, exhausted));
+        CHECK(molga::text_test::IcuObjectCreationCountForTest() == before);
+        REQUIRE(exhausted.Diagnostics().size() == 1);
+        CHECK(exhausted.Diagnostics().front().code ==
+              molga::text::TextDiagnosticCode::LayoutInvalid);
+    }
+    // The RAII restore put a fresh monotonic allocator back, so the exhaustion
+    // latch did not leak out of the block above.
+    const auto resumed = AnalyzeFixture("A");
+    CHECK(resumed.Identity().analysisGeneration != UINT64_MAX);
+}
+
+// The two-sided witness for the counter that test_unicode_not_ready reads. That
+// executable can only ever observe zero, so `return 0;` would satisfy it; here
+// a successful analysis must move the counter and a reset must clear it.
+TEST_CASE("the ICU object counter rises with a real analysis and resets") {
+    molga::text_test::ResetIcuObjectCreationCountForTest();
+    CHECK(molga::text_test::IcuObjectCreationCountForTest() == 0);
+    const auto analysis = AnalyzeFixture("A");
+    CHECK(analysis.Items().size() == 1);
+    // Two break iterators and one paragraph UBiDi at the very least.
+    CHECK(molga::text_test::IcuObjectCreationCountForTest() >= 3);
+    molga::text_test::ResetIcuObjectCreationCountForTest();
+    CHECK(molga::text_test::IcuObjectCreationCountForTest() == 0);
+}
+
+// Empty authored text is the first thing a text field holds and the last thing
+// a caret query asks about, and none of the cases above reach it: an
+// implementation that assumed at least one grapheme would pass all of them and
+// read past the end here.
+TEST_CASE("empty text analyzes to one boundary, no item and no diagnostic") {
+    molga::text::VectorTextDiagnosticSink sink;
+    auto buffer = molga::text::UnicodeTextBuffer::Build("", sink);
+    REQUIRE(buffer);
+    const auto analysis =
+        molga::text::UnicodeTextAnalyzer::Analyze(*buffer, {}, sink);
+    REQUIRE(analysis);
+    CHECK(analysis->GraphemeBoundaries() == std::vector<std::uint32_t>{0});
+    CHECK(analysis->LineBreakBoundaries() == std::vector<std::uint32_t>{0});
+    CHECK(analysis->Items().empty());
+    CHECK(sink.Diagnostics().empty());
+    CHECK(AllItemBoundariesMapToOriginalBytes(*buffer, *analysis));
+}
+
+// An explicitly requested base direction must actually reach UBiDi. Every other
+// BiDi assertion in this file uses Auto, so an implementation that ignored the
+// option and always passed UBIDI_DEFAULT_LTR would pass all of them.
+TEST_CASE("the requested base direction changes the resolved levels") {
+    const auto autoDirection = AnalyzeFixture(u8"שלום abc");
+    const auto forcedLtr =
+        AnalyzeFixture(u8"שלום abc", {"und", BaseDirection::LeftToRight});
+    const auto forcedRtl =
+        AnalyzeFixture(u8"abc שלום", {"und", BaseDirection::RightToLeft});
+
+    // Auto takes the first strong character, which is Hebrew: base level 1, so
+    // the trailing Latin run resolves to level 2.
+    CHECK(EmbeddingLevelsByGrapheme(autoDirection) ==
+          std::vector<std::uint8_t>{1, 1, 1, 1, 1, 2, 2, 2});
+    // Forced LTR gives base level 0, so the same Hebrew is 1 and the Latin 0.
+    CHECK(EmbeddingLevelsByGrapheme(forcedLtr) ==
+          std::vector<std::uint8_t>{1, 1, 1, 1, 0, 0, 0, 0});
+    // Forced RTL over Latin-first text: base level 1 puts the Latin at 2.
+    CHECK(EmbeddingLevelsByGrapheme(forcedRtl) ==
+          std::vector<std::uint8_t>{2, 2, 2, 1, 1, 1, 1, 1});
+}
+
+// Items are the unit later milestones hand to HarfBuzz, so a run must not span
+// two scripts or two embedding levels even when the graphemes are adjacent.
+// Nothing above checks the item count itself.
+TEST_CASE("items split at script and embedding level changes with stable runs") {
+    const auto analysis = AnalyzeFixture(u8"abשגd");
+    REQUIRE(analysis.Items().size() == 3);
+    CHECK(analysis.Items()[0].sourceBytes == molga::text::SourceByteRange{0, 2});
+    CHECK(analysis.Items()[1].sourceBytes == molga::text::SourceByteRange{2, 6});
+    CHECK(analysis.Items()[2].sourceBytes == molga::text::SourceByteRange{6, 7});
+    CHECK(analysis.Items()[0].scriptCode == USCRIPT_LATIN);
+    CHECK(analysis.Items()[1].scriptCode == USCRIPT_HEBREW);
+    CHECK(analysis.Items()[2].scriptCode == USCRIPT_LATIN);
+    CHECK(analysis.Items()[0].embeddingLevel == 0);
+    CHECK(analysis.Items()[1].embeddingLevel == 1);
+    CHECK(analysis.Items()[2].embeddingLevel == 0);
+    // The two level-0 Latin items are different logical runs, and the ids are
+    // handed out in logical order.
+    CHECK(analysis.Items()[0].logicalRunId != analysis.Items()[2].logicalRunId);
+    CHECK(analysis.Items()[0].logicalRunId < analysis.Items()[1].logicalRunId);
+    CHECK(analysis.Items()[1].logicalRunId < analysis.Items()[2].logicalRunId);
+    // One paragraph, so exactly one item starts it and exactly one ends it.
+    CHECK(ParagraphStartBytes(analysis) == std::vector<std::uint32_t>{0});
+    CHECK(ParagraphEndBytes(analysis) == std::vector<std::uint32_t>{7});
+}
+
+// uloc_forLanguageTag reports U_STRING_NOT_TERMINATED_WARNING — a warning, so
+// U_FAILURE stays false and parsedLength still equals the whole tag — when the
+// canonical locale id is exactly ULOC_FULLNAME_CAPACITY (157) bytes. Gating on
+// those two alone accepts the tag and then hands ubrk_open a char array with no
+// terminator: ASan reports a stack-buffer-overflow inside strlen, and a plain
+// build silently returns a perfectly ordinary-looking analysis for a locale
+// nobody can name. Fail-open is the one outcome this subsystem forbids.
+//
+// The window is exactly one length. 158 already sets U_BUFFER_OVERFLOW_ERROR
+// and was refused before, and the 156-byte tag below must still be accepted, so
+// the refusal is about the missing terminator and not about long tags.
+TEST_CASE("a locale whose canonical form fills ICU's buffer exactly is refused") {
+    const std::string overflowing =
+        "en-US-abcdaaaz-abcdbaaz-abcdcaaz-abcddaaz-abcdeaaz-abcdfaaz-abcdgaaz"
+        "-abcdhaaz-abcdiaaz-abcdjaaz-abcdkaaz-abcdlaaz-abcdmaaz-abcdnaaz"
+        "-abcdoaaz-abcdpaaz-wxyzefg";
+    REQUIRE(overflowing.size() == 157);
+
+    molga::text::VectorTextDiagnosticSink sink;
+    auto buffer = molga::text::UnicodeTextBuffer::Build("A", sink);
+    REQUIRE(buffer);
+    CHECK_FALSE(molga::text::UnicodeTextAnalyzer::Analyze(
+        *buffer, {overflowing, BaseDirection::Auto}, sink));
+    REQUIRE(sink.Diagnostics().size() == 1);
+    CHECK(sink.Diagnostics().front().code ==
+          molga::text::TextDiagnosticCode::LayoutInvalid);
+    CHECK(sink.Diagnostics().front().severity ==
+          molga::text::TextSeverity::Error);
+
+    // One byte shorter, same shape: still analyzed, so the check above is not a
+    // blanket length limit that would quietly refuse legitimate long tags.
+    const std::string fitting = overflowing.substr(0, overflowing.size() - 1);
+    REQUIRE(fitting.size() == 156);
+    const auto analyzed = AnalyzeFixture("A", {fitting, BaseDirection::Auto});
+    CHECK(analyzed.GraphemeBoundaries() == std::vector<std::uint32_t>{0, 1});
+}
+
+// "" parses completely (parsedLength 0 == size 0) and canonicalizes to root, so
+// the completeness gate alone lets it through. A cleared or default-constructed
+// locale field reaching this API means "nobody chose a locale", not "the author
+// chose root tailoring" — and this same gate already refuses "en_US", "C" and
+// "en-" precisely so that no author silently gets tailoring they never picked.
+TEST_CASE("an empty locale tag is refused rather than silently treated as root") {
+    molga::text::VectorTextDiagnosticSink sink;
+    auto buffer = molga::text::UnicodeTextBuffer::Build("A", sink);
+    REQUIRE(buffer);
+    CHECK_FALSE(molga::text::UnicodeTextAnalyzer::Analyze(
+        *buffer, {"", BaseDirection::Auto}, sink));
+    REQUIRE(sink.Diagnostics().size() == 1);
+    CHECK(sink.Diagnostics().front().code ==
+          molga::text::TextDiagnosticCode::LayoutInvalid);
+    // The documented default is "und", and it must keep working.
+    const auto root = AnalyzeFixture("A", {"und", BaseDirection::Auto});
+    CHECK(root.Identity().resolvedLineBreakLocale == "root");
+}
+
+// Step 7 runs UBiDi once per explicit paragraph, over that paragraph's slice of
+// the UTF-16. Nothing above can see whether the slice offsets are right: the
+// only multi-paragraph fixture in this file is "A\r\nB\n", every grapheme of
+// which is level 0, so passing the whole text instead of the paragraph, or
+// reading levels[] at the wrong base, produces exactly the same answer. Here
+// the two paragraphs resolve to different base levels, so either mistake
+// changes the second paragraph's levels.
+//
+// The Latin paragraph is deliberately long enough to push the UTF-16 buffer out
+// of libc++'s inline storage, so a slice length taken as the paragraph END
+// rather than its LENGTH reads off the end of a heap allocation and ASan sees
+// it; in a short string that read stays inside the object and is invisible.
+TEST_CASE("each paragraph resolves its own base level and run ids stay unique") {
+    // Paragraph 1 is Hebrew and resolves to base level 1; paragraph 2 starts
+    // Latin and resolves to base level 0, and is itself mixed, so reading the
+    // level array at the wrong base shifts levels WITHIN the paragraph as well
+    // as across it.
+    const auto analysis = AnalyzeFixture(u8"שלום\nabc שלום");
+    CHECK(EmbeddingLevelsByGrapheme(analysis) ==
+          std::vector<std::uint8_t>{1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1});
+    REQUIRE(analysis.Items().size() == 3);
+    CHECK(analysis.Items()[0].sourceBytes == molga::text::SourceByteRange{0, 9});
+    CHECK(analysis.Items()[1].sourceBytes ==
+          molga::text::SourceByteRange{9, 13});
+    CHECK(analysis.Items()[2].sourceBytes ==
+          molga::text::SourceByteRange{13, 21});
+    // Logical run ids are handed out across the whole analysis, not restarted
+    // per paragraph. Two runs sharing an id is invisible in every boundary and
+    // level assertion, and silently mis-hits any cache keyed on the run.
+    CHECK(analysis.Items()[0].logicalRunId !=
+          analysis.Items()[1].logicalRunId);
+    CHECK(analysis.Items()[0].logicalRunId < analysis.Items()[1].logicalRunId);
+    CHECK(analysis.Items()[1].logicalRunId < analysis.Items()[2].logicalRunId);
+    CHECK(ParagraphStartBytes(analysis) == std::vector<std::uint32_t>{0, 9});
+    CHECK(ParagraphEndBytes(analysis) == std::vector<std::uint32_t>{9, 21});
+
+    // The requested direction has to reach every paragraph, not just the first.
+    const auto forced = AnalyzeFixture(u8"שלום\nabc שלום",
+                                       {"und", BaseDirection::RightToLeft});
+    CHECK(EmbeddingLevelsByGrapheme(forced) ==
+          std::vector<std::uint8_t>{1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1});
+
+    // Each paragraph is handed its LENGTH, not its end offset. Passing the end
+    // makes every paragraph but the first overrun into the text that follows,
+    // which no two-paragraph fixture can show and which the sanitizer misses as
+    // long as the overrun stays inside the string's allocated capacity. The
+    // middle paragraph here holds nothing but neutrals, so its base direction
+    // is decided entirely by whether the Hebrew paragraph below it is visible
+    // to ubidi_setPara: 0 if the slice is right, 1 if it ran on.
+    const auto three = AnalyzeFixture(u8"abc\n \nשלום");
+    CHECK(EmbeddingLevelsByGrapheme(three) ==
+          std::vector<std::uint8_t>{0, 0, 0, 0, 0, 0, 1, 1, 1, 1});
+    CHECK(ParagraphStartBytes(three) == std::vector<std::uint32_t>{0, 4, 6});
+    CHECK(ParagraphEndBytes(three) == std::vector<std::uint32_t>{4, 6, 14});
+    REQUIRE(three.Items().size() == 3);
+    CHECK(three.Items()[0].logicalRunId < three.Items()[1].logicalRunId);
+    CHECK(three.Items()[1].logicalRunId < three.Items()[2].logicalRunId);
+}
+
+// The existing splitting case uses Latin next to Hebrew, where the script
+// change always coincides with an embedding level change, so the script
+// conjunct is never the reason for the split. Here both sides are level 0 and
+// one logical run, and only the resolved script differs.
+TEST_CASE("items split at a script change inside one embedding level") {
+    const auto analysis = AnalyzeFixture(u8"abあ");
+    REQUIRE(analysis.Items().size() == 2);
+    CHECK(analysis.Items()[0].sourceBytes == molga::text::SourceByteRange{0, 2});
+    CHECK(analysis.Items()[1].sourceBytes == molga::text::SourceByteRange{2, 5});
+    CHECK(analysis.Items()[0].scriptCode == USCRIPT_LATIN);
+    CHECK(analysis.Items()[1].scriptCode == USCRIPT_HIRAGANA);
+    CHECK(analysis.Items()[0].embeddingLevel ==
+          analysis.Items()[1].embeddingLevel);
+    CHECK(analysis.Items()[0].logicalRunId == analysis.Items()[1].logicalRunId);
+}
+
+// Step 8 requires isolate/control boundaries to split. No fixture anywhere else
+// in this file contains one. These five graphemes share a level, a run and a
+// resolved script, so the controls are the only thing that can separate them:
+// an implementation that ignored them returns one item and passes every other
+// assertion in this file. They must be their own items because they are
+// direction marks, not content — a shaper handed one inside a text item tries
+// to draw a glyph for it.
+TEST_CASE("every BiDi isolate control becomes an item of its own") {
+    const auto analysis = AnalyzeFixture(u8"a⁦b⁩c");
+    REQUIRE(analysis.Items().size() == 5);
+    CHECK(analysis.Items()[0].sourceBytes == molga::text::SourceByteRange{0, 1});
+    CHECK(analysis.Items()[1].sourceBytes == molga::text::SourceByteRange{1, 4});
+    CHECK(analysis.Items()[2].sourceBytes == molga::text::SourceByteRange{4, 5});
+    CHECK(analysis.Items()[3].sourceBytes == molga::text::SourceByteRange{5, 8});
+    CHECK(analysis.Items()[4].sourceBytes == molga::text::SourceByteRange{8, 9});
+    for (const auto& item : analysis.Items()) {
+        CHECK(item.embeddingLevel == analysis.Items()[0].embeddingLevel);
+        CHECK(item.logicalRunId == analysis.Items()[0].logicalRunId);
+    }
+}
+
+// Step 6, the three halves the spec case above cannot see. It checks graphemes
+// 0, 1, 2, 4 and 5 of u8"A·x́ سـ" and skips grapheme 3 — the space, the
+// only scalar there whose preceding and following contexts disagree.
+TEST_CASE("context resolution prefers the preceding strong script") {
+    // The space sits between Latin and Arabic. Taking the FOLLOWING strong
+    // script instead would put it in the Arabic run.
+    const auto analysis = AnalyzeFixture(u8"a س");
+    CHECK(ScriptAtGrapheme(analysis, 1) == USCRIPT_LATIN);
+    REQUIRE(analysis.Items().size() == 2);
+    CHECK(analysis.Items()[0].sourceBytes == molga::text::SourceByteRange{0, 2});
+}
+
+TEST_CASE("a leading inherited mark takes the following strong script") {
+    // U+0301 is Inherited and starts the text, so it has no preceding context.
+    // Treating Inherited as a strong script of its own leaves it in a run the
+    // shaper cannot pick a font for.
+    const auto analysis = AnalyzeFixture(u8"́x");
+    CHECK(ScriptAtGrapheme(analysis, 0) == USCRIPT_LATIN);
+    CHECK(analysis.Items().size() == 1);
+}
+
+TEST_CASE("Script_Extensions keeps the Arabic tatweel in the Arabic run") {
+    // U+0640 ARABIC TATWEEL is Script=Common, so plain inheritance from the
+    // preceding scalar would make it Latin here and cut the Arabic word in two.
+    // Only its Script_Extensions says Arabic.
+    const auto analysis = AnalyzeFixture(u8"aـس");
+    CHECK(ScriptAtGrapheme(analysis, 1) == USCRIPT_ARABIC);
+    REQUIRE(analysis.Items().size() == 2);
+    CHECK(analysis.Items()[1].sourceBytes == molga::text::SourceByteRange{1, 5});
+}
+
+// Step 4c's whole purpose: the digest must move when the compiled rules move,
+// even though every other cache-key field is identical. Nothing else in this
+// file can show that. Both requests resolve to the same actual locale (root),
+// the same kind ("line"), the same ICU version and the same platform tuple —
+// only the compiled bytes differ, and the boundary difference proves the
+// difference is real and not a hashing artifact. A digest built from locale,
+// kind and version alone, or one that never reads ubrk_getBinaryRules at all,
+// makes these two equal and would let a cache serve loose breaks for strict.
+TEST_CASE("two line tailorings of one resolved locale get different digests") {
+    const auto loose =
+        AnalyzeFixture(u8"あぁア。ア", {"en-u-lb-loose", BaseDirection::Auto});
+    const auto strict =
+        AnalyzeFixture(u8"あぁア。ア", {"en-u-lb-strict", BaseDirection::Auto});
+    CHECK(loose.Identity().resolvedLineBreakLocale ==
+          strict.Identity().resolvedLineBreakLocale);
+    CHECK(loose.Identity().resolvedGraphemeLocale ==
+          strict.Identity().resolvedGraphemeLocale);
+    // The character rules are untouched by a line tailoring.
+    CHECK(loose.Identity().graphemeRuleIdentity ==
+          strict.Identity().graphemeRuleIdentity);
+    // Loose breaking allows a line before the small kana; strict does not.
+    CHECK(ContainsBoundary(loose.LineBreakBoundaries(), 3));
+    CHECK_FALSE(ContainsBoundary(strict.LineBreakBoundaries(), 3));
+    CHECK(loose.Identity().lineBreakRuleIdentity !=
+          strict.Identity().lineBreakRuleIdentity);
+}
+
+// Step 4b canonicalizes ICU's returned locale id to a BCP-47 tag. Every other
+// fixture resolves to root or ja, whose raw ICU names are already their tags,
+// so the canonicalization never runs. Here the raw name is "zh_Hant".
+TEST_CASE("a resolved locale is stored as a BCP-47 tag, not an ICU name") {
+    const auto analysis =
+        AnalyzeFixture(u8"漢字", {"zh-Hant", BaseDirection::Auto});
+    CHECK(analysis.Identity().resolvedLineBreakLocale == "zh-Hant");
+    CHECK(analysis.Identity().resolvedGraphemeLocale == "root");
+}
+
+// The pinned digests for the root iterators under the packaged ICU 78.3.
+//
+// The inequalities above cannot see the fields that never vary at runtime: the
+// "character"/"line" kind, the resolved locale, and the ICU-major/endianness/
+// charset tuple. Dropping any of them from the canonical stream leaves every
+// other assertion in this file green. These two values were computed
+// independently of UnicodeAnalysis.cpp — the rule bytes were pulled straight
+// out of ubrk_getBinaryRules and hashed by a separate script following the
+// written specification of the byte stream — so they pin the specified stream
+// rather than whatever the implementation happens to build.
+//
+// A mismatch here is not a test bug. It means one of exactly four things
+// changed: the packaged icudt78l.dat (the pinned SHA-256 in the dependency
+// contract), the ICU major version, the build's endianness or charset family,
+// or the canonical stream itself. All four are cache-invalidating events, which
+// is the entire reason this identity exists. Update the constants only after
+// confirming which one it was.
+TEST_CASE("the break rule digests are pinned to the packaged ICU rules") {
+    const auto root = AnalyzeFixture("A");
+    CHECK(root.Identity().resolvedGraphemeLocale == "root");
+    CHECK(root.Identity().resolvedLineBreakLocale == "root");
+    CHECK(root.Identity().graphemeRuleIdentity ==
+          "d5ab68404e6918d17aefafcefa28e34c45f71a804ee68eb078af8493ec6abe09");
+    CHECK(root.Identity().lineBreakRuleIdentity ==
+          "3be3e5d83fbf609d709fec9db8bd572520f3518756dd5c8803715681a3820e8c");
+}
+
+// The junction Task 3.2 exists for, which none of the analysis cases above
+// touch: a U+FFFD whose original byte range is wider than the one UTF-16 unit
+// ICU sees. Every boundary ICU reports has to come back through the buffer's
+// map, and an implementation that widened a boundary across a replaced subpart,
+// or that reported ICU's unit offsets directly, passes everything else here.
+TEST_CASE("ill-formed source bytes keep their exact byte ranges through analysis") {
+    // One stray continuation byte: one replacement, one byte wide.
+    {
+        molga::text::VectorTextDiagnosticSink sink;
+        auto buffer =
+            molga::text::UnicodeTextBuffer::Build(std::string("A\x80" "B", 3), sink);
+        REQUIRE(buffer);
+        const auto analysis =
+            molga::text::UnicodeTextAnalyzer::Analyze(*buffer, {}, sink);
+        REQUIRE(analysis);
+        CHECK(analysis->GraphemeBoundaries() ==
+              std::vector<std::uint32_t>{0, 1, 2, 3});
+        CHECK(AllItemBoundariesMapToOriginalBytes(*buffer, *analysis));
+    }
+    // A truncated three-byte prefix: one replacement covering TWO source bytes
+    // but a single UTF-16 unit, so byte and unit offsets diverge from here on.
+    {
+        molga::text::VectorTextDiagnosticSink sink;
+        auto buffer = molga::text::UnicodeTextBuffer::Build(
+            std::string("A\xE2\x82" "B", 4), sink);
+        REQUIRE(buffer);
+        REQUIRE(buffer->SanitizedUtf16().size() == 3);
+        const auto analysis =
+            molga::text::UnicodeTextAnalyzer::Analyze(*buffer, {}, sink);
+        REQUIRE(analysis);
+        CHECK(analysis->GraphemeBoundaries() ==
+              std::vector<std::uint32_t>{0, 1, 3, 4});
+        CHECK(analysis->LineBreakBoundaries().back() == 4);
+        CHECK(AllItemBoundariesMapToOriginalBytes(*buffer, *analysis));
+    }
+}
+
+// The subset property the header documents, on the one input shape that has an
+// explicit separator in it. The Step 1b case that owns this fixture is a
+// verbatim plan block and is not touched.
+TEST_CASE("explicit separators keep line boundaries grapheme aligned") {
+    CHECK(AllLineBreaksAreGraphemeAligned(AnalyzeFixture("A\r\nB\n")));
+    CHECK(AllLineBreaksAreGraphemeAligned(AnalyzeFixture(u8"שלום\nabc")));
+}
+
+// Step 10 left DecodeNextUtf8 in place with no caller in the tree. It is not
+// dead by accident: it is the cursor-advancing decoder a future caller will
+// find first, and it deliberately disagrees with the authoritative one on
+// ill-formed input. Pin both sides so a later cleanup cannot quietly change
+// either, and so the disagreement stays a documented fact rather than a
+// discovery.
+TEST_CASE("the legacy cursor decoder still disagrees with DecodeUtf8") {
+    const std::string illFormed("\xE0\x80\xAF", 3);
+    // The authoritative decoder splits at the byte that breaks the sequence:
+    // three Unicode maximal subparts, three replacements.
+    CHECK(molga::DecodeUtf8(illFormed) ==
+          std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter});
+    // The cursor decoder gathers the whole three-byte sequence and rejects it
+    // by value: one replacement, cursor past all three.
+    std::size_t cursor = 0;
+    CHECK(molga::DecodeNextUtf8(illFormed, cursor) ==
+          molga::kUnicodeReplacementCharacter);
+    CHECK(cursor == 3);
+    // On well-formed input the two must agree, or the wrapper would be a
+    // rewrite rather than a compatibility shim.
+    const std::string korean("\xED\x95\x9C\xEA\xB8\x80", 6);
+    std::vector<std::uint32_t> stepwise;
+    for (std::size_t at = 0; at < korean.size();) {
+        stepwise.push_back(molga::DecodeNextUtf8(korean, at));
+    }
+    CHECK(stepwise == molga::DecodeUtf8(korean));
+    CHECK(stepwise == std::vector<std::uint32_t>{0xD55CU, 0xAE00U});
 }

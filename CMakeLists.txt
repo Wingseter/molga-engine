@@ -205,6 +205,7 @@ set(ENGINE_SOURCES
     src/Text/TextDiagnostic.cpp
     src/Text/TextRuntimeDependencies.cpp
     src/Text/UnicodeTextBuffer.cpp
+    src/Text/UnicodeAnalysis.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────

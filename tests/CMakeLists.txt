@@ -188,6 +188,34 @@ set_tests_properties(test_text_runtime_dependencies PROPERTIES RUN_SERIAL TRUE)
 # this same executable do.
 molga_add_text_test(test_unicode_text test_unicode_text.cpp)
 
+# Task 3.3 Step 1k, mandated verbatim by the task: the analysis cases compare
+# resolved item scripts against ICU's own USCRIPT_* constants, so this target
+# includes <unicode/uscript.h> itself.
+#
+# Be clear about what this call does not do. The ICU include path and both
+# static archives already arrive here through the molga_text_harfbuzz link that
+# molga_add_text_test attached, exactly as they arrive at
+# test_text_runtime_session, which never calls this helper — verified against
+# the generated compile and link flags, which are identical for the two targets.
+# So the attach records the intent "this target uses ICU directly" and is not
+# what makes the header resolvable. Keep it because the step names it, and do
+# not copy it elsewhere expecting it to repair a missing include.
+molga_attach_direct_icu_consumer(test_unicode_text)
+target_sources(test_unicode_text PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/UnicodeTextAnalyzerTestAccess.cpp")
+
+# Step 1f/1k: the fresh-process not-ready observation. Deliberately generic
+# molga_add_test — no staged Engine/Text root, no session main — so the process
+# begins and stays in NeverInitialized and the analyzer's ready gate is the only
+# thing it can be observing. It is NOT marked RUN_SERIAL: the lifecycle state it
+# reads is one-way and private to its own process, so nothing it does can race
+# another test executable.
+molga_add_test(test_unicode_not_ready test_unicode_not_ready.cpp)
+target_sources(test_unicode_not_ready PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/UnicodeTextAnalyzerTestAccess.cpp")
+target_include_directories(test_unicode_not_ready PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────
@@ -496,3 +524,62 @@ target_compile_definitions(test_runtime_script_package_loader PRIVATE
     DUMMY_MISSING_API_PATH="$<TARGET_FILE:dummy_missing_api_lib>"
     DUMMY_MISMATCH_API_PATH="$<TARGET_FILE:dummy_mismatch_api_lib>"
 )
+
+# Step 1k: the analyzer test seam is test-only, asserted rather than assumed.
+# molga::text::detail::ExchangeAnalysisGenerationState is an ordinary exported
+# symbol, so nothing but this check stops a product target from listing the
+# companion and gaining the power to renumber or reset an analysis generation.
+# molga_text_require_source_only_in above takes exactly one owning target, and
+# this companion has two, so it counts occurrences instead.
+function(molga_text_count_source out_var target_name source_name)
+    get_property(target_sources_list TARGET "${target_name}" PROPERTY SOURCES)
+    set(count 0)
+    foreach(source IN LISTS target_sources_list)
+        get_filename_component(source_leaf "${source}" NAME)
+        if(source_leaf STREQUAL source_name)
+            math(EXPR count "${count} + 1")
+        endif()
+    endforeach()
+    set(${out_var} ${count} PARENT_SCOPE)
+endfunction()
+
+foreach(seam_target test_unicode_text test_unicode_not_ready)
+    molga_text_count_source(seam_count "${seam_target}"
+        "UnicodeTextAnalyzerTestAccess.cpp")
+    if(NOT seam_count EQUAL 1)
+        message(FATAL_ERROR
+            "${seam_target} must compile UnicodeTextAnalyzerTestAccess.cpp "
+            "exactly once, found ${seam_count}")
+    endif()
+endforeach()
+# "zero times in every product target" is asked of every target, so this walks
+# the targets the build actually defines instead of a hand-kept list that a new
+# executable would silently escape. The root directory's targets are all defined
+# before add_subdirectory(tests), and this check sits at the end of this file, so
+# both directories are complete here; a target added after this point, or one
+# defined under external/, is not covered.
+set(molga_text_seam_owners test_unicode_text test_unicode_not_ready)
+set(molga_text_scanned_targets "")
+foreach(scan_dir "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
+    get_property(scan_targets DIRECTORY "${scan_dir}"
+        PROPERTY BUILDSYSTEM_TARGETS)
+    list(APPEND molga_text_scanned_targets ${scan_targets})
+endforeach()
+list(LENGTH molga_text_scanned_targets molga_text_scanned_count)
+if(molga_text_scanned_count LESS 10)
+    message(FATAL_ERROR
+        "the test-only seam audit scanned only ${molga_text_scanned_count} "
+        "targets, which means it is no longer looking where the targets are")
+endif()
+foreach(scanned_target IN LISTS molga_text_scanned_targets)
+    if(scanned_target IN_LIST molga_text_seam_owners)
+        continue()
+    endif()
+    molga_text_count_source(seam_count "${scanned_target}"
+        "UnicodeTextAnalyzerTestAccess.cpp")
+    if(NOT seam_count EQUAL 0)
+        message(FATAL_ERROR
+            "UnicodeTextAnalyzerTestAccess.cpp is test-only and must not be "
+            "compiled into ${scanned_target}")
+    endif()
+endforeach()

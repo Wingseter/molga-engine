@@ -1,5 +1,10 @@
 #include "Rendering/Utf8.h"
 
+#include "Text/TextDiagnostic.h"
+#include "Text/UnicodeTextBuffer.h"
+
+#include <string>
+
 namespace molga {
 namespace {
 
@@ -66,12 +71,23 @@ std::uint32_t DecodeNextUtf8(std::string_view text, std::size_t& cursor) {
 }
 
 std::vector<std::uint32_t> DecodeUtf8(std::string_view text) {
-    std::vector<std::uint32_t> codepoints;
-    codepoints.reserve(text.size());
+    // 이 함수의 결과가 DecodeNextUtf8 루프와 달라지는 것이 이 변경의 요점이다.
+    // 정본 디코더는 깨진 sequence를 Unicode maximal subpart 단위로 끊으므로
+    // 같은 byte에 대해 U+FFFD 개수가 다르다. 두 구현이 공존하면 "어느 쪽이
+    // 맞는가"가 호출자마다 달라지므로, 남은 구형 호출자도 전부 정본을 통과한다.
+    //
+    // 진단은 지역 sink로 받아서 버린다. 이 API에는 진단을 전달할 자리가 없고,
+    // 여기서 로거로 흘리면 UTF-8로 잘못 읽힌 파일 하나가 프레임마다 수천 줄을
+    // 찍는다. 진단이 필요한 저작/패키징 경로는 UnicodeTextBuffer를 직접 쓴다.
+    molga::text::VectorTextDiagnosticSink sink;
+    const auto buffer =
+        molga::text::UnicodeTextBuffer::Build(std::string(text), sink);
+    if (!buffer) return {};
 
-    std::size_t cursor = 0;
-    while (cursor < text.size()) {
-        codepoints.push_back(DecodeNextUtf8(text, cursor));
+    std::vector<std::uint32_t> codepoints;
+    codepoints.reserve(buffer->Scalars().size());
+    for (const auto& scalar : buffer->Scalars()) {
+        codepoints.push_back(static_cast<std::uint32_t>(scalar.value));
     }
     return codepoints;
 }

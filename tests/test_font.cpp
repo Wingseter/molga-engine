@@ -49,12 +49,34 @@ TEST_CASE("UTF-8 decoder handles Korean and rejects ill-formed scalars") {
     CHECK(korean[4] == 0xC774U);
     CHECK(korean[5] == 0xD2C0U);
 
+    // DecodeUtf8 now delegates to molga::text::UnicodeTextBuffer, which rejects
+    // a sequence at the byte that breaks it rather than gathering three or four
+    // bytes and filtering by the decoded value. So an ill-formed sequence
+    // yields one U+FFFD per Unicode maximal subpart, not one per attempted
+    // sequence: the counts below are the substantive change, and each is the
+    // number of maximal subparts in that input.
+    //
+    // The three rows here are ill-formed at their SECOND byte — 0x80 outside
+    // E0's A0..BF window, 0xA0 inside ED's surrogate range, 0x90 above F4's
+    // 80..8F ceiling — so the lead byte alone is the first subpart and every
+    // trailing continuation byte is a subpart of its own.
     CHECK(molga::DecodeUtf8(std::string("\xE0\x80\xAF", 3)) ==
-          std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter});
+          std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter});
     CHECK(molga::DecodeUtf8(std::string("\xED\xA0\x80", 3)) ==
-          std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter});
+          std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter});
     CHECK(molga::DecodeUtf8(std::string("\xF4\x90\x80\x80", 4)) ==
-          std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter});
+          std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter,
+                                     molga::kUnicodeReplacementCharacter});
+    // Deliberately still one. "\xE2\x82" is a well-formed PREFIX truncated by
+    // the end of input, so the whole two bytes are a single maximal subpart
+    // under both the old decoder and the new one. Widening this row to two
+    // would assert the opposite of the maximal-subpart rule.
     CHECK(molga::DecodeUtf8(std::string("\xE2\x82", 2)) ==
           std::vector<std::uint32_t>{molga::kUnicodeReplacementCharacter});
 
