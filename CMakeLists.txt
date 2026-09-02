@@ -204,6 +204,7 @@ set(ENGINE_SOURCES
     src/Core/Importers/PostProcessProfileImporter.cpp
     src/Text/TextDiagnostic.cpp
     src/Text/TextRuntimeDependencies.cpp
+    src/Text/UnicodeTextBuffer.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
