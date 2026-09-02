@@ -1707,7 +1707,7 @@ text-runtime failure.
 - Consumes: arbitrary owned UTF-8 and `TextDiagnosticSink`.
 - Produces: `Utf16Range`, `ScalarRange`, `GraphemeRange`, `DecodedScalar`, and `UnicodeTextBuffer::{Build,OriginalUtf8,SanitizedUtf16,Scalars,SourceBytesForUtf16,Utf16ForSourceBytes,HadDecodeErrors}`.
 
-- [ ] **Step 1: Add the failing invalid UTF-8 source-range test.**
+- [x] **Step 1: Add the failing invalid UTF-8 source-range test.**
 
   ```cpp
   TEST_CASE("invalid UTF-8 keeps the original maximal-subpart byte range") {
@@ -1727,7 +1727,7 @@ text-runtime failure.
   }
   ```
 
-- [ ] **Step 1a: Add the failing supplementary-scalar test.**
+- [x] **Step 1a: Add the failing supplementary-scalar test.**
 
   ```cpp
   TEST_CASE("supplementary scalar maps through two UTF-16 units") {
@@ -1739,7 +1739,7 @@ text-runtime failure.
   }
   ```
 
-- [ ] **Step 1b: Add the failing exact-boundary rejection test.**
+- [x] **Step 1b: Add the failing exact-boundary rejection test.**
 
   ```cpp
   TEST_CASE("range mapping accepts exact empty end and rejects partial scalars") {
@@ -1766,7 +1766,7 @@ text-runtime failure.
   }
   ```
 
-- [ ] **Step 1c: Add the failing valid UTF-8 round-trip table.**
+- [x] **Step 1c: Add the failing valid UTF-8 round-trip table.**
 
   ```cpp
   TEST_CASE("valid UTF-8 table round-trips scalar UTF-16 and source bytes") {
@@ -1787,7 +1787,7 @@ text-runtime failure.
   }
   ```
 
-- [ ] **Step 1d: Add the failing maximal-subpart invalid UTF-8 table.**
+- [x] **Step 1d: Add the failing maximal-subpart invalid UTF-8 table.**
 
   ```cpp
   TEST_CASE("invalid UTF-8 table preserves exact maximal-subpart ranges") {
@@ -1810,15 +1810,15 @@ text-runtime failure.
   }
   ```
 
-- [ ] **Step 1e: Implement the decode-table helpers.** Define `DecodeCase { std::string bytes; std::vector<char32_t> scalars; std::vector<SourceByteRange> sourceRanges; }`. `ScalarValues` and `ScalarSourceRanges` project `DecodedScalar` fields in order; `EveryScalarRoundTripsBothMappings` requires `SourceBytesForUtf16(s.utf16Units)==s.sourceBytes` and `Utf16ForSourceBytes(s.sourceBytes)==s.utf16Units` for every scalar; `InvalidDiagnosticRanges` returns only `Utf8Invalid` ranges in report order.
+- [x] **Step 1e: Implement the decode-table helpers.** Define `DecodeCase { std::string bytes; std::vector<char32_t> scalars; std::vector<SourceByteRange> sourceRanges; }`. `ScalarValues` and `ScalarSourceRanges` project `DecodedScalar` fields in order; `EveryScalarRoundTripsBothMappings` requires `SourceBytesForUtf16(s.utf16Units)==s.sourceBytes` and `Utf16ForSourceBytes(s.sourceBytes)==s.utf16Units` for every scalar; `InvalidDiagnosticRanges` returns only `Utf8Invalid` ranges in report order.
 
-- [ ] **Step 2: Run the buffer red gate.**
+- [x] **Step 2: Run the buffer red gate.**
 
   Run: `cmake --build --preset debug --target test_unicode_text -j`
 
   Expected: compile FAIL because `UnicodeTextBuffer` and mapping ranges do not exist.
 
-- [ ] **Step 3: Add exact public mapping records.**
+- [x] **Step 3: Add exact public mapping records.**
 
   ```cpp
   struct Utf16Range {
@@ -1848,7 +1848,7 @@ text-runtime failure.
   };
   ```
 
-- [ ] **Step 4: Add exact `UnicodeTextBuffer` storage/accessors.**
+- [x] **Step 4: Add exact `UnicodeTextBuffer` storage/accessors.**
 
   ```cpp
   class UnicodeTextBuffer {
@@ -1872,23 +1872,23 @@ text-runtime failure.
 
   Reject input whose byte/scalar/unit count cannot fit the declared 32-bit offsets.
 
-- [ ] **Step 5: Implement valid UTF-8 decoding.** For each accepted scalar record original byte start/end, scalar index, and one/two UTF-16 units; reject overlong, surrogate, and out-of-range encodings before appending.
+- [x] **Step 5: Implement valid UTF-8 decoding.** For each accepted scalar record original byte start/end, scalar index, and one/two UTF-16 units; reject overlong, surrogate, and out-of-range encodings before appending.
 
-- [ ] **Step 6: Implement maximal-subpart replacement.** Consume exactly one Unicode maximal subpart for each ill-formed sequence, append `U+FFFD`, preserve its original byte range, set `hadDecodeErrors_`, and report one `Utf8Invalid` with that range. Never normalize or rewrite `originalUtf8_`.
+- [x] **Step 6: Implement maximal-subpart replacement.** Consume exactly one Unicode maximal subpart for each ill-formed sequence, append `U+FFFD`, preserve its original byte range, set `hadDecodeErrors_`, and report one `Utf8Invalid` with that range. Never normalize or rewrite `originalUtf8_`.
 
-- [ ] **Step 7: Implement `SourceBytesForUtf16`.** Accept an empty range at any exact scalar boundary, including end-to-end; return `nullopt` for reversed/out-of-bounds endpoints or one inside a surrogate pair, and translate valid endpoints without widening.
+- [x] **Step 7: Implement `SourceBytesForUtf16`.** Accept an empty range at any exact scalar boundary, including end-to-end; return `nullopt` for reversed/out-of-bounds endpoints or one inside a surrogate pair, and translate valid endpoints without widening.
 
-- [ ] **Step 7a: Implement `Utf16ForSourceBytes`.** Apply the symmetric rule to original byte endpoints: exact empty scalar boundaries are valid, while reversed/out-of-bounds ranges and endpoints inside a multibyte scalar return `nullopt`.
+- [x] **Step 7a: Implement `Utf16ForSourceBytes`.** Apply the symmetric rule to original byte endpoints: exact empty scalar boundaries are valid, while reversed/out-of-bounds ranges and endpoints inside a multibyte scalar return `nullopt`.
 
   Consumer contract: Task 3.3 and shaping/layout check each optional before dereference and propagate a typed invalid-range/UTF-8 failure. The later SDL IME task may clamp only under its separately specified `TEXT_INPUT_RANGE_CLAMPED` policy; no caller silently widens a partial scalar.
 
-- [ ] **Step 8: Run the mapping green gate.**
+- [x] **Step 8: Run the mapping green gate.**
 
   Run: `cmake --build --preset debug --target test_unicode_text -j && ctest --test-dir build/debug -R '^test_unicode_text$' --output-on-failure`
 
   Expected: PASS for ASCII, multibyte BMP, surrogate pairs, overlong/truncated/stray sequences, and both mapping directions.
 
-- [ ] **Step 9: Commit the byte-preserving buffer.**
+- [x] **Step 9: Commit the byte-preserving buffer.**
 
   ```bash
   git add CMakeLists.txt src/Text/UnicodeTextBuffer.* tests/test_unicode_text.cpp
@@ -1896,6 +1896,65 @@ text-runtime failure.
   ```
 
 **Exit:** Sanitized display text can never erase the authored byte range needed by clusters, diagnostics, or later cache collision checks.
+
+**Implementation record (2026-09-03).** Commit `700058d`. Debug suite 90/90. Four adversarial
+review lenses ran; the final audit passed after every blocking finding was fixed and re-killed by
+mutation (17/17).
+
+Mutation testing found five blocking coverage holes that inspection had not, all now closed:
+
+- **The UTF-8 validity table was entirely unwitnessed.** Three independent mutations — dropping the
+  continuation upper-bound conjunct, and pinning either per-lead second-byte bound to its generic
+  value — passed in all four build configurations. Under them, `ED A0..BF xx` (UTF-8-encoded
+  surrogates, i.e. CESU-8/WTF-8) and `F4 90..BF xx xx` (beyond `U+10FFFF`) decoded as **valid**,
+  putting unpaired surrogates into `SanitizedUtf16()` and on to ICU and HarfBuzz; and `E0 80..9F xx`
+  / `F0 80..8F xx xx` overlong forms were accepted, including the classic overlong-NUL case.
+- **Maximal-subpart resynchronisation was unwitnessed** — a mutant advancing the cursor by the
+  declared lead length silently dropped three authored bytes from the scalar stream.
+- **Both reversed-range guards passed for the wrong reason**, because each reversed case's second
+  endpoint also happened to land inside a scalar.
+- **The BMP/supplementary boundary `U+10000` was never decoded**, so an off-by-one in `AppendUtf16`
+  encoding it as a single `U+0000` unit went undetected.
+- **Nothing drove `lower_bound` to `scalars.end()`**, so dropping that conjunct was undefined
+  behaviour detectable only in the sanitizer build — the same single-configuration escape pattern
+  found in Task 3.1.
+
+Approved additions beyond the five `TEST_CASE`s the task names: the specified blocks never assert
+`OriginalUtf8()`'s content, never read `SanitizedUtf16()`'s content or `scalarIndex`, never witness
+a clean sink, never touch the empty buffer, and reach only `Utf16Range::operator==` on equal values
+— so `ScalarRange::operator==` and `GraphemeRange::operator==` would have shipped into Task 3.3
+with no witness at all. The extra cases are purely additive and touch no spec block.
+
+Known unwitnessed line, deliberately not faked: `Build`'s `> 4 GiB` rejection would need a 4 GB
+`std::string` to exercise.
+
+---
+
+#### AMENDMENT (2026-09-03): `Utf8Invalid` diagnostics cannot be rate limited
+
+**The defect.** `TextDiagnosticRateLimitKey` folds `sourceByteRange` into the key, so every maximal
+subpart produces a distinct key and `LoggerTextDiagnosticSink` suppresses nothing. Step 6 mandates
+one diagnostic per subpart, so a 1 MB Latin-1 blob read as UTF-8 emits ~1,048,576 diagnostics —
+measured at 513 MB RSS. The approved design's failure matrix requires rate-limit-and-continue for
+invalid UTF-8 in unbounded dynamic strings, so the shipped behaviour does not yet meet it.
+
+**Why it was not fixed in Task 3.2.** Step 6 fixes the per-subpart contract, and
+`src/Text/TextDiagnostic.*` is outside this task's Files list. Changing the rate-limit key would
+also contradict Task 2.1, whose test requires the key to discriminate every context field. The
+implementer instead corrected a misleading comment that had claimed suppression was "sink policy",
+which would have told the next author a mechanism exists that does not apply.
+
+**Decision and owner.** The cap belongs to the caller, not the buffer, because only the caller knows
+whether the text is a bounded authored asset or an unbounded runtime string. **Task 8.2 is the gate**
+— it is the first task to feed runtime dynamic strings through this buffer and must not land without
+a bounded-diagnostic path (a per-`Build` cap plus one summary record, or a range-free key variant for
+this code). Tasks 15.3 and 17.2 are the other consumers and inherit the same requirement.
+
+**Related decision:** `Utf8Invalid` severity is `TextSeverity::Error`, not `Blocker`. Design §682
+wants blocking `TEXT_UTF8_INVALID` for serialized authored text, but the buffer cannot distinguish an
+authored asset from a script-built string, so promotion is the caller's job. **Task 15.2 owns the
+editor-side escalation to `Blocker`** for import and preview. This is deliberate and now pinned by a
+test; reversing it is a one-line flip plus one test line.
 
 ---
 
