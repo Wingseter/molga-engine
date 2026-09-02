@@ -1980,7 +1980,7 @@ test; reversing it is a one-line flip plus one test line.
 - Consumes: `UnicodeTextBuffer`, ready ICU lifetime, locale default `und`, and base direction default `Auto`.
 - Produces: `BaseDirection`, `TextAnalysisOptions`, `AnalysisItem`, immutable `UnicodeAnalysis`, and `UnicodeTextAnalyzer::Analyze`; `DecodeUtf8` remains a non-authoritative wrapper over the new decoder.
 
-- [ ] **Step 1: Add the failing BiDi/source-boundary analysis test.**
+- [x] **Step 1: Add the failing BiDi/source-boundary analysis test.**
 
   ```cpp
   TEST_CASE("analysis preserves grapheme boundaries and exact BiDi levels") {
@@ -1998,7 +1998,7 @@ test; reversing it is a one-line flip plus one test line.
   }
   ```
 
-- [ ] **Step 1a: Add the failing extended-grapheme tests.**
+- [x] **Step 1a: Add the failing extended-grapheme tests.**
 
   ```cpp
   TEST_CASE("combining ZWJ and variation sequences remain one grapheme") {
@@ -2015,7 +2015,7 @@ test; reversing it is a one-line flip plus one test line.
 
   Define `EmbeddingLevelsByGrapheme`, `AllItemBoundariesMapToOriginalBytes`, and the small `AnalyzeFixture` in the same test file using only the public APIs above.
 
-- [ ] **Step 1b: Add the failing CRLF/paragraph-boundary test.**
+- [x] **Step 1b: Add the failing CRLF/paragraph-boundary test.**
 
   ```cpp
   TEST_CASE("CRLF is one grapheme and one explicit paragraph separator") {
@@ -2032,7 +2032,7 @@ test; reversing it is a one-line flip plus one test line.
   }
   ```
 
-- [ ] **Step 1c: Add the failing script-resolution test.** Include `<unicode/uscript.h>` and verify resolved item scripts rather than scalar-name heuristics:
+- [x] **Step 1c: Add the failing script-resolution test.** Include `<unicode/uscript.h>` and verify resolved item scripts rather than scalar-name heuristics:
 
   ```cpp
   TEST_CASE("Latin Arabic common and inherited scalars resolve by context") {
@@ -2045,7 +2045,7 @@ test; reversing it is a one-line flip plus one test line.
   }
   ```
 
-- [ ] **Step 1d: Add the failing Thai/CJK line-opportunity test.**
+- [x] **Step 1d: Add the failing Thai/CJK line-opportunity test.**
 
   ```cpp
   TEST_CASE("ICU supplies Thai opportunities and CJK punctuation prohibitions") {
@@ -2065,7 +2065,7 @@ test; reversing it is a one-line flip plus one test line.
   }
   ```
 
-- [ ] **Step 1e: Add the failing invalid-locale test.**
+- [x] **Step 1e: Add the failing invalid-locale test.**
 
   ```cpp
   TEST_CASE("invalid ICU locale fails without ad hoc analysis") {
@@ -2079,7 +2079,7 @@ test; reversing it is a one-line flip plus one test line.
   }
   ```
 
-- [ ] **Step 1f: Add the failing fresh-process not-ready construction test.** Put this case in new `tests/test_unicode_not_ready.cpp`, registered through generic `molga_add_test` rather than `molga_add_text_test`; the executable has no staged-root definition/session main and therefore begins in `NeverInitialized`:
+- [x] **Step 1f: Add the failing fresh-process not-ready construction test.** Put this case in new `tests/test_unicode_not_ready.cpp`, registered through generic `molga_add_test` rather than `molga_add_text_test`; the executable has no staged-root definition/session main and therefore begins in `NeverInitialized`:
 
   ```cpp
   TEST_CASE("Unicode analyzer creates no ICU handle before runtime ready") {
@@ -2099,7 +2099,7 @@ test; reversing it is a one-line flip plus one test line.
   its test companion is linked only to this target. The target must not call
   `Initialize`, `Shutdown`, or `u_cleanup`, and process exit is its isolation.
 
-- [ ] **Step 1g: Add the failing resolved-analysis identity test.** Analyze the same Thai paragraph twice and assert immutable, actual iterator identities rather than requested strings:
+- [x] **Step 1g: Add the failing resolved-analysis identity test.** Analyze the same Thai paragraph twice and assert immutable, actual iterator identities rather than requested strings:
 
   ```cpp
   TEST_CASE("analysis records resolved locales rules and unique generation") {
@@ -2122,21 +2122,21 @@ test; reversing it is a one-line flip plus one test line.
   }
   ```
 
-- [ ] **Step 1h: Add the failing nonwrapping-generation test.** Through `UnicodeTextAnalyzerTestAccess::SetNextGeneration(UINT64_MAX)`, require one successful analysis with generation `UINT64_MAX`; the next `Analyze` returns `nullopt`, emits exactly one `LayoutInvalid`, and creates zero ICU objects. Restore the allocator to a fresh monotonic value through the same RAII test access before leaving the serialized case.
+- [x] **Step 1h: Add the failing nonwrapping-generation test.** Through `UnicodeTextAnalyzerTestAccess::SetNextGeneration(UINT64_MAX)`, require one successful analysis with generation `UINT64_MAX`; the next `Analyze` returns `nullopt`, emits exactly one `LayoutInvalid`, and creates zero ICU objects. Restore the allocator to a fresh monotonic value through the same RAII test access before leaving the serialized case.
 
-- [ ] **Step 1i: Implement exact item-expansion test helpers.** `EmbeddingLevelsByGrapheme` allocates one slot per adjacent grapheme-boundary pair and fills each slot from the single covering `AnalysisItem`, failing on overlap/gap. `ScriptAtGrapheme` returns that covering item's `scriptCode`. `ParagraphStartBytes` and `ParagraphEndBytes` collect the source begin/end from flagged items in logical order and remove only adjacent duplicates.
+- [x] **Step 1i: Implement exact item-expansion test helpers.** `EmbeddingLevelsByGrapheme` allocates one slot per adjacent grapheme-boundary pair and fills each slot from the single covering `AnalysisItem`, failing on overlap/gap. `ScriptAtGrapheme` returns that covering item's `scriptCode`. `ParagraphStartBytes` and `ParagraphEndBytes` collect the source begin/end from flagged items in logical order and remove only adjacent duplicates.
 
-- [ ] **Step 1j: Implement exact boundary test helpers.** `ContainsBoundary` uses `std::binary_search`; `AllLineBreaksAreGraphemeAligned` requires every line boundary in the grapheme-boundary vector. `AnalyzeFixture(utf8, options={})` builds the public buffer, calls the public analyzer with a local collecting sink, requires both optionals, and returns the immutable analysis without calling ICU directly.
+- [x] **Step 1j: Implement exact boundary test helpers.** `ContainsBoundary` uses `std::binary_search`; `AllLineBreaksAreGraphemeAligned` requires every line boundary in the grapheme-boundary vector. `AnalyzeFixture(utf8, options={})` builds the public buffer, calls the public analyzer with a local collecting sink, requires both optionals, and returns the immutable analysis without calling ICU directly.
 
-- [ ] **Step 1k: Attach direct ICU and register the isolated not-ready process.** Implement `UnicodeTextAnalyzerTestAccess` only in `tests/UnicodeTextAnalyzerTestAccess.{h,cpp}`; its private production seam counts attempted ICU-object creation and returns an RAII generation override that restores the prior test state after Step 1h. Add that companion source explicitly to both `test_unicode_text` and `test_unicode_not_ready`, and to no production/editor/runtime target. After the already-created session-backed `test_unicode_text` target, call `molga_attach_direct_icu_consumer(test_unicode_text)`. Register `test_unicode_not_ready` with generic `molga_add_test`, the same test-access companion, and no text-runtime session/root; do not mark either target serial merely for lifecycle, because each process owns an independent one-way state. Add configure assertions that the companion occurs exactly once in each test's `SOURCES` and zero times in every product target.
+- [x] **Step 1k: Attach direct ICU and register the isolated not-ready process.** Implement `UnicodeTextAnalyzerTestAccess` only in `tests/UnicodeTextAnalyzerTestAccess.{h,cpp}`; its private production seam counts attempted ICU-object creation and returns an RAII generation override that restores the prior test state after Step 1h. Add that companion source explicitly to both `test_unicode_text` and `test_unicode_not_ready`, and to no production/editor/runtime target. After the already-created session-backed `test_unicode_text` target, call `molga_attach_direct_icu_consumer(test_unicode_text)`. Register `test_unicode_not_ready` with generic `molga_add_test`, the same test-access companion, and no text-runtime session/root; do not mark either target serial merely for lifecycle, because each process owns an independent one-way state. Add configure assertions that the companion occurs exactly once in each test's `SOURCES` and zero times in every product target.
 
-- [ ] **Step 2: Run the analysis red gate.**
+- [x] **Step 2: Run the analysis red gate.**
 
   Run: `cmake --build --preset debug --target test_unicode_text test_unicode_not_ready -j`
 
   Expected: compile FAIL because `UnicodeAnalysis` and `UnicodeTextAnalyzer` do not exist.
 
-- [ ] **Step 3: Add the exact analysis contracts.**
+- [x] **Step 3: Add the exact analysis contracts.**
 
   ```cpp
   enum class BaseDirection : std::uint8_t { Auto, LeftToRight, RightToLeft };
@@ -2176,31 +2176,31 @@ test; reversing it is a one-line flip plus one test line.
   };
   ```
 
-- [ ] **Step 4: Enforce the analyzer ready gate.** Before constructing an ICU object, check `TextRuntimeDependencies::Get().IsReady()`; on false emit one `DependencyInvalid` and return `nullopt` so Step 1b records zero ICU object creations.
+- [x] **Step 4: Enforce the analyzer ready gate.** Before constructing an ICU object, check `TextRuntimeDependencies::Get().IsReady()`; on false emit one `DependencyInvalid` and return `nullopt` so Step 1b records zero ICU object creations.
 
-- [ ] **Step 4a: Implement ICU extended-grapheme boundaries.** Open the character `BreakIterator` for the canonical locale, check every `SourceBytesForUtf16` optional before dereference, and store monotonically increasing original-byte boundaries including `0` and byte length; a failed map emits typed invalid-input diagnostics and returns `nullopt`.
+- [x] **Step 4a: Implement ICU extended-grapheme boundaries.** Open the character `BreakIterator` for the canonical locale, check every `SourceBytesForUtf16` optional before dereference, and store monotonically increasing original-byte boundaries including `0` and byte length; a failed map emits typed invalid-input diagnostics and returns `nullopt`.
 
-- [ ] **Step 4b: Capture resolved iterator locales.** After each `ubrk_open`, call `ubrk_getLocaleByType(iterator, ULOC_ACTUAL_LOCALE, &status)`, canonicalize the returned BCP-47 identity, normalize ICU's empty root result to `root`, and store the grapheme and line values separately. Any status/canonicalization failure emits `LayoutInvalid` and discards the candidate analysis.
+- [x] **Step 4b: Capture resolved iterator locales.** After each `ubrk_open`, call `ubrk_getLocaleByType(iterator, ULOC_ACTUAL_LOCALE, &status)`, canonicalize the returned BCP-47 identity, normalize ICU's empty root result to `root`, and store the grapheme and line values separately. Any status/canonicalization failure emits `LayoutInvalid` and discards the candidate analysis.
 
-- [ ] **Step 4c: Hash exact break-rule identities.** For each live iterator call the pinned C API `ubrk_getBinaryRules` first with `binaryRules=nullptr` and capacity `0`; require `U_SUCCESS` and a positive exact required byte count, allocate that count, then call it again and require `U_SUCCESS` plus the identical returned count. Hash the canonical byte stream `"molga-icu-break-rule-v2\0" + kind + "\0" + resolvedLocale + "\0" + decimal U_ICU_VERSION_MAJOR_NUM + ":" + decimal U_IS_BIG_ENDIAN + ":" + decimal U_CHARSET_FAMILY + "\0" + compiled rule bytes` with SHA-256 and store the lowercase 64-hex digest. This binds ICU 78's compiled binary-rule format, platform tuple, locale tailoring, and character-versus-line kind; do not switch to the C++ textual-rules API, identify rules by requested locale/version alone, or expose the binary bytes from `UnicodeAnalysis`.
+- [x] **Step 4c: Hash exact break-rule identities.** For each live iterator call the pinned C API `ubrk_getBinaryRules` first with `binaryRules=nullptr` and capacity `0`; require `U_SUCCESS` and a positive exact required byte count, allocate that count, then call it again and require `U_SUCCESS` plus the identical returned count. Hash the canonical byte stream `"molga-icu-break-rule-v2\0" + kind + "\0" + resolvedLocale + "\0" + decimal U_ICU_VERSION_MAJOR_NUM + ":" + decimal U_IS_BIG_ENDIAN + ":" + decimal U_CHARSET_FAMILY + "\0" + compiled rule bytes` with SHA-256 and store the lowercase 64-hex digest. This binds ICU 78's compiled binary-rule format, platform tuple, locale tailoring, and character-versus-line kind; do not switch to the C++ textual-rules API, identify rules by requested locale/version alone, or expose the binary bytes from `UnicodeAnalysis`.
 
-- [ ] **Step 5: Implement ICU line opportunities.** Open the line `BreakIterator` for the same resolved locale, keep only opportunities aligned to extended-grapheme boundaries, preserve explicit separators, and source Thai/CJK opportunities only from ICU.
+- [x] **Step 5: Implement ICU line opportunities.** Open the line `BreakIterator` for the same resolved locale, keep only opportunities aligned to extended-grapheme boundaries, preserve explicit separators, and source Thai/CJK opportunities only from ICU.
 
-- [ ] **Step 6: Resolve scripts and script extensions.** Use `UScript` plus surrounding context for common/inherited scalars, preserve isolate/control boundaries, and never force neutral content to LTR merely because its script is common.
+- [x] **Step 6: Resolve scripts and script extensions.** Use `UScript` plus surrounding context for common/inherited scalars, preserve isolate/control boundaries, and never force neutral content to LTR merely because its script is common.
 
-- [ ] **Step 7: Analyze paragraph BiDi levels.** Run `UBiDi` separately for each explicit paragraph using requested `Auto/LTR/RTL`; record every logical run's exact embedding level and base direction.
+- [x] **Step 7: Analyze paragraph BiDi levels.** Run `UBiDi` separately for each explicit paragraph using requested `Auto/LTR/RTL`; record every logical run's exact embedding level and base direction.
 
-- [ ] **Step 8: Materialize deterministic `AnalysisItem`s.** Split at paragraph, logical BiDi, isolate/control, exact level, resolved script, language/style boundary; assign stable logical run IDs and never merge equal direction parity when levels differ.
+- [x] **Step 8: Materialize deterministic `AnalysisItem`s.** Split at paragraph, logical BiDi, isolate/control, exact level, resolved script, language/style boundary; assign stable logical run IDs and never merge equal direction parity when levels differ.
 
-- [ ] **Step 9: Implement ICU failure behavior.** Canonicalize the authored locale with `uloc_forLanguageTag`, require `parsedLength == locale.size()` and `U_SUCCESS`, then use ICU's returned locale for both BreakIterators. Malformed locale or any later ICU failure emits one `LayoutInvalid` and returns `nullopt`; no ASCII/ad-hoc analysis fallback is allowed.
+- [x] **Step 9: Implement ICU failure behavior.** Canonicalize the authored locale with `uloc_forLanguageTag`, require `parsedLength == locale.size()` and `U_SUCCESS`, then use ICU's returned locale for both BreakIterators. Malformed locale or any later ICU failure emits one `LayoutInvalid` and returns `nullopt`; no ASCII/ad-hoc analysis fallback is allowed.
 
-- [ ] **Step 9a: Allocate a nonwrapping analysis generation.** Protect a process-wide `{next=1,exhausted=false}` allocator with a mutex. Reserve the generation before any ICU construction; issue `UINT64_MAX` exactly once, then latch exhaustion so all later analyses emit one `LayoutInvalid` and return `nullopt` before ICU calls. Never wrap to `0`, reuse a value, or reset in production; expose `UnicodeTextAnalyzerTestAccess::SetNextGeneration` only under the test build seam used by Step 1h.
+- [x] **Step 9a: Allocate a nonwrapping analysis generation.** Protect a process-wide `{next=1,exhausted=false}` allocator with a mutex. Reserve the generation before any ICU construction; issue `UINT64_MAX` exactly once, then latch exhaustion so all later analyses emit one `LayoutInvalid` and return `nullopt` before ICU calls. Never wrap to `0`, reuse a value, or reset in production; expose `UnicodeTextAnalyzerTestAccess::SetNextGeneration` only under the test build seam used by Step 1h.
 
-- [ ] **Step 9b: Publish identity atomically with analysis.** Construct `UnicodeAnalysisIdentity` only after both actual locales and both rule digests are valid, and move it with boundaries/items into the immutable `UnicodeAnalysis`; no accessor derives mutable process locale or calls ICU later.
+- [x] **Step 9b: Publish identity atomically with analysis.** Construct `UnicodeAnalysisIdentity` only after both actual locales and both rule digests are valid, and move it with boundaries/items into the immutable `UnicodeAnalysis`; no accessor derives mutable process locale or calls ICU later.
 
-- [ ] **Step 10: Route the legacy decoder through the authoritative buffer.** `DecodeUtf8(std::string_view)` builds a `UnicodeTextBuffer` with a local sink and returns its sanitized scalar values. Mark it compatibility-only in `Utf8.h`; no production consumer migration occurs before Milestone 8.
+- [x] **Step 10: Route the legacy decoder through the authoritative buffer.** `DecodeUtf8(std::string_view)` builds a `UnicodeTextBuffer` with a local sink and returns its sanitized scalar values. Mark it compatibility-only in `Utf8.h`; no production consumer migration occurs before Milestone 8.
 
-- [ ] **Step 11: Run Debug and sanitizer green gates.**
+- [x] **Step 11: Run Debug and sanitizer green gates.**
 
   ```bash
   cmake --build --preset debug --target test_unicode_text test_unicode_not_ready test_text -j
@@ -2213,7 +2213,7 @@ test; reversing it is a one-line flip plus one test line.
 
   Expected: all commands pass; output boundaries remain original UTF-8 byte offsets.
 
-- [ ] **Step 12: Commit the Unicode/ICU analysis boundary.**
+- [x] **Step 12: Commit the Unicode/ICU analysis boundary.**
 
   ```bash
   git add CMakeLists.txt src/Text/UnicodeAnalysis.* src/Rendering/Utf8.* \
@@ -2223,6 +2223,65 @@ test; reversing it is a one-line flip plus one test line.
   ```
 
 **Exit:** Milestones 1–3 are independently reviewable and green. The next plan may assume exact source-byte clusters, ICU analysis items, portable dependency SHA, immutable ICU lifetime, and checked signed 26.6 units—nothing more.
+
+**Implementation record (2026-09-03).** Commit `e4af4bd`. Debug suite 91/91; `test_unicode_text`
+also green under ASan and UBSan. Four adversarial review lenses ran; the audit passed after all
+seven blocking and three important findings were fixed, re-verified by a 20-mutation sweep with a
+green baseline taken both before and after (18/20 caught, each by the intended new assertion).
+
+One real defect, found by the quality lens and confirmed with a red test before the fix:
+**a stack buffer over-read that failed open.** A locale whose canonical ICU form is exactly 157
+characters filled `char[157]` without a terminator, and `Analyze` returned engaged with zero
+diagnostics. Fixed by checking `uloc_forLanguageTag`'s return; length 0 is explicitly still allowed,
+because ICU's root identifier is `""` and `"und"` maps to it.
+
+Six blocking coverage holes, all closed:
+
+- Step 4c's break-rule digest could be computed **without ever reading ICU's compiled rules** and
+  every assertion still passed. Now witnessed by `en-u-lb-loose` vs `en-u-lb-strict` — the same
+  resolved locale with different compiled rules, proven by a real boundary difference — plus golden
+  digests computed independently, by pulling rule bytes from `ubrk_getBinaryRules` and hashing them
+  with a separate script implementing Step 4c's written stream. Both matched, so the constants pin
+  the specification rather than the implementation.
+- Per-paragraph `UBiDi` slicing was unverified; the only multi-paragraph fixture was entirely level 0.
+- Item splitting at a resolved-script boundary and at an isolate/control boundary had no witness.
+- Script context resolution — direction preference, `Inherited` handling, and the `Script_Extensions`
+  probe — was entirely unwitnessed.
+- Logical run ids were never asserted stable across paragraphs.
+- Step 4b's BCP-47 canonicalisation of the resolved ICU locale had no witness.
+
+Pre-approved scope addition: `tests/test_font.cpp` is outside this task's Files list, but Step 10's
+`DecodeUtf8` reroute changes its expectations. Three of its four flagged assertions were updated to
+new correct values; the fourth (`"\xE2\x82"`) turned out to encode behaviour that is genuinely
+still correct and was deliberately left untouched.
+
+---
+
+#### AMENDMENT (2026-09-03): three items carried out of subplan 01
+
+**1. `DecodeUtf8` is 4x slower on well-formed text and ~70x on ill-formed text.** Step 10 mandates
+routing it through `UnicodeTextBuffer`, and that is in-spec, but the cost lands on per-frame render
+paths. The remedy is lazy diagnostic-string construction in `src/Text/UnicodeTextBuffer.cpp`, a Task
+3.2 file outside Task 3.3's Files list. **Owner: Task 8.2**, which replaces this legacy rendered-text
+path outright — so if Task 8.2 lands as planned the regression disappears with the path. If that task
+slips, or the path survives it, the lazy-diagnostic fix becomes required on its own. This shares a
+root cause with the `Utf8Invalid` rate-limit amendment recorded under Task 3.2: both are the cost of
+building a full diagnostic per ill-formed byte.
+
+**2. Step 7 asks to record each run's "exact embedding level and base direction", but the
+`AnalysisItem` layout Step 3 fixes verbatim has no base-direction field.** No field was added,
+because that would break a verbatim block. Run direction is recoverable from embedding-level parity
+and paragraph base direction is recoverable in every case the tests exercise, so nothing is lost
+today — but subplan 02 consumes these items and should confirm that recovery is sufficient before
+relying on it. Adding the field needs a plan amendment, not a silent struct change.
+
+**3. `detail::IcuObjectCreationCount` / `ResetIcuObjectCreationCount` /
+`ExchangeAnalysisGenerationState` ship in the production header and library**, guarded only by a
+configure-time source-list check over eight enumerated targets. This is what Step 1k specifies — the
+counter must live in shipped code or it would measure a different program — and it mirrors the
+existing `TextRuntimeDependenciesTestAccess` pattern. Recorded so a later reviewer does not mistake
+it for unrequested public API, and so that a newly added product target is remembered to need adding
+to that enumeration.
 
 ## Subplan Completion Gate
 
