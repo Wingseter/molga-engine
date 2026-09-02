@@ -1539,7 +1539,7 @@ Carried forward, with owners:
 - Consumes: finite `float` authored/logical values.
 - Produces: `molga::Fixed26_6`, `FixedPoint`, `FixedSize`, and `FixedRect`; later text/UI algorithms compare only exact raw values.
 
-- [ ] **Step 1: Add failing conversion/arithmetic tests.**
+- [x] **Step 1: Add failing conversion/arithmetic tests.**
 
   ```cpp
   TEST_CASE("Fixed26_6 rejects invalid input and rounds exact ties away from zero") {
@@ -1555,15 +1555,15 @@ Carried forward, with owners:
   }
   ```
 
-- [ ] **Step 1a: Register the Unicode test with the common runtime main.** Call `molga_add_text_test(test_unicode_text test_unicode_text.cpp)`; do not link `doctest_main` or add another staged-root macro/dependency by hand.
+- [x] **Step 1a: Register the Unicode test with the common runtime main.** Call `molga_add_text_test(test_unicode_text test_unicode_text.cpp)`; do not link `doctest_main` or add another staged-root macro/dependency by hand.
 
-- [ ] **Step 2: Run the fixed-point red gate.**
+- [x] **Step 2: Run the fixed-point red gate.**
 
   Run: `cmake --build --preset debug --target test_unicode_text -j`
 
   Expected: compile FAIL because `Common/Fixed26_6.h` does not exist.
 
-- [ ] **Step 3: Add the master-plan fixed-point value types.**
+- [x] **Step 3: Add the master-plan fixed-point value types.**
 
   ```cpp
   class Fixed26_6 {
@@ -1622,21 +1622,21 @@ Carried forward, with owners:
   };
   ```
 
-- [ ] **Step 4: Implement `FromFloat`.** Reject non-finite/out-of-range input, canonicalize signed zero, multiply by 64 in a wider finite representation, and round exact half ties away from zero before the final `int32_t` check.
+- [x] **Step 4: Implement `FromFloat`.** Reject non-finite/out-of-range input, canonicalize signed zero, multiply by 64 in a wider finite representation, and round exact half ties away from zero before the final `int32_t` check.
 
-- [ ] **Step 4a: Implement `ToFloat`.** Convert the signed raw value with an exact division by `Scale`, returning canonical positive zero when `raw_ == 0`.
+- [x] **Step 4a: Implement `ToFloat`.** Convert the signed raw value with an exact division by `Scale`, returning canonical positive zero when `raw_ == 0`.
 
-- [ ] **Step 5: Implement checked add and subtract.** Convert both raw operands to `int64_t`, perform one operation, return `nullopt` outside `int32_t`, and never saturate or wrap.
+- [x] **Step 5: Implement checked add and subtract.** Convert both raw operands to `int64_t`, perform one operation, return `nullopt` outside `int32_t`, and never saturate or wrap.
 
-- [ ] **Step 6: Implement checked multiply/divide.** Reject zero denominator and intermediate overflow, reduce sign explicitly, round nearest with half ties away from zero, and validate the final raw `int32_t`.
+- [x] **Step 6: Implement checked multiply/divide.** Reject zero denominator and intermediate overflow, reduce sign explicitly, round nearest with half ties away from zero, and validate the final raw `int32_t`.
 
-- [ ] **Step 7: Run the fixed-point green gate.**
+- [x] **Step 7: Run the fixed-point green gate.**
 
   Run: `cmake --build --preset debug --target test_unicode_text -j && ctest --test-dir build/debug -R '^test_unicode_text$' --output-on-failure`
 
   Expected: PASS for finite conversion, signed zero, tie rounding, and checked overflow.
 
-- [ ] **Step 8: Commit fixed-point primitives.**
+- [x] **Step 8: Commit fixed-point primitives.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Common/Fixed26_6.* \
@@ -1645,6 +1645,49 @@ Carried forward, with owners:
   ```
 
 **Exit:** Text and UI can share a deterministic logical unit without float comparison or overflow ambiguity.
+
+**Implementation record (2026-09-02).** Commits `d73abff` (feature) and `6e2f990` (coverage
+hardening). Debug suite 90/90.
+
+Two reviewers verified the arithmetic exhaustively rather than by inspection: `FromFloat` matches
+an independent oracle across all 2^32 float bit patterns, `CheckedMulDiv` matches a `__int128`
+oracle over ~3M random triples plus edge/tie/boundary sweeps, `CheckedAdd`/`CheckedSub` over 4M
+pairs — zero mismatches, UBSan clean, warning-free under `-Wconversion -Wsign-conversion`.
+
+The first commit's coverage was then found inadequate for the type's blast radius, and the gap was
+demonstrated rather than argued: the committed suite still passed with `ToFloat` stubbed to
+`0.0f`, `CheckedSub` stubbed to `nullopt`, and `CheckedMulDiv` gutted after its divide-by-zero
+guard. `6e2f990` adds 78 assertions across three test cases, verified by re-running 21 mutations in
+four build configurations (`-g -O0`, `-g`, `-O2 -DNDEBUG`, asan+ubsan).
+
+Two defects that mutation testing caught and inspection had not:
+
+- **Unguarded `std::optional::operator->`.** Every `...->Raw()` assertion dereferenced without
+  first asserting engagement, so a mutation turning success into `nullopt` is undefined behaviour
+  whose stale payload can compare equal to the expected raw. A symmetric-range-check mutant passed
+  the suite in the exact configuration `ctest --preset debug` builds. All new assertions now route
+  through a fail-closed `RawOr` helper returning `INT64_MIN` for a disengaged optional.
+- **`CheckedAdd` had no success witness at all** — both its assertions were `CHECK_FALSE`, so
+  stubbing it to `return std::nullopt;` passed in all four configurations.
+
+Approved additions beyond this task's letter:
+
+- Deleted floating-point overloads on `FromRaw` and `CheckedMulDiv`. `CheckedMulDiv(v, 1.9, 1.0)`
+  previously compiled and silently truncated to `(1, 1)`; a `double` *variable* passed without
+  warning, since the project builds without `-Wconversion`. Guarded independently on numerator and
+  denominator so a mixed `(int, double)` call is also rejected, with static_asserts in both
+  polarities. This deliberately breaks the header's byte-identity with the plan's interface block.
+- Coverage for `Fixed26_6::operator!=` and for `FixedPoint`/`FixedSize`/`FixedRect` comparison,
+  none of which any test instantiated; a cross-field `a.x == b.y` typo would have compiled and
+  shipped.
+
+Declined, as each would change declarations the plan fixes verbatim: a default constructor,
+`constexpr` on the checked ops, and `noexcept` normalisation. They need a plan amendment, not a
+silent edit.
+
+Recorded risk: routing `test_unicode_text` through `molga_add_text_test` is required by Step 1a, so
+this foundational arithmetic type's only regression test can be taken down by an unrelated
+text-runtime failure.
 
 ---
 
