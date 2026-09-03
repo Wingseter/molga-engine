@@ -2285,9 +2285,30 @@ to that enumeration.
 
 ## Subplan Completion Gate
 
-- [ ] Run `git diff --check` and scan this plan without self-matching the pattern: `rg -n 'T[B]D|T[O]DO|F[I]XME|implement l[a]ter|similar t[o]' docs/superpowers/plans/2026-08-20-ui-text/01-dependencies-unicode.md`.
-- [ ] Run the complete Exit Contract commands from a fresh configure and record the actual output; earlier baseline results are not completion evidence.
+- [x] Run `git diff --check` and scan this plan without self-matching the pattern: `rg -n 'T[B]D|T[O]DO|F[I]XME|implement l[a]ter|similar t[o]' docs/superpowers/plans/2026-08-20-ui-text/01-dependencies-unicode.md`.
+- [x] Run the complete Exit Contract commands from a fresh configure and record the actual output; earlier baseline results are not completion evidence.
 - [ ] Request code review for the full Milestones 1–3 range and resolve every blocker/high finding before starting Milestone 4.
+
+**Gate evidence (2026-09-03, at `a0b71ea`).**
+
+1. `git diff --check` clean; the marker scan over this file returns nothing.
+
+2. Fresh configure into a build directory that did not previously exist
+   (`cmake -S . -B build/gate-debug -DCMAKE_BUILD_TYPE=Debug`), so every vendored dependency was
+   rebuilt rather than reused. Configure 41.6s, including `text dependency macro scope audit
+   passed`. Exit Contract tests, actual output:
+
+   ```text
+   1/4 Test #15: test_text_dependencies ...........   Passed    2.32 sec
+   2/4 Test #17: test_text_runtime_dependencies ...   Passed   15.74 sec
+   3/4 Test #18: test_unicode_text ................   Passed    1.52 sec
+   4/4 Test #19: test_unicode_not_ready ...........   Passed    0.43 sec
+   100% tests passed, 0 tests failed out of 4
+   ```
+
+   `test_unicode_text` additionally green under both sanitizer presets: ASan 1/1, UBSan 1/1.
+
+3. Pending.
 
 ## Execution Handoff
 
