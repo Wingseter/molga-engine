@@ -1,3 +1,4 @@
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/Importers/FontImporter.h"
 #include "Rendering/FontAtlas.h"
@@ -25,9 +26,13 @@ fs::path TestKoreanFontPath() {
 }
 
 fs::path MakeFontProject() {
-    const fs::path root = fs::temp_directory_path() / "molga_font_tests";
-    std::error_code error;
-    fs::remove_all(root, error);
+    // Each case scans its own subtree of the single project root the singleton
+    // database's font artifact store is bound to.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("font-project");
     fs::create_directories(root / "Assets" / "Fonts");
     fs::copy_file(TestFontPath(), root / "Assets" / "Fonts" / "Inter-Regular.ttf",
                   fs::copy_options::overwrite_existing);

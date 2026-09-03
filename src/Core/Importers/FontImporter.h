@@ -7,11 +7,11 @@ namespace molga {
 class FontImporter : public IImporter {
 public:
     std::string Name() const override { return "FontImporter"; }
-    int Version() const override { return 1; }
-    bool CanImport(const std::string& ext) const override {
-        return ext == ".ttf" || ext == ".otf";
-    }
-    ImportResult Import(const std::string& absSourcePath) const override;
+    int Version() const override { return 2; }
+    bool CanImport(const std::string& extension) const override;
+    ImportResult Import(const std::string& absoluteSourcePath) const override;
+    ImportResult Import(const std::string& absoluteSourcePath,
+                        const nlohmann::json& settings) const override;
 };
 
 } // namespace molga

@@ -1,3 +1,4 @@
+#include "Assets/FontArtifactStore.h"
 #include "Core/AssetDatabase.h"
 #include "Core/AssetDependencyValidator.h"
 #include "Core/Importers/ImporterRegistry.h"
@@ -12,11 +13,21 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 
 namespace fs = std::filesystem;
 using namespace molga;
 
 namespace {
+
+// Each catalog fixture names its project/storage root explicitly and binds the
+// matching artifact authority before scanning or loading.
+void BindProjectStore(AssetDatabase& db, const fs::path& projectRoot) {
+    std::string error;
+    REQUIRE_MESSAGE(db.BindFontArtifactStore(
+        std::make_shared<const FontArtifactStore>(
+            FontArtifactStore::ForProject(projectRoot)), &error), error);
+}
 
 nlohmann::json CompleteProfile() {
     return {
@@ -112,6 +123,7 @@ TEST_CASE("Post-process importer and resolver refresh hashes, preview, and last-
         {"importerVersion", 1}});
 
     AssetDatabase database;
+    BindProjectStore(database, root);
     database.ScanProject(root / "Assets");
     const AssetRecord* record = database.Find(guid);
     REQUIRE(record != nullptr);
@@ -218,7 +230,8 @@ TEST_CASE("Dependency validation enforces post-process profile references") {
     const fs::path catalog = root / "catalog.json";
     WriteJson(catalog, catalogDocument);
     AssetDatabase database;
-    REQUIRE(database.LoadCatalog(catalog, root));
+    BindProjectStore(database, root);
+    REQUIRE(database.LoadCatalog(catalog, root, AssetCatalogMode::Project));
 
     const auto validate = [&](const std::string& guid) {
         const fs::path scene = root / (guid + ".scene");

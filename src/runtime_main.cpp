@@ -45,6 +45,7 @@
 #include "Physics/PhysicsWorld.h"
 #include "Physics/Physics2D.h"
 #include "Core/GameConfig.h"
+#include "Assets/FontArtifactStore.h"
 #include "Core/AssetDatabase.h"
 #include "Core/PersistentStorage.h"
 #include "Core/PlayerPrefs.h"
@@ -851,15 +852,37 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
     int assetCatalogRecords = 0;
     {
         auto catalogPath = PathService::Get().ExecutableDir() / "asset_catalog.json";
-        if (std::filesystem::exists(catalogPath)) {
+        // Step 4e: this is the development/package authority the runtime has
+        // today — the catalog beside the executable still carries authoring
+        // ProjectLibrary locators, so it loads in Project mode against a store
+        // rooted at that same directory. Task 17 replaces only this authority
+        // construction with the verified sealed-manifest store; the four
+        // argument call below does not change then.
+        const std::filesystem::path storageRoot =
+            PathService::Get().ExecutableDir();
+        std::string bindError;
+        const bool authorityBound =
+            molga::AssetDatabase::Get().FontArtifacts() != nullptr ||
+            molga::AssetDatabase::Get().BindFontArtifactStore(
+                std::make_shared<const molga::FontArtifactStore>(
+                    molga::FontArtifactStore::ForProject(storageRoot)),
+                &bindError);
+        if (!authorityBound) {
+            std::cerr << "Could not bind the runtime font artifact store: "
+                      << bindError << std::endl;
+        }
+        if (authorityBound && std::filesystem::exists(catalogPath)) {
+            std::string catalogError;
             assetCatalogLoaded = molga::AssetDatabase::Get().LoadCatalog(
-                catalogPath, PathService::Get().ExecutableDir());
+                catalogPath, storageRoot, molga::AssetCatalogMode::Project,
+                &catalogError);
             assetCatalogRecords = static_cast<int>(molga::AssetDatabase::Get().RecordCount());
             if (assetCatalogLoaded) {
                 std::cout << "Asset catalog loaded: " << assetCatalogRecords
                           << " records" << std::endl;
             } else {
-                std::cerr << "Failed to load asset catalog: " << catalogPath << std::endl;
+                std::cerr << "Failed to load asset catalog: " << catalogPath
+                          << ": " << catalogError << std::endl;
             }
         }
     }

@@ -2,6 +2,7 @@
 #include "ECS/GameObject.h"
 #include "ECS/Components/AudioSource.h"
 #include "ECS/Components/AudioListener.h"
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/PathService.h"
 #include "Core/ProjectSettings.h"
@@ -85,11 +86,12 @@ struct AudioTestScope {
 };
 
 struct TempAudioProject {
+    // The scanned Assets subtree belongs to the one process-lifetime project
+    // root the singleton database's artifact store owns.
     explicit TempAudioProject(const std::string& name)
-        : root(fs::temp_directory_path() / name),
-          assets(root / "Assets"), wav(assets / "tone.wav") {
-        std::error_code error;
-        fs::remove_all(root, error);
+        : root(test_support::AssetDatabaseTestAuthority::Get()
+                   .AssetsCaseRoot(name)),
+          assets(root), wav(assets / "tone.wav") {
         WriteTestWav(wav);
     }
     ~TempAudioProject() {
@@ -184,6 +186,9 @@ TEST_CASE("AudioService routes GUID one-shots and AudioSource releases on disabl
     AudioTestScope audioScope;
     REQUIRE(audioScope.started);
 
+    std::string bindError;
+    REQUIRE_MESSAGE(test_support::AssetDatabaseTestAuthority::Get().Bind(
+                        molga::AssetDatabase::Get(), &bindError), bindError);
     molga::AssetDatabase::Get().ScanProject(project.assets);
     const std::string guid =
         molga::AssetDatabase::Get().GuidForSource("Assets/tone.wav");

@@ -1,13 +1,19 @@
 #include "Core/PersistentStorage.h"
 
+#include "Common/Sha256.h"
+
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 #include <system_error>
+
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #if defined(_WIN32)
 #include <io.h>
@@ -56,6 +62,112 @@ bool ReplaceFileAtomically(const std::filesystem::path& from,
     return ::rename(from.c_str(), to.c_str()) == 0;
 }
 #endif
+
+// Creates a file only when it does not already exist. This is the primitive an
+// immutable publish needs: "someone else got here first" has to be observable
+// rather than silently clobbered.
+int OpenCreateNew(const std::filesystem::path& path) {
+#if defined(_WIN32)
+    return ::_wopen(path.wstring().c_str(),
+                    _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY,
+                    _S_IREAD | _S_IWRITE);
+#else
+    return ::open(path.c_str(), O_CREAT | O_EXCL | O_WRONLY, 0644);
+#endif
+}
+
+bool WriteAllAndSync(int descriptor, const std::uint8_t* data,
+                     std::size_t size) {
+    std::size_t written = 0;
+    while (written < size) {
+#if defined(_WIN32)
+        const int chunk = ::_write(descriptor, data + written,
+                                   static_cast<unsigned int>(size - written));
+#else
+        const auto chunk = ::write(descriptor, data + written, size - written);
+#endif
+        if (chunk <= 0) return false;
+        written += static_cast<std::size_t>(chunk);
+    }
+#if defined(_WIN32)
+    return ::_commit(descriptor) == 0;
+#else
+    return ::fsync(descriptor) == 0;
+#endif
+}
+
+void CloseDescriptor(int descriptor) {
+#if defined(_WIN32)
+    ::_close(descriptor);
+#else
+    ::close(descriptor);
+#endif
+}
+
+bool ReadAllBytes(const std::filesystem::path& path,
+                  std::vector<std::uint8_t>& out) {
+    std::error_code error;
+    const std::uintmax_t size = std::filesystem::file_size(path, error);
+    if (error) return false;
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return false;
+    out.resize(static_cast<std::size_t>(size));
+    if (!out.empty()) {
+        input.read(reinterpret_cast<char*>(out.data()),
+                   static_cast<std::streamsize>(out.size()));
+        if (!input || static_cast<std::size_t>(input.gcount()) != out.size()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// An already-published destination is authoritative only when it is bit-for-bit
+// the artifact we were about to write.
+bool ExistingDestinationMatches(const std::filesystem::path& destination,
+                                const std::vector<std::uint8_t>& bytes,
+                                std::string_view expectedSha256,
+                                std::string* errorOut) {
+    std::vector<std::uint8_t> present;
+    if (!ReadAllBytes(destination, present)) {
+        SetError(errorOut, "Could not read the existing immutable artifact.");
+        return false;
+    }
+    if (present.size() != bytes.size() || present != bytes ||
+        molga::Sha256Bytes(present.data(), present.size()) != expectedSha256) {
+        SetError(errorOut,
+                 "An immutable artifact with different bytes already exists.");
+        return false;
+    }
+    SetError(errorOut, {});
+    return true;
+}
+
+// Removes the caller-owned sibling lock, and nothing else, on every exit path.
+class ScopedPublishLock {
+public:
+    explicit ScopedPublishLock(std::filesystem::path path)
+        : path_(std::move(path)) {}
+    ~ScopedPublishLock() {
+        if (!held_) return;
+        std::error_code error;
+        std::filesystem::remove(path_, error);
+    }
+    ScopedPublishLock(const ScopedPublishLock&) = delete;
+    ScopedPublishLock& operator=(const ScopedPublishLock&) = delete;
+
+    bool Acquire() {
+        const int descriptor = OpenCreateNew(path_);
+        if (descriptor < 0) return false;
+        CloseDescriptor(descriptor);
+        held_ = true;
+        return true;
+    }
+
+private:
+    std::filesystem::path path_;
+    bool held_ = false;
+};
 } // namespace
 
 bool PersistentStorage::ConfigureRuntime(const std::string& companyName,
@@ -186,6 +298,97 @@ bool PersistentStorage::AtomicWriteText(
         return false;
     }
 
+    SetError(errorOut, {});
+    return true;
+}
+
+bool PersistentStorage::AtomicPublishImmutableBytes(
+    const std::filesystem::path& destination,
+    const std::vector<std::uint8_t>& bytes,
+    std::string_view expectedSha256,
+    std::string* errorOut) {
+    if (destination.empty() || destination.filename().empty()) {
+        SetError(errorOut, "Destination path is empty.");
+        return false;
+    }
+    if (bytes.empty()) {
+        SetError(errorOut, "An immutable artifact must not be empty.");
+        return false;
+    }
+    const std::string actual = molga::Sha256Bytes(bytes.data(), bytes.size());
+    if (actual.empty() || actual != expectedSha256) {
+        SetError(errorOut,
+                 "Immutable artifact bytes do not match the expected SHA-256.");
+        return false;
+    }
+
+    std::error_code error;
+    if (std::filesystem::exists(destination, error)) {
+        return ExistingDestinationMatches(destination, bytes, expectedSha256,
+                                          errorOut);
+    }
+    if (!destination.parent_path().empty()) {
+        std::filesystem::create_directories(destination.parent_path(), error);
+        if (error) {
+            SetError(errorOut,
+                     "Could not create artifact directory: " + error.message());
+            return false;
+        }
+    }
+
+    std::filesystem::path lockPath = destination;
+    lockPath += ".lock";
+    ScopedPublishLock lock(lockPath);
+    if (!lock.Acquire()) {
+        SetError(errorOut,
+                 "Another publisher holds the immutable artifact lock: " +
+                 std::string(std::strerror(errno)));
+        return false;
+    }
+    // Another publisher may have completed between the first existence check
+    // and the lock, so the decision is re-made while the lock is held.
+    if (std::filesystem::exists(destination, error)) {
+        return ExistingDestinationMatches(destination, bytes, expectedSha256,
+                                          errorOut);
+    }
+
+    std::filesystem::path temporary = destination;
+    temporary += ".tmp." + std::to_string(++g_tempSequence);
+    const int descriptor = OpenCreateNew(temporary);
+    if (descriptor < 0) {
+        SetError(errorOut, "Could not create the artifact temporary file: " +
+                           std::string(std::strerror(errno)));
+        return false;
+    }
+    const bool wrote = WriteAllAndSync(descriptor, bytes.data(), bytes.size());
+    CloseDescriptor(descriptor);
+    if (!wrote) {
+        std::filesystem::remove(temporary, error);
+        SetError(errorOut, "Could not fully write the artifact temporary file.");
+        return false;
+    }
+
+    std::vector<std::uint8_t> readBack;
+    if (!ReadAllBytes(temporary, readBack) || readBack.size() != bytes.size() ||
+        molga::Sha256Bytes(readBack.data(), readBack.size()) != expectedSha256) {
+        std::filesystem::remove(temporary, error);
+        SetError(errorOut,
+                 "The published artifact did not verify after writing.");
+        return false;
+    }
+
+    if (std::filesystem::exists(destination, error)) {
+        std::filesystem::remove(temporary, error);
+        return ExistingDestinationMatches(destination, bytes, expectedSha256,
+                                          errorOut);
+    }
+    if (!ReplaceFileAtomically(temporary, destination)) {
+        const int savedErrno = errno;
+        std::filesystem::remove(temporary, error);
+        SetError(errorOut, "Could not publish the immutable artifact: " +
+                           std::string(std::strerror(savedErrno)));
+        return false;
+    }
     SetError(errorOut, {});
     return true;
 }

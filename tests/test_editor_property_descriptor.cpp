@@ -1,4 +1,5 @@
 #include "Editor/Properties/EditorPropertyDescriptor.h"
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/ProjectSettings.h"
 #include "ECS/Component.h"
@@ -546,12 +547,14 @@ TEST_CASE("mixed world sorting descriptors merge missing options and batch apply
 
 TEST_CASE("typed asset descriptors reject missing failed and wrong importer GUIDs") {
     namespace fs = std::filesystem;
-    const fs::path root = fs::temp_directory_path() /
-        "molga_editor_property_descriptor_assets";
-    std::error_code error;
-    fs::remove_all(root, error);
-    fs::create_directories(root, error);
-    REQUIRE_FALSE(error);
+    // The scanned subtree lives under the one project root the singleton
+    // database's artifact store owns; the project root is never derived by
+    // stripping "Assets" off the scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("property-descriptor");
 
     const std::string prefabGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     {
@@ -587,5 +590,6 @@ TEST_CASE("typed asset descriptors reject missing failed and wrong importer GUID
     CHECK(script.prefab.guid.empty());
 
     database.Clear();
-    fs::remove_all(root, error);
+    std::error_code removeError;
+    fs::remove_all(root, removeError);
 }

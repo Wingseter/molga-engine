@@ -1,4 +1,5 @@
 #include "GameBuilder.h"
+#include "../Assets/FontArtifactStore.h"
 #include "../Core/PathConstants.h"
 #include "../Core/PathService.h"
 #include "../Core/BuildManifest.h"
@@ -317,8 +318,37 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         return false;
     }
 
-    if (Project::Get().IsOpen()) {
-        molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+    // Step 4f: BuildSettings::projectRoot is the canonical filesystem
+    // authority for a build. An editor-owned singleton keeps the store the
+    // editor bound; a standalone builder binds one once. A store rooted
+    // somewhere else is an explicit build failure rather than a silent build
+    // against a foreign artifact library.
+    if (settings.projectRoot.empty()) {
+        lastError = "No project root; cannot bind the font artifact authority.";
+        return false;
+    }
+    const fs::path buildProjectRoot = settings.projectRoot;
+    {
+        molga::AssetDatabase& database = molga::AssetDatabase::Get();
+        if (const molga::FontArtifactStore* bound = database.FontArtifacts()) {
+            if (!bound->IsProjectAuthorityFor(buildProjectRoot)) {
+                lastError = "The bound font artifact store does not belong to "
+                            "the project being built: " +
+                            buildProjectRoot.string();
+                return false;
+            }
+        } else {
+            std::string bindError;
+            if (!database.BindFontArtifactStore(
+                    std::make_shared<const molga::FontArtifactStore>(
+                        molga::FontArtifactStore::ForProject(buildProjectRoot)),
+                    &bindError)) {
+                lastError = "Could not bind the project font artifact store: " +
+                            bindError;
+                return false;
+            }
+        }
+        database.ScanProject(buildProjectRoot / "Assets");
     }
     {
         std::vector<fs::path> dependencyScenes;
@@ -817,10 +847,19 @@ bool GameBuilder::CopyUserScripts(const std::string& outputPath, std::string& ou
 
 bool GameBuilder::EmitAssetCatalog(const std::string& outputPath) {
     try {
-        // Refresh AssetDatabase from the project's Assets/ so the catalog is current.
-        if (Project::Get().IsOpen()) {
-            molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+        // Refresh AssetDatabase from the project's Assets/ so the catalog is
+        // current. Build() already bound and verified the artifact authority
+        // for settings.projectRoot, and this private step is reachable only
+        // from there, so the scan root is that same verified project root.
+        const molga::FontArtifactStore* authority =
+            molga::AssetDatabase::Get().FontArtifacts();
+        if (authority == nullptr) {
+            lastError = "No font artifact store is bound; cannot emit the "
+                        "asset catalog.";
+            return false;
         }
+        const fs::path scanRoot = molga::AssetDatabase::Get().Root();
+        molga::AssetDatabase::Get().ScanProject(scanRoot);
 
         fs::path catalogPath = fs::path(outputPath) / "asset_catalog.json";
         if (!molga::AssetDatabase::Get().SaveCatalog(

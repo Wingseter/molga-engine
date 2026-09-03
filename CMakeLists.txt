@@ -192,6 +192,8 @@ set(ENGINE_SOURCES
     src/Editor/Properties/EditorPropertyDescriptor.cpp
     src/Editor/GameViewLayout.cpp
     src/Editor/EditorPreferences.cpp
+    src/Assets/FontAsset.cpp
+    src/Assets/FontArtifactStore.cpp
     src/Core/AssetDatabase.cpp
     src/Core/AssetDependencyValidator.cpp
     src/Core/SpriteResolver.cpp

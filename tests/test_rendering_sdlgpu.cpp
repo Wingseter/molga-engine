@@ -1,4 +1,5 @@
 #include "Core/Bootstrap.h"
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/PathService.h"
 #include "Core/TextureManager.h"
@@ -1314,10 +1315,15 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     REQUIRE(host);
 
     TextureManager::Get().Clear();
-    const fs::path root = fs::temp_directory_path() /
-        "molga_sdlgpu_authored_normal";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to; the project root is never
+    // derived by stripping "Assets" off a scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("authored-normal");
     std::error_code filesystemError;
-    fs::remove_all(root, filesystemError);
     fs::create_directories(root / "Assets");
     const std::string diffuseGuid = "1234567890abcdef1234567890abcdef";
     const std::string normalGuid = "abcdef1234567890abcdef1234567890";
@@ -1422,10 +1428,15 @@ TEST_CASE("SDL_GPU renders tilemap chunks and particle emitter geometry") {
     REQUIRE(renderer.Init(&error));
     molga::RenderSystem2D::Get().Init();
 
-    const fs::path root = fs::temp_directory_path() /
-        "molga_sdlgpu_tilemap_particle";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to; the project root is never
+    // derived by stripping "Assets" off a scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("tilemap-particle");
     std::error_code filesystemError;
-    fs::remove_all(root, filesystemError);
     fs::create_directories(root / "Assets");
     const fs::path tilesPath = root / "Assets" / "tiles.ppm";
     WritePpm(tilesPath, 4, 2, {
@@ -1579,10 +1590,15 @@ TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") 
     auto host = EngineInit(config);
     REQUIRE(host);
 
-    const fs::path root = fs::temp_directory_path() /
-        "molga_sdlgpu_korean_font";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to; the project root is never
+    // derived by stripping "Assets" off a scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("korean-font");
     std::error_code filesystemError;
-    fs::remove_all(root, filesystemError);
     fs::create_directories(root / "Assets" / "Fonts");
     fs::copy_file(fs::path(MOLGA_TEST_KOREAN_FONT_PATH),
                   root / "Assets" / "Fonts" / "NotoSansKR-Regular.ttf",

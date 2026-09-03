@@ -5,6 +5,7 @@
 #include "Editor/Commands/ComponentCommands.h"
 #include "Editor/Commands/ObjectCommands.h"
 #include "Editor/Properties/EditorPropertyDescriptor.h"
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/PathService.h"
 #include "Core/PrefabRegistry.h"
@@ -644,12 +645,14 @@ TEST_CASE("single component snapshots refresh nearest prefab overrides") {
 TEST_CASE("batch component snapshots refresh prefab overrides through persisted reload") {
     namespace fs = std::filesystem;
     const fs::path oldAssetRoot = PathService::Get().AssetRoot();
-    const fs::path assetRoot = fs::temp_directory_path() /
-        "molga_batch_prefab_override_assets";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path assetRoot = authority.AssetsCaseRoot("batch-prefab-override");
     std::error_code error;
-    fs::remove_all(assetRoot, error);
-    fs::create_directories(assetRoot, error);
-    REQUIRE_FALSE(error);
     PathService::Get().SetAssetRoot(assetRoot);
 
     const fs::path controllerPath = assetRoot / "dropped.animator";
@@ -800,12 +803,14 @@ TEST_CASE("batch component snapshots refresh prefab overrides through persisted 
 TEST_CASE("Camera output properties and viewport preset batch undo and prefab overrides") {
     namespace fs = std::filesystem;
     const fs::path oldAssetRoot = PathService::Get().AssetRoot();
-    const fs::path assetRoot = fs::temp_directory_path() /
-        "molga_camera_postfx_prefab_override_assets";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path assetRoot = authority.AssetsCaseRoot("camera-postfx-prefab-override");
     std::error_code error;
-    fs::remove_all(assetRoot, error);
-    fs::create_directories(assetRoot, error);
-    REQUIRE_FALSE(error);
     PathService::Get().SetAssetRoot(assetRoot);
 
     const fs::path profilePath = assetRoot / "camera.postfx";

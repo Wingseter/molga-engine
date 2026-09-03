@@ -1,4 +1,5 @@
 #include "Core/World.h"
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/Guid.h"
 #include "Core/TileSetAsset.h"
@@ -45,8 +46,14 @@ molga::TileSetAsset MakeTerrainTileSet(bool solid = true) {
 class ScopedTileSetFixture {
 public:
     explicit ScopedTileSetFixture(const molga::TileSetAsset& tileSet) {
-        root = std::filesystem::temp_directory_path() /
-               ("molga-tileset-" + molga::Guid::Generate());
+        // Each fixture gets a fresh subtree of the one project root whose
+        // artifact store the singleton database is bound to.
+        auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+        std::string bindError;
+        if (!authority.Bind(molga::AssetDatabase::Get(), &bindError)) {
+            throw std::runtime_error(bindError);
+        }
+        root = authority.AssetsCaseRoot("tileset");
         const std::filesystem::path assets = root / "Assets";
         std::filesystem::create_directories(assets);
         std::string error;

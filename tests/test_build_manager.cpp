@@ -10,11 +10,36 @@
 
 namespace fs = std::filesystem;
 
-TEST_CASE("BuildManager direct build loads project profile before saving UI fields") {
-    Project::Get().Close();
-    test_support::TempDirectory temp{"build-manager-direct"};
+namespace {
 
-    REQUIRE(Project::Get().Create(temp.Path().string(), "DirectBuildGame"));
+// The asset database binds its immutable font artifact authority exactly once,
+// to the project root the editor opened, and GameBuilder refuses to build a
+// different root against it. That is the production contract — one project per
+// editor process — so every build case in this file drives the same project
+// instead of creating a second root the bound store could never own.
+const std::string& SharedProjectPath() {
+    static test_support::TempDirectory temp{"build-manager"};
+    static const std::string path = [] {
+        Project::Get().Close();
+        const bool created =
+            Project::Get().Create(temp.Path().string(), "BuildManagerGame");
+        REQUIRE(created);
+        std::string root = Project::Get().GetPath();
+        Project::Get().Close();
+        return root;
+    }();
+    return path;
+}
+
+void OpenSharedProject() {
+    Project::Get().Close();
+    REQUIRE(Project::Get().Open(SharedProjectPath()));
+}
+
+}  // namespace
+
+TEST_CASE("BuildManager direct build loads project profile before saving UI fields") {
+    OpenSharedProject();
 
     BuildProfile& profile = Project::Get().GetBuildProfile();
     profile.gameName = "ConfiguredGame";
@@ -95,9 +120,7 @@ TEST_CASE("Console Error Pause drains errors while its window is hidden") {
 }
 
 TEST_CASE("GameBuilder validates font GUIDs referenced only by prefabs") {
-    Project::Get().Close();
-    test_support::TempDirectory temp{"build-prefab-font-validation"};
-    REQUIRE(Project::Get().Create(temp.Path().string(), "PrefabFontGame"));
+    OpenSharedProject();
 
     const fs::path root = Project::Get().GetPath();
     constexpr const char* prefabGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

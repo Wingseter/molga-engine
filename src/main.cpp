@@ -2,6 +2,7 @@
 #include <sstream>
 #include <memory>
 
+#include "Assets/FontArtifactStore.h"
 #include "Core/AssetDatabase.h"
 #include "Editor/Watcher/AssetWatcher.h"
 #include "Core/Bootstrap.h"
@@ -52,6 +53,32 @@ const unsigned int SCR_HEIGHT = 600;
 static molga::AssetWatcher g_AssetWatcher;
 
 namespace {
+
+// Step 4d/7d: the project root is what the opened project says it is. It is
+// never the current working directory and never an Assets path with the word
+// "Assets" removed, because both silently produce a different artifact
+// authority than the one the editor is actually editing.
+bool BindProjectAssetAuthority(const std::filesystem::path& projectRoot) {
+    molga::AssetDatabase& database = molga::AssetDatabase::Get();
+    if (const molga::FontArtifactStore* bound = database.FontArtifacts()) {
+        if (bound->IsProjectAuthorityFor(projectRoot)) return true;
+        Log::Error("AssetDatabase",
+                   "the bound font artifact store belongs to a different "
+                   "project root than " + projectRoot.string());
+        return false;
+    }
+    std::string bindError;
+    if (!database.BindFontArtifactStore(
+            std::make_shared<const molga::FontArtifactStore>(
+                molga::FontArtifactStore::ForProject(projectRoot)),
+            &bindError)) {
+        Log::Error("AssetDatabase",
+                   "could not bind the project font artifact store: " +
+                   bindError);
+        return false;
+    }
+    return true;
+}
 
 struct EditorSceneCatalogData {
     SceneRuntime::SceneCatalog catalog;
@@ -126,7 +153,14 @@ int RunSmokeBuild(const SmokeBuildOptions& options) {
     // PrefabRegistry searches beside the editor executable and silently omits
     // otherwise valid project prefab instances from the smoke World.
     PathService::Get().SetAssetRoot(Project::Get().GetPath());
-    molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+    const std::filesystem::path smokeProjectRoot = Project::Get().GetPath();
+    if (!BindProjectAssetAuthority(smokeProjectRoot)) {
+        report.status = "error";
+        report.message = "Could not bind the project font artifact store";
+        report.Save(options.reportPath);
+        return 3;
+    }
+    molga::AssetDatabase::Get().ScanProject(smokeProjectRoot / "Assets");
     PrefabRegistry::Get().ScanAssets();
 
     // Set script compiler path and load script library if present
@@ -421,7 +455,12 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
         namespace fs = std::filesystem;
         PathService::Get().SetAssetRoot(Project::Get().GetPath());
 
-        molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+        const fs::path openedProjectRoot = Project::Get().GetPath();
+        if (!BindProjectAssetAuthority(openedProjectRoot)) {
+            std::cerr << "Could not bind the project font artifact store\n";
+            host->RequestClose();
+        }
+        molga::AssetDatabase::Get().ScanProject(openedProjectRoot / "Assets");
         g_AssetWatcher.Prime(Project::Get().GetAssetsPath());
 
         const BuildProfile& profile = Project::Get().GetBuildProfile();

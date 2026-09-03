@@ -216,6 +216,19 @@ target_sources(test_unicode_not_ready PRIVATE
 target_include_directories(test_unicode_not_ready PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# Task 4.1 Step 1e: the font-asset fixture contract. Every path below comes
+# from tests/fixtures/text/font_manifest.json — the locked Task 1 corpus — so
+# no case can discover a host font, and the variable Korean TTF stays
+# rejection-only. This target is session-backed because the common main brings
+# up the staged ICU runtime before any importer/resource case executes.
+molga_add_text_test(test_font_assets test_font_assets.cpp)
+target_compile_definitions(test_font_assets PRIVATE
+    MOLGA_TEXT_LATIN_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSans-Regular.ttf"
+    MOLGA_TEXT_ARABIC_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansArabic-Regular.ttf"
+    MOLGA_TEXT_CJK_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansKR-Regular.otf"
+    MOLGA_TEXT_VARIABLE_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
+    MOLGA_TEXT_LATIN_SHA256="b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5")
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────
