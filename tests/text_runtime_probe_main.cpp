@@ -461,6 +461,21 @@ int Run(const Arguments& arguments) {
 
 }  // namespace
 
+namespace {
+
+// The one thing this child says on stdout. It is deliberately not a report
+// field: the schema-1 record has ten fixed keys, and the file-access argument
+// is an observation about the routed table rather than about the lifetime the
+// record describes. Printed after the mode has run so it reports what actually
+// reached ICU, and omitted entirely when no routed setFileAccess happened.
+void PrintRoutedFileAccess() {
+    const char* name = molga::text_test::RoutedFileAccessArgumentName();
+    if (name == nullptr || *name == '\0') return;
+    std::cout << "MOLGA_TEXT_ICU_FILE_ACCESS " << name << '\n' << std::flush;
+}
+
+}  // namespace
+
 int main(int argc, char** argv) {
     Arguments arguments;
     if (!ParseArguments(argc, argv, arguments)) return 2;
@@ -471,8 +486,11 @@ int main(int argc, char** argv) {
         return 2;
     }
     try {
-        return Run(arguments);
+        const int code = Run(arguments);
+        PrintRoutedFileAccess();
+        return code;
     } catch (const std::exception& error) {
+        PrintRoutedFileAccess();
         Fail(error.what());
         return 3;
     }

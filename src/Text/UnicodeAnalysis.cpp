@@ -673,6 +673,10 @@ std::optional<UnicodeAnalysis> UnicodeTextAnalyzer::Analyze(
                 return std::nullopt;
             }
             // levels는 이 문단 슬라이스 기준이므로 색인도 문단 기준이어야 한다.
+            // 여기 들어가는 값이 곧 AnalysisItem::embeddingLevel이 약속하는
+            // 전부다: ubidi_getLevels의 문자 단위 resolved level, 그 이상도
+            // 이하도 아니다. 무엇이 보장되고 무엇이 ICU 규약일 뿐인지는 헤더에
+            // 적혀 있고, X9가 제거하는 문자들이 그 경계다.
             for (std::uint32_t index = paragraph.firstGrapheme;
                  index < paragraph.graphemeLimit; ++index) {
                 levelByGrapheme[index] = static_cast<std::uint8_t>(

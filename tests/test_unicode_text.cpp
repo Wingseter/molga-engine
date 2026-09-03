@@ -1536,3 +1536,52 @@ TEST_CASE("the legacy cursor decoder still disagrees with DecodeUtf8") {
     CHECK(stepwise == molga::DecodeUtf8(korean));
     CHECK(stepwise == std::vector<std::uint32_t>{0xD55CU, 0xAE00U});
 }
+
+
+// 이 케이스가 embeddingLevel이 정확히 무엇인지를 고정한다. 아래 벡터는 모두 같은
+// 문자열을 ICU ubidi_getLevels에 직접 넣어 문자 단위 level을 읽고 UAX#9와 손으로
+// 대조해 얻은 값이다. 네 케이스 전부가 경쟁하는 두 해석 — 방향 parity(0과 2가
+// 합쳐진다)와 문단 resolved level(전부 0 아니면 1이 된다) — 아래에서 실패한다.
+//
+// Milestone 4가 이 필드에서 run 방향을 끌어내므로, 여기서 조용히 좁아지면 중첩된
+// 방향이 섞인 텍스트에서만, 실패가 아니라 "그럴듯하게 틀린" 배치로 나타난다.
+TEST_CASE("embeddingLevel is the exact resolved level, not parity and not the "
+          "paragraph level") {
+    // RTL 문단 안의 괄호쌍. BD16/N0에 따라 괄호 자체는 문단 level 1에 남고 안쪽
+    // 내용만 2로 올라간다. 괄호를 안쪽 run에 합치면 이 벡터가 무너진다.
+    CHECK(EmbeddingLevelsByGrapheme(AnalyzeFixture(
+              u8"א (abc 12) ב", {"und", BaseDirection::RightToLeft})) ==
+          std::vector<std::uint8_t>{1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 1});
+
+    // 같은 자리에 isolate를 쓴 경우. LRI와 짝 PDI는 UBA X6a가 정한 대로 바깥
+    // level(1)을 갖고, 안쪽만 2다. 괄호와 결과가 같다는 것 자체가 요점이다.
+    CHECK(EmbeddingLevelsByGrapheme(AnalyzeFixture(
+              u8"א ⁦abc 12⁩ ב", {"und", BaseDirection::RightToLeft})) ==
+          std::vector<std::uint8_t>{1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 1});
+
+    // parity 해석이 살아남을 수 없는 케이스. LTR 문단 안의 RLE embedding은 0과 2를
+    // 한 item 목록에 동시에 내놓는데, 둘 다 LTR이므로 parity였다면 전부 0이고
+    // 문단 level이었어도 전부 0이다.
+    //
+    // 5번째와 12번째 값은 RLE와 PDF 자신의 level이다. UBA X9는 이 둘을 제거하므로
+    // "정확한 level"이라는 것이 존재하지 않고, 여기 있는 값은 ICU의 보존 규약
+    // — 여는 쪽은 안쪽 level, PDF는 바깥 level — 이다. 헤더가 그렇게 적혀 있고,
+    // 이 두 자리가 그 문장을 고정한다.
+    CHECK(EmbeddingLevelsByGrapheme(AnalyzeFixture(
+              u8"abc ‫def 12‬ ghi", {"und", BaseDirection::LeftToRight})) ==
+          std::vector<std::uint8_t>{0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0,
+                                    0});
+
+    // RLO override도 같은 규약이다: RLO는 안쪽 1, PDF는 바깥 0.
+    CHECK(EmbeddingLevelsByGrapheme(AnalyzeFixture(
+              u8"abc ‮def‬ ghi", {"und", BaseDirection::LeftToRight})) ==
+          std::vector<std::uint8_t>{0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0});
+
+    // L1까지 적용된 값이라는 증거. RTL 문단 안의 Latin은 2인데, 그 사이의 TAB은
+    // segment separator라서 L1이 문단 level 1로 되돌린다. neutral 규칙만
+    // 돌렸다면 양쪽이 모두 level 2라 TAB도 2가 됐을 것이다.
+    CHECK(EmbeddingLevelsByGrapheme(AnalyzeFixture(
+              "abc\tdef", {"und", BaseDirection::RightToLeft})) ==
+          std::vector<std::uint8_t>{2, 2, 2, 1, 2, 2, 2});
+}
+

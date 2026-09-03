@@ -599,7 +599,25 @@ TextRuntimeProbeReport ParseProbeReport(const fs::path& path,
     return report;
 }
 
-TextRuntimeProbeReport RunTextRuntimeProbe(const std::string& mode) {
+// The child's single stdout line, without its prefix; empty when it said
+// nothing. Not part of the schema-1 report: the record's ten keys are fixed.
+std::string RoutedFileAccessName(const std::string& standardOutput) {
+    static constexpr std::string_view kPrefix = "MOLGA_TEXT_ICU_FILE_ACCESS ";
+    std::size_t                       begin   = 0;
+    while (begin < standardOutput.size()) {
+        std::size_t end = standardOutput.find('\n', begin);
+        if (end == std::string::npos) end = standardOutput.size();
+        const std::string line = standardOutput.substr(begin, end - begin);
+        if (line.rfind(kPrefix, 0) == 0) return line.substr(kPrefix.size());
+        begin = end + 1;
+    }
+    return {};
+}
+
+// fileAccessName, when given, receives the UDataFileAccess enumerator the child
+// actually handed the routed udata_setFileAccess.
+TextRuntimeProbeReport RunTextRuntimeProbe(const std::string& mode,
+                                           std::string* fileAccessName = nullptr) {
     // The single portable-contract read this process performs. Requiring the
     // barrier's contract bytes to equal the fixture root's staged copy is what
     // makes the child's --fixture-root the verified pair and not just some
@@ -628,6 +646,9 @@ TextRuntimeProbeReport RunTextRuntimeProbe(const std::string& mode) {
                     (mode + " exited " + std::to_string(outcome.exitCode) +
                      "\nstdout:\n" + outcome.standardOutput + "\nstderr:\n" +
                      outcome.standardError));
+    if (fileAccessName != nullptr) {
+        *fileAccessName = RoutedFileAccessName(outcome.standardOutput);
+    }
     return ParseProbeReport(report, mode);
 }
 
@@ -703,10 +724,18 @@ TEST_CASE("built development Engine Text root initializes exact staged pair") {
 // validation — would be vacuous. Requiring the three calls a successful
 // lifetime must make (udata_setCommonData, udata_setFileAccess, u_init) is
 // what keeps the seam provably live.
+//
+// The argument is pinned for the same reason the count is. UDATA_NO_FILES is
+// the whole of what makes the staged package the only source of ICU data:
+// UDATA_ONLY_PACKAGES still permits a .dat package found on the filesystem —
+// through ICU_DATA, say — and every count in this file reads exactly the same
+// when the mode is weakened that way. This is the only assertion that sees it.
 TEST_CASE("a successful lifetime routes exactly three calls through the counted table") {
-    const auto report = RunTextRuntimeProbe("staged-valid");
+    std::string fileAccessName;
+    const auto  report = RunTextRuntimeProbe("staged-valid", &fileAccessName);
     REQUIRE(report.firstInitialize);
     CHECK(report.icuCallsBeforePublish == 3);
+    CHECK(fileAccessName == "UDATA_NO_FILES");
 }
 
 TEST_CASE("development Engine Text root fails closed when missing or tampered") {
@@ -912,6 +941,45 @@ TEST_CASE("packaged ICU data verification rejects each way a file can be wrong")
     // just "this function always says no".
     CHECK(molga::text::VerifyPackagedIcuDataFile(
         fs::path(MOLGA_TEXT_RUNTIME_FIXTURE_ROOT) / "icudt78l.dat", sink));
+    CHECK(sink.Diagnostics().size() == 3);
+}
+
+// The contract half of the same pair. Existence was all the packager asked of
+// it, so a contract the packaged player rejects at startup — the nonportable
+// one below is exactly what a staging mistake produces — copied cleanly into a
+// game and surfaced only as that player's exit 4.
+TEST_CASE("packaged contract verification rejects each way a contract can be wrong") {
+    const CallerTempRoot                  temp;
+    molga::text::VectorTextDiagnosticSink sink;
+
+    const fs::path missing = temp.Path() / "absent.json";
+    CHECK_FALSE(molga::text::VerifyPackagedDependencyContractFile(missing, sink));
+
+    const fs::path malformed = temp.Path() / "malformed.json";
+    WriteText(malformed, "{ not json");
+    CHECK_FALSE(
+        molga::text::VerifyPackagedDependencyContractFile(malformed, sink));
+
+    // Well-formed JSON with every locked field, and still not portable. This is
+    // the case fs::is_regular_file could never see and the one that matters:
+    // the file exists, parses, and names a path off the build machine.
+    nlohmann::json nonportable  = ValidContractDocument();
+    nonportable["icu"]["sourcePath"] = "/checkout/external/icu";
+    const fs::path nonportablePath = temp.Path() / "nonportable.json";
+    WriteText(nonportablePath, nonportable.dump());
+    CHECK_FALSE(molga::text::VerifyPackagedDependencyContractFile(nonportablePath,
+                                                                  sink));
+
+    REQUIRE(sink.Diagnostics().size() == 3);
+    for (const molga::text::TextDiagnostic& diagnostic : sink.Diagnostics()) {
+        CHECK(diagnostic.code == molga::text::TextDiagnosticCode::DependencyInvalid);
+        CHECK_FALSE(diagnostic.remediation.empty());
+    }
+    // And it accepts the staged contract, so the three rejections above are not
+    // just "this function always says no".
+    CHECK(molga::text::VerifyPackagedDependencyContractFile(
+        fs::path(MOLGA_TEXT_RUNTIME_FIXTURE_ROOT) / "text_dependency_contract.json",
+        sink));
     CHECK(sink.Diagnostics().size() == 3);
 }
 

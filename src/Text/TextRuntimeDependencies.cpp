@@ -49,6 +49,11 @@ constexpr const char* kSubsystem = "text-runtime";
 constexpr const char* kRestoreIcuDataRemediation =
     "restore the verified icudt78l.dat by rebuilding the Engine/Text staging "
     "target";
+// Stated once because two callers now reject a contract: Initialize before it
+// enters ICU, and the packager before it copies one into a game.
+constexpr const char* kRepublishContractRemediation =
+    "rebuild the text dependencies so the verification barrier republishes a "
+    "portable contract";
 constexpr const char* kFreshProcessRemediation =
     "start a fresh process: a text runtime lifetime is terminal and cannot be "
     "restarted";
@@ -302,6 +307,19 @@ bool VerifyPackagedIcuDataFile(const fs::path& path, TextDiagnosticSink& sink) {
     return true;
 }
 
+bool VerifyPackagedDependencyContractFile(const fs::path&     path,
+                                          TextDiagnosticSink& sink) {
+    // The same VerifyPortableContract the runtime gates on, so a copy accepted
+    // here cannot be one the packaged player will refuse at startup. Writing a
+    // second structural check beside it is exactly how the two would drift.
+    std::string sha256;
+    std::string error;
+    if (VerifyPortableContract(path, sha256, error)) return true;
+    ReportDependencyInvalid(sink, error + ": " + path.string(),
+                            kRepublishContractRemediation);
+    return false;
+}
+
 // ── Configuration ────────────────────────────────────────────────────────────
 
 TextDependencyConfig TextDependencyConfig::FromEngineTextRoot(
@@ -390,10 +408,9 @@ bool TextRuntimeDependencies::Initialize(const TextDependencyConfig& config,
     std::string error;
     if (!VerifyPortableContract(config.dependencyContract,
                                 candidate->dependencyContractSha256, error)) {
-        ReportDependencyInvalid(
-            sink, error + ": " + config.dependencyContract.string(),
-            "rebuild the text dependencies so the verification barrier "
-            "republishes a portable contract");
+        ReportDependencyInvalid(sink,
+                                error + ": " + config.dependencyContract.string(),
+                                kRepublishContractRemediation);
         return false;
     }
 
@@ -467,7 +484,13 @@ bool TextRuntimeDependencies::Initialize(const TextDependencyConfig& config,
     api.setCommonData(aligned, &status);
     if (U_SUCCESS(static_cast<UErrorCode>(status))) {
         commonDataAcceptedForDiagnostic = true;
-        api.setFileAccess(static_cast<int>(UDATA_ONLY_PACKAGES), &status);
+        // NO_FILES, not ONLY_PACKAGES. ONLY_PACKAGES still lets ICU load a .dat
+        // package it finds on the filesystem — through ICU_DATA, say — which is
+        // exactly the door this subsystem exists to shut: the verified common
+        // data installed above is the only source of truth. Nothing here needs
+        // file access, because udata_setCommonData already handed ICU the whole
+        // package in memory.
+        api.setFileAccess(static_cast<int>(UDATA_NO_FILES), &status);
         if (U_SUCCESS(static_cast<UErrorCode>(status))) {
             api.init(&status);
             if (!U_SUCCESS(static_cast<UErrorCode>(status))) failedCall = "u_init";

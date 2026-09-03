@@ -876,13 +876,14 @@ bool GameBuilder::CopyTextRuntimeResources(const std::string& outputPath) {
             const fs::path contractSource =
                 sourceRoot / "text_dependency_contract.json";
             const fs::path dataSource = sourceRoot / "icudt78l.dat";
-            if (!fs::is_regular_file(contractSource)) {
-                fail("the verified dependency contract is missing: " +
-                         contractSource.string(),
-                     "rebuild the editor so its Engine/Text staging target "
-                     "republishes the verified pair");
-            } else if (molga::text::VerifyPackagedIcuDataFile(dataSource,
-                                                              diagnostics)) {
+            // Both halves to the same standard. Existence alone let a contract
+            // that the packaged player will refuse at startup be copied into a
+            // game, and the only symptom is that player's exit 4. The contract
+            // is checked first so a bad one costs no 33 MB hash.
+            if (molga::text::VerifyPackagedDependencyContractFile(
+                    contractSource, diagnostics) &&
+                molga::text::VerifyPackagedIcuDataFile(dataSource,
+                                                       diagnostics)) {
                 const fs::path destRoot = fs::path(outputPath) / "Engine" / "Text";
                 fs::create_directories(destRoot);
                 fs::copy_file(contractSource, destRoot / contractSource.filename(),

@@ -31,4 +31,14 @@ std::size_t IcuCallsBeforePublish() noexcept;
 // when cleanup happened.
 std::size_t IcuCallsAfterTerminal() noexcept;
 
+// The exact `access` argument the routed udata_setFileAccess received, spelled
+// as its UDataFileAccess enumerator; the empty string until that call happens.
+//
+// A count cannot see a weakened mode: forwarding UDATA_FILES_FIRST is still one
+// call, so every icuCalls* assertion holds while the sealed package stops being
+// the only source of data. The enumerator name rather than the number because
+// the parent test links molga_core, which keeps ICU private and gives its
+// consumers no ICU include path — it cannot name UDATA_NO_FILES itself.
+const char* RoutedFileAccessArgumentName() noexcept;
+
 }  // namespace molga::text_test

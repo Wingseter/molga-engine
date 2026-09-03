@@ -2,6 +2,8 @@
 
 #include "Text/TextRuntimeDependencies.h"
 
+#include <unicode/udata.h>
+
 namespace molga::text_test {
 namespace {
 
@@ -10,6 +12,25 @@ std::size_t g_afterTerminal  = 0;
 std::size_t g_beforePublish  = 0;
 bool        g_publishMarked  = false;
 bool        g_terminal       = false;
+const char* g_fileAccessName = "";
+
+// Every UDataFileAccess spelled out, so a weakened mode is reported by name
+// instead of vanishing into a call count. An unrecognised value is reported as
+// unknown rather than silently mapped onto the sealed one.
+const char* FileAccessName(int access) {
+    switch (static_cast<UDataFileAccess>(access)) {
+        case UDATA_FILES_FIRST:
+            return "UDATA_FILES_FIRST";
+        case UDATA_ONLY_PACKAGES:
+            return "UDATA_ONLY_PACKAGES";
+        case UDATA_PACKAGES_FIRST:
+            return "UDATA_PACKAGES_FIRST";
+        case UDATA_NO_FILES:
+            return "UDATA_NO_FILES";
+        default:
+            return "UNKNOWN_UDATA_FILE_ACCESS";
+    }
+}
 
 void Count() {
     ++g_total;
@@ -27,6 +48,9 @@ void CountingSetCommonData(const void* data, int* status) {
 
 void CountingSetFileAccess(int access, int* status) {
     Count();
+    // Recorded before the forward, so the argument is captured even if ICU
+    // rejects it and the lifetime unwinds.
+    g_fileAccessName = FileAccessName(access);
     Production().setFileAccess(access, status);
 }
 
@@ -66,5 +90,7 @@ std::size_t IcuCallsBeforePublish() noexcept {
 }
 
 std::size_t IcuCallsAfterTerminal() noexcept { return g_afterTerminal; }
+
+const char* RoutedFileAccessArgumentName() noexcept { return g_fileAccessName; }
 
 }  // namespace molga::text_test

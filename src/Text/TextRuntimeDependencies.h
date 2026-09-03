@@ -29,6 +29,21 @@ inline constexpr const char*    kPackagedIcuDataSha256 =
 bool VerifyPackagedIcuDataFile(const std::filesystem::path& path,
                                TextDiagnosticSink&          sink);
 
+// Verifies a text_dependency_contract.json on disk against exactly the standard
+// Initialize applies before it will enter ICU — schema 1, every locked field
+// present and no unknown one, no absolute path anywhere — reporting one
+// DependencyInvalid with remediation on failure. Same body, not a second
+// implementation: a copy this accepts is a copy the packaged player accepts.
+//
+// Deliberately not a pinned hash the way the ICU data is. icudt78l.dat is a
+// vendored artifact whose bytes are fixed forever, so a constant can name them;
+// this file is generated per build from the tree that produced it, so its bytes
+// legitimately differ and there is nothing to pin. What a copy must preserve is
+// not particular bytes but portability — that is the property this checks, and
+// the packaged runtime re-checks the copied bytes anyway.
+bool VerifyPackagedDependencyContractFile(const std::filesystem::path& path,
+                                          TextDiagnosticSink&          sink);
+
 // One Engine/Text root determines both verified files. Nothing here consults a
 // source tree or the current working directory: an executable that cannot find
 // its staged pair beside itself fails closed rather than reaching for one.

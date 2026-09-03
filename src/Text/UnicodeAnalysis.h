@@ -27,9 +27,20 @@ struct TextAnalysisOptions {
 // 혼자 하나의 item이 된다. 세 range는 같은 구간을 각각 원본 byte / UTF-16 unit /
 // grapheme index로 말한 것이고, 셋 다 UnicodeTextBuffer의 매핑을 통과한 값이다.
 //
-// embeddingLevel은 방향 parity가 아니라 정확한 level이다. level 0과 2는 둘 다
+// embeddingLevel은 ICU ubidi_getLevels가 이 문단에 대해 낸 문자 단위 resolved
+// level이다. 방향 parity도 아니고 문단 level도 아니다: level 0과 2는 둘 다
 // LTR이지만 서로 다른 run이므로 절대 합치지 않는다. 합치면 중첩된 숫자/괄호가
-// 바깥 run과 같은 순서로 배치된다.
+// 바깥 run과 같은 순서로 배치된다. UBA의 L1까지 적용된 값이라, segment/문단
+// separator와 그 앞의 공백은 자기 run이 아니라 문단 level을 갖는다.
+//
+// 예외는 UBA가 애초에 level을 주지 않는 문자뿐이다. LRE/RLE/LRO/RLO/PDF는 X9가
+// 제거하는 문자라 "정확한 level"이라는 것이 존재하지 않고, 여기 들어 있는 값은
+// ICU의 보존 규약이다: 여는 쪽(LRE/RLE/LRO/RLO)은 안쪽 level, PDF는 바깥 level.
+// isolate(LRI/RLI/FSI/PDI)는 X6a가 바깥 level을 주도록 정해 두었고 ICU도 그렇게
+// 준다. 이 아홉 문자는 전부 자기 혼자 item이 되므로, shaping 방향을 그 item의
+// level에서 끌어내면 안 된다 — 그릴 glyph가 없고, 규약은 UBA가 보장하는 값이
+// 아니다. 위의 모든 문장은 test_unicode_text의 "embeddingLevel is the exact
+// resolved level..." 케이스가 실제 ICU 출력으로 고정한다.
 //
 // logicalRunId는 "같은 BiDi logical run인가"만 답하는 값이다. 분석 전체에서
 // 논리 순서대로 단조 증가하고(문단마다 0으로 되돌아가지 않는다), 서로 다른 두
