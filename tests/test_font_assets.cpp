@@ -9,6 +9,7 @@
 #include "doctest.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -1211,4 +1212,169 @@ TEST_CASE("a project catalog record accepts only its own content-addressed locat
     CHECK(molga::AssetRecordFromJson(sealedRecord, sealedError,
                                      molga::AssetCatalogMode::SealedPackage)
               .has_value());
+}
+
+// 아래 네 케이스는 mutation 스윕이 찾아낸 무증인(unwitnessed) 계약을 고정한다.
+// 각 케이스 주석의 "mutation"은 이 assertion이 없을 때 통과해 버리던 변형이다.
+
+TEST_CASE("a fresh database refuses a null store for its own reason") {
+    // mutation: BindFontArtifactStore의 `if (!store)` 가드를 제거해도 통과했다.
+    // 기존 케이스는 이미 store가 바인딩된 database에 nullptr을 넘겼기 때문에
+    // null 가드가 아니라 rebind 가드가 거절하고 있었다 — 옳은 이유로 통과하는
+    // 것이 아니었다. 바인딩이 없는 database에서만 null 가드가 유일한 거절자다.
+    molga::AssetDatabase fresh;
+    std::string error = "untouched";
+    CHECK_FALSE(fresh.BindFontArtifactStore(nullptr, &error));
+    CHECK(error.find("null") != std::string::npos);
+
+    // 그리고 같은 database가 정상 store는 받아들인다: 위 거절이 "항상 거절"이
+    // 아니라 null에 대한 거절임을 증명한다.
+    TempProject project("fresh-null-bind");
+    std::string bindError;
+    CHECK_MESSAGE(fresh.BindFontArtifactStore(ProjectStore(project.root),
+                                              &bindError),
+                  bindError);
+}
+
+TEST_CASE("Clear never erases the font artifact store binding") {
+    // mutation: Clear()에 fontArtifacts_.reset()을 추가해도 통과했다. 바인딩이
+    // Clear()가 지우지 않는 유일한 상태라는 계약에 증인이 없었다.
+    TempProject project("clear-keeps-binding");
+    molga::AssetDatabase database;
+    std::string bindError;
+    REQUIRE_MESSAGE(database.BindFontArtifactStore(ProjectStore(project.root),
+                                                   &bindError),
+                    bindError);
+
+    database.Clear();
+
+    // 바인딩이 살아 있으면 재바인딩은 여전히 거절된다. Clear()가 바인딩을
+    // 지웠다면 이 호출이 성공해 버린다.
+    std::string rebindError;
+    CHECK_FALSE(database.BindFontArtifactStore(ProjectStore(project.root),
+                                               &rebindError));
+    CHECK(rebindError.find("already bound") != std::string::npos);
+}
+
+TEST_CASE("Publish refuses bytes whose digest is not the expected source SHA") {
+    // mutation: `sourceSha != expectedSourceSha256` 비교를 제거해도 통과했다.
+    // store가 바이트 권한이라는 계약 전체가 무증인이었고, 제거하면 잘못된
+    // 폰트 바이트가 조용히 통과하는 fail-open이 된다.
+    TempProject project("publish-sha-authority");
+    const auto store = molga::FontArtifactStore::ForProject(project.root);
+    const fs::path source = project.root / "Assets" / "Fonts" / "Mismatch.ttf";
+    fs::create_directories(source.parent_path());
+    const std::vector<std::uint8_t> bytes{'s', 'h', 'a', '-', 'a', 'u', 't',
+                                          'h'};
+    {
+        std::ofstream out(source, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+    }
+    const std::string actual = molga::Sha256Bytes(bytes.data(), bytes.size());
+    // 같은 길이의 유효한 lowercase hex이지만 내용은 다르다: 형식 검사가 아니라
+    // 내용 비교만이 이것을 잡을 수 있다.
+    std::string wrong = actual;
+    wrong[0] = (actual[0] == '0') ? '1' : '0';
+    REQUIRE(wrong != actual);
+    REQUIRE(wrong.size() == actual.size());
+
+    molga::text::VectorTextDiagnosticSink sink;
+    CHECK_FALSE(store.Publish(source, wrong, sink).has_value());
+    CHECK_FALSE(sink.Diagnostics().empty());
+
+    // 올바른 digest는 받아들여진다 — 위 거절이 "항상 거절"이 아님을 증명한다.
+    molga::text::VectorTextDiagnosticSink okSink;
+    CHECK(store.Publish(source, actual, okSink).has_value());
+}
+
+TEST_CASE("Publish refuses a malformed expected source SHA before hashing") {
+    // mutation: `!IsLowercaseSha256(expectedSourceSha256)` 가드를 제거해도
+    // 통과했다.
+    TempProject project("publish-sha-format");
+    const auto store = molga::FontArtifactStore::ForProject(project.root);
+    const fs::path source = project.root / "Assets" / "Fonts" / "Format.ttf";
+    fs::create_directories(source.parent_path());
+    const std::vector<std::uint8_t> bytes{'f', 'o', 'r', 'm', 'a', 't'};
+    {
+        std::ofstream out(source, std::ios::binary);
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+    }
+    const std::string actual = molga::Sha256Bytes(bytes.data(), bytes.size());
+    std::string upper = actual;
+    std::transform(upper.begin(), upper.end(), upper.begin(),
+                   [](unsigned char c) {
+                       return static_cast<char>(std::toupper(c));
+                   });
+
+    // 형식 가드를 제거하면 잘못된 형식의 digest도 내용 비교까지 흘러가 결국
+    // 거절되기는 한다 — 그래서 "거절되었는가"만 보는 assertion으로는 이 가드를
+    // 잡을 수 없다. 관측 가능한 차이는 진단이다: 형식 위반은 digest를 다시
+    // 계산하라고 말하고, 내용 불일치는 asset을 다시 import하라고 말한다. 이
+    // suite는 이미 진단 message를 고정하는 관례를 쓴다(위 U+0633 케이스).
+    for (const std::string bad : {std::string(), std::string("zz"), upper,
+                                  actual.substr(0, actual.size() - 1),
+                                  actual + "0"}) {
+        molga::text::VectorTextDiagnosticSink sink;
+        CHECK_FALSE(store.Publish(source, bad, sink).has_value());
+        REQUIRE(sink.Diagnostics().size() == 1U);
+        const auto& diagnostic = sink.Diagnostics().front();
+        CHECK(diagnostic.code == molga::text::TextDiagnosticCode::FontInvalid);
+        CHECK(diagnostic.message ==
+              "font source SHA-256 is not lowercase hexadecimal");
+        CHECK(diagnostic.remediation ==
+              "recompute the source digest before publishing");
+    }
+
+    // 대조군: 형식은 옳지만 내용이 다른 digest는 다른 진단을 낸다. 두 경로가
+    // 실제로 구분된다는 증거이므로, 위 assertion이 우연히 통과하는 것이 아니다.
+    std::string wrong = actual;
+    wrong[0] = (actual[0] == '0') ? '1' : '0';
+    molga::text::VectorTextDiagnosticSink mismatchSink;
+    CHECK_FALSE(store.Publish(source, wrong, mismatchSink).has_value());
+    REQUIRE(mismatchSink.Diagnostics().size() == 1U);
+    CHECK(mismatchSink.Diagnostics().front().message ==
+          "the font source changed between import and publication");
+}
+
+TEST_CASE("a sealed catalog record refuses a locator outside Assets/") {
+    // mutation: AssetRecordFromJson의 packaged 분기에서 `Assets/` 접두어 검사를
+    // 제거해도 통과했다. FontArtifactStore의 manifest 경로 검사에는 증인이
+    // 있었지만(그 변형은 잡혔다) catalog 파싱 쪽 같은 규칙에는 없었다.
+    ImportResult imported;
+    imported.success = true;
+    AssetRecord record;
+    record.guid = "0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d";
+    record.sourcePath = "Assets/Fonts/Latin.ttf";
+    record.importer = "FontImporter";
+    record.importerVersion = 2;
+    molga::ApplyImportResultToRecord(imported, record);
+    molga::VerifiedFontArtifact artifact;
+    artifact.locator.storage = molga::FontArtifactStorage::PackagedResource;
+    artifact.locator.relativePath = "Assets/Fonts/Latin.sfnt";
+    artifact.sourceSha256 = MOLGA_TEXT_LATIN_SHA256;
+    artifact.artifactSha256 = MOLGA_TEXT_LATIN_SHA256;
+    artifact.byteSize = 569208U;
+    record.fontArtifact = artifact;
+
+    nlohmann::json json = molga::AssetRecordToJson(record);
+    std::string error;
+    REQUIRE(molga::AssetRecordFromJson(json, error,
+                                       molga::AssetCatalogMode::SealedPackage)
+                .has_value());
+
+    // Assets/ 밖의 locator는 거절된다. 경로 자체는 안전한 상대 경로이므로
+    // safe-relative 검사가 아니라 접두어 검사만이 이것을 잡는다.
+    for (const std::string outside : {"Engine/Text/Latin.sfnt",
+                                      "Library/Imported/Fonts/Latin.sfnt",
+                                      "Latin.sfnt"}) {
+        nlohmann::json bad = json;
+        bad["artifactRelativePath"] = outside;
+        std::string badError;
+        CHECK_FALSE(molga::AssetRecordFromJson(
+                        bad, badError, molga::AssetCatalogMode::SealedPackage)
+                        .has_value());
+        CHECK_FALSE(badError.empty());
+    }
 }
