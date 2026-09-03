@@ -2287,7 +2287,7 @@ to that enumeration.
 
 - [x] Run `git diff --check` and scan this plan without self-matching the pattern: `rg -n 'T[B]D|T[O]DO|F[I]XME|implement l[a]ter|similar t[o]' docs/superpowers/plans/2026-08-20-ui-text/01-dependencies-unicode.md`.
 - [x] Run the complete Exit Contract commands from a fresh configure and record the actual output; earlier baseline results are not completion evidence.
-- [ ] Request code review for the full Milestones 1–3 range and resolve every blocker/high finding before starting Milestone 4.
+- [x] Request code review for the full Milestones 1–3 range and resolve every blocker/high finding before starting Milestone 4.
 
 **Gate evidence (2026-09-03, at `a0b71ea`).**
 
@@ -2308,7 +2308,48 @@ to that enumeration.
 
    `test_unicode_text` additionally green under both sanitizer presets: ASan 1/1, UBSan 1/1.
 
-3. Pending.
+3. Full Milestones 1–3 review over `f0990be..ea11be4` (30 commits, 90 files, ~44,600 insertions)
+   across six lenses: cross-task coherence, lifetime/ownership/concurrency, fail-closed integrity,
+   build/provenance/supply chain, Unicode/ICU conformance against the standard, and whole-range test
+   integrity. 27 findings; the 6 rated blocker or high were each put to three independent verifiers
+   instructed to refute them, and **none survived a 2-of-3 majority**.
+
+   **Verdict: YES — Milestone 4 may begin.** The three guarantees Milestone 4 actually consumes were
+   each read and confirmed in code rather than prose: a ready ICU process whose data is hash-verified
+   before `udata_setCommonData`, a byte-preserving buffer whose UTF-16↔byte mapping refuses interior
+   offsets in both directions, and checked 26.6 arithmetic returning `nullopt` rather than a plausible
+   wrong number. No fallback path exists anywhere in the range — no substitute analysis, no
+   copy-if-present packaging branch, no retry after `u_cleanup` — so a break in this layer surfaces
+   immediately in the next.
+
+   Three medium findings were promoted to must-fix-with-an-owner. Two are addressed immediately
+   below; the third is deferred with its owner named.
+
+   **Resolved before Milestone 4 (see the commit following this one):**
+
+   - **`UDATA_ONLY_PACKAGES` did not mean what the surrounding contract said.** In ICU's
+     `UDataFileAccess` enum it permits loading a `.dat` package from the filesystem, e.g. via
+     `ICU_DATA`. The Global Constraints, the code comments and subplan 06's sealed-package promise
+     all describe `UDATA_NO_FILES`. Compounding it, the counting seam forwarded the mode unexamined,
+     so the entire suite passed if the restriction were weakened to `UDATA_FILES_FIRST`. This is the
+     one guarantee that makes a sealed package sealed, so it was fixed here rather than deferred.
+   - **The packaged contract half was accepted on `is_regular_file` alone**, while the ICU data half
+     was fully size- and SHA-verified. Fixed at the copy site.
+
+   **Deferred, owner named:** `PackageLayout::Validate` — the function whose whole job is answering
+   "is this a complete package" — knows nothing of `Engine/Text`, while the packaged runtime hard
+   requires it, so a broken copy surfaces only as an unexplained exit `4` at the player. Owner:
+   **Task 16.2**, which stages the full packaged-font/ICU/licence closure on this same copy.
+
+   **Escalated for Milestone 4's attention:** `AnalysisItem::embeddingLevel`'s header states it is
+   "the exact level, not direction parity" and forbids merging level 0 with level 2, but two lenses
+   independently concluded the stored value is ICU's per-paragraph resolved level — and disagreed on
+   why. Milestone 4 derives HarfBuzz run direction from this field, and a narrower-than-documented
+   guarantee would diverge only in nested mixed-direction text (digits or brackets inside an RTL
+   run), which renders plausibly and wrongly rather than failing. Resolved below.
+
+   Full verdict, including the refuted claims recorded so they are not re-raised:
+   `scratchpad/tasks/subplan-01-gate-review.md` (session-local).
 
 ## Execution Handoff
 
