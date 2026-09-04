@@ -240,6 +240,25 @@ molga_add_text_test(test_font_family test_font_family.cpp)
 target_compile_definitions(test_font_family PRIVATE
     MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
+# Task 5.2 Step 1a: the shaping qualification root and the pinned reference
+# record. Both paths are defined after target creation, on the target
+# molga_add_text_test just made — that helper has already performed the
+# idempotent normal dependency attach, so HarfBuzz and its ICU transitives are
+# on this target's include and link lines already.
+molga_add_text_test(test_text_shaping test_text_shaping.cpp)
+target_compile_definitions(test_text_shaping PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"
+    MOLGA_TEXT_EXPECTED_SHAPING="${CMAKE_SOURCE_DIR}/tests/fixtures/text/expected/shaping.json")
+
+# Step 1g: the fresh-process not-ready shaping observation. Deliberately
+# generic molga_add_test — no staged Engine/Text root, no session main, no
+# qualification root — so the process begins and stays in NeverInitialized and
+# the shaper's ready gate is the only thing it can be observing. Process exit
+# supplies the isolation; nothing here stops or restores a runtime. It is NOT
+# marked RUN_SERIAL for the same reason test_unicode_not_ready is not: the
+# lifecycle state it reads is one-way and private to its own process.
+molga_add_test(test_text_shaping_not_ready test_text_shaping_not_ready.cpp)
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────

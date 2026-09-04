@@ -69,4 +69,19 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+namespace detail {
+
+// stb_truetype이 셰이핑/커닝/fallback/줄바꿈에 쓰이지 않는다는 주장은 코드를
+// 읽어서는 증명되지 않는다 — 새 호출 하나가 조용히 늘어나도 결과는 그럴듯하게
+// 나오기 때문이다. 그래서 위 두 레거시 헬퍼가 불린 횟수를 호출 직전에 센다.
+//
+// UnicodeAnalysis.h의 ICU 계수기와 같은 이유로 출하되는 빌드에 들어 있다.
+// 시험할 가치가 있는 주장이 프로덕션 경로에 대한 것이므로, 테스트에만
+// 컴파일되는 계수기는 다른 프로그램을 재게 된다. Task 8.2가 두 헬퍼를 지울 때
+// 이 계수기도 함께 사라진다.
+std::uint64_t LegacyFontFaceMetricCallCount() noexcept;
+void          ResetLegacyFontFaceMetricCallCount() noexcept;
+
+} // namespace detail
+
 } // namespace molga

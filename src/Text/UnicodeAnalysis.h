@@ -96,6 +96,23 @@ public:
 
 private:
     friend class UnicodeTextAnalyzer;
+    // Test-only seam, and a narrower one than the two detail seams at the
+    // bottom of this header: it names a class that nothing in molga_core
+    // defines, so no symbol that can assemble a UnicodeAnalysis from raw parts
+    // ships at all. A violator has to write the class definition itself, which
+    // is a far louder act than calling an exported function.
+    //
+    // It exists for exactly one observation. Task 5.2's fresh-process case must
+    // call TextShapingService::ShapeAnalysisItem while the text runtime is
+    // still NeverInitialized, and the only other way to hold a UnicodeAnalysis
+    // — UnicodeTextAnalyzer::Analyze — refuses to run in that process by
+    // construction, so no such object can otherwise exist there.
+    //
+    // Nothing that ships may define it. An analysis assembled this way is not
+    // cross-checked against any buffer, against its own boundaries, or against
+    // ICU, and it carries an analysisGeneration ICU never issued — which is
+    // part of cache identity. Every consumer downstream trusts all of that.
+    friend class UnicodeAnalysisTestAccess;
     UnicodeAnalysis() = default;
 
     std::vector<std::uint32_t> graphemeBoundaries_;

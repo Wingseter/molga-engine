@@ -209,6 +209,7 @@ set(ENGINE_SOURCES
     src/Text/FontFamilyResolver.cpp
     src/Text/FontRepository.cpp
     src/Text/TextDiagnostic.cpp
+    src/Text/TextShapingService.cpp
     src/Text/TextRuntimeDependencies.cpp
     src/Text/UnicodeTextBuffer.cpp
     src/Text/UnicodeAnalysis.cpp

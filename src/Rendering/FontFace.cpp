@@ -25,6 +25,11 @@ namespace {
 
 constexpr std::uintmax_t kMaximumFontBytes = 256U * 1024U * 1024U;
 
+// 아래 두 레거시 헬퍼의 호출 횟수. 호출 직전에 올리므로 유효하지 않은 face에
+// 대한 호출도 남는다: 세고 싶은 것은 "몇 번 답을 얻었는가"가 아니라 "누가
+// stb에게 물었는가"다.
+std::uint64_t g_legacyMetricCalls = 0;
+
 std::uint16_t ReadU16(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
     return static_cast<std::uint16_t>(
         (static_cast<std::uint16_t>(bytes[offset]) << 8U) |
@@ -308,6 +313,7 @@ FontGlyphBitmap FontFace::Rasterize(std::uint32_t codepoint, float pixelHeight) 
 }
 
 float FontFace::Advance(std::uint32_t codepoint, float pixelHeight) const {
+    ++g_legacyMetricCalls;
     if (!IsValid() || codepoint > 0x10FFFFU) return 0.0f;
     int advance = 0;
     int bearing = 0;
@@ -317,6 +323,7 @@ float FontFace::Advance(std::uint32_t codepoint, float pixelHeight) const {
 }
 
 float FontFace::Kerning(std::uint32_t left, std::uint32_t right, float pixelHeight) const {
+    ++g_legacyMetricCalls;
     if (!IsValid() || left > 0x10FFFFU || right > 0x10FFFFU) return 0.0f;
     const float scale = stbtt_ScaleForPixelHeight(&impl_->info, SafePixelHeight(pixelHeight));
     return static_cast<float>(stbtt_GetCodepointKernAdvance(
@@ -327,5 +334,15 @@ bool FontFace::HasGlyph(std::uint32_t codepoint) const {
     return IsValid() && codepoint <= 0x10FFFFU &&
            stbtt_FindGlyphIndex(&impl_->info, static_cast<int>(codepoint)) != 0;
 }
+
+namespace detail {
+
+std::uint64_t LegacyFontFaceMetricCallCount() noexcept {
+    return g_legacyMetricCalls;
+}
+
+void ResetLegacyFontFaceMetricCallCount() noexcept { g_legacyMetricCalls = 0; }
+
+} // namespace detail
 
 } // namespace molga
