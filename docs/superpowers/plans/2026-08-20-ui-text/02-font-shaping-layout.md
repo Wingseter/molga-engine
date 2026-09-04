@@ -893,7 +893,7 @@ block mechanically should expect the guard.
 - Consumes: catalog-authoritative `FontAsset` artifact identity, `FontArtifactStore::ReadVerified`, and the text-owned rasterizer; it never consumes `AssetDatabase::AbsoluteSourcePath`.
 - Produces: `ScaledFontDesignMetrics`, `ScaleFontDesignMetrics`, `FontArtifactStore::{ForProject,ForSealedPackage}`, `FontFace::LoadFromBytes`, `FaceIndex`, `GlyphId`, `HasCodepoint`; `FontFaceResource`, `FontFaceResourcePtr`, `FontRepository::{Load,Invalidate}`, and `AssetDatabase::ContentGeneration(const std::string& guid)` for font/family invalidation.
 
-- [ ] **Step 1: Add failing byte-ownership and hot-reload tests.**
+- [x] **Step 1: Add failing byte-ownership and hot-reload tests.**
 
   ```cpp
   TEST_CASE("old font resource keeps exact bytes after successful replacement") {
@@ -911,7 +911,7 @@ block mechanically should expect the guard.
   }
   ```
 
-- [ ] **Step 1a: Add the failing last-good failed-reload test.**
+- [x] **Step 1a: Add the failing last-good failed-reload test.**
 
   ```cpp
   TEST_CASE("failed font replacement preserves last-good generation and resource") {
@@ -930,19 +930,19 @@ block mechanically should expect the guard.
   }
   ```
 
-- [ ] **Step 1b: Implement the failed-reload fixture mutation.** `ReplaceFontWithCorruptBytes` replaces only the fixture's temporary source with a same-size copy whose SFNT signature byte is flipped, invokes the real import publication path, and retains the temporary prior catalog/resource owners for assertions; it never edits a committed font.
+- [x] **Step 1b: Implement the failed-reload fixture mutation.** `ReplaceFontWithCorruptBytes` replaces only the fixture's temporary source with a same-size copy whose SFNT signature byte is flipped, invokes the real import publication path, and retains the temporary prior catalog/resource owners for assertions; it never edits a committed font.
 
-- [ ] **Step 1c: Add the failing corrupt-source-before-first-load test.** Import a valid temporary source, construct no repository resource yet, flip that authoring source's SFNT signature without reimport, then call `Load`; require the loaded bytes/SHA equal the catalog artifact, the source-read counter remains zero, and glyph lookup succeeds. This proves import publication, not an already-cached resource, owns the last-good bytes.
+- [x] **Step 1c: Add the failing corrupt-source-before-first-load test.** Import a valid temporary source, construct no repository resource yet, flip that authoring source's SFNT signature without reimport, then call `Load`; require the loaded bytes/SHA equal the catalog artifact, the source-read counter remains zero, and glyph lookup succeeds. This proves import publication, not an already-cached resource, owns the last-good bytes.
 
-- [ ] **Step 1d: Add the failing restart/catalog-reload last-good test.** Import valid bytes, attempt and fail a corrupt-source reimport, destroy the database/repository, reconstruct both from the persisted catalog and same artifact root, and require the original content generation identity, artifact SHA/path, metrics, and glyph result. The recreated repository must record zero authoring-source opens.
+- [x] **Step 1d: Add the failing restart/catalog-reload last-good test.** Import valid bytes, attempt and fail a corrupt-source reimport, destroy the database/repository, reconstruct both from the persisted catalog and same artifact root, and require the original content generation identity, artifact SHA/path, metrics, and glyph result. The recreated repository must record zero authoring-source opens.
 
-- [ ] **Step 1e: Add the failing corrupt-artifact test.** After a successful import and before first `Load`, mutate only a copied project's `Library/Imported/Fonts/<sha>.sfnt`; require `Load` returns `nullopt` with `FontInvalid`, no raster face is created, and the intact source is never opened as fallback.
+- [x] **Step 1e: Add the failing corrupt-artifact test.** After a successful import and before first `Load`, mutate only a copied project's `Library/Imported/Fonts/<sha>.sfnt`; require `Load` returns `nullopt` with `FontInvalid`, no raster face is created, and the intact source is never opened as fallback.
 
-- [ ] **Step 1f: Add the failing canonical metric-scale test.** Scale `{1000,750,-250,125}` at `Fixed26_6::FromRaw(1056)` and assert exact raw results from `CheckedMulDiv(1056,numerator,1000)` for ascent, descent, and line gap. Add `descender=INT16_MIN` and maximum font-size cases that either return exact checked values or `nullopt`; no assertion uses float or epsilon comparison.
+- [x] **Step 1f: Add the failing canonical metric-scale test.** Scale `{1000,750,-250,125}` at `Fixed26_6::FromRaw(1056)` and assert exact raw results from `CheckedMulDiv(1056,numerator,1000)` for ascent, descent, and line gap. Add `descender=INT16_MIN` and maximum font-size cases that either return exact checked values or `nullopt`; no assertion uses float or epsilon comparison.
 
-- [ ] **Step 1g: Bind the existing font test to the common runtime session.** Replace only `molga_add_test(test_font test_font.cpp)` with `molga_add_text_test(test_font test_font.cpp)` and remove its `doctest_main` linkage; `test_font_assets` already uses the same helper from Task 4.1.
+- [x] **Step 1g: Bind the existing font test to the common runtime session.** Replace only `molga_add_test(test_font test_font.cpp)` with `molga_add_text_test(test_font test_font.cpp)` and remove its `doctest_main` linkage; `test_font_assets` already uses the same helper from Task 4.1.
 
-- [ ] **Step 1h: Add the failing project-versus-package locator test.** Build one project store and one sealed-package store over isolated roots:
+- [x] **Step 1h: Add the failing project-versus-package locator test.** Build one project store and one sealed-package store over isolated roots:
 
   ```cpp
   TEST_CASE("artifact stores accept only their authorized storage locator") {
@@ -971,17 +971,17 @@ block mechanically should expect the guard.
   }
   ```
 
-- [ ] **Step 1i: Add the failing sealed-authority rejection table.** For a package containing exactly one SFNT, independently try locator `../Assets/Fonts/used.otf`, absolute path, symlink escape, unmanifested `Assets/Fonts/extra.otf`, manifest-authorized path with wrong artifact SHA, and catalog path differing from the authority by case. Every `ReadVerified` returns `nullopt` with `FontInvalid`, package SFNT count remains one, and the authoring-source open counter remains zero.
+- [x] **Step 1i: Add the failing sealed-authority rejection table.** For a package containing exactly one SFNT, independently try locator `../Assets/Fonts/used.otf`, absolute path, symlink escape, unmanifested `Assets/Fonts/extra.otf`, manifest-authorized path with wrong artifact SHA, and catalog path differing from the authority by case. Every `ReadVerified` returns `nullopt` with `FontInvalid`, package SFNT count remains one, and the authoring-source open counter remains zero.
 
-- [ ] **Step 1j: Add the failing sealed-catalog restart test.** Serialize a project record, rewrite only its locator to `{PackagedResource,"Assets/Fonts/used.otf"}` as Task 17 does, reload the sealed catalog plus manifest-derived authority into a new database/store/repository, and require the same GUID/source SHA/artifact SHA/size/metrics/face result. Loading that rewritten record as an ordinary project catalog must fail closed.
+- [x] **Step 1j: Add the failing sealed-catalog restart test.** Serialize a project record, rewrite only its locator to `{PackagedResource,"Assets/Fonts/used.otf"}` as Task 17 does, reload the sealed catalog plus manifest-derived authority into a new database/store/repository, and require the same GUID/source SHA/artifact SHA/size/metrics/face result. Loading that rewritten record as an ordinary project catalog must fail closed.
 
-- [ ] **Step 2: Run the repository red gate.**
+- [x] **Step 2: Run the repository red gate.**
 
   Run: `cmake --build --preset debug --target test_font_assets test_font -j`
 
   Expected: compile FAIL because immutable `FontFaceResource` and byte loading do not exist.
 
-- [ ] **Step 3: Change `FontFace` to the exact immutable-byte API.**
+- [x] **Step 3: Change `FontFace` to the exact immutable-byte API.**
 
   ```cpp
   bool LoadFromBytes(
@@ -992,11 +992,11 @@ block mechanically should expect the guard.
   bool HasCodepoint(char32_t codepoint) const noexcept;
   ```
 
-- [ ] **Step 3a: Retain bytes for the complete raster-face lifetime.** Store the shared byte owner beside stb state before publishing a loaded face and release stb state before releasing those bytes.
+- [x] **Step 3a: Retain bytes for the complete raster-face lifetime.** Store the shared byte owner beside stb state before publishing a loaded face and release stb state before releasing those bytes.
 
-- [ ] **Step 3b: Fence legacy codepoint helpers from new code.** Keep existing codepoint `Advance/Kerning/Rasterize` only for the still-unmigrated legacy renderer until Task 8.2; new shaping code cannot call them. `HasCodepoint`/`GlyphId` remain non-fallback inspection utilities, but shaping selection must use imported coverage, immutable cmap-14 UVS/default-presentation rules, and target-scoped HarfBuzz probes instead.
+- [x] **Step 3b: Fence legacy codepoint helpers from new code.** Keep existing codepoint `Advance/Kerning/Rasterize` only for the still-unmigrated legacy renderer until Task 8.2; new shaping code cannot call them. `HasCodepoint`/`GlyphId` remain non-fallback inspection utilities, but shaping selection must use imported coverage, immutable cmap-14 UVS/default-presentation rules, and target-scoped HarfBuzz probes instead.
 
-- [ ] **Step 4: Add the exact repository resource.**
+- [x] **Step 4: Add the exact repository resource.**
 
   ```cpp
   struct FontFaceResource {
@@ -1021,7 +1021,7 @@ block mechanically should expect the guard.
   };
   ```
 
-- [ ] **Step 4a: Add the exact scaled-metrics API.** Put the project-facing integer record beside `FontDesignMetrics`:
+- [x] **Step 4a: Add the exact scaled-metrics API.** Put the project-facing integer record beside `FontDesignMetrics`:
 
   ```cpp
   struct ScaledFontDesignMetrics {
@@ -1033,29 +1033,29 @@ block mechanically should expect the guard.
       const FontDesignMetrics&, Fixed26_6 fontSize) noexcept;
   ```
 
-- [ ] **Step 4b: Implement canonical integer metric scaling.** Require the already-validated metric invariants and positive `fontSize`, then compute `ascent=CheckedMulDiv(fontSize, int64_t(ascender), unitsPerEm)`, `descent=CheckedMulDiv(fontSize, -int64_t(descender), unitsPerEm)`, and `lineGap=CheckedMulDiv(fontSize, int64_t(lineGap), unitsPerEm)` with the shared half-away-from-zero rule. Return `nullopt` on any checked failure; never call rasterizer `Metrics`, convert through float, or round twice.
+- [x] **Step 4b: Implement canonical integer metric scaling.** Require the already-validated metric invariants and positive `fontSize`, then compute `ascent=CheckedMulDiv(fontSize, int64_t(ascender), unitsPerEm)`, `descent=CheckedMulDiv(fontSize, -int64_t(descender), unitsPerEm)`, and `lineGap=CheckedMulDiv(fontSize, int64_t(lineGap), unitsPerEm)` with the shared half-away-from-zero rule. Return `nullopt` on any checked failure; never call rasterizer `Metrics`, convert through float, or round twice.
 
-- [ ] **Step 5: Implement verified resource construction.** Resolve the catalog record and `FontAsset`, obtain the database-bound mode-matched store through `FontArtifacts()`, construct `VerifiedFontArtifact` from its authoritative storage locator/SHA/size, and call only `ReadVerified`. Recompute/compare artifact identity and face index, then create `FontFace` from those same immutable shared bytes; a missing store is `FontInvalid`, and `FontRepository.cpp` contains no `AbsoluteSourcePath`, source-path resolution, or source-file open.
+- [x] **Step 5: Implement verified resource construction.** Resolve the catalog record and `FontAsset`, obtain the database-bound mode-matched store through `FontArtifacts()`, construct `VerifiedFontArtifact` from its authoritative storage locator/SHA/size, and call only `ReadVerified`. Recompute/compare artifact identity and face index, then create `FontFace` from those same immutable shared bytes; a missing store is `FontInvalid`, and `FontRepository.cpp` contains no `AbsoluteSourcePath`, source-path resolution, or source-file open.
 
-- [ ] **Step 6: Implement repository cache identity.** Cache the complete `FontFaceResource` by `{guid,contentGeneration,sourceSha256,artifactSha256,artifactLocator.storage,artifactLocator.relativePath,artifactByteSize,faceIndex}` and return the identical shared resource for repeated matching loads.
+- [x] **Step 6: Implement repository cache identity.** Cache the complete `FontFaceResource` by `{guid,contentGeneration,sourceSha256,artifactSha256,artifactLocator.storage,artifactLocator.relativePath,artifactByteSize,faceIndex}` and return the identical shared resource for repeated matching loads.
 
-- [ ] **Step 7: Publish content generations after successful import.** Add process-local `AssetDatabase::ContentGeneration(guid)` and increment that GUID only after its successfully published import record changes; apply the same rule to fonts and `.fontfamily` assets.
+- [x] **Step 7: Publish content generations after successful import.** Add process-local `AssetDatabase::ContentGeneration(guid)` and increment that GUID only after its successfully published import record changes; apply the same rule to fonts and `.fontfamily` assets.
 
-- [ ] **Step 7a: Invalidate only future repository lookups.** `FontRepository::Invalidate(guid)` removes matching cache ownership so a new load sees the verified replacement; it never mutates an already returned shared resource.
+- [x] **Step 7a: Invalidate only future repository lookups.** `FontRepository::Invalidate(guid)` removes matching cache ownership so a new load sees the verified replacement; it never mutates an already returned shared resource.
 
-- [ ] **Step 7b: Preserve last-good editor preview on failed import.** Record the failed import diagnostics without publishing a new content generation or replacing the last-good resource; packaged mismatch remains Step 8's hard failure.
+- [x] **Step 7b: Preserve last-good editor preview on failed import.** Record the failed import diagnostics without publishing a new content generation or replacing the last-good resource; packaged mismatch remains Step 8's hard failure.
 
-- [ ] **Step 8: Enforce artifact mismatch behavior.** In editor restart and packaged runtime alike, when artifact bytes/size/SHA/face differ from catalog metadata, return no resource with `FontInvalid`; never reopen the authoring source, use an editor-only cache, or select a system face.
+- [x] **Step 8: Enforce artifact mismatch behavior.** In editor restart and packaged runtime alike, when artifact bytes/size/SHA/face differ from catalog metadata, return no resource with `FontInvalid`; never reopen the authoring source, use an editor-only cache, or select a system face.
 
-- [ ] **Step 8a: Fix the Task 17 sealed-package handoff.** After verifying `TextRuntimeManifest`, Task 17 constructs `FontArtifactStore::PackagedAuthority{entry.sourcePath,entry.sourceSha256}` for every manifest font and rewrites each matching filtered catalog record to `artifactStorage="PackagedResource"`, `artifactRelativePath=entry.sourcePath`; it preserves `artifactSha256==entry.sourceSha256` and the recorded byte size. Runtime passes `Contents/Resources` as `runtimeResourceRoot` to `ForSealedPackage`, binds the returned shared store to `AssetDatabase`, then calls `LoadCatalog(...,AssetCatalogMode::SealedPackage)`. The manifest path, sealed-catalog locator, and sole staged SFNT path must be byte-identical after slash normalization; the package must not contain or reference the project `Library/Imported/Fonts` copy.
+- [x] **Step 8a: Fix the Task 17 sealed-package handoff.** After verifying `TextRuntimeManifest`, Task 17 constructs `FontArtifactStore::PackagedAuthority{entry.sourcePath,entry.sourceSha256}` for every manifest font and rewrites each matching filtered catalog record to `artifactStorage="PackagedResource"`, `artifactRelativePath=entry.sourcePath`; it preserves `artifactSha256==entry.sourceSha256` and the recorded byte size. Runtime passes `Contents/Resources` as `runtimeResourceRoot` to `ForSealedPackage`, binds the returned shared store to `AssetDatabase`, then calls `LoadCatalog(...,AssetCatalogMode::SealedPackage)`. The manifest path, sealed-catalog locator, and sole staged SFNT path must be byte-identical after slash normalization; the package must not contain or reference the project `Library/Imported/Fonts` copy.
 
-- [ ] **Step 9: Run repository/lifetime green gates.**
+- [x] **Step 9: Run repository/lifetime green gates.**
 
   Run: `cmake --build --preset debug --target test_font_assets test_font test_asset_database -j && ctest --test-dir build/debug -R '^(test_font_assets|test_font|test_asset_database)$' --output-on-failure`
 
   Expected: old shared owners remain usable, new loads see only verified artifact replacements, corrupt sources cannot affect a published generation, and corrupt artifact/face mismatches are typed failures without source fallback.
 
-- [ ] **Step 10: Commit immutable font resources.**
+- [x] **Step 10: Commit immutable font resources.**
 
   ```bash
   git add CMakeLists.txt src/Text/FontRepository.* src/Rendering/FontFace.* \
@@ -1066,6 +1066,51 @@ block mechanically should expect the guard.
   ```
 
 **Exit:** Every downstream face is bound to immutable verified bytes and an exact face index, independent of later asset database mutation.
+
+**Implementation record (2026-09-05).** Commit `ddad68b`, plus warning fixes below. Debug suite
+92/92 run alone; zero warnings in this milestone's files on a forced rebuild. Audit passed after
+six blocking and nine important findings were resolved. This was the heaviest review of the
+program so far, and almost every blocking finding was an *unpinned dimension* rather than wrong
+code — the implementation was largely right, and nothing would have told us if it stopped being.
+
+**Six blocking coverage holes:**
+
+- **The entire face-index dimension was unpinned** — four independent mutations breaking exact-face
+  binding all survived. In a font collection that renders the wrong face plausibly.
+- **`ScaleFontDesignMetrics` could fail open** on a checked descent or lineGap overflow.
+- **The Step 7b last-good fallback's content-generation guard had no witness**, so a stale
+  pre-replacement resource could be served *as* "last good".
+- **The mandatory `sourceSha256 == artifactSha256` equality had no witness** in either layer.
+- **`FontFace`'s failure path could leave the previous face published.**
+- Step 6's eight-component cache identity was over-determined: no single component was pinned, so
+  any one alone kept the suite green.
+
+**Portability defect, same class as Task 2.2's `std::aligned_alloc`:** the new authoring-source
+detector used macOS-only `struct stat` fields and POSIX `utimensat` unguarded, which would have
+broken the Linux and Windows CI configure/build range. Now guarded so the instrumentation *and* its
+control are disabled together — a half-running detector would have been worse than none.
+
+**A real defect three lenses found independently:** `ContentGeneration(guid)` never advanced across
+a full `ScanProject`. `byGuid_.clear()` ran before the loop, so the "did the fingerprint change?"
+lookup always missed and only the reimport path could ever bump it. Fixed with a `scanPrevious_`
+snapshot taken before the clear. The comment now records why the bump must sit *after* the
+duplicate-GUID check: earlier, a record destined to fail publishes a generation with no rollback
+point and invalidates the last good resource.
+
+**Interface conflict the implementer resolved rather than guessed:** Steps 1/1a's verbatim blocks
+address the font as `"font-a"`, but asset GUIDs must be 32 hex characters, so `"font-a"` can never
+be a real GUID. Rather than edit a verbatim block it gave the fixture a label-to-GUID dictionary
+that translates and immediately calls the real `FontRepository`/`AssetDatabase`, failing outright
+on an unknown label. Production signatures are exactly as Step 4 specifies.
+
+**Files-list correction:** `src/Assets/FontArtifactStore.{h,cpp}` are listed under *Modify* and in
+Step 10's `git add`, but needed no change — everything Steps 1h/1i/1j exercise already exists from
+Task 4.1 and passes the new tables unchanged. Adding a gratuitous edit to satisfy the list would
+have been the worse choice.
+
+**Noted, not fixed:** Step 8a is written imperatively about a Task 17 packaging handoff that does
+not exist yet, so it is *specified and tested* rather than implemented — every clause is pinned as
+an assertion in the Step 1j test. A reader tracking Step 8a should know the difference.
 
 ---
 

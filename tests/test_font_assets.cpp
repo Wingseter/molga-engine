@@ -1901,7 +1901,7 @@ TEST_CASE("Publish refuses a malformed expected source SHA before hashing") {
     // 잡을 수 없다. 관측 가능한 차이는 진단이다: 형식 위반은 digest를 다시
     // 계산하라고 말하고, 내용 불일치는 asset을 다시 import하라고 말한다. 이
     // suite는 이미 진단 message를 고정하는 관례를 쓴다(위 U+0633 케이스).
-    for (const std::string bad : {std::string(), std::string("zz"), upper,
+    for (const std::string& bad : {std::string(), std::string("zz"), upper,
                                   actual.substr(0, actual.size() - 1),
                                   actual + "0"}) {
         molga::text::VectorTextDiagnosticSink sink;
@@ -2105,7 +2105,13 @@ TEST_CASE("qualification asset tree rescans six fonts and two licenses") {
         {"88888888888888888888888888888888", "GenericImporter", 1},
         {"99999999999999999999999999999999", "GenericImporter", 1},
     };
-    for (const auto& [guid, importer, version] : expected) {
+    for (const auto& row : expected) {
+        // 구조적 바인딩을 그대로 쓰면 REQUIRE_MESSAGE의 람다가 그것을 캡처해
+        // C++20 확장이 된다. 이 프로젝트는 C++17이고 Linux/Windows CI도
+        // 빌드하므로 평범한 지역 변수로 받는다.
+        const std::string& guid = std::get<0>(row);
+        const std::string& importer = std::get<1>(row);
+        const int version = std::get<2>(row);
         const molga::AssetRecord* record = db.Find(guid);
         REQUIRE_MESSAGE(record != nullptr, guid);
         CHECK(record->guid == guid);
