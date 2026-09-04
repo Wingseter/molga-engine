@@ -232,6 +232,14 @@ target_compile_definitions(test_font_assets PRIVATE
     MOLGA_TEXT_FAMILY_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/families"
     MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
+# Task 5.1 Step 3c: the resolver qualification root. TextQualificationAssetTree.h
+# supplies all six font, two license, and five family source/sidecar pairs
+# beneath this one root, so no individual path macro and no host-font discovery
+# remains for family resolution.
+molga_add_text_test(test_font_family test_font_family.cpp)
+target_compile_definitions(test_font_family PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────
