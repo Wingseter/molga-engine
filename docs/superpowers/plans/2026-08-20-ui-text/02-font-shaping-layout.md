@@ -1131,7 +1131,7 @@ an assertion in the Step 1j test. A reader tracking Step 8a should know the diff
 - Consumes: `FontFamilyAsset`, `FontAsset`, `FontRepository`, and content/family generations.
 - Produces: `FontRequest`, `ResolvedFace`, `ResolvedFamilyNode`, `ResolvedFamily`, and `FontFamilyResolver::{BuildCandidates,BuildLegacySingleFace}`.
 
-- [ ] **Step 1: Add the failing sort/DFS test.**
+- [x] **Step 1: Add the failing sort/DFS test.**
 
   ```cpp
   TEST_CASE("family candidates use exact lexicographic order and first-visit DFS") {
@@ -1158,7 +1158,7 @@ an assertion in the Step 1j test. A reader tracking Step 8a should know the diff
   }
   ```
 
-- [ ] **Step 1a: Add the failing finite-cycle test.**
+- [x] **Step 1a: Add the failing finite-cycle test.**
 
   ```cpp
   TEST_CASE("family cycle terminates at first visit with a typed diagnostic") {
@@ -1172,19 +1172,19 @@ an assertion in the Step 1j test. A reader tracking Step 8a should know the diff
   }
   ```
 
-- [ ] **Step 1b: Reuse the committed qualification tree without generated metadata.** Include `TextQualificationAssetTree.h`; `FontFamilyFixture` exposes separate `ProjectRoot()` and `AssetsRoot()` delegates. Its constructor creates `FontArtifactStore::ForProject(ProjectRoot())`, binds that shared store successfully to its database, and only then scans `AssetsRoot()`. It never derives one root from the other or writes/rewrites font, license, or family sidecars.
+- [x] **Step 1b: Reuse the committed qualification tree without generated metadata.** Include `TextQualificationAssetTree.h`; `FontFamilyFixture` exposes separate `ProjectRoot()` and `AssetsRoot()` delegates. Its constructor creates `FontArtifactStore::ForProject(ProjectRoot())`, binds that shared store successfully to its database, and only then scans `AssetsRoot()`. It never derives one root from the other or writes/rewrites font, license, or family sidecars.
 
-- [ ] **Step 1c: Prove the resolver starts from sidecar authority.** Before constructing `FontFamilyResolver`, rescan `AssetsRoot()` through the already bound project store and require `AssetDatabase::Find("11111111111111111111111111111111")`, `Find("12121212121212121212121212121212")`, and `Find("13131313131313131313131313131313")`; assert their importers/versions are `FontFamilyImporter`/`1`, `FontImporter`/`2`, and `FontImporter`/`2` respectively.
+- [x] **Step 1c: Prove the resolver starts from sidecar authority.** Before constructing `FontFamilyResolver`, rescan `AssetsRoot()` through the already bound project store and require `AssetDatabase::Find("11111111111111111111111111111111")`, `Find("12121212121212121212121212121212")`, and `Find("13131313131313131313131313131313")`; assert their importers/versions are `FontFamilyImporter`/`1`, `FontImporter`/`2`, and `FontImporter`/`2` respectively.
 
-- [ ] **Step 1d: Prove both license references resolve.** In the same fixture, require GUID `88888888888888888888888888888888` and GUID `99999999999999999999999999999999`, assert both records use `GenericImporter` version `1`, and assert every resolved face's `FontAsset::license.licenseAssetGuid` names the correct existing record.
+- [x] **Step 1d: Prove both license references resolve.** In the same fixture, require GUID `88888888888888888888888888888888` and GUID `99999999999999999999999999999999`, assert both records use `GenericImporter` version `1`, and assert every resolved face's `FontAsset::license.licenseAssetGuid` names the correct existing record.
 
-- [ ] **Step 2: Run the resolver red gate.**
+- [x] **Step 2: Run the resolver red gate.**
 
   Run: `cmake --build --preset debug --target test_font_family -j`
 
   Expected: compile FAIL because `FontFamilyResolver` contracts do not exist.
 
-- [ ] **Step 3: Add request and resolved-face values.**
+- [x] **Step 3: Add request and resolved-face values.**
 
   ```cpp
   struct FontRequest {
@@ -1201,7 +1201,7 @@ an assertion in the Step 1j test. A reader tracking Step 8a should know the diff
   };
   ```
 
-- [ ] **Step 3a: Add resolved closure-node and family values.**
+- [x] **Step 3a: Add resolved closure-node and family values.**
 
   ```cpp
   struct ResolvedFamilyNode {
@@ -1218,7 +1218,7 @@ an assertion in the Step 1j test. A reader tracking Step 8a should know the diff
   };
   ```
 
-- [ ] **Step 3b: Add the exact resolver declaration.**
+- [x] **Step 3b: Add the exact resolver declaration.**
 
   ```cpp
   class FontFamilyResolver {
@@ -1233,25 +1233,25 @@ an assertion in the Step 1j test. A reader tracking Step 8a should know the diff
   };
   ```
 
-- [ ] **Step 3c: Wire the resolver qualification root.** After `molga_add_text_test(test_font_family test_font_family.cpp)`, define `MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT` as exact `${CMAKE_SOURCE_DIR}/tests/fixtures/text`; `TextQualificationAssetTree.h` supplies all six font, two license, and five family source/sidecar pairs beneath that root, so no individual path macro or host-font discovery remains.
+- [x] **Step 3c: Wire the resolver qualification root.** After `molga_add_text_test(test_font_family test_font_family.cpp)`, define `MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT` as exact `${CMAKE_SOURCE_DIR}/tests/fixtures/text`; `TextQualificationAssetTree.h` supplies all six font, two license, and five family source/sidecar pairs beneath that root, so no individual path macro or host-font discovery remains.
 
-- [ ] **Step 4: Implement per-family face sorting.** Canonicalize the request, compute `stylePenalty` exact=0, Italic/Oblique-compatible=1, other=2, and sort by `(stylePenalty,abs(stretch-target),abs(weight-target),authoredFaceIndex,fontGuid,faceIndex)` using a stable value comparator.
+- [x] **Step 4: Implement per-family face sorting.** Canonicalize the request, compute `stylePenalty` exact=0, Italic/Oblique-compatible=1, other=2, and sort by `(stylePenalty,abs(stretch-target),abs(weight-target),authoredFaceIndex,fontGuid,faceIndex)` using a stable value comparator.
 
-- [ ] **Step 5: Implement authored-order fallback DFS.** Append primary faces, then visit fallback families depth-first in authored order with one visited GUID set. Record one `ResolvedFamilyNode` on first encounter, including `exists=false` for a missing requested/descendant GUID and the exact authored fallback edge vector for an existing node. A cycle or missing/out-of-range reference emits `FontFamilyInvalid`; first visit makes editor preview finite.
+- [x] **Step 5: Implement authored-order fallback DFS.** Append primary faces, then visit fallback families depth-first in authored order with one visited GUID set. Record one `ResolvedFamilyNode` on first encounter, including `exists=false` for a missing requested/descendant GUID and the exact authored fallback edge vector for an existing node. A cycle or missing/out-of-range reference emits `FontFamilyInvalid`; first visit makes editor preview finite.
 
-- [ ] **Step 5a: Return finite recoverable family failures.** Return the collected `ResolvedFamily`—possibly with no candidates—for graph/reference/font-content failures so runtime layout can produce typed tofu and later package validation can block it; return `nullopt` only for a hard dependency/state failure that cannot produce a layout.
+- [x] **Step 5a: Return finite recoverable family failures.** Return the collected `ResolvedFamily`—possibly with no candidates—for graph/reference/font-content failures so runtime layout can produce typed tofu and later package validation can block it; return `nullopt` only for a hard dependency/state failure that cannot produce a layout.
 
-- [ ] **Step 6: Bind immutable content identity.** Load each candidate only through `FontRepository`, reject missing/mismatched resources, and set `fontRevision = artifactSha256 + ":" + std::to_string(faceIndex)` while also retaining the equal source SHA plus authoritative artifact relative path/size. Keep process-local generation out of the revision string.
+- [x] **Step 6: Bind immutable content identity.** Load each candidate only through `FontRepository`, reject missing/mismatched resources, and set `fontRevision = artifactSha256 + ":" + std::to_string(faceIndex)` while also retaining the equal source SHA plus authoritative artifact relative path/size. Keep process-local generation out of the revision string.
 
-- [ ] **Step 7: Compute transitive graph generation.** Fold every visited family generation and descendant face `contentGeneration` into a stable cache invalidator so any transitive edit changes `fallbackGraphGeneration`.
+- [x] **Step 7: Compute transitive graph generation.** Fold every visited family generation and descendant face `contentGeneration` into a stable cache invalidator so any transitive edit changes `fallbackGraphGeneration`.
 
-- [ ] **Step 8: Run the resolver green gate.**
+- [x] **Step 8: Run the resolver green gate.**
 
   Run: `cmake --build --preset debug --target test_font_family test_font_assets -j && ctest --test-dir build/debug -R '^(test_font_family|test_font_assets)$' --output-on-failure`
 
   Expected: deterministic order, finite cycles, missing-reference diagnostics, and descendant invalidation all pass.
 
-- [ ] **Step 9: Commit deterministic resolution.**
+- [x] **Step 9: Commit deterministic resolution.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Text/FontFamilyResolver.* \
@@ -1260,6 +1260,56 @@ an assertion in the Step 1j test. A reader tracking Step 8a should know the diff
   ```
 
 **Exit:** Shaping receives one finite, content-bound candidate list whose ordering cannot depend on hash-map iteration or host fonts.
+
+**Implementation record (2026-09-05).** Commit `e4b0820`. Debug suite **93/93** run alone (92 + one
+new executable), zero warnings on forced recompile. Audit passed after both blocking and all four
+important findings were fixed and re-killed by the mutations that exposed them; 10/10 mutations
+killed on re-verification.
+
+**The blocking finding is a recurrence, and worth remembering as a pattern.** Re-sorting the
+authored fallback edge list by GUID survived the entire suite — the *same defect class* Task 4.2's
+review caught one layer down. It survived because **every committed fixture made the sort a no-op**:
+the authored order happened to already be lexicographic. Now pinned by a descending-order fixture.
+When a contract is "this order is authored, not derived", a fixture whose authored order coincides
+with the derived one proves nothing.
+
+Also fixed: `ResolvedFace::authoredFaceIndex` had no witness (writing `faceIndex` into it survived);
+`BuildLegacySingleFace`'s catalog face-index lookup could be hard-coded to 0; `fallbackGraphGeneration`
+ignored `node.exists`, so a deleted empty family folded identically to a live one; and the
+below-range half of the request clamp was untested. Pinning the face-index lookup required a
+two-face collection, so the test synthesizes one by wrapping a committed TTF in a `ttcf` header and
+relocating the table directory — legal because the importer computes table checksums from table
+bytes with `head.checkSumAdjustment` zeroed. That also gives `fontRevision`'s `":<faceIndex>"` half
+its first non-`":0"` observation anywhere in the suite.
+
+**One behaviour change, added red-first:** a broken descendant face's `contentGeneration` is now
+folded into `fallbackGraphGeneration`, which is what Step 7's "every visited family generation and
+descendant face `contentGeneration`" literally requires. Previously only *bound* candidates
+contributed, so editing a broken font's settings moved nothing.
+
+**Step 5's "one visited GUID set" is satisfied literally.** An earlier cut carried a second
+`onPath` set to tell a cycle from a legitimate diamond (two families sharing a CJK fallback, which
+a naive one-set form accuses of a cycle the author cannot fix). Review established a one-set form
+was possible after all, so the second set was deleted and the DFS path is read off the explicit
+stack — identical behaviour, and a mechanical diff of Step 5 now matches.
+
+**Five contracts later tasks must know, none of them obvious from the type names:**
+
+1. **`fallbackGraphGeneration` is process-local *and* request-dependent.** It folds process-local
+   counters, so it is not portable across runs or machines; and because it folds the ordered
+   candidate list, two resolutions of the identical unedited graph at different weights or slants
+   yield different values. Despite the name it is **not** a pure graph property. It over-discriminates,
+   so it cannot cause a stale-cache correctness bug — only redundant invalidation — but a later task
+   that reads it as graph identity (to share one generation across requests, or to detect "the graph
+   did not change") will be wrong. Task 5.2 and 7.x: do not assume graph-only semantics.
+2. **Candidates are not deduplicated across families.** Deduping would change public fallback
+   behaviour and needs a design amendment; it was deliberately not done here.
+3. **`nullopt` from resolution means exactly one thing:** no `FontArtifactStore` is bound. Every
+   graph, reference and font-content failure returns an *engaged* result carrying diagnostics.
+4. **Diagnostics are bounded at 8 per resolve** (`kMaxFamilyDiagnosticsPerResolve`), with a separate
+   closure-bounded `FontInvalid` stream. The record stays complete while the stream caps — required
+   by the standing prohibition on unbounded per-item diagnostics.
+5. **Cycles are diagnostic-only but re-derivable** — a cycle does not fail resolution, it reports.
 
 ---
 
