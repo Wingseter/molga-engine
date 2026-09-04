@@ -441,7 +441,11 @@ TextMetrics TextRenderer::MeasureText(const std::string& text,
             }
             molga::FontAtlasGlyph glyph;
             if (fontAtlas.GetGlyph(fontGuid, pixelSize, codepoint, glyph)) {
-                lineWidth += glyph.xAdvance * sizeScale;
+                // GlyphInfo는 논리 advance를 담지 않는다(그 값은 셰이퍼의
+                // 것이다). 아직 이관되지 않은 이 경로는 캐시된 래스터 advance를
+                // 따로 묻는다 — Task 8.2에서 둘 다 사라진다.
+                lineWidth += fontAtlas.GetAdvance(fontGuid, pixelSize, codepoint) *
+                             sizeScale;
             }
         } else {
             lineWidth += static_cast<float>(pixelSize) * sizeScale;
@@ -485,7 +489,9 @@ void TextRenderer::CollectText(molga::RenderQueue& queue, const TextDrawParams& 
             }
             molga::FontAtlasGlyph glyph;
             if (fontAtlas.GetGlyph(params.fontGuid, pixelSize, codepoint, glyph)) {
-                lineWidths.back() += glyph.xAdvance * sizeScale;
+                lineWidths.back() +=
+                    fontAtlas.GetAdvance(params.fontGuid, pixelSize, codepoint) *
+                    sizeScale;
             }
         } else {
             lineWidths.back() += static_cast<float>(pixelSize) * sizeScale;
@@ -552,7 +558,8 @@ void TextRenderer::CollectText(molga::RenderQueue& queue, const TextDrawParams& 
                               glyph.u0, glyph.v1, params.color);
                     queue.Submit(command);
                 }
-                cursorX += glyph.xAdvance * sizeScale;
+                cursorX += fontAtlas.GetAdvance(params.fontGuid, pixelSize,
+                                                codepoint) * sizeScale;
             }
         } else {
             const std::uint32_t displayCodepoint =

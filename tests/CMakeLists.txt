@@ -259,6 +259,16 @@ target_compile_definitions(test_text_shaping PRIVATE
 # lifecycle state it reads is one-way and private to its own process.
 molga_add_test(test_text_shaping_not_ready test_text_shaping_not_ready.cpp)
 
+# Task 6.1 Step 1i: the glyph atlas. It reaches no ICU or HarfBuzz object of its
+# own, but it is registered through the same session helper as its neighbours so
+# a later case that does — a shaped run driving the atlas — cannot be the first
+# one to discover that this executable has no staged runtime. The qualification
+# root is the only path it needs: the fixture wraps one committed single-face
+# font in a ttcf header to reach a non-zero face index.
+molga_add_text_test(test_glyph_atlas test_glyph_atlas.cpp)
+target_compile_definitions(test_glyph_atlas PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────

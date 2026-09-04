@@ -1,6 +1,7 @@
 #include "Rendering/FontFace.h"
 
 #include <algorithm>
+#include <atomic>
 #include <fstream>
 #include <limits>
 
@@ -131,6 +132,13 @@ struct FontFace::Impl {
     std::shared_ptr<const std::vector<std::uint8_t>> bytes;
     stbtt_fontinfo info{};
     std::uint32_t faceIndex = 0;
+    // const RasterizeGlyph이 유일하게 쓰는 멤버다. pimpl이 unique_ptr이라 const가
+    // 전파되지 않아 mutable 없이도 컴파일되지만, 그러면 "여기만 예외"라는 사실이
+    // 선언 어디에도 남지 않는다. atomic인 이유는 이 face가
+    // shared_ptr<const FontFace>로 여러 소유자에게 공유되기 때문이다: 관찰용
+    // 기록 하나가 그 공유를 data race로 바꾸어서는 안 된다. 순서 보장은 필요
+    // 없으므로 relaxed다.
+    mutable std::atomic<std::uint32_t> lastRasterizedGlyphId{0};
     bool valid = false;
 };
 
@@ -154,6 +162,7 @@ bool FontFace::LoadFromBytes(
         impl_->valid = false;
         impl_->info = stbtt_fontinfo{};
         impl_->faceIndex = 0U;
+        impl_->lastRasterizedGlyphId.store(0U, std::memory_order_relaxed);
         impl_->bytes.reset();
         if (errorOut) *errorOut = message;
         return false;
@@ -185,6 +194,7 @@ bool FontFace::LoadFromBytes(
     impl_->valid = false;
     impl_->info = stbtt_fontinfo{};
     impl_->faceIndex = 0U;
+    impl_->lastRasterizedGlyphId.store(0U, std::memory_order_relaxed);
     // 그다음 소유권을 세우고 나서 stbtt_fontinfo를 그 버퍼 위에 만든다. 성공한
     // face가 게시되는 순간에는 이미 지분을 들고 있어야 한다.
     impl_->bytes = std::move(bytes);
@@ -207,6 +217,7 @@ bool FontFace::LoadFromFile(const std::filesystem::path& path, std::string* erro
         impl_->valid = false;
         impl_->info = stbtt_fontinfo{};
         impl_->faceIndex = 0U;
+        impl_->lastRasterizedGlyphId.store(0U, std::memory_order_relaxed);
         impl_->bytes.reset();
         if (error) *error = message;
         return false;
@@ -264,6 +275,57 @@ std::uint32_t FontFace::GlyphId(char32_t codepoint) const noexcept {
 
 bool FontFace::HasCodepoint(char32_t codepoint) const noexcept {
     return GlyphId(codepoint) != 0U;
+}
+
+FontGlyphBitmap FontFace::RasterizeGlyph(std::uint32_t glyphId,
+                                         std::uint16_t pixelHeight,
+                                         std::uint16_t rasterScaleKey) const {
+    FontGlyphBitmap result;
+    // 물어본 사실을 먼저 남긴다. 성공한 요청만 세면 "잘못된 face에 물어서
+    // 빈 비트맵이 나왔다"는 가장 위험한 경우가 흔적 없이 사라진다.
+    if (impl_) {
+        impl_->lastRasterizedGlyphId.store(glyphId, std::memory_order_relaxed);
+    }
+    if (!IsValid()) return result;
+    // 범위 밖 glyph ID는 여기서 닫는다. stb도 loca 경계를 검사하지만, 그
+    // 방어가 우리 것이 아니면 벤더 사본을 갱신하는 날 조용히 사라진다.
+    if (impl_->info.numGlyphs <= 0 ||
+        glyphId >= static_cast<std::uint32_t>(impl_->info.numGlyphs)) {
+        return result;
+    }
+
+    // 26.6 배율. 곱은 uint64로 한다: 65535 * 65535는 uint32의 상한에 붙어
+    // 있어서, 나중에 한 자리만 넓혀도 조용히 넘친다.
+    const float requestedHeight =
+        static_cast<float>(static_cast<std::uint64_t>(pixelHeight) *
+                           static_cast<std::uint64_t>(rasterScaleKey)) /
+        64.0f;
+    const float scale =
+        stbtt_ScaleForPixelHeight(&impl_->info, SafePixelHeight(requestedHeight));
+
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+    stbtt_GetGlyphBitmapBox(&impl_->info, static_cast<int>(glyphId),
+                            scale, scale, &x0, &y0, &x1, &y1);
+    result.width = std::max(0, x1 - x0);
+    result.height = std::max(0, y1 - y0);
+    result.xOffset = x0;
+    result.yOffset = y0;
+    if (result.width == 0 || result.height == 0) return result;
+
+    result.coverage.resize(static_cast<std::size_t>(result.width) *
+                           static_cast<std::size_t>(result.height));
+    stbtt_MakeGlyphBitmap(&impl_->info, result.coverage.data(),
+                          result.width, result.height, result.width,
+                          scale, scale, static_cast<int>(glyphId));
+    return result;
+}
+
+std::uint32_t FontFace::LastRasterizedGlyphId() const noexcept {
+    return impl_ ? impl_->lastRasterizedGlyphId.load(std::memory_order_relaxed)
+                 : 0U;
 }
 
 FontFaceMetrics FontFace::Metrics(float pixelHeight) const {
