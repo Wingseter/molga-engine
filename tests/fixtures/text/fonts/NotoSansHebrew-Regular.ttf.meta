@@ -1,0 +1,15 @@
+{
+  "guid": "55555555555555555555555555555555",
+  "importer": "FontImporter",
+  "importerVersion": 2,
+  "settings": {
+    "faceIndex": 0,
+    "weight": 400,
+    "stretchPercent": 100,
+    "slant": "Upright",
+    "redistributableConfirmed": true,
+    "licenseKind": "OFL-1.1",
+    "copyright": "fixture provenance: Noto Fonts ffebf8c1",
+    "licenseAssetGuid": "88888888888888888888888888888888"
+  }
+}

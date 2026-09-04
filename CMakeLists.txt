@@ -194,6 +194,7 @@ set(ENGINE_SOURCES
     src/Editor/EditorPreferences.cpp
     src/Assets/FontAsset.cpp
     src/Assets/FontArtifactStore.cpp
+    src/Assets/FontFamilyAsset.cpp
     src/Core/AssetDatabase.cpp
     src/Core/AssetDependencyValidator.cpp
     src/Core/SpriteResolver.cpp
@@ -203,6 +204,7 @@ set(ENGINE_SOURCES
     src/Core/Importers/AudioImporter.cpp
     src/Core/Importers/PrefabImporter.cpp
     src/Core/Importers/FontImporter.cpp
+    src/Core/Importers/FontFamilyImporter.cpp
     src/Core/Importers/PostProcessProfileImporter.cpp
     src/Text/TextDiagnostic.cpp
     src/Text/TextRuntimeDependencies.cpp

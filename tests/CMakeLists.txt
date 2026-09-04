@@ -227,7 +227,10 @@ target_compile_definitions(test_font_assets PRIVATE
     MOLGA_TEXT_ARABIC_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansArabic-Regular.ttf"
     MOLGA_TEXT_CJK_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansKR-Regular.otf"
     MOLGA_TEXT_VARIABLE_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
-    MOLGA_TEXT_LATIN_SHA256="b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5")
+    MOLGA_TEXT_LATIN_SHA256="b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+    MOLGA_TEXT_PRIMARY_FAMILY="${CMAKE_SOURCE_DIR}/tests/fixtures/text/families/primary.fontfamily"
+    MOLGA_TEXT_FAMILY_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/families"
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 

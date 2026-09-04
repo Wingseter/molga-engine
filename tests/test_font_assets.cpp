@@ -1,11 +1,15 @@
 #include "Assets/FontArtifactStore.h"
 #include "Assets/FontAsset.h"
+#include "Assets/FontFamilyAsset.h"
 #include "Core/AssetDatabase.h"
 #include "Core/AssetMeta.h"
 #include "Common/Sha256.h"
+#include "Core/Importers/FontFamilyImporter.h"
 #include "Core/Importers/FontImporter.h"
+#include "Core/Importers/ImporterRegistry.h"
 #include "Core/PersistentStorage.h"
 #include "Text/TextDiagnostic.h"
+#include "TextQualificationAssetTree.h"
 #include "doctest.h"
 
 #include <algorithm>
@@ -15,10 +19,12 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -428,6 +434,112 @@ std::shared_ptr<const molga::FontArtifactStore> ProjectStore(
     const fs::path& projectRoot) {
     return std::make_shared<const molga::FontArtifactStore>(
         molga::FontArtifactStore::ForProject(projectRoot));
+}
+
+// ── Task 4.2: authored font family helpers ──────────────────────────────────
+
+// FromRecord는 거절 사유를 호출자 소유 문자열로 돌려준다. 한 슬롯이면 충분한
+// 이유는 모든 호출 결과를 곧바로 단언하기 때문이고, LastFamilyError()는 그
+// 사유를 실패 메시지에 실어 보내기 위해 같은 슬롯을 다시 읽는다.
+std::string g_familyError;
+
+std::string& TestError() {
+    g_familyError.clear();
+    return g_familyError;
+}
+
+const std::string& LastFamilyError() { return g_familyError; }
+
+// doctest는 DOCTEST_CONFIG_TREAT_CHAR_STAR_AS_STRING 없이 빌드되므로 const
+// char* 메시지를 문자열이 아니라 포인터 주소로 찍는다. 표 기반 케이스에서
+// 어느 행이 실패했는지 읽히게 하려면 std::string으로 감싸야 한다.
+std::string Label(const char* text) { return std::string(text); }
+
+std::vector<std::string> FaceGuids(const molga::FontFamilyAsset& family) {
+    std::vector<std::string> guids;
+    guids.reserve(family.faces.size());
+    for (const molga::FontFamilyFaceEntry& face : family.faces) {
+        guids.push_back(face.fontGuid);
+    }
+    return guids;
+}
+
+// primary.fontfamily와 같은 값. 저작 소스에는 guid가 없다.
+nlohmann::json ValidFontFamilySourceJson() {
+    return nlohmann::json::parse(R"({
+        "schemaVersion": 1,
+        "faces": [
+            {"fontGuid": "44444444444444444444444444444444", "faceIndex": 0,
+             "weight": 400, "stretchPercent": 100, "slant": "Upright"},
+            {"fontGuid": "55555555555555555555555555555555", "faceIndex": 0,
+             "weight": 400, "stretchPercent": 100, "slant": "Upright"},
+            {"fontGuid": "12121212121212121212121212121212", "faceIndex": 0,
+             "weight": 400, "stretchPercent": 100, "slant": "Upright"},
+            {"fontGuid": "13131313131313131313131313131313", "faceIndex": 0,
+             "weight": 400, "stretchPercent": 100, "slant": "Upright"}
+        ],
+        "fallbackFamilyGuids": ["22222222222222222222222222222222",
+                                "33333333333333333333333333333333"],
+        "unknownAuthoringField": "preserved"
+    })");
+}
+
+// 커밋된 픽스처는 절대 수정하지 않는다. 변형 케이스는 전부 RAII 임시 파일이다.
+class ScopedTempFamily {
+public:
+    explicit ScopedTempFamily(const std::string& text) {
+        static unsigned long long sequence = 0;
+        // TempDirectory와 같은 규칙으로 steady_clock 눈금을 섞는다. 프로세스
+        // 안에서만 유일한 이름을 쓰면 같은 머신에서 동시에 도는 두 번째
+        // test_font_assets가 서로의 픽스처를 잘라내고 지운다.
+        const auto stamp =
+            std::chrono::steady_clock::now().time_since_epoch().count();
+        path = (fs::temp_directory_path() /
+                ("molga-family-fixture-" + std::to_string(stamp) + "-" +
+                 std::to_string(++sequence) + ".fontfamily"))
+                   .string();
+        std::ofstream output(path, std::ios::trunc);
+        REQUIRE_MESSAGE(output.good(), "could not create " << path);
+        output << text;
+        output.close();
+        REQUIRE(fs::exists(path));
+    }
+    ScopedTempFamily(const ScopedTempFamily&) = delete;
+    ScopedTempFamily& operator=(const ScopedTempFamily&) = delete;
+    ~ScopedTempFamily() {
+        std::error_code error;
+        fs::remove(path, error);
+    }
+
+    std::string path;
+};
+
+ImportResult ImportTemporaryFontFamily(const nlohmann::json& source) {
+    const ScopedTempFamily temporary(source.dump(2));
+    return molga::FontFamilyImporter().Import(temporary.path);
+}
+
+ImportResult ImportTemporaryFontFamilyText(const std::string& text) {
+    const ScopedTempFamily temporary(text);
+    return molga::FontFamilyImporter().Import(temporary.path);
+}
+
+// import 결과를 카탈로그에 실었다가 다시 읽는다. FromRecord 계약이 실제
+// 재적재 경로 위에서 검증되도록, 메모리 안의 ImportResult를 직접 쓰지 않는다.
+AssetRecord RoundTripFamilyRecord(const ImportResult& result,
+                                  const std::string& guid) {
+    AssetRecord record;
+    record.guid = guid;
+    record.sourcePath = "Assets/Families/round-trip.fontfamily";
+    record.importer = "FontFamilyImporter";
+    record.importerVersion = 1;
+    molga::ApplyImportResultToRecord(result, record);
+
+    std::string error;
+    auto restored = molga::AssetRecordFromJson(
+        molga::AssetRecordToJson(record), error);
+    REQUIRE_MESSAGE(restored.has_value(), error);
+    return *restored;
 }
 
 } // namespace
@@ -1444,4 +1556,611 @@ TEST_CASE("a stale publish lock never wedges a content-addressed artifact") {
                   error);
     CHECK(ReadAllBytes(destination) == bytes);
     CHECK_FALSE(fs::exists(lockPath));
+}
+
+// ── Task 4.2: ordered authored font families ────────────────────────────────
+
+TEST_CASE("font family preserves authored face fallback and unknown-field order") {
+    constexpr std::string_view kPrimaryGuid =
+        "11111111111111111111111111111111";
+    constexpr std::string_view kArabicGuid =
+        "22222222222222222222222222222222";
+    constexpr std::string_view kCjkGuid =
+        "33333333333333333333333333333333";
+    const auto result = molga::FontFamilyImporter().Import(
+        MOLGA_TEXT_PRIMARY_FAMILY);
+    REQUIRE(result.success);
+    QualificationAssetTreeFixture fixture;
+    molga::AssetDatabase db;
+    auto store = std::make_shared<const molga::FontArtifactStore>(
+        molga::FontArtifactStore::ForProject(fixture.ProjectRoot()));
+    REQUIRE(db.BindFontArtifactStore(store));
+    db.ScanProject(fixture.AssetsRoot());
+    const molga::AssetRecord* record = db.Find(std::string(kPrimaryGuid));
+    REQUIRE(record != nullptr);
+    CHECK(record->importer == "FontFamilyImporter");
+    CHECK(record->importerVersion == 1);
+    const auto family =
+        molga::FontFamilyAsset::FromRecord(*record, TestError());
+    REQUIRE(family);
+    CHECK(family->guid == std::string(kPrimaryGuid));
+    CHECK(family->faces.at(0).authoredFaceIndex == 0);
+    CHECK(family->faces.at(1).authoredFaceIndex == 1);
+    CHECK(family->faces.at(2).authoredFaceIndex == 2);
+    CHECK(family->faces.at(3).authoredFaceIndex == 3);
+    CHECK(FaceGuids(*family) == std::vector<std::string>{
+        "44444444444444444444444444444444",
+        "55555555555555555555555555555555",
+        "12121212121212121212121212121212",
+        "13131313131313131313131313131313"});
+    CHECK(family->fallbackFamilyGuids ==
+          std::vector<std::string>{std::string(kArabicGuid),
+                                   std::string(kCjkGuid)});
+    CHECK(result.metadata["unknownAuthoringField"] == "preserved");
+}
+
+TEST_CASE("font family source cannot override sidecar GUID authority") {
+    nlohmann::json source = ValidFontFamilySourceJson();
+    source["guid"] = "ffffffffffffffffffffffffffffffff";
+    const auto result = ImportTemporaryFontFamily(source);
+    CHECK_FALSE(result.success);
+    CHECK(HasDiagnostic(result.importDiagnostics,
+          molga::text::TextDiagnosticCode::FontFamilyInvalid));
+}
+
+TEST_CASE("qualification asset tree rescans six fonts and two licenses") {
+    QualificationAssetTreeFixture fixture;
+    molga::AssetDatabase db;
+    auto store = std::make_shared<const molga::FontArtifactStore>(
+        molga::FontArtifactStore::ForProject(fixture.ProjectRoot()));
+    REQUIRE(db.BindFontArtifactStore(store));
+    db.ScanProject(fixture.AssetsRoot());
+    const std::vector<std::tuple<std::string, std::string, int>> expected{
+        {"44444444444444444444444444444444", "FontImporter", 2},
+        {"55555555555555555555555555555555", "FontImporter", 2},
+        {"66666666666666666666666666666666", "FontImporter", 2},
+        {"12121212121212121212121212121212", "FontImporter", 2},
+        {"13131313131313131313131313131313", "FontImporter", 2},
+        {"77777777777777777777777777777777", "FontImporter", 2},
+        {"88888888888888888888888888888888", "GenericImporter", 1},
+        {"99999999999999999999999999999999", "GenericImporter", 1},
+    };
+    for (const auto& [guid, importer, version] : expected) {
+        const molga::AssetRecord* record = db.Find(guid);
+        REQUIRE_MESSAGE(record != nullptr, guid);
+        CHECK(record->guid == guid);
+        CHECK(record->importer == importer);
+        CHECK(record->importerVersion == version);
+    }
+}
+
+// 위 세 케이스가 요구하는 성공 경로를 아래에서 양방향으로 못 박는다. 실패
+// 단언만 있는 함수는 "항상 실패"로 스텁해도 통과하므로, 모든 거절 표는 먼저
+// 유효한 대조군을 통과시킨다.
+
+TEST_CASE("a valid authored family imports and survives catalog reload") {
+    const auto result = ImportTemporaryFontFamily(ValidFontFamilySourceJson());
+    REQUIRE_MESSAGE(result.success, result.error);
+    CHECK(result.importDiagnostics.empty());
+    // const nlohmann::json의 operator[]는 없는 키에서 assert로 프로세스를
+    // 죽인다. 보존이 깨졌을 때 SIGABRT 대신 이 파일의 다른 케이스를 살려 둔
+    // 채로 실패하도록, 읽기 전에 존재부터 못 박는다.
+    REQUIRE(result.metadata.contains("schemaVersion"));
+    CHECK(result.metadata["schemaVersion"] == 1);
+    // 저작 순서는 카탈로그에서도 읽을 수 있어야 한다. 배열 위치만 권한으로
+    // 두고 기록을 생략하면 리뷰어가 diff에서 순서를 확인할 수 없다.
+    REQUIRE(result.metadata.contains("faces"));
+    REQUIRE(result.metadata["faces"].size() == 4U);
+    REQUIRE(result.metadata["faces"][0].contains("authoredFaceIndex"));
+    REQUIRE(result.metadata["faces"][3].contains("authoredFaceIndex"));
+    REQUIRE(result.metadata["faces"][0].contains("fontGuid"));
+    CHECK(result.metadata["faces"][0]["authoredFaceIndex"] == 0);
+    CHECK(result.metadata["faces"][3]["authoredFaceIndex"] == 3);
+    CHECK(result.metadata["faces"][0]["fontGuid"] ==
+          "44444444444444444444444444444444");
+
+    const AssetRecord record =
+        RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+    // 알 수 없는 저작 필드는 카탈로그를 한 번 돌고 나서도 남아야 한다. 새
+    // 저작 도구가 붙인 필드를 예전 에디터가 재적재하며 지우면 저작 의도가
+    // 조용히 사라진다.
+    REQUIRE(record.metadata.contains("unknownAuthoringField"));
+    CHECK(record.metadata["unknownAuthoringField"] == "preserved");
+    const auto family =
+        molga::FontFamilyAsset::FromRecord(record, TestError());
+    REQUIRE_MESSAGE(family.has_value(), LastFamilyError());
+    CHECK(family->guid == "11111111111111111111111111111111");
+    CHECK(family->schemaVersion == molga::FontFamilyAsset::CurrentSchemaVersion);
+    REQUIRE(family->faces.size() == 4U);
+    CHECK(family->faces[0].fontGuid == "44444444444444444444444444444444");
+    CHECK(family->faces[0].faceIndex == 0U);
+    CHECK(family->faces[0].weight == 400U);
+    CHECK(family->faces[0].stretchPercent == 100U);
+    CHECK(family->faces[0].slant == molga::FontSlant::Upright);
+    CHECK(FaceGuids(*family) == std::vector<std::string>{
+        "44444444444444444444444444444444",
+        "55555555555555555555555555555555",
+        "12121212121212121212121212121212",
+        "13131313131313131313131313131313"});
+    CHECK(family->fallbackFamilyGuids ==
+          std::vector<std::string>{"22222222222222222222222222222222",
+                                   "33333333333333333333333333333333"});
+}
+
+TEST_CASE("authored face order is the array order and not a sorted order") {
+    // Milestone 5의 candidate 정렬은 authoredFaceIndex를 tie-breaker로 쓴다.
+    // 그 순서가 GUID 정렬이나 해시 순서에서 파생되면 fallback이 조용히
+    // 달라지므로, 사전순과 어긋나는 저작 순서를 그대로 되돌려받아야 한다.
+    nlohmann::json source = ValidFontFamilySourceJson();
+    std::swap(source["faces"][0], source["faces"][3]);
+    const auto result = ImportTemporaryFontFamily(source);
+    REQUIRE_MESSAGE(result.success, result.error);
+
+    const AssetRecord record =
+        RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+    const auto family =
+        molga::FontFamilyAsset::FromRecord(record, TestError());
+    REQUIRE_MESSAGE(family.has_value(), LastFamilyError());
+    CHECK(FaceGuids(*family) == std::vector<std::string>{
+        "13131313131313131313131313131313",
+        "55555555555555555555555555555555",
+        "12121212121212121212121212121212",
+        "44444444444444444444444444444444"});
+    // 크기부터 못 박는다. 파서가 fail-open으로 퇴행하면 빈 벡터를 인덱싱해
+    // 이 파일 전체가 SIGSEGV로 죽고, 나머지 케이스가 통째로 사라진다.
+    REQUIRE(family->faces.size() == 4U);
+    CHECK(family->faces[0].authoredFaceIndex == 0U);
+    CHECK(family->faces[3].authoredFaceIndex == 3U);
+}
+
+TEST_CASE("authored fallback order is the array order and not a sorted order") {
+    // fallback은 Task 5.1이 저작 순서 그대로 깊이 우선으로 훑는 목록이다.
+    // 커밋된 픽스처의 fallback GUID들은 이미 사전순이라 "정렬해도 그대로"이므로,
+    // 정렬/역순 퇴행을 잡으려면 사전순과 어긋나는 목록이 따로 필요하다.
+    nlohmann::json source = ValidFontFamilySourceJson();
+    source["fallbackFamilyGuids"] = nlohmann::json::array(
+        {"33333333333333333333333333333333",
+         "22222222222222222222222222222222",
+         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"});
+    const auto result = ImportTemporaryFontFamily(source);
+    REQUIRE_MESSAGE(result.success, result.error);
+
+    // 왕복 단언만 두면 파싱 한 곳에 들어간 역순 같은 대합(involution) 결함이
+    // 두 번 적용되며 상쇄된다. importer가 내놓은 metadata를 직접 읽어 단일
+    // 적용 증인을 남긴다.
+    REQUIRE(result.metadata.contains("fallbackFamilyGuids"));
+    CHECK(result.metadata["fallbackFamilyGuids"] ==
+          nlohmann::json::array({"33333333333333333333333333333333",
+                                 "22222222222222222222222222222222",
+                                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}));
+
+    const AssetRecord record =
+        RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+    const auto family =
+        molga::FontFamilyAsset::FromRecord(record, TestError());
+    REQUIRE_MESSAGE(family.has_value(), LastFamilyError());
+    CHECK(family->fallbackFamilyGuids ==
+          std::vector<std::string>{"33333333333333333333333333333333",
+                                   "22222222222222222222222222222222",
+                                   "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"});
+}
+
+TEST_CASE("authored face entries keep their own unknown fields in place") {
+    // importer는 저작된 face 객체 위에 정규화된 값만 덮어쓴다. 그 사본이
+    // 사라지거나 한 칸 밀리면 새 저작 도구가 붙인 face 단위 필드가 조용히
+    // 없어지거나 엉뚱한 face로 옮겨 간다.
+    nlohmann::json source = ValidFontFamilySourceJson();
+    source["faces"][1]["unknownFaceField"] = "second";
+    source["faces"][2]["unknownFaceField"] = "third";
+    const auto result = ImportTemporaryFontFamily(source);
+    REQUIRE_MESSAGE(result.success, result.error);
+    REQUIRE(result.metadata.contains("faces"));
+    REQUIRE(result.metadata["faces"].size() == 4U);
+    CHECK_FALSE(result.metadata["faces"][0].contains("unknownFaceField"));
+    REQUIRE(result.metadata["faces"][1].contains("unknownFaceField"));
+    CHECK(result.metadata["faces"][1]["unknownFaceField"] == "second");
+    REQUIRE(result.metadata["faces"][2].contains("unknownFaceField"));
+    CHECK(result.metadata["faces"][2]["unknownFaceField"] == "third");
+    CHECK_FALSE(result.metadata["faces"][3].contains("unknownFaceField"));
+}
+
+TEST_CASE("the inclusive ends of every authored range are accepted") {
+    // 거절 표는 범위 바깥만 찌르므로 한쪽만 증명한다. 상·하한을 한 칸씩
+    // 좁히는 퇴행은 그 표를 통째로 통과하므로, 합법적인 끝값이 실제로
+    // 살아남는지 여기서 못 박는다.
+    nlohmann::json source = ValidFontFamilySourceJson();
+    source["faces"][0]["weight"] = molga::kFontWeightMin;
+    source["faces"][0]["stretchPercent"] = molga::kFontStretchPercentMin;
+    source["faces"][1]["weight"] = molga::kFontWeightMax;
+    source["faces"][1]["stretchPercent"] = molga::kFontStretchPercentMax;
+    // SFNT collection이 이름 붙일 수 있는 가장 큰 face index.
+    source["faces"][2]["faceIndex"] = 0xFFFF;
+    source["faces"][3]["faceIndex"] = 0;
+    const auto result = ImportTemporaryFontFamily(source);
+    REQUIRE_MESSAGE(result.success, result.error);
+    CHECK(result.importDiagnostics.empty());
+
+    const AssetRecord record =
+        RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+    const auto family =
+        molga::FontFamilyAsset::FromRecord(record, TestError());
+    REQUIRE_MESSAGE(family.has_value(), LastFamilyError());
+    REQUIRE(family->faces.size() == 4U);
+    CHECK(family->faces[0].weight == molga::kFontWeightMin);
+    CHECK(family->faces[0].stretchPercent == molga::kFontStretchPercentMin);
+    CHECK(family->faces[1].weight == molga::kFontWeightMax);
+    CHECK(family->faces[1].stretchPercent == molga::kFontStretchPercentMax);
+    CHECK(family->faces[2].faceIndex == 0xFFFFU);
+    CHECK(family->faces[3].faceIndex == 0U);
+}
+
+TEST_CASE("authored fallback cycles import because graph validation is Task 5.1") {
+    // importer는 cross-asset GUID를 해석하지 않는다. 서로를 가리키는 두 family가
+    // 여기서 실패하면 Task 5.1이 검사해야 할 cycle을 import가 먼저 삼켜 버린다.
+    const fs::path familyRoot = MOLGA_TEXT_FAMILY_FIXTURE_ROOT;
+    const auto cycleA = molga::FontFamilyImporter().Import(
+        (familyRoot / "cycle-a.fontfamily").string());
+    const auto cycleB = molga::FontFamilyImporter().Import(
+        (familyRoot / "cycle-b.fontfamily").string());
+    REQUIRE_MESSAGE(cycleA.success, cycleA.error);
+    REQUIRE_MESSAGE(cycleB.success, cycleB.error);
+    CHECK(cycleA.importDiagnostics.empty());
+    CHECK(cycleB.importDiagnostics.empty());
+
+    const auto familyA = molga::FontFamilyAsset::FromRecord(
+        RoundTripFamilyRecord(cycleA, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        TestError());
+    REQUIRE_MESSAGE(familyA.has_value(), LastFamilyError());
+    CHECK(familyA->faces.empty());
+    CHECK(familyA->fallbackFamilyGuids ==
+          std::vector<std::string>{"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"});
+    const auto familyB = molga::FontFamilyAsset::FromRecord(
+        RoundTripFamilyRecord(cycleB, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        TestError());
+    REQUIRE_MESSAGE(familyB.has_value(), LastFamilyError());
+    CHECK(familyB->fallbackFamilyGuids ==
+          std::vector<std::string>{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"});
+}
+
+TEST_CASE("malformed authored family fields are refused with one diagnostic") {
+    REQUIRE(ImportTemporaryFontFamily(ValidFontFamilySourceJson()).success);
+
+    struct Mutation {
+        const char* label;
+        std::function<void(nlohmann::json&)> apply;
+    };
+    const std::vector<Mutation> mutations{
+        {"missing schemaVersion", [](nlohmann::json& s) { s.erase("schemaVersion"); }},
+        {"future schemaVersion", [](nlohmann::json& s) { s["schemaVersion"] = 2; }},
+        {"float schemaVersion", [](nlohmann::json& s) { s["schemaVersion"] = 1.0; }},
+        {"legacy schema key", [](nlohmann::json& s) {
+             s.erase("schemaVersion");
+             s["schema"] = 1;
+         }},
+        {"legacy schema beside schemaVersion",
+         [](nlohmann::json& s) { s["schema"] = 1; }},
+        {"missing faces", [](nlohmann::json& s) { s.erase("faces"); }},
+        {"faces not an array", [](nlohmann::json& s) { s["faces"] = 4; }},
+        {"face not an object", [](nlohmann::json& s) { s["faces"][1] = "44444444444444444444444444444444"; }},
+        {"missing fallbackFamilyGuids",
+         [](nlohmann::json& s) { s.erase("fallbackFamilyGuids"); }},
+        {"fallback list not an array",
+         [](nlohmann::json& s) { s["fallbackFamilyGuids"] = "22222222222222222222222222222222"; }},
+        {"fallback entry not a string",
+         [](nlohmann::json& s) { s["fallbackFamilyGuids"][0] = 22; }},
+        {"fallback entry not 32 hex",
+         [](nlohmann::json& s) { s["fallbackFamilyGuids"][1] = "3333"; }},
+        {"fallback entry has a non-hex digit",
+         [](nlohmann::json& s) { s["fallbackFamilyGuids"][0] = "2222222222222222222222222222222g"; }},
+        {"font GUID not a string", [](nlohmann::json& s) { s["faces"][0]["fontGuid"] = 44; }},
+        {"font GUID not 32 hex",
+         [](nlohmann::json& s) { s["faces"][2]["fontGuid"] = "121212"; }},
+        {"missing font GUID", [](nlohmann::json& s) { s["faces"][3].erase("fontGuid"); }},
+        {"missing faceIndex", [](nlohmann::json& s) { s["faces"][0].erase("faceIndex"); }},
+        {"negative faceIndex", [](nlohmann::json& s) { s["faces"][0]["faceIndex"] = -1; }},
+        {"float faceIndex", [](nlohmann::json& s) { s["faces"][0]["faceIndex"] = 0.5; }},
+        {"faceIndex above the SFNT collection range",
+         [](nlohmann::json& s) { s["faces"][0]["faceIndex"] = 65536; }},
+        {"missing weight", [](nlohmann::json& s) { s["faces"][1].erase("weight"); }},
+        {"weight below the authored range",
+         [](nlohmann::json& s) { s["faces"][1]["weight"] = 0; }},
+        {"weight above the authored range",
+         [](nlohmann::json& s) { s["faces"][1]["weight"] = 1001; }},
+        {"missing stretchPercent",
+         [](nlohmann::json& s) { s["faces"][2].erase("stretchPercent"); }},
+        {"stretch below the authored range",
+         [](nlohmann::json& s) { s["faces"][2]["stretchPercent"] = 49; }},
+        {"stretch above the authored range",
+         [](nlohmann::json& s) { s["faces"][2]["stretchPercent"] = 201; }},
+        {"missing slant", [](nlohmann::json& s) { s["faces"][3].erase("slant"); }},
+        {"unknown slant", [](nlohmann::json& s) { s["faces"][3]["slant"] = "Slanted"; }},
+        {"slant not a string", [](nlohmann::json& s) { s["faces"][0]["slant"] = 0; }},
+        {"authored face index disagrees with its array position",
+         [](nlohmann::json& s) { s["faces"][1]["authoredFaceIndex"] = 3; }},
+    };
+    for (const Mutation& mutation : mutations) {
+        nlohmann::json source = ValidFontFamilySourceJson();
+        mutation.apply(source);
+        const auto result = ImportTemporaryFontFamily(source);
+        CHECK_MESSAGE(!result.success, Label(mutation.label));
+        CHECK_MESSAGE(HasDiagnostic(result.importDiagnostics,
+                                    TextDiagnosticCode::FontFamilyInvalid),
+                      Label(mutation.label));
+        // 진단 수는 항목당이 아니라 애셋당 상수여야 한다. 잘못된 항목마다
+        // 하나씩 쌓으면 큰 저작 파일 하나가 카탈로그를 무한히 키운다.
+        CHECK_MESSAGE(result.importDiagnostics.size() == 1U,
+                      Label(mutation.label));
+        CHECK_MESSAGE(result.metadata.empty(), Label(mutation.label));
+    }
+}
+
+TEST_CASE("a non-object or unreadable family source is refused") {
+    for (const char* text : {"[]", "17", "\"primary\"", "{\"schemaVersion\":1,",
+                             ""}) {
+        const auto result = ImportTemporaryFontFamilyText(text);
+        CHECK_MESSAGE(!result.success, Label(text));
+        CHECK_MESSAGE(HasDiagnostic(result.importDiagnostics,
+                                    TextDiagnosticCode::FontFamilyInvalid),
+                      Label(text));
+        CHECK_MESSAGE(result.importDiagnostics.size() == 1U, Label(text));
+    }
+    const auto missing = molga::FontFamilyImporter().Import(
+        (fs::temp_directory_path() / "molga-no-such.fontfamily").string());
+    CHECK_FALSE(missing.success);
+    CHECK(HasDiagnostic(missing.importDiagnostics,
+                        TextDiagnosticCode::FontFamilyInvalid));
+}
+
+TEST_CASE("trailing bytes after a complete family document are refused") {
+    // 대조군: 같은 문서 하나만 있으면 통과한다.
+    const std::string document =
+        R"({"schemaVersion":1,"faces":[],"fallbackFamilyGuids":[]})";
+    REQUIRE(ImportTemporaryFontFamilyText(document).success);
+
+    // 첫 JSON 값 뒤의 바이트를 조용히 버리면, 문서를 두 개 이어 붙인 저작
+    // 파일이 뒤쪽을 통째로 잃은 채 "성공"으로 카탈로그에 들어간다.
+    const std::vector<std::pair<const char*, std::string>> trailing{
+        {"a second document", R"({"schemaVersion":2})"},
+        {"prose", " not json at all"},
+        {"binary garbage", "\xff\xfe"}};
+    for (const auto& variant : trailing) {
+        const std::string label = Label(variant.first);
+        const auto result =
+            ImportTemporaryFontFamilyText(document + variant.second);
+        CHECK_MESSAGE(!result.success, label);
+        CHECK_MESSAGE(HasDiagnostic(result.importDiagnostics,
+                                    TextDiagnosticCode::FontFamilyInvalid),
+                      label);
+        CHECK_MESSAGE(result.importDiagnostics.size() == 1U, label);
+    }
+}
+
+TEST_CASE("an oversized authored family source is refused at the byte cap") {
+    // FontFamilyImporter의 상한과 같은 값. 저작 문서 전체가 카탈로그
+    // metadata로 들어가므로 이 상한이 record 하나의 성장 한계다. 상수만 있고
+    // 증인이 없으면 상한을 지워도 아무 테스트가 울지 않는다.
+    constexpr std::uintmax_t kMaximumFontFamilyBytes = 4U * 1024U * 1024U;
+    const std::string prefix =
+        R"({"schemaVersion":1,"faces":[],"fallbackFamilyGuids":[],"pad":")";
+    const std::string suffix = R"("})";
+    const auto padded = [&](std::uintmax_t totalBytes) {
+        return prefix +
+               std::string(static_cast<std::size_t>(totalBytes) -
+                               prefix.size() - suffix.size(),
+                           'p') +
+               suffix;
+    };
+
+    const std::string atCap = padded(kMaximumFontFamilyBytes);
+    REQUIRE(atCap.size() == kMaximumFontFamilyBytes);
+    const auto accepted = ImportTemporaryFontFamilyText(atCap);
+    CHECK_MESSAGE(accepted.success, accepted.error);
+
+    const std::string overCap = padded(kMaximumFontFamilyBytes + 1U);
+    REQUIRE(overCap.size() == kMaximumFontFamilyBytes + 1U);
+    const auto refused = ImportTemporaryFontFamilyText(overCap);
+    CHECK_FALSE(refused.success);
+    CHECK(HasDiagnostic(refused.importDiagnostics,
+                        TextDiagnosticCode::FontFamilyInvalid));
+    CHECK(refused.importDiagnostics.size() == 1U);
+    CHECK(refused.metadata.empty());
+}
+
+TEST_CASE("only .fontfamily reaches the family importer") {
+    const molga::FontFamilyImporter importer;
+    CHECK(importer.Name() == "FontFamilyImporter");
+    CHECK(importer.Version() == 1);
+    CHECK(importer.CanImport(".fontfamily"));
+    for (const char* extension : {".ttf", ".otf", ".prefab", ".json", ".meta",
+                                  ".fontfamilies", ""}) {
+        CHECK_MESSAGE(!importer.CanImport(extension), Label(extension));
+    }
+    // 등록도 확장자 하나만 잡아야 한다. .ttf가 여기로 새면 폰트 바이트가
+    // 검증 없이 통과한다.
+    const molga::IImporter* registered =
+        molga::ImporterRegistry::Get().FindForExtension(".fontfamily");
+    REQUIRE(registered != nullptr);
+    CHECK(registered->Name() == "FontFamilyImporter");
+    const molga::IImporter* forFont =
+        molga::ImporterRegistry::Get().FindForExtension(".ttf");
+    REQUIRE(forFont != nullptr);
+    CHECK(forFont->Name() == "FontImporter");
+}
+
+TEST_CASE("FontFamilyAsset::FromRecord refuses records it cannot trust") {
+    const auto result = ImportTemporaryFontFamily(ValidFontFamilySourceJson());
+    REQUIRE_MESSAGE(result.success, result.error);
+
+    // 대조군: 손대지 않은 record는 통과한다.
+    {
+        const AssetRecord good =
+            RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+        CHECK(molga::FontFamilyAsset::FromRecord(good, TestError()).has_value());
+    }
+
+    SUBCASE("another importer's record is not an authored family") {
+        AssetRecord record =
+            RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+        record.importer = "GenericImporter";
+        CHECK_FALSE(
+            molga::FontFamilyAsset::FromRecord(record, TestError()).has_value());
+    }
+    SUBCASE("a failed import never becomes a family") {
+        AssetRecord record =
+            RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+        record.importFailed = true;
+        CHECK_FALSE(
+            molga::FontFamilyAsset::FromRecord(record, TestError()).has_value());
+    }
+    SUBCASE("the record GUID must be 32 hexadecimal characters") {
+        for (const char* guid : {"", "1111", "not-a-guid",
+                                 "1111111111111111111111111111111g"}) {
+            AssetRecord record = RoundTripFamilyRecord(
+                result, "11111111111111111111111111111111");
+            record.guid = guid;
+            CHECK_MESSAGE(!molga::FontFamilyAsset::FromRecord(record, TestError())
+                               .has_value(),
+                          Label(guid));
+        }
+    }
+    SUBCASE("embedded identity in importer metadata is never authoritative") {
+        // 카탈로그가 손으로 편집돼 guid가 다시 들어오면, 조용히 무시하는 대신
+        // record를 거절한다. 무시하면 어느 쪽이 정체성인지 리뷰로 알 수 없다.
+        AssetRecord record =
+            RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+        record.metadata["guid"] = "ffffffffffffffffffffffffffffffff";
+        CHECK_FALSE(
+            molga::FontFamilyAsset::FromRecord(record, TestError()).has_value());
+    }
+    SUBCASE("a reordered persisted authoredFaceIndex is refused") {
+        AssetRecord record =
+            RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+        record.metadata["faces"][2]["authoredFaceIndex"] = 0;
+        CHECK_FALSE(
+            molga::FontFamilyAsset::FromRecord(record, TestError()).has_value());
+    }
+    SUBCASE("a record with no family metadata is refused") {
+        AssetRecord record =
+            RoundTripFamilyRecord(result, "11111111111111111111111111111111");
+        record.metadata = nlohmann::json::object();
+        CHECK_FALSE(
+            molga::FontFamilyAsset::FromRecord(record, TestError()).has_value());
+    }
+}
+
+TEST_CASE("a refused document leaves the caller's family untouched") {
+    // ParseAuthoredFontFamily는 헤더가 공개한 단일 검증 권한이다. 거절하면서
+    // out을 절반만 덮어쓰면, 편집을 거절했다고 믿는 호출자가 첫 불량 항목에서
+    // 잘린 face 목록을 그대로 들고 있게 된다.
+    molga::FontFamilyAsset family;
+    std::string error;
+    REQUIRE(molga::ParseAuthoredFontFamily(ValidFontFamilySourceJson(), family,
+                                           error));
+    family.guid = "11111111111111111111111111111111";
+    const molga::FontFamilyAsset before = family;
+
+    nlohmann::json broken = ValidFontFamilySourceJson();
+    // 두 번째 항목에서 거절된다. 첫 항목은 이미 파싱된 뒤다.
+    broken["faces"][1]["fontGuid"] = "5555";
+    CHECK_FALSE(molga::ParseAuthoredFontFamily(broken, family, error));
+    CHECK_FALSE(error.empty());
+    CHECK(family.guid == before.guid);
+    CHECK(family.schemaVersion == before.schemaVersion);
+    CHECK(FaceGuids(family) == FaceGuids(before));
+    CHECK(family.fallbackFamilyGuids == before.fallbackFamilyGuids);
+
+    // fallback 목록에서 거절될 때도 마찬가지다.
+    nlohmann::json brokenFallback = ValidFontFamilySourceJson();
+    brokenFallback["fallbackFamilyGuids"][1] = "3333";
+    CHECK_FALSE(
+        molga::ParseAuthoredFontFamily(brokenFallback, family, error));
+    CHECK(FaceGuids(family) == FaceGuids(before));
+    CHECK(family.fallbackFamilyGuids == before.fallbackFamilyGuids);
+}
+
+TEST_CASE("the qualification tree copies every source with its sidecar") {
+    QualificationAssetTreeFixture fixture;
+    std::size_t files = 0;
+    for (const auto& entry :
+         fs::recursive_directory_iterator(fixture.AssetsRoot())) {
+        if (entry.is_regular_file()) ++files;
+    }
+    // 13개 소스 × (소스 + .meta). 한 짝이라도 빠지면 ScanProject가 새 GUID를
+    // 만들어 고정된 GUID 계약이 조용히 무너진다.
+    CHECK(files == kQualificationSources.size() * 2U);
+    for (const std::string_view relative : kQualificationSources) {
+        const fs::path source = fixture.AssetsRoot() / std::string(relative);
+        CHECK_MESSAGE(fs::is_regular_file(source), relative);
+        CHECK_MESSAGE(fs::is_regular_file(molga::AssetMeta::MetaPathFor(source)),
+                      relative);
+    }
+}
+
+TEST_CASE("every qualification tree record imports into a usable asset") {
+    // 위의 재스캔 케이스는 GUID/importer/version만 본다. 여섯 폰트가 전부
+    // 거절당해도 record는 남으므로 그 케이스는 그대로 통과한다. Milestone 5는
+    // 이 트리가 실제로 열리는 face와 family를 준다고 가정하므로, 성공 증인을
+    // 여기서 따로 못 박는다.
+    QualificationAssetTreeFixture fixture;
+    molga::AssetDatabase db;
+    REQUIRE(db.BindFontArtifactStore(ProjectStore(fixture.ProjectRoot())));
+    db.ScanProject(fixture.AssetsRoot());
+
+    for (const char* guid : {"44444444444444444444444444444444",
+                             "55555555555555555555555555555555",
+                             "66666666666666666666666666666666",
+                             "12121212121212121212121212121212",
+                             "13131313131313131313131313131313",
+                             "77777777777777777777777777777777"}) {
+        const AssetRecord* record = db.Find(guid);
+        REQUIRE_MESSAGE(record != nullptr, Label(guid));
+        CHECK_MESSAGE(!record->importFailed, record->importError);
+        CHECK_MESSAGE(record->importDiagnostics.empty(), Label(guid));
+        const auto font = molga::FontAsset::FromRecord(*record, TestError());
+        REQUIRE_MESSAGE(font.has_value(), LastFamilyError());
+        CHECK_MESSAGE(font->guid == guid, Label(guid));
+        CHECK_MESSAGE(font->license.redistributableConfirmed, Label(guid));
+        CHECK_MESSAGE(!font->coverage.empty(), Label(guid));
+    }
+
+    // 다섯 family는 전부 열리고, primary만 face를 네 개 저작한다.
+    const std::vector<std::pair<std::string, std::size_t>> families{
+        {"11111111111111111111111111111111", 4U},
+        {"22222222222222222222222222222222", 1U},
+        {"33333333333333333333333333333333", 1U},
+        {"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0U},
+        {"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 0U}};
+    for (const auto& expected : families) {
+        // 구조적 바인딩을 doctest 메시지 람다가 캡처하면 C++20 확장 경고가
+        // 나므로, 이름 있는 지역 변수로 받는다.
+        const std::string& guid = expected.first;
+        const std::size_t faceCount = expected.second;
+        const AssetRecord* record = db.Find(guid);
+        REQUIRE_MESSAGE(record != nullptr, guid);
+        CHECK_MESSAGE(!record->importFailed, record->importError);
+        // family는 저작된 GUID 목록일 뿐이라 불변 바이트 권한을 만들지 않는다.
+        // 여기에 산출물이 붙으면 폰트가 아닌 파일이 폰트 바이트 경로로 발행된
+        // 것이므로, 없음을 명시적으로 못 박는다.
+        CHECK_MESSAGE(!record->fontArtifact.has_value(), guid);
+        // 일반 캐시 필드는 그대로 유지된다(보안 정체성이 아니다).
+        CHECK_MESSAGE(!record->hash.empty(), guid);
+        const auto family =
+            molga::FontFamilyAsset::FromRecord(*record, TestError());
+        REQUIRE_MESSAGE(family.has_value(), LastFamilyError());
+        CHECK_MESSAGE(family->faces.size() == faceCount, guid);
+    }
+
+    // 저작된 face GUID가 같은 트리 안의 폰트 record를 실제로 가리킨다.
+    // Task 5.1이 해석할 대상이 있어야 이 픽스처가 의미를 가진다.
+    const AssetRecord* primary = db.Find("11111111111111111111111111111111");
+    REQUIRE(primary != nullptr);
+    const auto family =
+        molga::FontFamilyAsset::FromRecord(*primary, TestError());
+    REQUIRE_MESSAGE(family.has_value(), LastFamilyError());
+    for (const molga::FontFamilyFaceEntry& face : family->faces) {
+        CHECK_MESSAGE(db.Find(face.fontGuid) != nullptr, face.fontGuid);
+    }
+    for (const std::string& fallback : family->fallbackFamilyGuids) {
+        CHECK_MESSAGE(db.Find(fallback) != nullptr, fallback);
+    }
 }

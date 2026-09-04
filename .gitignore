@@ -480,3 +480,11 @@ test_build.cpp
 
 # Maintainer-only text acquisition scratch
 /.text-acquire-tmp/
+
+# Locked text qualification fixtures
+# 이 트리의 .meta는 소스 바이트와 한 쌍으로 커밋된다. 위쪽 Visual Studio
+# 블록의 포괄적인 *.meta 규칙이 이들을 빼면 clean checkout에서 짝이 사라지고,
+# ScanProject가 새 GUID를 만들어 고정된 GUID 계약이 조용히 무너진다.
+!tests/fixtures/text/fonts/*.meta
+!tests/fixtures/text/licenses/*.meta
+!tests/fixtures/text/families/*.meta

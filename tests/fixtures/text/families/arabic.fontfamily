@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "faces": [
+    {
+      "fontGuid": "66666666666666666666666666666666",
+      "faceIndex": 0,
+      "weight": 400,
+      "stretchPercent": 100,
+      "slant": "Upright"
+    }
+  ],
+  "fallbackFamilyGuids": []
+}

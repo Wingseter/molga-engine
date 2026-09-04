@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "faces": [
+    {
+      "fontGuid": "44444444444444444444444444444444",
+      "faceIndex": 0,
+      "weight": 400,
+      "stretchPercent": 100,
+      "slant": "Upright"
+    },
+    {
+      "fontGuid": "55555555555555555555555555555555",
+      "faceIndex": 0,
+      "weight": 400,
+      "stretchPercent": 100,
+      "slant": "Upright"
+    },
+    {
+      "fontGuid": "12121212121212121212121212121212",
+      "faceIndex": 0,
+      "weight": 400,
+      "stretchPercent": 100,
+      "slant": "Upright"
+    },
+    {
+      "fontGuid": "13131313131313131313131313131313",
+      "faceIndex": 0,
+      "weight": 400,
+      "stretchPercent": 100,
+      "slant": "Upright"
+    }
+  ],
+  "fallbackFamilyGuids": [
+    "22222222222222222222222222222222",
+    "33333333333333333333333333333333"
+  ],
+  "unknownAuthoringField": "preserved"
+}
