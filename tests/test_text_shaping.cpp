@@ -3,6 +3,7 @@
 #include "Common/Fixed26_6.h"
 #include "Common/Sha256.h"
 #include "Core/AssetDatabase.h"
+#include "FontCollectionTestSupport.h"
 #include "Rendering/FontFace.h"
 #include "Text/FontFamilyResolver.h"
 #include "Text/FontRepository.h"
@@ -312,6 +313,64 @@ ShapingCorpus& Corpus() {
     return corpus;
 }
 
+// ── A non-zero face index the committed corpus cannot supply ────────────────
+// 자격 트리의 여섯 폰트는 전부 단일 face 파일이라, 위 corpus로 셰이핑하는 어떤
+// 케이스도 face index가 0이 아닌 상태를 보지 못한다. 그 상태에서는
+// `glyph.faceIndex = state.face->faceIndex`를 상수 0으로 바꿔도 스위트 전체가
+// 통과한다 — 폰트 collection을 쓰는 프로젝트에서는 그 회귀가 실패가 아니라
+// "그럴듯하게 다른 글리프"로 나타나므로, 진단도 없이 atlas(Milestone 6)와
+// 레이아웃(Milestone 7)까지 흘러간다.
+//
+// Task 5.1이 resolver 쪽에서 같은 벽을 만나 만든 collection 합성을 그대로 쓴다
+// (FontCollectionTestSupport.h). 이 corpus는 자기 자격 트리 사본을 따로 들고
+// 있다: 위 ShapingCorpus는 프로세스 하나에 하나뿐인 공유 상태라, 거기에 폰트를
+// 더 쓰고 다시 스캔하면 다른 케이스가 읽는 카탈로그가 이 케이스 때문에
+// 달라진다.
+constexpr const char* kCollectionFont = "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a";
+constexpr std::uint32_t kAuthoredCollectionFaceIndex = 1U;
+
+class CollectionFaceCorpus {
+public:
+    molga::text::VectorTextDiagnosticSink sink;
+
+    CollectionFaceCorpus()
+        : store_(std::make_shared<const molga::FontArtifactStore>(
+              molga::FontArtifactStore::ForProject(tree_.ProjectRoot()))),
+          repository_(database_),
+          resolver_(database_, repository_) {
+        test_support::AuthorTwoFaceCollectionFont(
+            tree_.AssetsRoot() / "fonts", "latin-collection.ttf",
+            "NotoSans-Regular.ttf", kCollectionFont,
+            kAuthoredCollectionFaceIndex);
+        std::string bindError;
+        REQUIRE_MESSAGE(database_.BindFontArtifactStore(store_, &bindError),
+                        bindError);
+        database_.ScanProject(tree_.AssetsRoot());
+        REQUIRE(database_.Find(std::string(kCollectionFont)) != nullptr);
+    }
+
+    // 카탈로그가 저작한 face index로 묶인 후보 하나. 1이라는 값은 이 테스트가
+    // 적어 넣는 것이 아니라 위 .meta에서 resolver를 거쳐 나오는 것이고,
+    // `resource`도 정말 그 face로 열린 자원이다.
+    ResolvedFace AuthoredFace() {
+        const auto built = resolver_.BuildLegacySingleFace(
+            kCollectionFont, {400, 100, molga::FontSlant::Upright}, sink);
+        REQUIRE(built);
+        REQUIRE(built->candidates.size() == 1U);
+        ResolvedFace face = built->candidates.front();
+        REQUIRE(face.resource != nullptr);
+        REQUIRE(face.resource->rasterFace != nullptr);
+        return face;
+    }
+
+private:
+    QualificationAssetTreeFixture tree_;
+    molga::AssetDatabase database_;
+    std::shared_ptr<const molga::FontArtifactStore> store_;
+    molga::text::FontRepository repository_;
+    molga::text::FontFamilyResolver resolver_;
+};
+
 // ── Step 1l: the focused shaping observations ───────────────────────────────
 // 프로덕션 wrapper가 남긴 관찰을 item마다 모은다. 서비스는 호출마다 관찰을
 // 비우므로(선택 결과에는 영향이 없다), 여러 item을 셰이핑하는 픽스처는 호출
@@ -399,6 +458,15 @@ public:
     }
     void RestrictCandidatesToFont(const std::string& fontGuid) {
         RestrictCandidatesToFonts({fontGuid});
+    }
+
+    // 후보 목록을 통째로 갈아 끼운다. 커밋된 자격 트리 밖에서 묶인 face를
+    // 셰이핑에 넣는 유일한 경로다. 셰이퍼가 ResolvedFamily에서 읽는 것은
+    // candidates뿐이므로(TextShapingService.cpp), 나머지 필드를 그대로 두는
+    // 것이 관찰을 왜곡하지 않는다.
+    void UseCandidates(std::vector<ResolvedFace> candidates) {
+        REQUIRE_FALSE(candidates.empty());
+        family_.candidates = std::move(candidates);
     }
     void UseResolvedFamilyWithNoCandidates() { family_.candidates.clear(); }
 
@@ -1107,6 +1175,46 @@ TEST_CASE("shaped glyphs carry the style size, revision, offsets and HB flags") 
     // 플래그가 상수로 굳어 있으면 둘 중 하나는 관찰되지 않는다.
     CHECK(sawUnsafeToBreak);
     CHECK(sawSafeToBreak);
+}
+
+// 위 케이스가 관찰하는 face index는 0뿐이고, 자격 트리의 여섯 폰트가 전부 단일
+// face 파일이라 스위트의 다른 어떤 케이스도 그보다 나은 것을 보지 못한다. 그
+// 사이에서는 셰이퍼의 `glyph.faceIndex = state.face->faceIndex`를 상수 0으로
+// 바꿔도 전부 통과한다. 여기서만 face 둘짜리 collection을 저작해 그 복사를
+// 실제로 0 밖에서 관찰한다.
+//
+// 합성한 두 face는 같은 표 디렉터리를 가리키므로 glyph도 advance도 완전히
+// 같다. 즉 셰이핑 출력의 모양으로는 두 face를 구별할 수 없고, 이 케이스가 물을
+// 수 있는 것은 오직 "glyph가 들고 나온 face index가 카탈로그가 정한 그 값인가"
+// 하나뿐이다. 그래서 아래는 두 가지를 나눠 단언한다. 저작된 값이 정말 1로
+// 묶였다는 전제는 REQUIRE로, 셰이퍼가 그 값을 glyph마다 옮겼다는 계약은
+// glyph.faceIndex로. 앞의 전제가 없으면 뒤의 단언은 "0이 아닌 것을 보았다"를
+// 증명하지 못하고, 뒤의 단언 없이는 셰이퍼가 무엇을 했는지 알 수 없다.
+TEST_CASE("every shaped glyph carries the authored non-zero face index") {
+    CollectionFaceCorpus collection;
+    const ResolvedFace authored = collection.AuthoredFace();
+    REQUIRE(authored.faceIndex == kAuthoredCollectionFaceIndex);
+    REQUIRE(authored.resource->faceIndex == kAuthoredCollectionFaceIndex);
+
+    auto fixture = LoadTextFixture(u8"ffi", "en");
+    fixture.UseCandidates({authored});
+    const auto shaped = fixture.ShapeAllItems();
+    REQUIRE(shaped);
+    const std::vector<ShapedGlyph> glyphs = FlattenGlyphs(*shaped);
+    REQUIRE_FALSE(glyphs.empty());
+    for (const ShapedGlyph& glyph : glyphs) {
+        // 이 한 줄이 계약이다. 셰이퍼가 face index를 상수로 써 넣거나 후보의
+        // 값을 잃어버리면 스위트에서 여기만 실패한다.
+        CHECK(glyph.faceIndex == kAuthoredCollectionFaceIndex);
+        CHECK_FALSE(glyph.missing);
+        CHECK(glyph.fontGuid == std::string(kCollectionFont));
+        REQUIRE(glyph.faceResource != nullptr);
+        // 위 값이 우연히 맞은 것이 아님을 남긴다: glyph가 붙들고 있는 자원도,
+        // content address의 ":<faceIndex>" 절반도 같은 face를 가리킨다.
+        CHECK(glyph.faceResource->faceIndex == kAuthoredCollectionFaceIndex);
+        CHECK(glyph.fontRevision == glyph.faceResource->artifactSha256 + ":1");
+    }
+    CHECK_FALSE(HasDiagnostic(fixture.sink, TextDiagnosticCode::MissingGlyph));
 }
 
 // Step 1k의 전제. 모든 item이 같은 level과 같은 run을 가지면 그 케이스는 두
