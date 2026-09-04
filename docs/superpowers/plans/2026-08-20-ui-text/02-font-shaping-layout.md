@@ -1334,7 +1334,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
 - Consumes: `UnicodeTextBuffer`, `UnicodeAnalysis`, `ResolvedFamily`, immutable resources, and pinned HarfBuzz/ICU Unicode funcs.
 - Produces: `ShapeFeature`, `ShapeStyle`, `ShapeBoundaryFlags`, `ShapedGlyph`, `ShapedRun`, and `TextShapingService::ShapeAnalysisItem`.
 
-- [ ] **Step 1: Define the explicit one-face/script reference runs.** Add this test-only record and exact run table; no row contains a family or fallback selector:
+- [x] **Step 1: Define the explicit one-face/script reference runs.** Add this test-only record and exact run table; no row contains a family or fallback selector:
 
   ```cpp
   struct ExplicitReferenceRun {
@@ -1369,13 +1369,13 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   }
   ```
 
-- [ ] **Step 1a: Wire the exact shaping fixture paths.** Create ready target `test_text_shaping` through `molga_add_text_test`, whose Task 2.2 implementation already performs the idempotent normal dependency attach; define `MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"` and `MOLGA_TEXT_EXPECTED_SHAPING="${CMAKE_SOURCE_DIR}/tests/fixtures/text/expected/shaping.json"` after target creation. Create `test_text_shaping_not_ready` through generic `molga_add_test` with no text-session main, staged root, or initialization; link its test-access counter companion only there. Process isolation replaces every stop/restore/serial-lifecycle seam.
+- [x] **Step 1a: Wire the exact shaping fixture paths.** Create ready target `test_text_shaping` through `molga_add_text_test`, whose Task 2.2 implementation already performs the idempotent normal dependency attach; define `MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"` and `MOLGA_TEXT_EXPECTED_SHAPING="${CMAKE_SOURCE_DIR}/tests/fixtures/text/expected/shaping.json"` after target creation. Create `test_text_shaping_not_ready` through generic `molga_add_test` with no text-session main, staged root, or initialization; link its test-access counter companion only there. Process isolation replaces every stop/restore/serial-lifecycle seam.
 
-- [ ] **Step 1b: Build the direct one-face HarfBuzz handle path.** `DirectHarfBuzzSingleFaceRecord` reads only `run.facePath`, hashes those bytes, constructs `hb_blob_t`, `hb_face_t(run.faceIndex)`, `hb_font_t`, and `hb_buffer_t`, installs `hb_ot_font_set_funcs`, scale from `run.fontSize.Raw()`, `hb_icu_get_unicode_funcs()`, the row's direction/script/language, monotone-character clusters, and exactly the row's BOT/EOT flags. It never constructs `FontFamilyResolver`, calls coverage preflight, or examines another face.
+- [x] **Step 1b: Build the direct one-face HarfBuzz handle path.** `DirectHarfBuzzSingleFaceRecord` reads only `run.facePath`, hashes those bytes, constructs `hb_blob_t`, `hb_face_t(run.faceIndex)`, `hb_font_t`, and `hb_buffer_t`, installs `hb_ot_font_set_funcs`, scale from `run.fontSize.Raw()`, `hb_icu_get_unicode_funcs()`, the row's direction/script/language, monotone-character clusters, and exactly the row's BOT/EOT flags. It never constructs `FontFamilyResolver`, calls coverage preflight, or examines another face.
 
-- [ ] **Step 1c: Shape and serialize the direct record.** Feed exactly `run.utf8` through `hb_buffer_add_utf8`, convert each row feature without reordering, call `hb_shape`, and serialize ordered objects containing `{fontSha,faceIndex,glyphId,cluster,advanceX,advanceY,offsetX,offsetY}`. Destroy buffer, font, face, then blob on every exit through RAII.
+- [x] **Step 1c: Shape and serialize the direct record.** Feed exactly `run.utf8` through `hb_buffer_add_utf8`, convert each row feature without reordering, call `hb_shape`, and serialize ordered objects containing `{fontSha,faceIndex,glyphId,cluster,advanceX,advanceY,offsetX,offsetY}`. Destroy buffer, font, face, then blob on every exit through RAII.
 
-- [ ] **Step 1d: Add the failing production/direct parity test.**
+- [x] **Step 1d: Add the failing production/direct parity test.**
 
   ```cpp
   TEST_CASE("production shaper matches pinned HarfBuzz reference records") {
@@ -1392,7 +1392,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
 
   `ProductionSingleResolvedFaceRecord` passes a `ResolvedFamily` containing only the explicit locked face. It never calls production family/fallback selection.
 
-- [ ] **Step 1e: Add the failing grapheme-atomic fallback test.**
+- [x] **Step 1e: Add the failing grapheme-atomic fallback test.**
 
   ```cpp
   TEST_CASE("fallback never splits an extended grapheme") {
@@ -1404,7 +1404,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   }
   ```
 
-- [ ] **Step 1f: Add the failing resource-free missing-grapheme test.**
+- [x] **Step 1f: Add the failing resource-free missing-grapheme test.**
 
   ```cpp
   TEST_CASE("all-face failure emits one resource-free grapheme record") {
@@ -1428,7 +1428,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
 
   Grapheme fallback behavior is verified only by Steps 1e–1f, preventing the direct reference helper from duplicating production selection logic.
 
-- [ ] **Step 1g: Add the failing fresh-process not-ready HarfBuzz test.** Put this case in `test_text_shaping_not_ready.cpp`; its generic test main begins in `NeverInitialized`, and `BuildNotReadyShapingRequestWithoutHarfBuzz` constructs only immutable project-owned request/resource values:
+- [x] **Step 1g: Add the failing fresh-process not-ready HarfBuzz test.** Put this case in `test_text_shaping_not_ready.cpp`; its generic test main begins in `NeverInitialized`, and `BuildNotReadyShapingRequestWithoutHarfBuzz` constructs only immutable project-owned request/resource values:
 
   ```cpp
   TEST_CASE("shaper creates no HarfBuzz object before runtime ready") {
@@ -1445,7 +1445,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   or `u_cleanup`; failure occurs at the service ready gate before any HarfBuzz
   blob/face/font/buffer allocation, and process exit supplies isolation.
 
-- [ ] **Step 1h: Add the failing default-ignorable/variation-selector test.**
+- [x] **Step 1h: Add the failing default-ignorable/variation-selector test.**
 
   ```cpp
   TEST_CASE("join controls and supported variation selectors do not force fallback") {
@@ -1466,7 +1466,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   }
   ```
 
-- [ ] **Step 1i: Add the failing target-only-notdef/context-reshape test.**
+- [x] **Step 1i: Add the failing target-only-notdef/context-reshape test.**
 
   ```cpp
   TEST_CASE("surrounding notdef does not reject target and selection reshapes context") {
@@ -1484,7 +1484,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   }
   ```
 
-- [ ] **Step 1j: Add the failing invalid-byte cluster test.**
+- [x] **Step 1j: Add the failing invalid-byte cluster test.**
 
   ```cpp
   TEST_CASE("sanitized replacement glyph clusters remain original byte starts") {
@@ -1498,7 +1498,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   }
   ```
 
-- [ ] **Step 1k: Add the failing exact-level/logical-run propagation test.**
+- [x] **Step 1k: Add the failing exact-level/logical-run propagation test.**
 
   ```cpp
   TEST_CASE("every shaped glyph retains its exact analysis level and run") {
@@ -1513,19 +1513,19 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   }
   ```
 
-- [ ] **Step 1l: Implement focused shaping test counters.** Count cmap requirements only at preflight, record each probe `.notdef` source range, and count the post-selection complete-context shape separately from candidate probes. `AllClustersAreDecodedScalarByteStarts` compares output clusters only with `DecodedScalar::sourceBytes.begin`; `AnyClusterIsUtf16OnlyOffset` reports an offset that is a UTF-16 boundary but not an original scalar byte start. Test instrumentation observes the production wrappers without changing selection results.
+- [x] **Step 1l: Implement focused shaping test counters.** Count cmap requirements only at preflight, record each probe `.notdef` source range, and count the post-selection complete-context shape separately from candidate probes. `AllClustersAreDecodedScalarByteStarts` compares output clusters only with `DecodedScalar::sourceBytes.begin`; `AnyClusterIsUtf16OnlyOffset` reports an offset that is a UTF-16 boundary but not an original scalar byte start. Test instrumentation observes the production wrappers without changing selection results.
 
-- [ ] **Step 1m: Add the failing maximal-fallback-span test.** Use a primary Latin-only candidate followed by the locked Arabic fallback and shape `u8"لا"`; both adjacent graphemes select the same fallback face. Require `FinalSelectedSpanCount()==1`, `FinalShapeCallsForSelectedSpan()==1`, output equals a direct one-face Arabic reference with the same BOT/EOT/style, and emitted original byte/grapheme ranges form one exact nonoverlapping cover with no duplicate or dropped glyph record.
+- [x] **Step 1m: Add the failing maximal-fallback-span test.** Use a primary Latin-only candidate followed by the locked Arabic fallback and shape `u8"لا"`; both adjacent graphemes select the same fallback face. Require `FinalSelectedSpanCount()==1`, `FinalShapeCallsForSelectedSpan()==1`, output equals a direct one-face Arabic reference with the same BOT/EOT/style, and emitted original byte/grapheme ranges form one exact nonoverlapping cover with no duplicate or dropped glyph record.
 
-- [ ] **Step 1n: Add the failing adjusted-GDEF-caret test.** Shape locked Latin `u8"ffi"` with `liga=1`, query the same pinned face directly through `hb_ot_layout_get_ligature_carets`, and require the ligature glyph's stored `adjustedGdefCaretOffsets` exactly equal the direct adjusted/scaled raw positions in returned order. A face/glyph with no GDEF carets stores an empty vector, not synthesized positions.
+- [x] **Step 1n: Add the failing adjusted-GDEF-caret test.** Shape locked Latin `u8"ffi"` with `liga=1`, query the same pinned face directly through `hb_ot_layout_get_ligature_carets`, and require the ligature glyph's stored `adjustedGdefCaretOffsets` exactly equal the direct adjusted/scaled raw positions in returned order. A face/glyph with no GDEF carets stores an empty vector, not synthesized positions.
 
-- [ ] **Step 2: Run the shaping red gate.**
+- [x] **Step 2: Run the shaping red gate.**
 
   Run: `cmake --build --preset debug --target test_text_shaping -j`
 
   Expected: compile FAIL because `TextShapingService` and shaped output types do not exist.
 
-- [ ] **Step 3: Add exact shaping input records.**
+- [x] **Step 3: Add exact shaping input records.**
 
   ```cpp
   struct ShapeFeature {
@@ -1546,7 +1546,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   struct ShapeBoundaryFlags { bool beginningOfText = false; bool endOfText = false; };
   ```
 
-- [ ] **Step 3a: Add the exact owned glyph record.**
+- [x] **Step 3a: Add the exact owned glyph record.**
 
   ```cpp
   struct ShapedGlyph {
@@ -1574,7 +1574,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   layout and rendering never infer it from advances, bitmap bounds, or affine
   scale.
 
-- [ ] **Step 3b: Add the run and service declarations.**
+- [x] **Step 3b: Add the run and service declarations.**
 
   ```cpp
   struct ShapedRun {
@@ -1590,45 +1590,45 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   };
   ```
 
-- [ ] **Step 4: Enforce the shaper ready gate.** Before creating a blob, face, font, or buffer, require `TextRuntimeDependencies::Get().IsReady()`; otherwise emit one `DependencyInvalid` and return `nullopt`.
+- [x] **Step 4: Enforce the shaper ready gate.** Before creating a blob, face, font, or buffer, require `TextRuntimeDependencies::Get().IsReady()`; otherwise emit one `DependencyInvalid` and return `nullopt`.
 
-- [ ] **Step 4a: Implement resource-owned HarfBuzz handles.** Create blob/face/font directly from `ResolvedFace::resource->bytes` and exact face index, keep a `FontFaceResourcePtr` beside the handles until destruction, and never reopen a path or GUID.
+- [x] **Step 4a: Implement resource-owned HarfBuzz handles.** Create blob/face/font directly from `ResolvedFace::resource->bytes` and exact face index, keep a `FontFaceResourcePtr` beside the handles until destruction, and never reopen a path or GUID.
 
-- [ ] **Step 5: Map the project cluster policy privately.** Only `TextShapingService.cpp` includes/mentions `hb_buffer_cluster_level_t` or `HB_BUFFER_CLUSTER_LEVEL_*`. Add a closed `ToHarfBuzzClusterLevel(TextClusterPolicy)` switch mapping `MonotoneCharacters` to `HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS`; an invalid enum value emits `LayoutInvalid` and returns before shaping.
+- [x] **Step 5: Map the project cluster policy privately.** Only `TextShapingService.cpp` includes/mentions `hb_buffer_cluster_level_t` or `HB_BUFFER_CLUSTER_LEVEL_*`. Add a closed `ToHarfBuzzClusterLevel(TextClusterPolicy)` switch mapping `MonotoneCharacters` to `HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS`; an invalid enum value emits `LayoutInvalid` and returns before shaping.
 
-- [ ] **Step 5a: Configure HarfBuzz Unicode/context fields.** Assign `hb_icu_get_unicode_funcs()`, explicit direction, script, language, font size, the privately mapped cluster level, and exact BOT/EOT flags before shaping.
+- [x] **Step 5a: Configure HarfBuzz Unicode/context fields.** Assign `hb_icu_get_unicode_funcs()`, explicit direction, script, language, font size, the privately mapped cluster level, and exact BOT/EOT flags before shaping.
 
-- [ ] **Step 5b: Feed sanitized ranges with real surrounding context.** Build one `std::vector<hb_codepoint_t>` for the complete sanitized `AnalysisItem`, call `hb_buffer_add_codepoints(buffer, values.data(), values.size(), targetScalarBegin, targetScalarCount)`, then fetch the still-unshaped input infos and replace each public `cluster` with its target scalar's `sourceBytes.begin`. Require input-info count equals `targetScalarCount`; never feed ill-formed original bytes, a UTF-16 offset, or a sanitized-array index as the final cluster.
+- [x] **Step 5b: Feed sanitized ranges with real surrounding context.** Build one `std::vector<hb_codepoint_t>` for the complete sanitized `AnalysisItem`, call `hb_buffer_add_codepoints(buffer, values.data(), values.size(), targetScalarBegin, targetScalarCount)`, then fetch the still-unshaped input infos and replace each public `cluster` with its target scalar's `sourceBytes.begin`. Require input-info count equals `targetScalarCount`; never feed ill-formed original bytes, a UTF-16 offset, or a sanitized-array index as the final cluster.
 
-- [ ] **Step 5c: Apply ordered source-range features.** Convert each `ShapeFeature` tag/value and original-byte start/end to one ordered `hb_feature_t`; retain exact overlap/order instead of normalizing feature ranges.
+- [x] **Step 5c: Apply ordered source-range features.** Convert each `ShapeFeature` tag/value and original-byte start/end to one ordered `hb_feature_t`; retain exact overlap/order instead of normalizing feature ranges.
 
-- [ ] **Step 6: Convert HarfBuzz output to owned records.** Copy glyph ID, 26.6 advances/offsets, source byte/grapheme range, exact level/logical run, `hb_glyph_info_get_glyph_flags(info)`, and the same `FontFaceResourcePtr` into each `ShapedGlyph`. Layout treats `HB_GLYPH_FLAG_UNSAFE_TO_BREAK` as an authoritative prohibited boundary.
+- [x] **Step 6: Convert HarfBuzz output to owned records.** Copy glyph ID, 26.6 advances/offsets, source byte/grapheme range, exact level/logical run, `hb_glyph_info_get_glyph_flags(info)`, and the same `FontFaceResourcePtr` into each `ShapedGlyph`. Layout treats `HB_GLYPH_FLAG_UNSAFE_TO_BREAK` as an authoritative prohibited boundary.
 
-- [ ] **Step 6a: Capture final adjusted GDEF carets.** For every glyph from a final selected-span shape, use that exact scaled `hb_font_t`, final direction, and glyph ID in the two-call `hb_ot_layout_get_ligature_carets` count/fill protocol. Checked-convert each returned `hb_position_t` directly to `Fixed26_6`, preserve HarfBuzz order, and store it in `adjustedGdefCaretOffsets`; allocation/status/count inconsistency is `LayoutInvalid`, while a valid zero count stores an empty vector.
+- [x] **Step 6a: Capture final adjusted GDEF carets.** For every glyph from a final selected-span shape, use that exact scaled `hb_font_t`, final direction, and glyph ID in the two-call `hb_ot_layout_get_ligature_carets` count/fill protocol. Checked-convert each returned `hb_position_t` directly to `Fixed26_6`, preserve HarfBuzz order, and store it in `adjustedGdefCaretOffsets`; allocation/status/count inconsistency is `LayoutInvalid`, while a valid zero count stores an empty vector.
 
-- [ ] **Step 7: Implement coverage preflight.** Require candidate coverage for each grapheme's essential scalars; exempt join controls/ZWJ/default ignorables and accept a variation selector only through explicit UVS mapping or documented default presentation.
+- [x] **Step 7: Implement coverage preflight.** Require candidate coverage for each grapheme's essential scalars; exempt join controls/ZWJ/default ignorables and accept a variation selector only through explicit UVS mapping or documented default presentation.
 
-- [ ] **Step 7a: Make variation decisions deterministic.** Inspect the selected face's cmap format-14 default and non-default UVS records from its immutable bytes. Accept `(base,selector)` only when the pair has an explicit/default UVS record or the selector requests the Unicode-defined default presentation of the covered base; never require a standalone selector glyph or consult a host font.
+- [x] **Step 7a: Make variation decisions deterministic.** Inspect the selected face's cmap format-14 default and non-default UVS records from its immutable bytes. Accept `(base,selector)` only when the pair has an explicit/default UVS record or the selector requests the Unicode-defined default presentation of the covered base; never require a standalone selector glyph or consult a host font.
 
-- [ ] **Step 8: Implement target-scoped probe shaping.** Shape the complete `AnalysisItem` for each candidate and reject it only when a `.notdef` output source range intersects the target grapheme; surrounding-context `.notdef` does not reject the target face.
+- [x] **Step 8: Implement target-scoped probe shaping.** Shape the complete `AnalysisItem` for each candidate and reject it only when a `.notdef` output source range intersects the target grapheme; surrounding-context `.notdef` does not reject the target face.
 
-- [ ] **Step 9: Finish face selection before final shaping.** Run coverage/probe selection for every grapheme and record `{grapheme/source range, immutable face identity or missing, exact level,script,direction,language,ShapeStyle}` without emitting final glyphs. Candidate probes are not final output and may not populate the shape cache.
+- [x] **Step 9: Finish face selection before final shaping.** Run coverage/probe selection for every grapheme and record `{grapheme/source range, immutable face identity or missing, exact level,script,direction,language,ShapeStyle}` without emitting final glyphs. Candidate probes are not final output and may not populate the shape cache.
 
-- [ ] **Step 9a: Coalesce maximal selected spans.** In one logical pass, merge adjacent selected graphemes iff face resource identity, face index/revision, exact level, script, direction, language, font size, cluster policy, and ordered features are equal and no paragraph/isolate/control boundary lies between them. Preserve a missing grapheme as its own procedural record; derive BOT/EOT from each final span's real text endpoints and do not reorder spans into visual order here.
+- [x] **Step 9a: Coalesce maximal selected spans.** In one logical pass, merge adjacent selected graphemes iff face resource identity, face index/revision, exact level, script, direction, language, font size, cluster policy, and ordered features are equal and no paragraph/isolate/control boundary lies between them. Preserve a missing grapheme as its own procedural record; derive BOT/EOT from each final span's real text endpoints and do not reorder spans into visual order here.
 
-- [ ] **Step 9b: Build sanitized final-span context.** For each nonmissing span, slice the containing `AnalysisItem` at paragraph/isolate/control boundaries into one full sanitized codepoint array and derive the span's scalar offset/count inside it. Invoke the exact Step 5b `hb_buffer_add_codepoints(fullArray,fullCount,spanOffset,spanCount)` path so pinned HarfBuzz retains sanitized pre/post context, then rewrite input clusters to original UTF-8 byte starts before `hb_shape`; do not call nonexistent pre/post-context setters or feed ill-formed original bytes.
+- [x] **Step 9b: Build sanitized final-span context.** For each nonmissing span, slice the containing `AnalysisItem` at paragraph/isolate/control boundaries into one full sanitized codepoint array and derive the span's scalar offset/count inside it. Invoke the exact Step 5b `hb_buffer_add_codepoints(fullArray,fullCount,spanOffset,spanCount)` path so pinned HarfBuzz retains sanitized pre/post context, then rewrite input clusters to original UTF-8 byte starts before `hb_shape`; do not call nonexistent pre/post-context setters or feed ill-formed original bytes.
 
-- [ ] **Step 9c: Shape each final span exactly once.** Call `hb_shape` once for each coalesced nonmissing span, increment the final-span counter at that call site, and copy each returned info/position record once; candidate probe results are never copied into final output.
+- [x] **Step 9c: Shape each final span exactly once.** Call `hb_shape` once for each coalesced nonmissing span, increment the final-span counter at that call site, and copy each returned info/position record once; candidate probe results are never copied into final output.
 
-- [ ] **Step 9d: Restore original ranges for final glyphs.** Resolve each final HarfBuzz cluster extent through `UnicodeTextBuffer` into exact original source-byte and grapheme ranges, rejecting a non-scalar-start cluster or range outside its selected span with `LayoutInvalid`.
+- [x] **Step 9d: Restore original ranges for final glyphs.** Resolve each final HarfBuzz cluster extent through `UnicodeTextBuffer` into exact original source-byte and grapheme ranges, rejecting a non-scalar-start cluster or range outside its selected span with `LayoutInvalid`.
 
-- [ ] **Step 9e: Validate the selected/output partitions.** Before return, require selected grapheme spans to form a gap-free nonoverlapping cover of the `AnalysisItem`; require every nonmissing output record to belong to exactly one span and prohibit duplicate source/glyph records. Emit one `LayoutInvalid` and return `nullopt` on the first invariant failure.
+- [x] **Step 9e: Validate the selected/output partitions.** Before return, require selected grapheme spans to form a gap-free nonoverlapping cover of the `AnalysisItem`; require every nonmissing output record to belong to exactly one span and prohibit duplicate source/glyph records. Emit one `LayoutInvalid` and return `nullopt` on the first invariant failure.
 
-- [ ] **Step 10: Emit deterministic missing glyphs.** After all candidates fail, output one `missing=true` record covering the complete grapheme with `advanceX == style.fontSize` (exact `1 em`), null `faceResource`, and `MissingGlyph`; no ASCII/system-font call is permitted.
+- [x] **Step 10: Emit deterministic missing glyphs.** After all candidates fail, output one `missing=true` record covering the complete grapheme with `advanceX == style.fontSize` (exact `1 em`), null `faceResource`, and `MissingGlyph`; no ASCII/system-font call is permitted.
 
-- [ ] **Step 11: Prove stb is raster-only.** Add a test counter/assertion around legacy `FontFace::Advance/Kerning` and require zero calls during every `TextShapingService` test.
+- [x] **Step 11: Prove stb is raster-only.** Add a test counter/assertion around legacy `FontFace::Advance/Kerning` and require zero calls during every `TextShapingService` test.
 
-- [ ] **Step 12: Review reference JSON and run sanitizer green gates.**
+- [x] **Step 12: Review reference JSON and run sanitizer green gates.**
 
   ```bash
   cmake --build --preset debug --target test_font_family test_text_shaping test_text_shaping_not_ready -j
@@ -1641,7 +1641,7 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
 
   Expected: Arabic/Indic contextual forms, adjacent same-fallback ligatures, Noto Sans `fi/ffi` plus adjusted GDEF carets, invalid UTF-8 clusters, exact levels, target-only `.notdef`, and reference bytes all pass.
 
-- [ ] **Step 13: Commit shaping.**
+- [x] **Step 13: Commit shaping.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Text/TextShapingService.* \
@@ -1652,6 +1652,70 @@ stack — identical behaviour, and a mechanical diff of Step 5 now matches.
   ```
 
 **Exit:** Every shaped record is content-bound, source-byte-addressable, and independent of OS font/shaper behavior.
+
+**Implementation record (2026-09-05).** Commits `f42d857` and `80bf0aa`. Debug suite **95/95** run
+alone; `test_text_shaping` 24 cases / 719 assertions; ASan and UBSan green; zero warnings on forced
+recompile. The heaviest review in the program so far — **11 blocking and 15 important findings** —
+all resolved or explicitly adjudicated below.
+
+**A shipped test seam was removed rather than documented.** The first cut added
+`detail::AssembleAnalysisWithoutIcu` to `molga_core`: an exported symbol that could mint a
+`UnicodeAnalysis` whose boundaries, items and identity were never cross-checked against each other
+or any buffer, protected only by a header comment. It was sharper than the precedent it cited —
+`ExchangeAnalysisGenerationState` merely renumbers generations — and crucially the repo's
+configure-time seam audit **could not police it**, because that audit counts occurrences of a
+wrapper `.cpp` in target source lists and this seam had none. Replaced with a friend class defined
+only in `test_text_shaping_not_ready.cpp`, so nothing ships. `UnicodeAnalysis.cpp` is untouched and
+`UnicodeAnalysis.h` gains one `friend` line, declared in the commit body.
+
+**A false claim in the implementer's report was caught by mechanical diff.** The report stated all
+verbatim blocks were byte-identical; Step 1e's had in fact gained a parameter so the helper could
+reach `DecodedScalar::sourceBytes.begin`. Resolved properly rather than by amending the plan: a
+one-argument overload forwards through a file-static, so the block is byte-identical *and* the
+stronger assertion is kept.
+
+**Blocking coverage holes, all now killed:** span coalescing could merge graphemes across different
+faces with the suite still green — grapheme-atomic fallback had no witness at all; `scalarBegin_`
+could be forced to 0 and whole spans vanish silently; coverage-range boundary comparisons could be
+made strict so endpoint characters became tofu; `ShapeStyle::fontSize` never reached HarfBuzz;
+`hb_icu_get_unicode_funcs()` need not be installed, so the design's hard constraint had no
+behavioural witness; ordered source-range features could be dropped or reversed; and nothing pinned
+the shaper's candidate iteration order, so a `fontGuid` sort passed everything.
+
+**One finding disputed with evidence rather than complied with.** Dropping the BOT/EOT per-span
+scoping is an *equivalent mutant* under pinned HarfBuzz 14.3.1: `HB_BUFFER_FLAG_BOT` affects shaping
+in exactly one place (`hb-ot-shape.cc:554`, dotted-circle insertion with no pre-context and a
+leading mark) and `HB_BUFFER_FLAG_EOT` is read only by `hb-buffer-verify.cc`. The observable half is
+now pinned by an Arabic case requiring production to match a direct reference with BOT and to differ
+without it; no assertion was manufactured for the unobservable half.
+
+**`faceIndex` was pinned by reusing Task 5.1's technique, not by declaring it impossible.** The
+landing agent judged the mutant `glyph.faceIndex = 0` unclosable because "the qualification tree has
+no TTC/multi-face file" — but Task 5.1 had already hit that wall and solved it. `80bf0aa` promotes
+that synthesis into a shared `tests/FontCollectionTestSupport.h` (Task 5.1's local copy deleted, its
+own case still green) and adds a case whose glyphs carry a non-zero authored face index, reached
+through the real chain: authored `.meta` → `BuildLegacySingleFace` → `ResolvedFace` → shaper.
+Because both synthesized faces share one table directory, glyph output cannot distinguish them, so
+the case pins the *input* as genuinely non-zero and catalog-derived with two `REQUIRE`s and the
+copy with a `CHECK`; the mutant fails exactly one assertion (`CHECK( 0 == 1 )`), proving nothing
+else covered it. The new corpus owns its own qualification-tree copy rather than extending the
+process-wide singleton other cases read.
+
+**Two residual gaps, both honest and narrow:**
+
+1. **Step 8's rejecting direction has no fixture that can exercise it.** The importer's
+   `CollectCoverage` was re-implemented and diffed against the real cmap mapping for all six fixture
+   fonts: **zero phantom coverage**, so no candidate can pass coverage and then emit a
+   target-intersecting `.notdef`. The vacuous-coverage route is closed too, since HarfBuzz hides
+   default-ignorables rather than `.notdef`-ing them. The two selection stages are now demonstrably
+   redundant rather than untested. Closing it properly needs a fixture font with phantom coverage —
+   a plan amendment, not code.
+2. **`state.face->faceIndex` versus `state.face->resource->faceIndex`** cannot be distinguished:
+   `BindCandidate` loads the resource *at* that index, so they are equal by construction.
+
+**Handoff for Milestone 7:** `harfbuzzGlyphFlags` is undocumented and Step 6's `UNSAFE_TO_BREAK`
+rule is recorded nowhere layout will look for it. Task 7.2 re-shapes every authoritative final line
+and must not break a cluster HarfBuzz marked unsafe.
 
 ---
 
