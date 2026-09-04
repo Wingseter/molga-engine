@@ -563,7 +563,7 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
 - Consumes: `FontAsset`, generic importer metadata, authored JSON order.
 - Produces: `FontFamilyFaceEntry`, schema-1 `FontFamilyAsset`, and `FontFamilyImporter`.
 
-- [ ] **Step 1: Add a failing ordered-family round-trip test.**
+- [x] **Step 1: Add a failing ordered-family round-trip test.**
 
   ```cpp
   TEST_CASE("font family preserves authored face fallback and unknown-field order") {
@@ -602,11 +602,12 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
       CHECK(family->fallbackFamilyGuids ==
             std::vector<std::string>{std::string(kArabicGuid),
                                      std::string(kCjkGuid)});
+      REQUIRE(result.metadata.contains("unknownAuthoringField"));
       CHECK(result.metadata["unknownAuthoringField"] == "preserved");
   }
   ```
 
-- [ ] **Step 1a: Add the failing sidecar-authority test.**
+- [x] **Step 1a: Add the failing sidecar-authority test.**
 
   ```cpp
   TEST_CASE("font family source cannot override sidecar GUID authority") {
@@ -619,7 +620,7 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
   }
   ```
 
-- [ ] **Step 1b: Add the failing clean-checkout qualification-tree test.**
+- [x] **Step 1b: Add the failing clean-checkout qualification-tree test.**
 
   ```cpp
   TEST_CASE("qualification asset tree rescans six fonts and two licenses") {
@@ -649,13 +650,13 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
   }
   ```
 
-- [ ] **Step 2: Run the family-import red gate.**
+- [x] **Step 2: Run the family-import red gate.**
 
   Run: `cmake --build --preset debug --target test_font_assets -j`
 
   Expected: compile FAIL because `FontFamilyAsset` and its importer do not exist.
 
-- [ ] **Step 3: Add the exact authored family models.**
+- [x] **Step 3: Add the exact authored family models.**
 
   ```cpp
   struct FontFamilyFaceEntry {
@@ -679,17 +680,17 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
 
   `FromRecord` sets `guid = record.guid` after validating it as 32 hexadecimal characters; no source/importer metadata field may replace it.
 
-- [ ] **Step 4: Parse ordered `.fontfamily` arrays.** Copy face/fallback arrays in source order and assign each face its source array index as `authoredFaceIndex`.
+- [x] **Step 4: Parse ordered `.fontfamily` arrays.** Copy face/fallback arrays in source order and assign each face its source array index as `authoredFaceIndex`.
 
-- [ ] **Step 4a: Preserve extension fields but reserve identity.** Retain unknown top-level fields in importer metadata. Reserve and reject source-level `guid`; `FontFamilyAsset::guid` always comes from `AssetRecord::guid`/the sidecar and importer metadata never treats embedded identity as authoritative.
+- [x] **Step 4a: Preserve extension fields but reserve identity.** Retain unknown top-level fields in importer metadata. Reserve and reject source-level `guid`; `FontFamilyAsset::guid` always comes from `AssetRecord::guid`/the sidecar and importer metadata never treats embedded identity as authoritative.
 
-- [ ] **Step 4b: Commit the exact primary family source.** Write this JSON value with no source-level `guid` (canonical serializer whitespace is allowed):
+- [x] **Step 4b: Commit the exact primary family source.** Write this JSON value with no source-level `guid` (canonical serializer whitespace is allowed):
 
   | Source | Exact JSON value |
   |---|---|
   | `primary.fontfamily` | `{"schemaVersion":1,"faces":[{"fontGuid":"44444444444444444444444444444444","faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright"},{"fontGuid":"55555555555555555555555555555555","faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright"},{"fontGuid":"12121212121212121212121212121212","faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright"},{"fontGuid":"13131313131313131313131313131313","faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright"}],"fallbackFamilyGuids":["22222222222222222222222222222222","33333333333333333333333333333333"],"unknownAuthoringField":"preserved"}` |
 
-- [ ] **Step 4c: Commit the exact fallback/cycle family sources.** Write these four JSON values with no source-level `guid` (canonical serializer whitespace is allowed):
+- [x] **Step 4c: Commit the exact fallback/cycle family sources.** Write these four JSON values with no source-level `guid` (canonical serializer whitespace is allowed):
 
   | Source | Exact JSON value |
   |---|---|
@@ -698,7 +699,7 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
   | `cycle-a.fontfamily` | `{"schemaVersion":1,"faces":[],"fallbackFamilyGuids":["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]}` |
   | `cycle-b.fontfamily` | `{"schemaVersion":1,"faces":[],"fallbackFamilyGuids":["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}` |
 
-- [ ] **Step 4d: Commit canonical family sidecars.** Write these exact sidecar objects (canonical serializer whitespace is allowed):
+- [x] **Step 4d: Commit canonical family sidecars.** Write these exact sidecar objects (canonical serializer whitespace is allowed):
 
   | Sidecar | Exact JSON value |
   |---|---|
@@ -708,29 +709,29 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
   | `cycle-a.fontfamily.meta` | `{"guid":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","importer":"FontFamilyImporter","importerVersion":1,"settings":{}}` |
   | `cycle-b.fontfamily.meta` | `{"guid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","importer":"FontFamilyImporter","importerVersion":1,"settings":{}}` |
 
-- [ ] **Step 4e: Commit the Latin/Hebrew Noto Fonts sidecars.** Write these exact objects (canonical serializer whitespace is allowed):
+- [x] **Step 4e: Commit the Latin/Hebrew Noto Fonts sidecars.** Write these exact objects (canonical serializer whitespace is allowed):
 
   | Sidecar | Exact JSON value |
   |---|---|
   | `NotoSans-Regular.ttf.meta` | `{"guid":"44444444444444444444444444444444","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto Fonts ffebf8c1","licenseAssetGuid":"88888888888888888888888888888888"}}` |
   | `NotoSansHebrew-Regular.ttf.meta` | `{"guid":"55555555555555555555555555555555","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto Fonts ffebf8c1","licenseAssetGuid":"88888888888888888888888888888888"}}` |
 
-- [ ] **Step 4f: Commit the Arabic Noto Fonts sidecar.** Write `tests/fixtures/text/fonts/NotoSansArabic-Regular.ttf.meta` as `{"guid":"66666666666666666666666666666666","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto Fonts ffebf8c1","licenseAssetGuid":"88888888888888888888888888888888"}}` modulo canonical serializer whitespace.
+- [x] **Step 4f: Commit the Arabic Noto Fonts sidecar.** Write `tests/fixtures/text/fonts/NotoSansArabic-Regular.ttf.meta` as `{"guid":"66666666666666666666666666666666","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto Fonts ffebf8c1","licenseAssetGuid":"88888888888888888888888888888888"}}` modulo canonical serializer whitespace.
 
-- [ ] **Step 4g: Commit the Indic Noto Fonts sidecars.** Write these exact objects (canonical serializer whitespace is allowed):
+- [x] **Step 4g: Commit the Indic Noto Fonts sidecars.** Write these exact objects (canonical serializer whitespace is allowed):
 
   | Sidecar | Exact JSON value |
   |---|---|
   | `NotoSansDevanagari-Regular.ttf.meta` | `{"guid":"12121212121212121212121212121212","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto Fonts ffebf8c1","licenseAssetGuid":"88888888888888888888888888888888"}}` |
   | `NotoSansThai-Regular.ttf.meta` | `{"guid":"13131313131313131313131313131313","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto Fonts ffebf8c1","licenseAssetGuid":"88888888888888888888888888888888"}}` |
 
-- [ ] **Step 4h: Commit the Noto CJK sidecar.** Write `tests/fixtures/text/fonts/NotoSansKR-Regular.otf.meta` as `{"guid":"77777777777777777777777777777777","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto CJK 523d033d","licenseAssetGuid":"99999999999999999999999999999999"}}` modulo canonical serializer whitespace.
+- [x] **Step 4h: Commit the Noto CJK sidecar.** Write `tests/fixtures/text/fonts/NotoSansKR-Regular.otf.meta` as `{"guid":"77777777777777777777777777777777","importer":"FontImporter","importerVersion":2,"settings":{"faceIndex":0,"weight":400,"stretchPercent":100,"slant":"Upright","redistributableConfirmed":true,"licenseKind":"OFL-1.1","copyright":"fixture provenance: Noto CJK 523d033d","licenseAssetGuid":"99999999999999999999999999999999"}}` modulo canonical serializer whitespace.
 
-- [ ] **Step 4i: Commit both license sidecars.** Write `NotoFonts-ffebf8c1-OFL.txt.meta` as `{"guid":"88888888888888888888888888888888","importer":"GenericImporter","importerVersion":1,"settings":{}}` and `NotoCJK-Sans2.004-OFL.txt.meta` as `{"guid":"99999999999999999999999999999999","importer":"GenericImporter","importerVersion":1,"settings":{}}`, beside the locked license bytes.
+- [x] **Step 4i: Commit both license sidecars.** Write `NotoFonts-ffebf8c1-OFL.txt.meta` as `{"guid":"88888888888888888888888888888888","importer":"GenericImporter","importerVersion":1,"settings":{}}` and `NotoCJK-Sans2.004-OFL.txt.meta` as `{"guid":"99999999999999999999999999999999","importer":"GenericImporter","importerVersion":1,"settings":{}}`, beside the locked license bytes.
 
-- [ ] **Step 5: Validate local family fields.** Require integer `schemaVersion == 1`, sidecar-valid 32-hex face/fallback GUID strings, face index, weight/stretch/slant ranges and array value types. Reject a missing/unknown `schemaVersion`, legacy `schema`, and source `guid`, but do not resolve cross-asset GUIDs or cycles in the importer.
+- [x] **Step 5: Validate local family fields.** Require integer `schemaVersion == 1`, sidecar-valid 32-hex face/fallback GUID strings, face index, weight/stretch/slant ranges and array value types. Reject a missing/unknown `schemaVersion`, legacy `schema`, and source `guid`, but do not resolve cross-asset GUIDs or cycles in the importer.
 
-- [ ] **Step 5a: Implement the qualification-tree source list.** In `tests/TextQualificationAssetTree.h`, include `<array>`, `<filesystem>`, `<stdexcept>`, `<string>`, `<string_view>`, and define this exact source-relative list; a source and its adjacent `.meta` are always copied as one pair:
+- [x] **Step 5a: Implement the qualification-tree source list.** In `tests/TextQualificationAssetTree.h`, include `<array>`, `<filesystem>`, `<stdexcept>`, `<string>`, `<string_view>`, and define this exact source-relative list; a source and its adjacent `.meta` are always copied as one pair:
 
   ```cpp
   constexpr std::array<std::string_view, 13> kQualificationSources{
@@ -750,7 +751,7 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
   };
   ```
 
-- [ ] **Step 5b: Implement the qualification-tree copier.** Include `SmokeTestSupport.h`, then add this fixture in the same header; it copies bytes only and never generates sidecar JSON:
+- [x] **Step 5b: Implement the qualification-tree copier.** Include `SmokeTestSupport.h`, then add this fixture in the same header; it copies bytes only and never generates sidecar JSON:
 
   ```cpp
   class QualificationAssetTreeFixture {
@@ -788,15 +789,15 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
   };
   ```
 
-- [ ] **Step 6: Register family import and fixture paths.** Map only `.fontfamily` to `FontFamilyImporter`, keep generic `AssetRecord.hash` as a non-security cache field, and define `MOLGA_TEXT_PRIMARY_FAMILY`, `MOLGA_TEXT_FAMILY_FIXTURE_ROOT`, and `MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT` on `test_font_assets` as exact `${CMAKE_SOURCE_DIR}/tests/fixtures/text/families/primary.fontfamily`, `${CMAKE_SOURCE_DIR}/tests/fixtures/text/families`, and `${CMAKE_SOURCE_DIR}/tests/fixtures/text` paths respectively.
+- [x] **Step 6: Register family import and fixture paths.** Map only `.fontfamily` to `FontFamilyImporter`, keep generic `AssetRecord.hash` as a non-security cache field, and define `MOLGA_TEXT_PRIMARY_FAMILY`, `MOLGA_TEXT_FAMILY_FIXTURE_ROOT`, and `MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT` on `test_font_assets` as exact `${CMAKE_SOURCE_DIR}/tests/fixtures/text/families/primary.fontfamily`, `${CMAKE_SOURCE_DIR}/tests/fixtures/text/families`, and `${CMAKE_SOURCE_DIR}/tests/fixtures/text` paths respectively.
 
-- [ ] **Step 7: Run the family green gate.**
+- [x] **Step 7: Run the family green gate.**
 
   Run: `cmake --build --preset debug --target test_font_assets test_importer -j && ctest --test-dir build/debug -R '^(test_font_assets|test_importer)$' --output-on-failure`
 
   Expected: PASS; valid authored order round-trips, malformed fields emit `FontFamilyInvalid`, and cycle fixtures import because graph validation belongs to Task 5.1.
 
-- [ ] **Step 8: Commit family authoring.**
+- [x] **Step 8: Commit family authoring.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Assets/FontFamilyAsset.* \
@@ -809,6 +810,60 @@ mentions the seam. Now owned by an amendment under Task 15.4 in
   ```
 
 **Exit:** Authored family order is stable and reviewable without prematurely accepting broken graph references.
+
+**Implementation record (2026-09-05).** Commit `8bbce41`. Debug suite 92/92 run alone. Audit passed
+after both blocking findings were fixed and re-killed by the mutations that had exposed them.
+
+**Two blocking coverage holes, both in exactly the contract this task exists to establish:**
+
+- **Fallback family order was not actually pinned.** Three separate ordering mutations survived,
+  including *sorting the fallback list by GUID*. Since Milestone 5's deterministic candidate
+  resolution consumes this ordering, a silent re-sort here would have produced plausible,
+  wrong fallback everywhere downstream. The new case authors a deliberately non-lexicographic list
+  and asserts the metadata directly — a single-application witness, so an involutive defect such as
+  a reverse cannot cancel itself across a round trip.
+- **Every numeric range endpoint was untested.** The rejection table probed only *outside* each
+  range, so both inclusive boundaries could be moved without detection. Now weight 1/1000, stretch
+  50/200 and faceIndex 0/65535 are accepted and round-tripped.
+
+Also pinned: per-face unknown authored fields (preserved by code and by comment, tested by nothing),
+and the 4 MiB source cap, which was invisible to removal.
+
+**Found while verifying, reported by no lens:** this test executable lacks doctest's
+`TREAT_CHAR_STAR_AS_STRING`, so every `const char*` table label printed as a pointer address — a
+failure in a 30-row table named no row. Routed through a `Label()` helper.
+
+**Approved deviation — `.gitignore`.** Line 114 carries a blanket `*.meta` from the Visual Studio
+boilerplate, and no `.meta` was tracked anywhere in the repo. All 18 fixture sidecars this task adds
+were ignored. Reproduced both failure shapes: the glob form of Step 8's `git add` aborts with
+`pathspec did not match any files`, and the directory form exits 0 while **silently staging nothing**
+— after which a clean checkout fails Step 1b with `missing fixture pair member` and `ScanProject`
+mints fresh GUIDs, breaking the pinned-GUID contract Milestone 5 depends on. Three negations scoped
+to the three fixture directories only. `.gitignore` belongs in Step 8's `git add` list.
+
+---
+
+#### AMENDMENT (2026-09-05): two items carried out of Task 4.2
+
+**1. `contentRevision` is a directory-enumeration ordinal.** `AssetDatabase.cpp:517/:561` assigns it
+from `recursive_directory_iterator` order. Task 4.1 already fixed the *worse* half of this — it was a
+process counter that never reset, so an unchanged project emitted a different catalog every build —
+but the value still depends on filesystem enumeration order, and this task's six-font tree is the
+first place that becomes load-bearing. It is serialised into `asset_catalog.json`, which **Task 17.4
+seals by hash** and **Task 18.2 proves byte-identical**. Nothing requires it to be monotonic:
+identity is carried by `artifactSha256`, and Task 5.1 keeps it out of `fontRevision`.
+**Owner: Task 17.4**, which must either make the value content-derived, or drop it from the sealed
+catalog, before sealing a hash over an enumeration-order artefact. **Task 5.1 Step 1c consumes this
+tree** and should not build ordering on the field.
+
+**2. A plan-verbatim block carried a process-abort hazard, and the block is amended above.**
+Step 1's `CHECK(result.metadata["unknownAuthoringField"] == "preserved")` reads a **const**
+`nlohmann::json` with `operator[]`, which aborts on a missing key. So if this contract ever broke,
+the failure mode was not one named assertion but a dead process taking eleven unrelated cases down
+as "skipped". The implementer correctly refused to edit a verbatim block on its own authority and
+escalated instead. Step 1's block now carries a `REQUIRE(... .contains(...))` guard ahead of the
+`CHECK`, matching the guarded form already used elsewhere in the same file; reviewers diffing this
+block mechanically should expect the guard.
 
 ---
 

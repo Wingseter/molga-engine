@@ -1596,6 +1596,11 @@ TEST_CASE("font family preserves authored face fallback and unknown-field order"
     CHECK(family->fallbackFamilyGuids ==
           std::vector<std::string>{std::string(kArabicGuid),
                                    std::string(kCjkGuid)});
+    // const json의 operator[]는 없는 key에 대해 abort한다. 가드 없이 두면
+    // 이 계약이 깨졌을 때 assertion 하나가 실패하는 대신 프로세스가 죽어
+    // 무관한 케이스 11개까지 skipped로 끌고 내려간다. 계획서 blocks의
+    // 2026-09-05 amendment로 이 한 줄이 추가되었다.
+    REQUIRE(result.metadata.contains("unknownAuthoringField"));
     CHECK(result.metadata["unknownAuthoringField"] == "preserved");
 }
 
