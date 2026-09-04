@@ -1356,6 +1356,34 @@ This subplan is complete only when the focused tests, `editor_smoke`, and full D
   git commit -m "feat: add UI text authoring discovery"
   ```
 
+#### AMENDMENT (2026-09-04) — inherited from Task 4.1: close the unauthored-font legacy branch
+
+Task 4.1's review found a seam whose closer was named in a code comment but in no plan step. A
+`.meta` carrying **no v2 font settings** takes the legacy import branch, so a font that the strict
+path would reject imports with `importFailed = 0`, zero diagnostics, and no artifact — and then
+passes `GameBuilder.cpp:269`, `runtime_main.cpp:298`, `AssetDependencyValidator` and
+`EditorPropertyDescriptor`. In other words it ships. Milestones 5–8 stay closed only because
+`FontAsset::FromRecord` refuses such a record, so nothing renders from it.
+
+The behaviour is deliberate, tested and commented at `src/Core/Importers/FontImporter.cpp:470`,
+which names "Task 8.2/15.2" as the closers. A grep of all 65 task files found **neither task
+mentions it**, so the handoff existed only in a source comment. That is what this amendment fixes.
+
+**Owner: Task 15.4**, because closing the branch *is* a legacy migration: it must convert
+unauthored font `.meta` files to authored v2 settings, and the conversion has to be explicit and
+byte-exactly undoable like every other migration this task owns. Add a step that:
+
+- Detects a font `.meta` with no v2 settings and reports it as a migration candidate rather than
+  importing it silently.
+- Migrates it to authored v2 settings through the same undoable path as the other legacy
+  conversions here.
+- After migration, makes the unauthored branch a typed, blocking import failure rather than a
+  silent success, so a `.meta` that was never migrated cannot ship.
+- Updates the comment at `src/Core/Importers/FontImporter.cpp:470` to name the step that actually
+  closed it, so the next reader is not sent to a task that does not mention the seam.
+
+---
+
 ### Task 15.4: Make legacy UI/text migration explicit and byte-exactly undoable
 
 **Files:**

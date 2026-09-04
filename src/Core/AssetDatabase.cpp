@@ -539,6 +539,12 @@ void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
     catalogPackageRoot_ = false;
     byGuid_.clear();
     sourceToGuid_.clear();
+    // 스캔은 프로젝트 전체를 다시 세우므로 content generation도 이 스캔 안에서만
+    // 의미가 있다. 프로세스 수명 동안 계속 올라가면 같은 프로젝트를 두 번
+    // 스캔하기만 해도 asset_catalog.json이 달라지고 — GameBuilder는 빌드마다
+    // 두 번 스캔한다 — 재현 가능한 빌드가 성립하지 않는다. 정체성은 이
+    // 카운터가 아니라 artifactSha256가 진다.
+    contentGeneration_ = 0U;
     if (!fontArtifacts_) {
         // 바인딩 없이 스캔하면 폰트 애셋이 어떤 바이트 권한에 게시되어야
         // 하는지 알 수 없다. 조용히 권한 없는 record를 만드느니 스캔 자체를

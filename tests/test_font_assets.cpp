@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -1377,4 +1378,70 @@ TEST_CASE("a sealed catalog record refuses a locator outside Assets/") {
                         .has_value());
         CHECK_FALSE(badError.empty());
     }
+}
+
+// 아래 두 케이스는 Task 4.1의 품질/통합 리뷰가 스크래치 프로그램으로 재현해
+// 보인 두 결함을 고정한다. 둘 다 assertion 없이 조용히 되돌아갈 수 있었다.
+
+TEST_CASE("rescanning an unchanged project yields an identical catalog") {
+    // 결함: contentGeneration_이 프로세스 수명 카운터라 리셋되지 않았다. 같은
+    // 픽스처를 세 번 스캔하면 contentRevision이 1,2 → 3,4 → 5,6으로 흘러
+    // asset_catalog.json이 매번 달라졌다. GameBuilder는 빌드마다 두 번
+    // 스캔하므로, 바뀌지 않은 프로젝트가 빌드마다 다른 카탈로그를 냈다 —
+    // Milestone 17의 카탈로그 봉인과 Milestone 18의 byte-identical parity가
+    // 그대로 물려받았을 결함이다.
+    TempProject project("rescan-determinism");
+    fs::create_directories(project.assets / "Fonts");
+    const fs::path source = project.assets / "Fonts" / "Latin.ttf";
+    fs::copy_file(MOLGA_TEXT_LATIN_FONT, source);
+    WriteFontMeta(source, "1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+                  ValidStaticFontSettings());
+
+    molga::AssetDatabase database;
+    REQUIRE(database.BindFontArtifactStore(ProjectStore(project.root)));
+
+    database.ScanProject(project.assets);
+    const AssetRecord* first = database.Find("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a");
+    REQUIRE(first != nullptr);
+    REQUIRE(first->fontArtifact.has_value());
+    const nlohmann::json firstJson = molga::AssetRecordToJson(*first);
+    const std::uint64_t firstGeneration = database.ContentGeneration();
+
+    // 같은 입력을 두 번 더 스캔한다. 내용이 바뀌지 않았으므로 직렬화된 record가
+    // 바이트 단위로 같아야 한다.
+    for (int pass = 0; pass < 2; ++pass) {
+        database.ScanProject(project.assets);
+        const AssetRecord* again =
+            database.Find("1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a");
+        REQUIRE(again != nullptr);
+        CHECK(molga::AssetRecordToJson(*again) == firstJson);
+        CHECK(database.ContentGeneration() == firstGeneration);
+    }
+}
+
+TEST_CASE("a stale publish lock never wedges a content-addressed artifact") {
+    // 결함: 락 획득 실패가 즉시 실패였다. 같은 내용을 동시에 게시하는 네
+    // 요청 중 셋이 실패했고, kill -9가 남긴 .lock은 그 아티팩트를 영구히
+    // 막았다. 아티팩트는 내용 주소이므로 "다른 게시자가 이미 끝냈다"는 성공
+    // 조건이지 실패 조건이 아니다.
+    TempProject project("stale-lock");
+    const std::vector<std::uint8_t> bytes{'s', 't', 'a', 'l', 'e'};
+    const std::string sha = molga::Sha256Bytes(bytes.data(), bytes.size());
+    const fs::path destination =
+        project.root / "Library" / "Imported" / "Fonts" / (sha + ".sfnt");
+    fs::create_directories(destination.parent_path());
+
+    // 소유자가 사라진 오래된 락을 흉내 낸다.
+    fs::path lockPath = destination;
+    lockPath += ".lock";
+    { std::ofstream lock(lockPath); }
+    fs::last_write_time(lockPath, fs::file_time_type::clock::now() -
+                                      std::chrono::hours(1));
+
+    std::string error;
+    CHECK_MESSAGE(PersistentStorage::AtomicPublishImmutableBytes(
+                      destination, bytes, sha, &error),
+                  error);
+    CHECK(ReadAllBytes(destination) == bytes);
+    CHECK_FALSE(fs::exists(lockPath));
 }

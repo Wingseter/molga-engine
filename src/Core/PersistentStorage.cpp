@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -11,6 +12,7 @@
 #include <iomanip>
 #include <sstream>
 #include <system_error>
+#include <thread>
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -339,7 +341,41 @@ bool PersistentStorage::AtomicPublishImmutableBytes(
     std::filesystem::path lockPath = destination;
     lockPath += ".lock";
     ScopedPublishLock lock(lockPath);
-    if (!lock.Acquire()) {
+    // 같은 내용을 동시에 게시하는 두 요청이 서로를 실패시켜서는 안 된다.
+    // 아티팩트는 내용 주소이므로 "다른 게시자가 이미 끝냈다"는 우리의 성공
+    // 조건이지 실패 조건이 아니다. 그래서 락을 못 잡으면 즉시 실패하는 대신
+    // 매 시도마다 destination을 다시 보고 유계로 재시도한다.
+    constexpr int kLockAttempts = 100;
+    constexpr auto kLockRetryDelay = std::chrono::milliseconds(10);
+    // 죽은 게시자(kill -9, 크래시)가 남긴 락은 그 아티팩트를 영구히 막는다.
+    // 락은 잡은 뒤 파일 하나를 쓰고 rename 할 동안만 유지되므로, 이보다 훨씬
+    // 오래된 락은 소유자가 사라진 것으로 본다. 회수가 잘못되어 두 게시자가
+    // 겹치더라도 각자 고유한 임시 파일에 쓰고 rename 하며 rename 뒤 내용을
+    // 다시 읽어 검증하므로 아티팩트가 손상되지는 않는다.
+    constexpr auto kStaleLockAge = std::chrono::seconds(30);
+    bool acquired = lock.Acquire();
+    for (int attempt = 0; !acquired && attempt < kLockAttempts; ++attempt) {
+        if (std::filesystem::exists(destination, error)) {
+            return ExistingDestinationMatches(destination, bytes,
+                                              expectedSha256, errorOut);
+        }
+        std::error_code lockError;
+        const auto lockWritten =
+            std::filesystem::last_write_time(lockPath, lockError);
+        if (!lockError &&
+            (decltype(lockWritten)::clock::now() - lockWritten) >
+                kStaleLockAge) {
+            std::filesystem::remove(lockPath, lockError);
+        }
+        std::this_thread::sleep_for(kLockRetryDelay);
+        acquired = lock.Acquire();
+    }
+    if (!acquired) {
+        // 마지막으로 한 번 더 본다: 우리가 기다리는 동안 완료되었을 수 있다.
+        if (std::filesystem::exists(destination, error)) {
+            return ExistingDestinationMatches(destination, bytes,
+                                              expectedSha256, errorOut);
+        }
         SetError(errorOut,
                  "Another publisher holds the immutable artifact lock: " +
                  std::string(std::strerror(errno)));

@@ -469,7 +469,12 @@ bool ReadUnsignedSetting(const nlohmann::json& settings, const char* key,
 }
 
 // v2 설정이 authored된 폰트만 엄격 경로를 탄다. 설정이 하나도 없는 폰트는 아직
-// 마이그레이션되지 않은 legacy 애셋이고, Task 8.2/15.2가 그 경로를 닫는다.
+// 마이그레이션되지 않은 legacy 애셋이다. 이 record는 importFailed=0에 진단도
+// artifact도 없이 통과해 패키지까지 실려 나가고, FontAsset::FromRecord가 거절
+// 하기 때문에만 Milestone 5-8이 닫혀 있다. 이 분기를 닫는 것은
+// 05-editor-authoring-migration.md의 Task 15.4다(그 파일의 2026-09-04 amendment).
+// 닫힌 뒤에는 authored되지 않은 .meta가 조용한 성공이 아니라 typed blocking
+// 실패가 되어야 한다.
 // 일부만 authored된 설정은 legacy로 되돌리지 않는다 — 그렇게 하면 license
 // 확인을 지우는 것만으로 static 전용 검사를 통째로 우회할 수 있다.
 bool HasAuthoredFontSettings(const nlohmann::json& settings) {
