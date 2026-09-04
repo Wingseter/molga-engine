@@ -103,7 +103,7 @@
 - Consumes: `molga::Sha256File`, locked font/license fixtures, existing importer metadata/catalog path.
 - Produces: `ImportResult::importDiagnostics`, `AssetRecord::{importDiagnostics,fontArtifact}`, `AssetCatalogMode`, `FontSlant`, exact signed-SFNT `FontDesignMetrics`, `FontLicenseMetadata`, `VerifiedFontArtifact`, `FontArtifactStore::{Publish,ReadVerified}`, `FontAsset::FromRecord`, and `FontImporter` version `2` with settings overload.
 
-- [ ] **Step 1: Add the failing static-font and diagnostic round-trip tests.**
+- [x] **Step 1: Add the failing static-font and diagnostic round-trip tests.**
 
   ```cpp
   TEST_CASE("font importer emits package-grade static face metadata") {
@@ -121,7 +121,7 @@
   }
   ```
 
-- [ ] **Step 1a: Add the failing persisted-diagnostic round-trip test.**
+- [x] **Step 1a: Add the failing persisted-diagnostic round-trip test.**
 
   ```cpp
   TEST_CASE("typed import diagnostics survive catalog reload") {
@@ -139,7 +139,7 @@
   }
   ```
 
-- [ ] **Step 1b: Add the failing selected-face/rejected-table test.**
+- [x] **Step 1b: Add the failing selected-face/rejected-table test.**
 
   ```cpp
   TEST_CASE("font importer rejects invalid face variable and color tables") {
@@ -162,7 +162,7 @@
   }
   ```
 
-- [ ] **Step 1c: Add the failing unknown-diagnostic-code test.**
+- [x] **Step 1c: Add the failing unknown-diagnostic-code test.**
 
   ```cpp
   TEST_CASE("unknown persisted diagnostic code fails catalog load closed") {
@@ -174,11 +174,11 @@
   }
   ```
 
-- [ ] **Step 1d: Implement the synthetic SFNT-table fixture.** `AddSfntTableDirectoryEntry` writes a temporary structurally valid zero-length table entry, updates `numTables` plus header/table checksums, and removes the temporary file through RAII; it never edits a committed font.
+- [x] **Step 1d: Implement the synthetic SFNT-table fixture.** `AddSfntTableDirectoryEntry` writes a temporary structurally valid zero-length table entry, updates `numTables` plus header/table checksums, and removes the temporary file through RAII; it never edits a committed font.
 
-- [ ] **Step 1e: Register the font-asset fixture contract.** Add `molga_add_text_test(test_font_assets test_font_assets.cpp)` from Task 2.2 and define `MOLGA_TEXT_LATIN_FONT`, `MOLGA_TEXT_ARABIC_FONT`, `MOLGA_TEXT_CJK_FONT`, `MOLGA_TEXT_VARIABLE_FONT`, and `MOLGA_TEXT_LATIN_SHA256` on that target from the exact Task 1 manifest paths/values; no test discovers a host font. The common main initializes the staged ICU runtime before this importer/resource target executes.
+- [x] **Step 1e: Register the font-asset fixture contract.** Add `molga_add_text_test(test_font_assets test_font_assets.cpp)` from Task 2.2 and define `MOLGA_TEXT_LATIN_FONT`, `MOLGA_TEXT_ARABIC_FONT`, `MOLGA_TEXT_CJK_FONT`, `MOLGA_TEXT_VARIABLE_FONT`, and `MOLGA_TEXT_LATIN_SHA256` on that target from the exact Task 1 manifest paths/values; no test discovers a host font. The common main initializes the staged ICU runtime before this importer/resource target executes.
 
-- [ ] **Step 1f: Add the failing TTC selected-face/bounds test.**
+- [x] **Step 1f: Add the failing TTC selected-face/bounds test.**
 
   ```cpp
   TEST_CASE("TTC imports the authored static face and rejects out of range") {
@@ -199,29 +199,29 @@
   }
   ```
 
-- [ ] **Step 1g: Implement the two-face TTC fixture.** `BuildTwoFaceTtc` reads only the two locked source files, emits big-endian `ttcf` version `0x00010000` with `numFonts=2`, places both face directories at distinct four-byte-aligned offsets, rewrites every copied table offset to its absolute TTC-file offset, and preserves the unchanged table bytes/checksums (including the SFNT-defined zeroed-adjustment `head` checksum rule). It writes one RAII temporary file and never changes committed bytes.
+- [x] **Step 1g: Implement the two-face TTC fixture.** `BuildTwoFaceTtc` reads only the two locked source files, emits big-endian `ttcf` version `0x00010000` with `numFonts=2`, places both face directories at distinct four-byte-aligned offsets, rewrites every copied table offset to its absolute TTC-file offset, and preserves the unchanged table bytes/checksums (including the SFNT-defined zeroed-adjustment `head` checksum rule). It writes one RAII temporary file and never changes committed bytes.
 
-- [ ] **Step 1h: Add the failing design-metrics persistence test.** For the locked Latin face, compare imported values against a test parser that reads only big-endian `head.unitsPerEm` plus `hhea.ascender`, `hhea.descender`, and `hhea.lineGap`, then round-trip the record and require exact integer equality; the canonical JSON contains integers and no float metric field.
+- [x] **Step 1h: Add the failing design-metrics persistence test.** For the locked Latin face, compare imported values against a test parser that reads only big-endian `head.unitsPerEm` plus `hhea.ascender`, `hhea.descender`, and `hhea.lineGap`, then round-trip the record and require exact integer equality; the canonical JSON contains integers and no float metric field.
 
-- [ ] **Step 1i: Add the failing malformed-design-metrics table.** From a valid temporary SFNT, independently write each case `{unitsPerEm=0}`, `{unitsPerEm=16385}`, `{ascender=0}`, `{descender=1}`, `{ascender<=descender}`, `{lineGap=-1}`, and truncated `head`/`hhea` metric fields; repair table checksums after each value mutation. Every real import returns `success=false` with one `FontInvalid` and publishes neither a catalog generation nor an artifact path.
+- [x] **Step 1i: Add the failing malformed-design-metrics table.** From a valid temporary SFNT, independently write each case `{unitsPerEm=0}`, `{unitsPerEm=16385}`, `{ascender=0}`, `{descender=1}`, `{ascender<=descender}`, `{lineGap=-1}`, and truncated `head`/`hhea` metric fields; repair table checksums after each value mutation. Every real import returns `success=false` with one `FontInvalid` and publishes neither a catalog generation nor an artifact path.
 
-- [ ] **Step 1j: Add the failing immutable-artifact publication test.** Import a temporary project font through the real `AssetDatabase`, then assert the successful record has storage `ProjectLibrary`, path `Library/Imported/Fonts/<sourceSha256>.sfnt`, `artifactSha256 == sourceSha256`, exact byte size, byte-for-byte equality to the source as read during import, and no temporary/journal sibling. Reimporting identical bytes returns the same locator/hash without rewriting the file.
+- [x] **Step 1j: Add the failing immutable-artifact publication test.** Import a temporary project font through the real `AssetDatabase`, then assert the successful record has storage `ProjectLibrary`, path `Library/Imported/Fonts/<sourceSha256>.sfnt`, `artifactSha256 == sourceSha256`, exact byte size, byte-for-byte equality to the source as read during import, and no temporary/journal sibling. Reimporting identical bytes returns the same locator/hash without rewriting the file.
 
-- [ ] **Step 2: Run the font-import red gate.**
+- [x] **Step 2: Run the font-import red gate.**
 
   Run: `cmake --preset debug && cmake --build --preset debug --target test_font_assets -j`
 
   Expected: compile FAIL because typed import records and `FontAsset` do not exist.
 
-- [ ] **Step 3: Add typed diagnostic storage.** Add `std::vector<molga::text::TextDiagnostic> importDiagnostics` to `ImportResult` and `AssetRecord` without removing legacy `error`.
+- [x] **Step 3: Add typed diagnostic storage.** Add `std::vector<molga::text::TextDiagnostic> importDiagnostics` to `ImportResult` and `AssetRecord` without removing legacy `error`.
 
-- [ ] **Step 3a: Serialize every diagnostic field.** Persist the stable code string—not its numeric enum—plus severity, subsystem, message, remediation, asset GUID, scene object ID, component type, and byte-range begin/end.
+- [x] **Step 3a: Serialize every diagnostic field.** Persist the stable code string—not its numeric enum—plus severity, subsystem, message, remediation, asset GUID, scene object ID, component type, and byte-range begin/end.
 
-- [ ] **Step 3b: Deserialize stable codes fail-closed.** Parse only through `ParseStableTextDiagnosticCode`; reject the complete asset record for an unknown/numeric/aliased code rather than dropping that diagnostic.
+- [x] **Step 3b: Deserialize stable codes fail-closed.** Parse only through `ParseStableTextDiagnosticCode`; reject the complete asset record for an unknown/numeric/aliased code rather than dropping that diagnostic.
 
-- [ ] **Step 3c: Preserve legacy importer compatibility.** `AssetDatabase` fills only an empty diagnostic asset GUID and retains legacy `error` as a human-readable compatibility summary.
+- [x] **Step 3c: Preserve legacy importer compatibility.** `AssetDatabase` fills only an empty diagnostic asset GUID and retains legacy `error` as a human-readable compatibility summary.
 
-- [ ] **Step 4: Add the exact persisted font model.**
+- [x] **Step 4: Add the exact persisted font model.**
 
   ```cpp
   enum class FontSlant : std::uint8_t { Upright, Italic, Oblique };
@@ -271,7 +271,7 @@
   };
   ```
 
-- [ ] **Step 4a: Add the exact immutable artifact-store API.** Put this in `FontArtifactStore.h`:
+- [x] **Step 4a: Add the exact immutable artifact-store API.** Put this in `FontArtifactStore.h`:
 
   ```cpp
   class FontArtifactStore {
@@ -303,9 +303,9 @@
   };
   ```
 
-- [ ] **Step 4b: Persist the artifact authority in `AssetRecord`.** Add optional font-only fields `{sourceSha256,artifactStorage,artifactRelativePath,artifactSha256,artifactByteSize}` to canonical serialization, with stable storage strings `ProjectLibrary` and `PackagedResource`. A normal/project catalog accepts only `ProjectLibrary` with normalized path exactly `Library/Imported/Fonts/<artifactSha256>.sfnt`; it rejects `PackagedResource`, absolute/root/`..` paths, non-lowercase SHA, zero size, and `sourceSha256 != artifactSha256`.
+- [x] **Step 4b: Persist the artifact authority in `AssetRecord`.** Add optional font-only fields `{sourceSha256,artifactStorage,artifactRelativePath,artifactSha256,artifactByteSize}` to canonical serialization, with stable storage strings `ProjectLibrary` and `PackagedResource`. A normal/project catalog accepts only `ProjectLibrary` with normalized path exactly `Library/Imported/Fonts/<artifactSha256>.sfnt`; it rejects `PackagedResource`, absolute/root/`..` paths, non-lowercase SHA, zero size, and `sourceSha256 != artifactSha256`.
 
-- [ ] **Step 4c: Add the explicit catalog trust boundary.** Replace ambiguous catalog loads with this exact mode-bearing signature while updating existing callers:
+- [x] **Step 4c: Add the explicit catalog trust boundary.** Replace ambiguous catalog loads with this exact mode-bearing signature while updating existing callers:
 
   ```cpp
   enum class AssetCatalogMode : std::uint8_t { Project, SealedPackage };
@@ -322,20 +322,20 @@
 
   Bind exactly one store before `ScanProject` or `LoadCatalog`; reject a null/rebind or any font import/load without one, and retain the shared store for database/repository lifetime. `Project` requires a `ProjectLibrary` store and rejects every `PackagedResource`. `SealedPackage` requires a sealed-package store and accepts its locator only after Task 17 has verified the runtime manifest; its normalized forward-slash path must begin exactly `Assets/` and remain below `storageRoot`. The package rewrite changes only locator storage/path, preserving GUID, source/artifact SHA, byte size, metrics, face, license, and generation identity; `FontArtifactStore` separately requires the exact manifest path/SHA authority before reading bytes.
 
-- [ ] **Step 4d: Migrate editor startup at the signature boundary.** In
+- [x] **Step 4d: Migrate editor startup at the signature boundary.** In
   `main.cpp`, construct `FontArtifactStore::ForProject(openedProjectRoot)`, bind
   it successfully, then call `ScanProject(openedProjectRoot / "Assets")`.
   Neither the current directory nor string removal from an Assets path may
   supply the project root.
 
-- [ ] **Step 4e: Migrate the current runtime catalog caller.** In
+- [x] **Step 4e: Migrate the current runtime catalog caller.** In
   `runtime_main.cpp`, bind the explicit store selected by its current
   development/package authority and call the four-argument `LoadCatalog` with
   an explicit storage root and mode. Keep this intermediate caller buildable;
   Task 17 replaces only its authority construction with the verified sealed
   manifest store.
 
-- [ ] **Step 4f: Migrate GameBuilder scan authority.** In `GameBuilder.cpp`,
+- [x] **Step 4f: Migrate GameBuilder scan authority.** In `GameBuilder.cpp`,
   use `BuildSettings::projectRoot` as the canonical filesystem authority. If
   the singleton database already has a store, require
   `FontArtifacts()->IsProjectAuthorityFor(settings.projectRoot)` and reuse it;
@@ -344,28 +344,28 @@
   scanning `settings.projectRoot / "Assets"`; it never rebinds an editor-owned
   singleton.
 
-- [ ] **Step 4g: Migrate catalog tests.** Update
+- [x] **Step 4g: Migrate catalog tests.** Update
   `test_asset_catalog.cpp` and `test_post_process.cpp` so every catalog fixture
   first binds a store rooted at its explicit temporary project/storage root and
   every `LoadCatalog` call passes `AssetCatalogMode::Project` plus that root.
   Add one unbound and one mismatched-mode rejection assertion.
 
-- [ ] **Step 4h: Migrate core asset scan fixtures.** In
+- [x] **Step 4h: Migrate core asset scan fixtures.** In
   `test_asset_database.cpp`, `test_asset_reference_migration.cpp`,
   `test_editor_property_descriptor.cpp`, and `test_editor_undo_dirty.cpp`, bind
   a fresh project store before each database's first `ScanProject`; use an
   explicit fixture project root distinct from its Assets root.
 
-- [ ] **Step 4i: Migrate media/component scan fixtures.** Apply the same
+- [x] **Step 4i: Migrate media/component scan fixtures.** Apply the same
   explicit project-root/store binding to `test_animation.cpp`,
   `test_audio.cpp`, `test_font.cpp`, and `test_tilemap.cpp`; do not derive the
   authority by stripping an `Assets` suffix.
 
-- [ ] **Step 4j: Migrate GPU scan fixtures.** Bind the fixture's project store
+- [x] **Step 4j: Migrate GPU scan fixtures.** Bind the fixture's project store
   before every `ScanProject` in `test_rendering_sdlgpu.cpp`, preserving all SDL
   compile definitions, labels, timeouts, and working-directory properties.
 
-- [ ] **Step 4k: Add one process-root test authority.** Implement the
+- [x] **Step 4k: Add one process-root test authority.** Implement the
   header-only `tests/AssetDatabaseTestAuthority.h` around one process-lifetime
   `TempDirectory` with this exact API:
 
@@ -399,7 +399,7 @@
   regression proving different Assets subtrees reuse the same store without
   rebind or cross-case records; do not add a test-only production reset API.
 
-- [ ] **Step 5: Add the version-2 settings overload.**
+- [x] **Step 5: Add the version-2 settings overload.**
 
   ```cpp
   class FontImporter : public IImporter {
@@ -415,37 +415,37 @@
 
   Require face index, weight `1..1000`, stretch `50..200`, slant, redistribution confirmation and license fields, and persist the canonical settings into importer metadata.
 
-- [ ] **Step 6: Select the exact SFNT face.** Accept a top-level `ttcf` only by resolving an in-range authored face offset; a non-collection file accepts only face index `0`. Emit `FontInvalid` for an invalid collection header/count/offset before parsing tables.
+- [x] **Step 6: Select the exact SFNT face.** Accept a top-level `ttcf` only by resolving an in-range authored face offset; a non-collection file accepts only face index `0`. Emit `FontInvalid` for an invalid collection header/count/offset before parsing tables.
 
-- [ ] **Step 6a: Validate the selected face directory.** Require signature `0x00010000` or `OTTO`, validate every table range/checksum without overlap or out-of-file access, and require either `glyf`+`loca` or `CFF ` outlines.
+- [x] **Step 6a: Validate the selected face directory.** Require signature `0x00010000` or `OTTO`, validate every table range/checksum without overlap or out-of-file access, and require either `glyf`+`loca` or `CFF ` outlines.
 
-- [ ] **Step 6b: Reject unsupported variable/color tables.** Before raster-face creation, emit `FontInvalid` if the selected directory contains `fvar`, `gvar`, `CFF2`, `COLR`, `CPAL`, `CBDT`, `CBLC`, `sbix`, or `SVG\x20`.
+- [x] **Step 6b: Reject unsupported variable/color tables.** Before raster-face creation, emit `FontInvalid` if the selected directory contains `fvar`, `gvar`, `CFF2`, `COLR`, `CPAL`, `CBDT`, `CBLC`, `sbix`, or `SVG\x20`.
 
-- [ ] **Step 6c: Parse exact design metrics.** Read `unitsPerEm` as big-endian unsigned 16-bit from `head` and the three `hhea` FWORD values as big-endian signed 16-bit. Require `16 <= unitsPerEm <= 16384`, `ascender > 0`, `descender <= 0`, `ascender > descender`, `lineGap >= 0`, and checked `int32_t(ascender) - int32_t(descender) + int32_t(lineGap)`; otherwise emit `FontInvalid` before artifact/catalog publication.
+- [x] **Step 6c: Parse exact design metrics.** Read `unitsPerEm` as big-endian unsigned 16-bit from `head` and the three `hhea` FWORD values as big-endian signed 16-bit. Require `16 <= unitsPerEm <= 16384`, `ascender > 0`, `descender <= 0`, `ascender > descender`, `lineGap >= 0`, and checked `int32_t(ascender) - int32_t(descender) + int32_t(lineGap)`; otherwise emit `FontInvalid` before artifact/catalog publication.
 
-- [ ] **Step 7: Emit content and coverage identity.** Compute source SHA-256 and enumerate canonical merged cmap coverage ranges for the selected face; never substitute generic `AssetRecord.hash` for security identity.
+- [x] **Step 7: Emit content and coverage identity.** Compute source SHA-256 and enumerate canonical merged cmap coverage ranges for the selected face; never substitute generic `AssetRecord.hash` for security identity.
 
-- [ ] **Step 7a: Emit selected face/style/license metadata.** Record exact face index, authored style, static-outline marker, and every validated license setting in the import result.
+- [x] **Step 7a: Emit selected face/style/license metadata.** Record exact face index, authored style, static-outline marker, and every validated license setting in the import result.
 
-- [ ] **Step 7b: Add the binary immutable publish primitive.** Implement `PersistentStorage::AtomicPublishImmutableBytes(destination, bytes, expectedSha256)`: create parent directories, take a sibling lock, write a unique same-directory file with create-new semantics, flush file data, verify size/SHA, and rename only when the destination is absent. If the destination exists, accept it only when size/SHA/bytes match; never overwrite or delete a conflicting immutable artifact, and clean only the caller-owned temp on failure.
+- [x] **Step 7b: Add the binary immutable publish primitive.** Implement `PersistentStorage::AtomicPublishImmutableBytes(destination, bytes, expectedSha256)`: create parent directories, take a sibling lock, write a unique same-directory file with create-new semantics, flush file data, verify size/SHA, and rename only when the destination is absent. If the destination exists, accept it only when size/SHA/bytes match; never overwrite or delete a conflicting immutable artifact, and clean only the caller-owned temp on failure.
 
-- [ ] **Step 7c: Publish the content-addressed font artifact.** `FontArtifactStore::Publish` first requires a `ProjectLibrary` store, reads the source exactly once into immutable bytes, verifies `expectedSourceSha256`, computes `artifactSha256` over those identical bytes, requires equality, and publishes to `Library/Imported/Fonts/<artifactSha256>.sfnt` through Step 7b. It returns `FontArtifactLocator{ProjectLibrary,path}`. The original source is provenance/authoring input; the artifact is a byte-identical immutable authority, so the SHA relationship is mandatory equality rather than a derived-font transform.
+- [x] **Step 7c: Publish the content-addressed font artifact.** `FontArtifactStore::Publish` first requires a `ProjectLibrary` store, reads the source exactly once into immutable bytes, verifies `expectedSourceSha256`, computes `artifactSha256` over those identical bytes, requires equality, and publishes to `Library/Imported/Fonts/<artifactSha256>.sfnt` through Step 7b. It returns `FontArtifactLocator{ProjectLibrary,path}`. The original source is provenance/authoring input; the artifact is a byte-identical immutable authority, so the SHA relationship is mandatory equality rather than a derived-font transform.
 
-- [ ] **Step 7d: Bind the explicit project artifact root.** Editor/project startup creates `FontArtifactStore::ForProject(theOpenedProjectRoot)` and calls `BindFontArtifactStore` before `ScanProject`; tests do the same with their temporary project root. Never derive the project root from current working directory, `Assets` string stripping, or a source path.
+- [x] **Step 7d: Bind the explicit project artifact root.** Editor/project startup creates `FontArtifactStore::ForProject(theOpenedProjectRoot)` and calls `BindFontArtifactStore` before `ScanProject`; tests do the same with their temporary project root. Never derive the project root from current working directory, `Assets` string stripping, or a source path.
 
-- [ ] **Step 7e: Publish catalog authority only after the artifact.** On a successful font import, `AssetDatabase` first obtains a verified `VerifiedFontArtifact`, then atomically publishes the catalog/`AssetRecord` and only afterward increments `contentGeneration`. Artifact or catalog failure leaves the prior record/generation authoritative; a newly created but unreferenced content-addressed artifact may remain safely orphaned for later garbage collection.
+- [x] **Step 7e: Publish catalog authority only after the artifact.** On a successful font import, `AssetDatabase` first obtains a verified `VerifiedFontArtifact`, then atomically publishes the catalog/`AssetRecord` and only afterward increments `contentGeneration`. Artifact or catalog failure leaves the prior record/generation authoritative; a newly created but unreferenced content-addressed artifact may remain safely orphaned for later garbage collection.
 
-- [ ] **Step 7f: Implement project artifact reads.** In a `ProjectLibrary` store, `ReadVerified` accepts only a matching `ProjectLibrary` locator with the exact content-addressed path, resolves it under `projectRoot` by path components, reads it once, and requires recorded byte size plus both SHA fields before returning immutable shared bytes.
+- [x] **Step 7f: Implement project artifact reads.** In a `ProjectLibrary` store, `ReadVerified` accepts only a matching `ProjectLibrary` locator with the exact content-addressed path, resolves it under `projectRoot` by path components, reads it once, and requires recorded byte size plus both SHA fields before returning immutable shared bytes.
 
-- [ ] **Step 7f.1: Implement project-authority comparison.**
+- [x] **Step 7f.1: Implement project-authority comparison.**
   `IsProjectAuthorityFor` returns true only for `ProjectLibrary` and an exact
   canonical component-wise match to the store's construction root after the
   same symlink/escape checks used by `ReadVerified`; it never compares raw
   strings or exposes the private root.
 
-- [ ] **Step 7g: Implement sealed packaged artifact reads.** `ForSealedPackage` validates/sorts/deduplicates its manifest-derived `{relativePath,artifactSha256}` authority vector before publishing the store. In that store, `ReadVerified` accepts only a `PackagedResource` locator whose exact path/SHA pair occurs once in the authority vector, resolves it below `runtimeResourceRoot`, and verifies recorded size plus bytes/SHA. Cross-storage locators, escape/symlink, missing authority, mismatch, or corruption emit `FontInvalid`; neither mode opens the authoring source as fallback.
+- [x] **Step 7g: Implement sealed packaged artifact reads.** `ForSealedPackage` validates/sorts/deduplicates its manifest-derived `{relativePath,artifactSha256}` authority vector before publishing the store. In that store, `ReadVerified` accepts only a `PackagedResource` locator whose exact path/SHA pair occurs once in the authority vector, resolves it below `runtimeResourceRoot`, and verifies recorded size plus bytes/SHA. Cross-storage locators, escape/symlink, missing authority, mismatch, or corruption emit `FontInvalid`; neither mode opens the authoring source as fallback.
 
-- [ ] **Step 8: Run static/rejection/catalog green gates.**
+- [x] **Step 8: Run static/rejection/catalog green gates.**
 
   Run: `cmake --build --preset debug -j && ctest --preset debug --output-on-failure`
 
@@ -453,7 +453,7 @@
   locked static fixtures pass, and the variable Korean fixture plus
   color/invalid faces fail with complete typed context.
 
-- [ ] **Step 9: Commit static import and diagnostic persistence.**
+- [x] **Step 9: Commit static import and diagnostic persistence.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Assets/FontAsset.* \
@@ -472,6 +472,55 @@
   ```
 
 **Exit:** Imported font records are content-addressed, license-aware, static-only, and preserve machine-readable failures through catalog reload.
+
+**Implementation record (2026-09-04).** Commits `0ae07d8` (task), `24c55eb` (mutation-driven test
+additions) and `febcb2c` (review fixes). Debug suite 92/92 on a solo run.
+
+Reviewed by four lenses. Two ran late because an API outage killed them mid-run; the task was
+committed on spec + build evidence first and the remaining gates closed retroactively before
+Task 4.2 started, rather than being declared met.
+
+**The mutation sweep found five of ten mutations escaping the committed suite.** The worst was
+fail-open on the byte authority: deleting the comparison of hashed source bytes against the
+expected SHA-256 left every test green, so tampered or stale font bytes would import silently.
+Two escapes were subtler than a missing test:
+
+- The null-bind assertion **existed but passed for the wrong reason** — it ran on a database that
+  already had a store, so the rebind guard rejected the null and the null guard was never
+  exercised. It is now asserted on a fresh database, with a positive control.
+- The expected-SHA format guard is **behaviourally redundant**: a malformed digest also fails the
+  content comparison, so no "was it rejected" assertion can separate the paths. The observable
+  difference is the diagnostic — a format violation says recompute the digest, a content mismatch
+  says reimport the asset. Both are pinned, with a control proving the paths diverge.
+
+Also pinned: the `Clear()` exemption preserving the binding, and the `Assets/` prefix rule in
+catalog parsing, which was guarded in the store but not there.
+
+**Two defects fixed, each reproduced with a scratch program rather than inferred:**
+
+- **Builds were not reproducible.** The persisted `contentRevision` was a process counter that
+  neither `Clear()` nor `ScanProject` reset, so identical fixtures scanned 1,2 → 3,4 → 5,6. Since
+  `GameBuilder` scans twice per build, an unchanged project emitted a different
+  `asset_catalog.json` every build — which Task 17.4's catalog sealing and Task 18.2's
+  byte-identical parity would both have inherited. Nothing requires monotonicity: identity is
+  carried by `artifactSha256`, and Task 5.1 keeps the counter out of `fontRevision`.
+- **A killed publisher wedged an artifact permanently.** The publish lock was a single-shot
+  `O_EXCL` create with no retry or staleness handling; four processes publishing byte-identical
+  content had three fail. For content-addressed bytes, another publisher finishing first is a
+  success condition, not a failure.
+
+**Approved deviation:** `tests/test_build_manager.cpp` is outside the Files list. Step 4f makes a
+store/project mismatch an explicit build failure, and that test built two projects in one process,
+which a bind-once store cannot serve. Verified before changing it that one project per editor
+process is genuinely the production contract — `ProjectWindow::OnGUI` runs only inside the startup
+picker loop and the main editor loop never draws it — so no path opens a second project after the
+store is bound. No assertion was dropped.
+
+**Carried forward:** an unauthored font `.meta` (no v2 settings) imports as a silent success with
+no artifact and ships; Milestones 5–8 stay closed only because `FontAsset::FromRecord` refuses the
+record. Its source comment named Task 8.2/15.2, but a grep of all 65 task files found neither
+mentions the seam. Now owned by an amendment under Task 15.4 in
+`05-editor-authoring-migration.md`, because closing it is itself a legacy migration.
 
 ---
 
