@@ -113,6 +113,36 @@ bool IsLowercaseSha256(std::string_view value) noexcept {
     });
 }
 
+std::optional<ScaledFontDesignMetrics> ScaleFontDesignMetrics(
+    const FontDesignMetrics& metrics, Fixed26_6 fontSize) noexcept {
+    // 임포터가 이미 강제한 불변식을 여기서 다시 요구한다. 이 함수는 카탈로그를
+    // 거치지 않은 record도 받을 수 있고, 불변식이 깨진 값에 대해 "그럴듯한"
+    // 숫자를 내놓는 것이 가장 나쁜 실패이기 때문이다.
+    if (metrics.unitsPerEm < kFontUnitsPerEmMin ||
+        metrics.unitsPerEm > kFontUnitsPerEmMax || metrics.ascender <= 0 ||
+        metrics.descender > 0 || metrics.ascender <= metrics.descender ||
+        metrics.lineGap < 0 || fontSize.Raw() <= 0) {
+        return std::nullopt;
+    }
+
+    const std::int64_t unitsPerEm = static_cast<std::int64_t>(metrics.unitsPerEm);
+    // descender는 SFNT에서 아래쪽을 음수로 적으므로 한 번만 부호를 뒤집는다.
+    // int16의 하한(-32768)도 int64로 올린 뒤 뒤집으므로 넘치지 않는다.
+    const std::optional<Fixed26_6> ascent = Fixed26_6::CheckedMulDiv(
+        fontSize, static_cast<std::int64_t>(metrics.ascender), unitsPerEm);
+    const std::optional<Fixed26_6> descent = Fixed26_6::CheckedMulDiv(
+        fontSize, -static_cast<std::int64_t>(metrics.descender), unitsPerEm);
+    const std::optional<Fixed26_6> lineGap = Fixed26_6::CheckedMulDiv(
+        fontSize, static_cast<std::int64_t>(metrics.lineGap), unitsPerEm);
+    if (!ascent || !descent || !lineGap) return std::nullopt;
+
+    ScaledFontDesignMetrics scaled;
+    scaled.ascent = *ascent;
+    scaled.descent = *descent;
+    scaled.lineGap = *lineGap;
+    return scaled;
+}
+
 std::string FontArtifactRelativePath(std::string_view artifactSha256) {
     return "Library/Imported/Fonts/" + std::string(artifactSha256) + ".sfnt";
 }

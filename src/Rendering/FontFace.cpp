@@ -25,13 +25,13 @@ namespace {
 
 constexpr std::uintmax_t kMaximumFontBytes = 256U * 1024U * 1024U;
 
-std::uint16_t ReadU16(const std::vector<unsigned char>& bytes, std::size_t offset) {
+std::uint16_t ReadU16(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
     return static_cast<std::uint16_t>(
         (static_cast<std::uint16_t>(bytes[offset]) << 8U) |
         static_cast<std::uint16_t>(bytes[offset + 1U]));
 }
 
-std::uint32_t ReadU32(const std::vector<unsigned char>& bytes, std::size_t offset) {
+std::uint32_t ReadU32(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
     return (static_cast<std::uint32_t>(bytes[offset]) << 24U) |
            (static_cast<std::uint32_t>(bytes[offset + 1U]) << 16U) |
            (static_cast<std::uint32_t>(bytes[offset + 2U]) << 8U) |
@@ -42,7 +42,7 @@ bool RangeFits(std::size_t offset, std::size_t length, std::size_t size) {
     return offset <= size && length <= size - offset;
 }
 
-bool ValidateSfntDirectory(const std::vector<unsigned char>& bytes,
+bool ValidateSfntDirectory(const std::vector<std::uint8_t>& bytes,
                            std::size_t offset,
                            std::string& error) {
     if (!RangeFits(offset, 12U, bytes.size())) {
@@ -80,7 +80,8 @@ bool ValidateSfntDirectory(const std::vector<unsigned char>& bytes,
     return true;
 }
 
-bool ValidateContainer(const std::vector<unsigned char>& bytes,
+bool ValidateContainer(const std::vector<std::uint8_t>& bytes,
+                       std::uint32_t faceIndex,
                        std::size_t& fontOffset,
                        std::string& error) {
     if (bytes.size() < 12U) {
@@ -95,8 +96,18 @@ bool ValidateContainer(const std::vector<unsigned char>& bytes,
             error = "TrueType collection header is invalid";
             return false;
         }
-        fontOffset = ReadU32(bytes, 12U);
+        if (static_cast<std::size_t>(faceIndex) >= count) {
+            error = "font face index is outside the collection";
+            return false;
+        }
+        fontOffset = ReadU32(bytes, 12U + static_cast<std::size_t>(faceIndex) * 4U);
     } else {
+        // 컬렉션이 아닌 파일에는 face 0밖에 없다. 여기서 거절하지 않으면
+        // stb가 컬렉션 기본 face로 되돌아가 요청하지 않은 face를 열어 준다.
+        if (faceIndex != 0U) {
+            error = "font face index is outside the file";
+            return false;
+        }
         fontOffset = 0U;
     }
     return ValidateSfntDirectory(bytes, fontOffset, error);
@@ -109,8 +120,12 @@ float SafePixelHeight(float pixelHeight) {
 } // namespace
 
 struct FontFace::Impl {
-    std::vector<unsigned char> bytes;
+    // 바이트 소유권이 stb 상태보다 먼저 선언된다. 멤버는 선언 역순으로
+    // 파괴되므로, stbtt_fontinfo가 가리키던 버퍼가 그 정보보다 먼저 사라지는
+    // 순서는 이 배치에서 만들어질 수 없다.
+    std::shared_ptr<const std::vector<std::uint8_t>> bytes;
     stbtt_fontinfo info{};
+    std::uint32_t faceIndex = 0;
     bool valid = false;
 };
 
@@ -119,10 +134,75 @@ FontFace::~FontFace() = default;
 FontFace::FontFace(FontFace&&) noexcept = default;
 FontFace& FontFace::operator=(FontFace&&) noexcept = default;
 
-bool FontFace::LoadFromFile(const std::filesystem::path& path, std::string* error) {
+bool FontFace::LoadFromBytes(
+    std::shared_ptr<const std::vector<std::uint8_t>> bytes,
+    std::uint32_t faceIndex, std::string* errorOut) {
+    // 두 진입점 모두 impl_를 곧바로 쓴다. move된 FontFace는 impl_가 비어 있고,
+    // 그 위에서 적재를 시도하면 접근자들과 달리 널 역참조가 된다.
+    if (!impl_) {
+        if (errorOut) *errorOut = "font face has no state to load into";
+        return false;
+    }
     auto fail = [&](const std::string& message) {
-        impl_->bytes.clear();
+        // stb 상태를 먼저 무효화하고 나서 바이트 소유권을 놓는다. 반대 순서면
+        // 잠깐이지만 죽은 버퍼를 가리키는 유효한 face가 존재하게 된다.
         impl_->valid = false;
+        impl_->info = stbtt_fontinfo{};
+        impl_->faceIndex = 0U;
+        impl_->bytes.reset();
+        if (errorOut) *errorOut = message;
+        return false;
+    };
+
+    if (!bytes || bytes->empty() || bytes->size() > kMaximumFontBytes) {
+        return fail("font bytes are missing or outside the supported size");
+    }
+
+    std::size_t checkedOffset = 0U;
+    std::string validationError;
+    if (!ValidateContainer(*bytes, faceIndex, checkedOffset, validationError)) {
+        return fail(validationError);
+    }
+
+    const int fontCount = stbtt_GetNumberOfFonts(bytes->data());
+    const int stbOffset = stbtt_GetFontOffsetForIndex(
+        bytes->data(), static_cast<int>(faceIndex));
+    if (fontCount < 1 ||
+        static_cast<std::uint32_t>(fontCount) <= faceIndex || stbOffset < 0 ||
+        static_cast<std::size_t>(stbOffset) != checkedOffset) {
+        return fail("stb_truetype rejected the requested font face");
+    }
+
+    // 성공 경로도 실패 경로와 같은 순서를 지킨다: stb 상태를 먼저 무효화한
+    // 다음에야 이전 바이트 지분을 놓는다. 이미 적재된 face를 다시 적재하면서
+    // 순서를 뒤집으면, 옛 버퍼가 여기서 해제되는데 impl_->info는 다음 줄까지
+    // 여전히 그 버퍼를 가리키므로 valid한 face가 죽은 메모리를 가리키게 된다.
+    impl_->valid = false;
+    impl_->info = stbtt_fontinfo{};
+    impl_->faceIndex = 0U;
+    // 그다음 소유권을 세우고 나서 stbtt_fontinfo를 그 버퍼 위에 만든다. 성공한
+    // face가 게시되는 순간에는 이미 지분을 들고 있어야 한다.
+    impl_->bytes = std::move(bytes);
+    if (!stbtt_InitFont(&impl_->info, impl_->bytes->data(), stbOffset)) {
+        return fail("stb_truetype rejected the font");
+    }
+
+    impl_->faceIndex = faceIndex;
+    impl_->valid = true;
+    if (errorOut) errorOut->clear();
+    return true;
+}
+
+bool FontFace::LoadFromFile(const std::filesystem::path& path, std::string* error) {
+    if (!impl_) {
+        if (error) *error = "font face has no state to load into";
+        return false;
+    }
+    auto fail = [&](const std::string& message) {
+        impl_->valid = false;
+        impl_->info = stbtt_fontinfo{};
+        impl_->faceIndex = 0U;
+        impl_->bytes.reset();
         if (error) *error = message;
         return false;
     };
@@ -141,34 +221,44 @@ bool FontFace::LoadFromFile(const std::filesystem::path& path, std::string* erro
     if (!input) {
         return fail("could not open font source: " + path.string());
     }
-    impl_->bytes.resize(static_cast<std::size_t>(size));
-    input.read(reinterpret_cast<char*>(impl_->bytes.data()),
-               static_cast<std::streamsize>(impl_->bytes.size()));
-    if (!input || static_cast<std::size_t>(input.gcount()) != impl_->bytes.size()) {
+    std::vector<std::uint8_t> raw(static_cast<std::size_t>(size));
+    input.read(reinterpret_cast<char*>(raw.data()),
+               static_cast<std::streamsize>(raw.size()));
+    if (!input || static_cast<std::size_t>(input.gcount()) != raw.size()) {
         return fail("could not read the complete font source: " + path.string());
     }
 
-    std::size_t checkedOffset = 0U;
-    std::string validationError;
-    if (!ValidateContainer(impl_->bytes, checkedOffset, validationError)) {
-        return fail(validationError + ": " + path.string());
+    // 파일 경로 진입점도 결국 같은 불변 바이트 위에서 face를 연다. 검증과
+    // 소유권 규칙이 한 곳에만 있어야 두 경로가 갈라지지 않는다.
+    std::string loadError;
+    if (!LoadFromBytes(
+            std::make_shared<const std::vector<std::uint8_t>>(std::move(raw)),
+            0U, &loadError)) {
+        return fail(loadError + ": " + path.string());
     }
-
-    const int fontCount = stbtt_GetNumberOfFonts(impl_->bytes.data());
-    const int stbOffset = stbtt_GetFontOffsetForIndex(impl_->bytes.data(), 0);
-    if (fontCount < 1 || stbOffset < 0 ||
-        static_cast<std::size_t>(stbOffset) != checkedOffset ||
-        !stbtt_InitFont(&impl_->info, impl_->bytes.data(), stbOffset)) {
-        return fail("stb_truetype rejected the font: " + path.string());
-    }
-
-    impl_->valid = true;
     if (error) error->clear();
     return true;
 }
 
 bool FontFace::IsValid() const {
     return impl_ && impl_->valid;
+}
+
+std::uint32_t FontFace::FaceIndex() const noexcept {
+    return IsValid() ? impl_->faceIndex : 0U;
+}
+
+std::uint32_t FontFace::GlyphId(char32_t codepoint) const noexcept {
+    if (!IsValid() || static_cast<std::uint32_t>(codepoint) > 0x10FFFFU) {
+        return 0U;
+    }
+    const int glyph =
+        stbtt_FindGlyphIndex(&impl_->info, static_cast<int>(codepoint));
+    return glyph > 0 ? static_cast<std::uint32_t>(glyph) : 0U;
+}
+
+bool FontFace::HasCodepoint(char32_t codepoint) const noexcept {
+    return GlyphId(codepoint) != 0U;
 }
 
 FontFaceMetrics FontFace::Metrics(float pixelHeight) const {

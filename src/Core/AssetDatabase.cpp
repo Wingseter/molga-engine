@@ -244,6 +244,44 @@ bool FontArtifactFromJson(const nlohmann::json& record,
     return true;
 }
 
+// 이 GUID가 실제로 "발행한" 것의 지문. 다시 스캔했을 때 이 문자열이 같으면
+// 어떤 소비자도 다시 만들 이유가 없다.
+//
+// contentRevision은 의도적으로 빠진다. 그 값은 recursive_directory_iterator
+// 순서에서 나오는 서수라서(Task 4.2 amendment) 같은 바이트에도 달라질 수 있고,
+// 여기 넣으면 아무것도 바뀌지 않은 재스캔이 세대를 올려 캐시된 리소스를 통째로
+// 버리게 만든다. hash/진단/실패 요약도 발행된 정체성이 아니라 상태이므로 뺀다.
+nlohmann::json PublishedImportFingerprint(const molga::AssetRecord& record) {
+    nlohmann::json identity;
+    identity["importer"] = record.importer;
+    identity["importerVersion"] = record.importerVersion;
+    identity["settings"] = record.settings;
+    nlohmann::json metadata = record.metadata;
+    if (metadata.is_object()) {
+        const auto font = metadata.find("font");
+        if (font != metadata.end() && font->is_object()) {
+            font->erase("contentRevision");
+        }
+    }
+    identity["metadata"] = std::move(metadata);
+    if (record.fontArtifact) {
+        identity["artifactStorage"] = molga::StableFontArtifactStorage(
+            record.fontArtifact->locator.storage);
+        identity["artifactRelativePath"] =
+            record.fontArtifact->locator.relativePath.generic_string();
+        identity["sourceSha256"] = record.fontArtifact->sourceSha256;
+        identity["artifactSha256"] = record.fontArtifact->artifactSha256;
+        identity["artifactByteSize"] = record.fontArtifact->byteSize;
+    }
+    // dump()로 문자열을 만들지 않는다. metadata에는 CJK 폰트의 coverage처럼
+    // 수천 항목짜리 배열이 들어 있고, 이 함수는 추적 대상 애셋마다 두 번 불린다.
+    return identity;
+}
+
+bool TracksContentGeneration(const std::string& importer) {
+    return importer == "FontImporter" || importer == "FontFamilyImporter";
+}
+
 } // namespace
 
 nlohmann::json AssetRecordToJson(const AssetRecord& record) {
@@ -407,6 +445,12 @@ const FontArtifactStore* AssetDatabase::FontArtifacts() const noexcept {
     return fontArtifacts_.get();
 }
 
+std::uint64_t AssetDatabase::ContentGeneration(
+    const std::string& guid) const noexcept {
+    const auto found = contentGenerations_.find(guid);
+    return found == contentGenerations_.end() ? 0U : found->second;
+}
+
 std::string AssetDatabase::NormalizeRel(const std::filesystem::path& rel) {
     std::string s = rel.generic_string();  // 슬래시 정규화
     std::replace(s.begin(), s.end(), '\\', '/');
@@ -527,8 +571,34 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
         duplicate->second.importFailed = true;
         duplicate->second.importError = "duplicate asset guid also used by " + rec.sourcePath;
     }
+
+    // Step 7: 성공적으로 발행된 record의 정체성이 실제로 달라진 뒤에만 그
+    // GUID의 세대를 올린다. 첫 발행은 비교 대상이 없으므로 세대를 움직이지
+    // 않는다 — 그래야 카탈로그에서 되살린 재시작이 "내용이 바뀐 것"으로
+    // 보이지 않는다.
+    //
+    // 중복 GUID 검사 뒤에 온다. 그 검사가 rec.importFailed를 켜므로, 앞에
+    // 두면 실패로 끝날 record가 세대를 먼저 발행하고 — 되돌릴 지점도 없이 —
+    // 마지막 정상 리소스를 무효화시킨다.
+    if (TracksContentGeneration(rec.importer) && !rec.importFailed) {
+        if (const AssetRecord* previous = PreviouslyPublished(rec.guid)) {
+            if (PublishedImportFingerprint(*previous) !=
+                PublishedImportFingerprint(rec)) {
+                ++contentGenerations_[rec.guid];
+            }
+        }
+    }
+
     sourceToGuid_[rec.sourcePath] = rec.guid;
     byGuid_[rec.guid] = std::move(rec);
+}
+
+const AssetRecord* AssetDatabase::PreviouslyPublished(
+    const std::string& guid) const {
+    if (const AssetRecord* current = Find(guid)) return current;
+    if (!scanPrevious_) return nullptr;
+    const auto found = scanPrevious_->find(guid);
+    return found == scanPrevious_->end() ? nullptr : &found->second;
 }
 
 void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
@@ -537,6 +607,11 @@ void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
     }
     assetRoot_ = assetRoot;
     catalogPackageRoot_ = false;
+    // 스캔은 byGuid_를 통째로 다시 세우므로, 그 자리에서 "직전 발행"을 찾으면
+    // 언제나 비어 있다. 옮겨 둔 스냅샷이 없으면 바이트가 실제로 바뀐 재스캔도
+    // 세대를 올리지 못한다.
+    const std::unordered_map<std::string, AssetRecord> previousScan =
+        std::move(byGuid_);
     byGuid_.clear();
     sourceToGuid_.clear();
     // 스캔은 프로젝트 전체를 다시 세우므로 content generation도 이 스캔 안에서만
@@ -556,6 +631,14 @@ void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
         return;
     }
     if (assetRoot_.empty() || !std::filesystem::exists(assetRoot_)) return;
+
+    // previousScan은 이 함수의 지역 변수다. 어떤 경로로 빠져나가든 멤버가 그
+    // 주소를 들고 남지 않도록 묶어 둔다.
+    struct ScanPreviousScope {
+        AssetDatabase& database;
+        ~ScanPreviousScope() { database.scanPrevious_ = nullptr; }
+    } scanPreviousScope{*this};
+    scanPrevious_ = &previousScan;
 
     try {
         for (const auto& e : std::filesystem::recursive_directory_iterator(assetRoot_)) {
@@ -701,6 +784,10 @@ bool AssetDatabase::TryReimport(const std::string& guid, std::string* errorOut) 
     IndexOne(source);
     AssetRecord* refreshed = const_cast<AssetRecord*>(Find(guid));
     if (!refreshed || refreshed->importFailed) {
+        // record만 직전 상태로 되돌린다. 세대는 되감을 필요가 없다: IndexOne은
+        // 실패로 끝난 record에 대해서는 세대를 올리지 않으므로 여기 도달한
+        // 시점의 세대는 이미 직전 값 그대로다. 되감으면 오히려 옛 세대로 캐시된
+        // 리소스가 다시 최신처럼 보이는 창이 생긴다.
         byGuid_[guid] = previous;
         if (errorOut) *errorOut = refreshed ? refreshed->importError
                                             : "reimport changed asset guid";
@@ -910,6 +997,10 @@ void AssetDatabase::Clear() {
     }
     byGuid_.clear();
     sourceToGuid_.clear();
+    // 세대는 지금 버리는 카탈로그 안에서만 의미가 있다. 남겨 두면 프로젝트 A가
+    // 올려 둔 세대가, 같은 GUID를 .meta로 물려받은 프로젝트 B의 전혀 다른
+    // 폰트에 그대로 붙어 옛 캐시가 최신으로 보인다.
+    contentGenerations_.clear();
     catalogPackageRoot_ = false;
 }
 

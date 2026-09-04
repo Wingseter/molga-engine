@@ -89,6 +89,21 @@ public:
     // 세대가 그대로 권한이다.
     std::uint64_t ContentGeneration() const noexcept { return contentGeneration_; }
 
+    // guid별 process-local 세대. 그 GUID의 "발행된 import 정체성"이 실제로
+    // 바뀐 뒤에만 오르고, 실패한 import에서는 움직이지 않는다. 폰트와
+    // .fontfamily에만 적용된다.
+    //
+    // 이 값은 카탈로그에 직렬화되지 않는다. 직렬화되는 contentRevision은
+    // recursive_directory_iterator 순서에서 나오는 서수라서 리소스 정체성이나
+    // 무효화의 근거가 될 수 없다(Task 4.2 amendment). 그래서 세대는 프로세스
+    // 안에서만 의미를 갖고, 재시작은 세대 변화가 아니다.
+    //
+    // 세대는 "달라졌다"는 신호일 뿐 내용 식별자가 아니다. Clear()/LoadCatalog은
+    // 이 표를 비우므로 재시작 뒤에는 다시 0에서 시작하고, 서로 다른 두 내용이
+    // 같은 세대 값을 가질 수 있다. 캐시 키에 내용을 담아야 하는 소비자는
+    // artifactSha256을 함께 넣어야 한다.
+    std::uint64_t ContentGeneration(const std::string& guid) const noexcept;
+
     // guid를 절대 소스 경로로 해석(런타임/에디터 공용). 없으면 빈 경로.
     std::filesystem::path AbsoluteSourcePath(const std::string& guid) const;
 
@@ -125,6 +140,9 @@ private:
                                     const nlohmann::json& settings);
 
     void IndexOne(const std::filesystem::path& absPath);
+    // 이 GUID가 직전에 발행한 record. 스캔 중에는 byGuid_가 비어 있으므로
+    // scanPrevious_ 스냅샷도 함께 본다.
+    const AssetRecord* PreviouslyPublished(const std::string& guid) const;
     static std::string ImporterForExtension(const std::string& ext, int& versionOut);
 
     std::filesystem::path assetRoot_;
@@ -134,8 +152,16 @@ private:
     // Clear()가 지우지 않는 유일한 상태. 바인딩은 database 수명 동안 불변이다.
     std::shared_ptr<const FontArtifactStore> fontArtifacts_;
     std::uint64_t contentGeneration_ = 0;
+    // 한 카탈로그가 열려 있는 동안 절대 되감기지 않는다. 되감으면 옛 세대로
+    // 캐시된 리소스가 다시 최신처럼 보인다. Clear()는 카탈로그 자체를 버리는
+    // 지점이므로 이 표도 함께 버린다 — 남겨 두면 프로젝트 A에서 얻은 세대가
+    // 같은 GUID를 가진 프로젝트 B의 다른 폰트에 그대로 붙는다.
+    std::unordered_map<std::string, std::uint64_t> contentGenerations_;
     std::unordered_map<std::string, AssetRecord> byGuid_;       // guid -> record
     std::unordered_map<std::string, std::string> sourceToGuid_; // relPath -> guid
+    // ScanProject가 byGuid_를 다시 세우는 동안만 직전 스캔의 record를 들고 있는
+    // 스냅샷. 스캔 밖에서는 항상 nullptr다.
+    const std::unordered_map<std::string, AssetRecord>* scanPrevious_ = nullptr;
 };
 
 } // namespace molga

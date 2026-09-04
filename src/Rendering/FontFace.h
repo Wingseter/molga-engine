@@ -38,8 +38,26 @@ public:
     FontFace& operator=(const FontFace&) = delete;
 
     bool LoadFromFile(const std::filesystem::path& path, std::string* error = nullptr);
-    bool IsValid() const;
 
+    // 검증된 불변 바이트 위에서 정확히 하나의 face를 연다. 소유권 지분을
+    // 값으로 받아 face 수명 내내 붙들기 때문에, 호출자가 자기 지분을 놓아도
+    // stbtt_fontinfo가 가리키는 버퍼는 살아 있다. 리소스 계층은 이 진입점만
+    // 쓴다 — 저작 원본 경로에서 face를 여는 일은 없다.
+    bool LoadFromBytes(
+        std::shared_ptr<const std::vector<std::uint8_t>> bytes,
+        std::uint32_t faceIndex, std::string* errorOut = nullptr);
+    bool IsValid() const;
+    std::uint32_t FaceIndex() const noexcept;
+
+    // cmap 조회용 비-fallback 검사 유틸리티. 0은 .notdef이다. 셰이핑의 face
+    // 선택은 이 두 함수가 아니라 임포트된 coverage와 대상 범위로 한정한
+    // HarfBuzz probe로 결정한다.
+    std::uint32_t GlyphId(char32_t codepoint) const noexcept;
+    bool HasCodepoint(char32_t codepoint) const noexcept;
+
+    // 아래 codepoint 기반 헬퍼는 아직 이관되지 않은 레거시 렌더러 전용이며,
+    // Task 8.2에서 함께 사라진다. 새 셰이핑/레이아웃 코드는 부르지 않는다:
+    // 이들은 셰이핑도 커닝도 fallback도 대신하지 못한다.
     FontFaceMetrics Metrics(float pixelHeight) const;
     FontGlyphBitmap Rasterize(std::uint32_t codepoint, float pixelHeight) const;
     float Advance(std::uint32_t codepoint, float pixelHeight) const;

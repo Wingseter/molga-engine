@@ -8,10 +8,14 @@
 #include "Rendering/Utf8.h"
 #include "doctest.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <cmath>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -23,6 +27,14 @@ fs::path TestFontPath() {
 
 fs::path TestKoreanFontPath() {
     return fs::path(MOLGA_TEST_KOREAN_FONT_PATH);
+}
+
+std::shared_ptr<const std::vector<std::uint8_t>> SharedFontBytes(
+    const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    REQUIRE_MESSAGE(input.good(), "could not open " << path.string());
+    return std::make_shared<const std::vector<std::uint8_t>>(
+        std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
 fs::path MakeFontProject() {
@@ -141,6 +153,60 @@ TEST_CASE("FontFace exposes metrics, glyph bitmaps, advances, and kerning") {
     CHECK(koreanGlyph.width > 0);
     CHECK(koreanGlyph.height > 0);
     CHECK_FALSE(koreanGlyph.coverage.empty());
+}
+
+// Task 4.3 Step 3/3a: FontFace가 검증된 불변 바이트 위에서만 열리고, 그
+// 바이트의 소유권을 face 수명 내내 붙들고 있는지 본다. 호출자가 자기 소유
+// 지분을 놓아도 face는 계속 유효해야 한다.
+TEST_CASE("FontFace loads immutable shared bytes and outlives its caller's owner") {
+    auto bytes = SharedFontBytes(TestFontPath());
+    const std::size_t byteCount = bytes->size();
+    molga::FontFace face;
+    std::string error;
+    REQUIRE_MESSAGE(face.LoadFromBytes(bytes, 0, &error), error);
+    CHECK(error.empty());
+    CHECK(face.IsValid());
+    CHECK(face.FaceIndex() == 0U);
+    CHECK(face.HasCodepoint(U'A'));
+    const std::uint32_t glyph = face.GlyphId(U'A');
+    CHECK(glyph != 0U);
+    CHECK_FALSE(face.HasCodepoint(0x10FFFEU));
+    CHECK(face.GlyphId(0x10FFFEU) == 0U);
+    // 유니코드 범위 밖은 cmap을 건드리지 않고 .notdef이다.
+    CHECK(face.GlyphId(0x110000U) == 0U);
+    CHECK_FALSE(face.HasCodepoint(0x110000U));
+
+    CHECK(bytes.use_count() > 1);
+    bytes.reset();
+    CHECK(face.IsValid());
+    CHECK(face.GlyphId(U'A') == glyph);
+    CHECK(face.HasCodepoint(U'A'));
+    const molga::FontGlyphBitmap bitmap = face.Rasterize('A', 32.0f);
+    CHECK(bitmap.width > 0);
+    CHECK(byteCount > 0U);
+
+    molga::FontFace koreanFace;
+    REQUIRE(koreanFace.LoadFromBytes(SharedFontBytes(TestKoreanFontPath()), 0,
+                                     &error));
+    CHECK(koreanFace.HasCodepoint(0xD55CU));
+    CHECK(koreanFace.GlyphId(0xD55CU) != 0U);
+
+    // 컬렉션이 아닌 파일에는 face 0밖에 없고, 빈 소유권은 face가 아니다.
+    molga::FontFace outside;
+    CHECK_FALSE(outside.LoadFromBytes(SharedFontBytes(TestFontPath()), 1, &error));
+    CHECK_FALSE(error.empty());
+    CHECK_FALSE(outside.IsValid());
+    CHECK(outside.FaceIndex() == 0U);
+    CHECK(outside.GlyphId(U'A') == 0U);
+    CHECK_FALSE(outside.HasCodepoint(U'A'));
+
+    molga::FontFace empty;
+    CHECK_FALSE(empty.LoadFromBytes(nullptr, 0, &error));
+    CHECK_FALSE(error.empty());
+    CHECK_FALSE(empty.IsValid());
+    CHECK_FALSE(empty.LoadFromBytes(
+        std::make_shared<const std::vector<std::uint8_t>>(), 0, &error));
+    CHECK_FALSE(empty.IsValid());
 }
 
 TEST_CASE("AssetDatabase imports fonts and lazy atlas allocates extra pages") {

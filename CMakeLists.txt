@@ -206,6 +206,7 @@ set(ENGINE_SOURCES
     src/Core/Importers/FontImporter.cpp
     src/Core/Importers/FontFamilyImporter.cpp
     src/Core/Importers/PostProcessProfileImporter.cpp
+    src/Text/FontRepository.cpp
     src/Text/TextDiagnostic.cpp
     src/Text/TextRuntimeDependencies.cpp
     src/Text/UnicodeTextBuffer.cpp

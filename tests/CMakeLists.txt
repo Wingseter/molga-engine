@@ -71,7 +71,7 @@ molga_add_test(test_create_sprite_from_asset test_create_sprite_from_asset.cpp)
 target_sources(test_create_sprite_from_asset PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Commands/CreateSpriteFromAssetCommand.cpp)
 molga_add_test(test_text              test_text.cpp)
-molga_add_test(test_font              test_font.cpp)
+molga_add_text_test(test_font         test_font.cpp)
 target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
     MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")

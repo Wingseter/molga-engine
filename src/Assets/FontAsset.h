@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Common/Fixed26_6.h"
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -26,6 +28,21 @@ struct FontDesignMetrics {
     std::int16_t descender = 0;
     std::int16_t lineGap = 0;
 };
+
+// 레이아웃이 실제로 쓰는 수직 단위. descent는 아래쪽 거리이므로 SFNT의 음수
+// descender와 달리 양수다.
+struct ScaledFontDesignMetrics {
+    Fixed26_6 ascent = Fixed26_6::FromRaw(0);
+    Fixed26_6 descent = Fixed26_6::FromRaw(0);
+    Fixed26_6 lineGap = Fixed26_6::FromRaw(0);
+};
+
+// 임포트된 정확한 SFNT 정수만 검사된 26.6 비율로 스케일한다. 래스터라이저의
+// float 메트릭은 여기 들어오지 않는다: 같은 폰트/같은 크기가 빌드마다 정확히
+// 같은 raw 값을 내야 캐시 정체성과 스냅샷 비교가 성립하기 때문이다. 검사에
+// 실패하면 포화시키지 않고 실패를 보고한다.
+std::optional<ScaledFontDesignMetrics> ScaleFontDesignMetrics(
+    const FontDesignMetrics&, Fixed26_6 fontSize) noexcept;
 enum class FontArtifactStorage : std::uint8_t {
     ProjectLibrary,
     PackagedResource
