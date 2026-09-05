@@ -1131,3 +1131,35 @@ TEST_CASE("the face records the glyph id it was asked to rasterize") {
     CHECK(nothing.coverage.empty());
     CHECK(unloaded.LastRasterizedGlyphId() == 77U);
 }
+
+TEST_CASE("peak resident bytes is a high-water mark, not the latest value") {
+    // Step 10은 "high-water peak"을 요구하고 Milestone 11의 "resident bytes가
+    // 64 MiB를 넘지 않았다"는 증거가 이 필드를 읽는다. 그런데 감사 단계의
+    // mutation이 std::max(peak, resident)를 peak = resident로 바꿔도 2491개
+    // assertion이 전부 통과했다. 기존 케이스들은 resident가 정점에 있는 순간에만
+    // peak를 보기 때문에 두 식이 같은 값을 낸다.
+    //
+    // 구분하려면 resident가 한 번 내려간 뒤에 다시 올라가야 한다:
+    // 두 page까지 채우고(peak=2), 해제해서 0으로 만든 뒤(단조 telemetry는 남는다),
+    // page 하나만 다시 만든다(resident=1). max는 2를 유지하고 대입은 1로 덮어쓴다.
+    GlyphAtlasFixture f(2 * GlyphAtlasFixture::PageBytes);
+    f.cache.BeginFrame(1);
+    f.FillWithDistinctGlyphs();
+    f.cache.EndCollection(1);
+    const std::uint64_t highWater = f.cache.Telemetry().peakResidentBytes;
+    REQUIRE(highWater == 2U * GlyphAtlasFixture::PageBytes);
+
+    REQUIRE(f.cache.ReleaseAfterGpuIdle());
+    REQUIRE(f.cache.Telemetry().residentBytes == 0U);
+    CHECK(f.cache.Telemetry().peakResidentBytes == highWater);
+
+    // 해제 뒤 page 하나만 다시 만든다. resident는 정점보다 낮다.
+    f.cache.BeginFrame(100);
+    const auto resolved = f.ResolveGlyph(1);
+    REQUIRE_FALSE(resolved.proceduralTofu);
+    REQUIRE(f.cache.Telemetry().residentBytes == GlyphAtlasFixture::PageBytes);
+    REQUIRE(f.cache.Telemetry().residentBytes < highWater);
+
+    // 이 한 줄이 mutant를 죽인다: 대입이었다면 여기서 PageBytes가 된다.
+    CHECK(f.cache.Telemetry().peakResidentBytes == highWater);
+}
