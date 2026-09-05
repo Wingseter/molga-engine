@@ -1738,7 +1738,7 @@ and must not break a cluster HarfBuzz marked unsafe.
 - Consumes: `ShapedGlyph::glyphId`, `FontFaceResource::rasterFace`, and `TextDiagnosticSink`.
 - Produces: `GlyphAtlasKey`, `GlyphAtlasKeyHash`, `GlyphInfo`, `GlyphHandle`, `GlyphAtlasTelemetry`, and `GlyphAtlasCache::{DefaultResidentBudgetBytes,SetResidentBudget,BeginFrame,GetGlyph,EndCollection,Telemetry,LiveExternalPagePinCount,ReleaseAfterGpuIdle}`.
 
-- [ ] **Step 1: Add the failing complete-key and glyph-raster tests.**
+- [x] **Step 1: Add the failing complete-key and glyph-raster tests.**
 
   ```cpp
   TEST_CASE("every logical glyph field participates in atlas identity") {
@@ -1765,7 +1765,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   }
   ```
 
-- [ ] **Step 1a: Add the failing resident-budget test.**
+- [x] **Step 1a: Add the failing resident-budget test.**
 
   ```cpp
   TEST_CASE("atlas never exceeds its configured page budget") {
@@ -1780,7 +1780,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   }
   ```
 
-- [ ] **Step 1b: Add the failing zero-capacity test.**
+- [x] **Step 1b: Add the failing zero-capacity test.**
 
   ```cpp
   TEST_CASE("zero atlas budget is zero capacity") {
@@ -1798,7 +1798,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   }
   ```
 
-- [ ] **Step 1c: Add the failing cache-owner eviction test.**
+- [x] **Step 1c: Add the failing cache-owner eviction test.**
 
   ```cpp
   TEST_CASE("cache ownership is not mistaken for an external page pin") {
@@ -1815,7 +1815,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   }
   ```
 
-- [ ] **Step 1d: Add the failing current-collection pin test.**
+- [x] **Step 1d: Add the failing current-collection pin test.**
 
   ```cpp
   TEST_CASE("current collection pin blocks eviction without an external owner") {
@@ -1830,7 +1830,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   }
   ```
 
-- [ ] **Step 1e: Add the failing external-owner pin test.**
+- [x] **Step 1e: Add the failing external-owner pin test.**
 
   ```cpp
   TEST_CASE("external page owner blocks eviction after collection ends") {
@@ -1846,7 +1846,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   }
   ```
 
-- [ ] **Step 1f: Add the failing page-identity exhaustion test.**
+- [x] **Step 1f: Add the failing page-identity exhaustion test.**
 
   ```cpp
   TEST_CASE("page identity exhaustion fails closed without reuse") {
@@ -1867,24 +1867,24 @@ and must not break a cluster HarfBuzz marked unsafe.
   }
   ```
 
-- [ ] **Step 1g: Add the failing external-pin teardown test.** End collection
+- [x] **Step 1g: Add the failing external-pin teardown test.** End collection
   while retaining one returned `pageLifetime`; require
   `LiveExternalPagePinCount()==1`, `ReleaseAfterGpuIdle()==false`, and unchanged
   resident bytes/pages. Reset that exact token, require the count becomes zero,
   then require `ReleaseAfterGpuIdle()==true` and zero resident bytes/pages.
   Repeat with cache ownership alone and require it is never counted external.
 
-- [ ] **Step 1h: Implement the atlas test-only fixtures.** `MutateEachLogicalKeyField` alters exactly one of the eight fields and returns the expected key label; `FaceForKey` returns a fixture face whose face index matches that key while tracking its requested glyph ID. `OneGlyphPerPage()` uses a deterministic one-cell page allocator and one-page resident budget, so each new glyph needs a new page identity; production packing remains unrestricted.
+- [x] **Step 1h: Implement the atlas test-only fixtures.** `MutateEachLogicalKeyField` alters exactly one of the eight fields and returns the expected key label; `FaceForKey` returns a fixture face whose face index matches that key while tracking its requested glyph ID. `OneGlyphPerPage()` uses a deterministic one-cell page allocator and one-page resident budget, so each new glyph needs a new page identity; production packing remains unrestricted.
 
-- [ ] **Step 1i: Register the atlas test with the common runtime main.** Call `molga_add_text_test(test_glyph_atlas test_glyph_atlas.cpp)`; its idempotent helper owns normal dependency attachment. Do not link `doctest_main`, call the attach helper again, or stage a second runtime root.
+- [x] **Step 1i: Register the atlas test with the common runtime main.** Call `molga_add_text_test(test_glyph_atlas test_glyph_atlas.cpp)`; its idempotent helper owns normal dependency attachment. Do not link `doctest_main`, call the attach helper again, or stage a second runtime root.
 
-- [ ] **Step 2: Run the CPU atlas red gate.**
+- [x] **Step 2: Run the CPU atlas red gate.**
 
   Run: `cmake --build --preset debug --target test_glyph_atlas -j`
 
   Expected: compile FAIL because `GlyphAtlasKey`, glyph-ID rasterization, and telemetry do not exist.
 
-- [ ] **Step 3: Add the exact atlas-key contract.**
+- [x] **Step 3: Add the exact atlas-key contract.**
 
   ```cpp
   enum class GlyphRenderMode : std::uint8_t { Monochrome };
@@ -1904,7 +1904,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   };
   ```
 
-- [ ] **Step 3a: Add the exact glyph-info and lifetime handle.**
+- [x] **Step 3a: Add the exact glyph-info and lifetime handle.**
 
   ```cpp
   struct GlyphInfo {
@@ -1924,7 +1924,7 @@ and must not break a cluster HarfBuzz marked unsafe.
   };
   ```
 
-- [ ] **Step 3b: Add telemetry and cache declarations.**
+- [x] **Step 3b: Add telemetry and cache declarations.**
 
   ```cpp
   struct GlyphAtlasTelemetry {
@@ -1946,21 +1946,21 @@ and must not break a cluster HarfBuzz marked unsafe.
   };
   ```
 
-- [ ] **Step 4: Keep the legacy adapter isolated until the atomic migration.** Leave the existing `FontAtlasCache` class and its codepoint-facing methods compiled only for the unchanged pre-Milestone-8 consumers; it does not call or populate `GlyphAtlasCache`. New shaping/layout code may depend only on `GlyphAtlasCache`. Task 8.2 deletes `FontAtlasCache`, rather than silently adapting one consumer early.
+- [x] **Step 4: Keep the legacy adapter isolated until the atomic migration.** Leave the existing `FontAtlasCache` class and its codepoint-facing methods compiled only for the unchanged pre-Milestone-8 consumers; it does not call or populate `GlyphAtlasCache`. New shaping/layout code may depend only on `GlyphAtlasCache`. Task 8.2 deletes `FontAtlasCache`, rather than silently adapting one consumer early.
 
-- [ ] **Step 5: Add glyph-ID-only rasterization.** Implement `FontGlyphBitmap FontFace::RasterizeGlyph(std::uint32_t glyphId, std::uint16_t pixelHeight, std::uint16_t rasterScaleKey) const`. It returns bitmap bounds/bearing/coverage only; logical advance and offsets remain the HarfBuzz values already stored in `ShapedGlyph`. This const signature matches `GlyphAtlasCache::GetGlyph(const GlyphAtlasKey&, const FontFace&, TextDiagnosticSink&)`.
+- [x] **Step 5: Add glyph-ID-only rasterization.** Implement `FontGlyphBitmap FontFace::RasterizeGlyph(std::uint32_t glyphId, std::uint16_t pixelHeight, std::uint16_t rasterScaleKey) const`. It returns bitmap bounds/bearing/coverage only; logical advance and offsets remain the HarfBuzz values already stored in `ShapedGlyph`. This const signature matches `GlyphAtlasCache::GetGlyph(const GlyphAtlasKey&, const FontFace&, TextDiagnosticSink&)`.
 
-- [ ] **Step 6: Implement exact resident accounting.** Each monochrome GPU page contributes `width * height * bytesPerPixel`; default budget is `64ULL * 1024ULL * 1024ULL`, and `SetResidentBudget(0)` means zero capacity rather than unlimited.
+- [x] **Step 6: Implement exact resident accounting.** Each monochrome GPU page contributes `width * height * bytesPerPixel`; default budget is `64ULL * 1024ULL * 1024ULL`, and `SetResidentBudget(0)` means zero capacity rather than unlimited.
 
-- [ ] **Step 7: Implement the never-reused page ID allocator.** Give each newly created page a process-lifetime nonzero `pageIdentity`; detect `uint64_t` exhaustion before increment/wrap and return tofu plus `AtlasExhausted` rather than zero or reuse.
+- [x] **Step 7: Implement the never-reused page ID allocator.** Give each newly created page a process-lifetime nonzero `pageIdentity`; detect `uint64_t` exhaustion before increment/wrap and return tofu plus `AtlasExhausted` rather than zero or reuse.
 
-- [ ] **Step 7a: Separate cache and external page ownership.** A `PageRecord` owns `shared_ptr<PageResource>`; one `PageLifetimeToken` also owns that resource, while the record stores only `weak_ptr<const PageLifetimeToken> externalToken`. No eviction decision may inspect `PageResource::shared_ptr::use_count()`.
+- [x] **Step 7a: Separate cache and external page ownership.** A `PageRecord` owns `shared_ptr<PageResource>`; one `PageLifetimeToken` also owns that resource, while the record stores only `weak_ptr<const PageLifetimeToken> externalToken`. No eviction decision may inspect `PageResource::shared_ptr::use_count()`.
 
-- [ ] **Step 7b: Track current-collection ownership explicitly.** Store the current collection's page-ID set; `GetGlyph` inserts the ID and returns or renews the page's one external token, while `EndCollection` clears only that set.
+- [x] **Step 7b: Track current-collection ownership explicitly.** Store the current collection's page-ID set; `GetGlyph` inserts the ID and returns or renews the page's one external token, while `EndCollection` clears only that set.
 
-- [ ] **Step 7c: Keep raster work synchronous or resource-owned.** Complete `RasterizeGlyph` and the GPU page upload inside `GetGlyph` before returning. Do not queue a raw `FontFace&`; if a future backend needs deferred work, its pending record must instead retain the exact `FontFaceResourcePtr` and is outside this task's synchronous implementation.
+- [x] **Step 7c: Keep raster work synchronous or resource-owned.** Complete `RasterizeGlyph` and the GPU page upload inside `GetGlyph` before returning. Do not queue a raw `FontFace&`; if a future backend needs deferred work, its pending record must instead retain the exact `FontFaceResourcePtr` and is outside this task's synchronous implementation.
 
-- [ ] **Step 7d: Separate external-pin detection from device-safe release.**
+- [x] **Step 7d: Separate external-pin detection from device-safe release.**
   `LiveExternalPagePinCount` counts nonexpired weak external page-token records
   in stable page-ID order and ignores cache/current-collection ownership; it
   never uses `shared_ptr::use_count()`. `ReleaseAfterGpuIdle` returns false
@@ -1970,19 +1970,19 @@ and must not break a cluster HarfBuzz marked unsafe.
   allocator. Task 11 calls it only after a successful device idle/fence drain
   and after engine command/snapshot owners are released.
 
-- [ ] **Step 8: Implement page-level LRU eviction.** Before allocation, evict the least-recently-used page only when its ID is absent from current-collection pins and its external pin weak pointer is expired. Cache ownership alone never blocks eviction; update resident bytes immediately after destruction.
+- [x] **Step 8: Implement page-level LRU eviction.** Before allocation, evict the least-recently-used page only when its ID is absent from current-collection pins and its external pin weak pointer is expired. Cache ownership alone never blocks eviction; update resident bytes immediately after destruction.
 
-- [ ] **Step 9: Implement saturation tofu.** If no legal page fits after eviction, return a procedural monochrome tofu handle with `pageIdentity=0`, report rate-limited `AtlasExhausted`, and leave resident bytes unchanged.
+- [x] **Step 9: Implement saturation tofu.** If no legal page fits after eviction, return a procedural monochrome tofu handle with `pageIdentity=0`, report rate-limited `AtlasExhausted`, and leave resident bytes unchanged.
 
-- [ ] **Step 10: Implement atlas telemetry.** Update hits, misses, uploads, evictions, current resident, and high-water peak at the single lookup/allocation/eviction points; no caller recomputes telemetry.
+- [x] **Step 10: Implement atlas telemetry.** Update hits, misses, uploads, evictions, current resident, and high-water peak at the single lookup/allocation/eviction points; no caller recomputes telemetry.
 
-- [ ] **Step 11: Run the CPU atlas green gate.**
+- [x] **Step 11: Run the CPU atlas green gate.**
 
   Run: `cmake --build --preset debug --target test_glyph_atlas test_font -j && ctest --test-dir build/debug -R '^(test_glyph_atlas|test_font)$' --output-on-failure`
 
   Expected: full-key identity, glyph-ID rasterization, face/revision separation, page LRU, tofu, telemetry, and the 64 MiB default all pass.
 
-- [ ] **Step 12: Commit the CPU glyph atlas.**
+- [x] **Step 12: Commit the CPU glyph atlas.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Rendering/FontAtlas.* \
@@ -1991,6 +1991,54 @@ and must not break a cluster HarfBuzz marked unsafe.
   ```
 
 **Exit:** The atlas is shaped-glyph-addressed and memory-bounded, but GPU submission ownership is deliberately handled by Task 6.2.
+
+**Implementation record (2026-09-05).** Commits `afea9e7` and `7ab5125`. Debug suite **96/96** run
+alone; `test_glyph_atlas` 30 cases / ~2500 assertions, green in Debug and ASan; zero warnings in
+this milestone's files on a forced rebuild.
+
+**The audit stage FAILED this task, and was right to.** Four review lenses ran, the landing stage
+killed all 21 mutations it was handed, and then the audit ran its *own* probe and found a survivor
+none of them had tested: changing `std::max(peak, resident)` to `peak = resident` left the entire
+2491-assertion suite green. Every existing case sampled `peakResidentBytes` while resident was *at*
+its maximum, where the two expressions are indistinguishable. The field is load-bearing — Step 10
+requires a high-water mark and Milestone 11's "resident bytes never exceeded 64 MiB" evidence reads
+it — so a plain assignment would let a run that peaked over budget and settled under it report
+compliance. `7ab5125` closes it by driving resident down and back up (fill two pages →
+`ReleaseAfterGpuIdle`, which zeroes resident while deliberately preserving monotonic telemetry →
+create one page); the mutant then fails exactly one case out of thirty.
+
+**Blocking coverage holes found by the mutation lens, all closed:** uv rect x/y transposition was
+undetectable because the only uv test placed a single glyph at the page origin, where `x == y == 1`;
+nothing required two glyphs to share a page, so disabling packing entirely stayed green; and the
+one-external-token-per-page deduplication had no test, so a per-glyph token would make
+`LiveExternalPagePinCount()` under-report.
+
+**Approved deviation — `src/Rendering/TextRenderer.cpp`.** Step 3a's verbatim
+`using FontAtlasGlyph = GlyphInfo;` removes `xAdvance` from the legacy glyph struct, which three
+`TextRenderer` sites read. Rather than edit a verbatim block, the advance is now served by a new
+`FontAtlasCache::GetAdvance` returning the same cached stb raster advance from the same cache entry,
+with all three call sites already inside the existing `GetGlyph` guard. Verified behaviour-identical
+and that `detail::LegacyFontFaceMetricCallCount` is unaffected, since only `FontFace::Advance` and
+`Kerning` increment it and `Rasterize` does not.
+
+**Correctly unmodified despite being listed:** root `CMakeLists.txt` is in the Files list and Step
+12's `git add`, but `FontAtlas.cpp` and `FontFace.cpp` are already `molga_core` sources and this task
+adds no new source file. Following Task 4.3's precedent, no gratuitous edit was made.
+
+**Carried forward — the budget measures half the real footprint.** The 64 MiB `residentBytes`
+accounting covers GPU pages only; a CPU mirror of the same coverage is retained alongside, so actual
+resident cost is approximately **2×** the number this telemetry reports. Nothing is wrong today —
+the budget does bound the GPU side, which is what Task 6.2's fence retirement cares about — but
+**Milestone 11's evidence clause must state which number it means**, and Task 18.3's allocation gate
+should measure the total rather than the reported field. Also noted: blank-glyph entries live in the
+one map outside both the page LRU and the byte budget.
+
+**Named for Task 6.2:** pinning a page does not currently stop the atlas writing into it, and
+`GlyphInfo` alone is not a safe lifetime unit — the same type now carries two documented contracts
+that pull in different directions. Task 6.2 retires pages only after GPU fences and will need both
+resolved. `FontFace::RasterizeGlyph` is `const` per Step 5 but writes `lastRasterizedGlyphId`
+through the pimpl, so a `shared_ptr<const FontFace>` is mutated on every atlas miss; single-threaded
+by documented contract, but the `const` no longer means what it reads as.
 
 ---
 
