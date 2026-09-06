@@ -400,6 +400,9 @@ private:
                            Fixed26_6& lineGap) const;
     bool PositionLines(TextLayout& layout);
     bool BuildInteriorCarets(PositionedGlyph& glyph, bool rightToLeft) const;
+    bool BuildCaretStops(const TextLine& line, std::uint32_t lineIndex,
+                         Fixed26_6 lineOrigin,
+                         std::vector<CaretStop>& out) const;
     TextShapeCacheKey BuildShapeKey(const LineDraft& line,
                                     const LinePiece& piece) const;
     TextParagraphCacheKey BuildFinalKey() const;
@@ -1520,6 +1523,222 @@ bool LayoutRun::BuildInteriorCarets(PositionedGlyph& glyph,
     return true;
 }
 
+// ── Steps 4-5: the line's grapheme-boundary caret stops ─────────────────────
+// caret이 설 수 있는 자리는 논리 grapheme 경계뿐이고, 그 자리의 시각 좌표는
+// 이 함수가 확정된 줄의 시각 순서에서 읽는다. 자리는 세 곳에서만 온다:
+// cell의 논리 시작 모서리, 논리 끝 모서리, 그리고 배치가 이미 저장해 둔
+// PositionedGlyph::interiorCarets. 그래서 대리 쌍이나 결합/ZWJ grapheme 안쪽에
+// 자리가 생길 수 없다 — 세 출처 어느 것도 grapheme 경계가 아닌 값을 낼 수 없다.
+//
+// 단위는 glyph 하나가 아니라 "같은 grapheme을 나눠 쓰는 glyph 묶음"(cell)이고,
+// 묶는 기준은 grapheme 범위가 같은가가 아니라 겹치는가다. 두 기준은 실제로
+// 다른 답을 낸다:
+//   - 데바나가리의 pre-base 매트라는 같은 범위를 가진 glyph 둘로 온다. glyph마다
+//     자리를 내면 같은 논리 경계가 cell 안쪽의 서로 다른 두 x에 서게 된다.
+//   - 합자 뒤에 결합 문자가 붙으면 HarfBuzz는(MONOTONE_CHARACTERS) 그 표식의
+//     cluster를 합자 cluster에 합치지 않으므로, 표식의 grapheme 범위는 합자
+//     범위의 진부분집합이 된다. 같은가로 묶으면 표식이 자기 cell이 되어 합자의
+//     바깥 모서리에 두 번째 자리를 내고, 방향이 바뀌지도 않은 경계가 affinity
+//     쌍처럼 보인다 — 그러면 어느 소비자도 진짜 BiDi 자리와 구분할 수 없다.
+bool LayoutRun::BuildCaretStops(const TextLine& line, std::uint32_t lineIndex,
+                                Fixed26_6 lineOrigin,
+                                std::vector<CaretStop>& out) const {
+    const std::size_t first = out.size();
+    for (const VisualRun& run : line.visualRuns) {
+        const bool rightToLeft = (run.bidiLevel & 1U) != 0U;
+        std::size_t index = 0;
+        while (index < run.glyphs.size()) {
+            GraphemeRange cell = run.glyphs[index].glyph.graphemes;
+            std::size_t last = index;
+            // 빈 범위(줄임표의 합성 glyph)는 어느 쪽으로도 묶지 않는다.
+            // 지금 이 서비스가 내는 배치에서는 닿지 않는 줄이다 — 합성 glyph는
+            // 언제나 자기 혼자 하나의 시각 run이고, 이 묶기는 run 안에서만
+            // 일어난다. 그래도 남기는 이유는 겹침 판정이 빈 범위를 특별히 다루지
+            // 않으면 cell 안쪽에 놓인 빈 범위 하나가 "겹친다"로 셈해져 그 cell을
+            // 삼켜 버리기 때문이고, 그 조건은 여기 한 줄로만 막을 수 있다.
+            if (cell.begin != cell.end) {
+                while (last + 1U < run.glyphs.size()) {
+                    const GraphemeRange next =
+                        run.glyphs[last + 1U].glyph.graphemes;
+                    if (next.begin == next.end) break;
+                    if (!(next.begin < cell.end && cell.begin < next.end)) break;
+                    cell.begin = std::min(cell.begin, next.begin);
+                    cell.end   = std::max(cell.end, next.end);
+                    ++last;
+                }
+            }
+            const std::size_t begin = index;
+            index = last + 1U;
+            // 줄임표의 합성 glyph는 원본 grapheme을 하나도 덮지 않는다(Step
+            // 10b). 그 자리에 caret을 세우면 화면에 없는 글자를 가리키게 되고,
+            // 잘린 지점의 caret은 남긴 마지막 grapheme의 끝 모서리가 이미 낸다.
+            if (cell.begin == cell.end) continue;
+
+            const PositionedGlyph& head = run.glyphs[begin];
+            const PositionedGlyph& tail = run.glyphs[last];
+            // cell의 바깥 모서리는 glyph 원점이 아니라 pen 자리다. 원점은 pen에
+            // GPOS의 x offset을 더한 그리기 좌표라, 앞 cell의 "원점 + advance"와
+            // 뒤 cell의 원점이 두 offset의 차만큼 어긋난다. 그 어긋남은 방향이
+            // 바뀌지 않는 경계에서도 자리를 둘로 갈라 놓아, affinity가 실제로
+            // 뜻을 갖는 BiDi 경계와 구분할 수 없게 만든다. pen은 PositionLines가
+            // origin.x = pen + offsetX로 놓았으므로 그대로 되짚을 수 있다.
+            //
+            // 이 규칙은 바깥 모서리에만 해당한다. 아래에서 옮겨 적는 내부
+            // caret은 Task 7.2가 glyph 그리기 원점에 붙여 저장해 둔 값이고,
+            // 그 값은 여기서 다시 만들지 않는다(Step 5). 두 규약은 glyph의
+            // offsetX가 0인 곳에서 정확히 같은 자리를 가리키고, 커밋된 corpus의
+            // 내부 caret을 가진 glyph는 전부 offsetX가 0이다. 합자에 가로 GPOS
+            // 보정을 거는 폰트가 들어오면 그 합자의 내부 caret이 자기 cell에서
+            // offsetX만큼 밀리므로, 두 규약을 하나로 합치는 일은 7.2의 저장
+            // 공식과 그것을 고정한 케이스를 함께 고치는 개정이 되어야 한다.
+            Fixed26_6 leadingEdge  = Fixed26_6::FromRaw(0);
+            Fixed26_6 trailingEdge = Fixed26_6::FromRaw(0);
+            if (!SubChecked(head.origin.x, head.glyph.offsetX, leadingEdge) ||
+                !SubChecked(tail.origin.x, tail.glyph.offsetX, trailingEdge) ||
+                !AddChecked(trailingEdge, tail.glyph.advanceX, trailingEdge)) {
+                Fail("a caret stop position overflows the checked 26.6 range",
+                     tail.glyph.sourceBytes);
+                return false;
+            }
+
+            // caret의 y는 언제나 그 줄의 baseline이다. glyph 원점의 y는 GPOS의
+            // 세로 보정이 섞인 그리기 좌표라, 그것을 쓰면 한 줄 안의 자리들이
+            // 서로 다른 높이를 갖게 되고 소비자가 어느 값을 믿어야 할지 알 수 없다.
+            //
+            // 논리 시작은 LTR에서 왼쪽 모서리, RTL에서 오른쪽 모서리다.
+            CaretStop start;
+            start.logicalGraphemeBoundary = cell.begin;
+            start.affinity   = CaretAffinity::Downstream;
+            start.position.x = rightToLeft ? trailingEdge : leadingEdge;
+            start.position.y = line.baseline;
+            start.lineIndex  = lineIndex;
+            out.push_back(start);
+
+            CaretStop end;
+            end.logicalGraphemeBoundary = cell.end;
+            end.affinity   = CaretAffinity::Upstream;
+            end.position.x = rightToLeft ? leadingEdge : trailingEdge;
+            end.position.y = line.baseline;
+            end.lineIndex  = lineIndex;
+            out.push_back(end);
+
+            // Step 5: 합자 내부의 자리는 오직 저장된 것을 옮겨 적는다. 여기서
+            // 다시 계산하면 배치가 낸 자리와 조용히 달라질 수 있고, GDEF에서
+            // 온 자리와 균등 분할로 유도한 자리를 구분할 근거도 사라진다.
+            const std::size_t interiorFirst = out.size();
+            for (std::size_t glyph = begin; glyph <= last; ++glyph) {
+                for (const GlyphInteriorCaret& interior :
+                     run.glyphs[glyph].interiorCarets) {
+                    // 한 cell 안에서 같은 논리 경계는 자리를 하나만 갖는다.
+                    // BuildInteriorCarets는 glyph 하나마다 그 glyph의 advance를
+                    // 나누므로, 여러 grapheme을 덮는 glyph가 한 cell에 둘 이상
+                    // 들어오면 같은 경계가 서로 다른 x에 두 번 실린다. 커밋된
+                    // corpus는 그런 배치를 내지 않지만, 나오면 방향이 바뀌지
+                    // 않는 경계가 BiDi affinity 쌍과 똑같이 보이게 된다.
+                    bool alreadyStored = false;
+                    for (std::size_t seen = interiorFirst; seen < out.size();
+                         ++seen) {
+                        if (out[seen].logicalGraphemeBoundary ==
+                            interior.logicalGraphemeBoundary) {
+                            alreadyStored = true;
+                            break;
+                        }
+                    }
+                    if (alreadyStored) continue;
+                    CaretStop stop;
+                    stop.logicalGraphemeBoundary =
+                        interior.logicalGraphemeBoundary;
+                    stop.affinity   = CaretAffinity::Downstream;
+                    stop.position.x = interior.position.x;
+                    stop.position.y = line.baseline;
+                    stop.lineIndex  = lineIndex;
+                    out.push_back(stop);
+                }
+            }
+        }
+    }
+
+    if (out.size() == first) {
+        // 빈 줄에도 자리는 하나 있어야 한다. 없으면 편집기가 빈 줄에 커서를
+        // 놓을 수 없고, 그 줄은 metric만 있고 닿을 수 없는 줄이 된다.
+        CaretStop stop;
+        stop.logicalGraphemeBoundary = line.graphemes.begin;
+        stop.affinity   = CaretAffinity::Downstream;
+        stop.position.x = lineOrigin;
+        stop.position.y = line.baseline;
+        stop.lineIndex  = lineIndex;
+        out.push_back(stop);
+        return true;
+    }
+
+    const auto rank = [](CaretAffinity affinity) {
+        return affinity == CaretAffinity::Downstream ? 0 : 1;
+    };
+    const auto firstIt = [&out, first]() {
+        return out.begin() + static_cast<std::ptrdiff_t>(first);
+    };
+    // 접기 전용 순서. 같은 경계의 자리들을 한데 모으고, 그 안에서 x로, 다시
+    // affinity로 가른다 — Downstream을 앞에 두는 이유는 접기가 앞의 것을
+    // 남기기 때문이다.
+    std::stable_sort(firstIt(), out.end(),
+                     [&rank](const CaretStop& a, const CaretStop& b) {
+                         if (a.logicalGraphemeBoundary !=
+                             b.logicalGraphemeBoundary) {
+                             return a.logicalGraphemeBoundary <
+                                    b.logicalGraphemeBoundary;
+                         }
+                         if (a.position.x.Raw() != b.position.x.Raw()) {
+                             return a.position.x.Raw() < b.position.x.Raw();
+                         }
+                         return rank(a.affinity) < rank(b.affinity);
+                     });
+    // 방향이 바뀌지 않는 경계에서는 앞 cell의 끝 모서리와 뒤 cell의 시작
+    // 모서리가 같은 자리다. 그 둘을 남겨 두면 caret 하나가 두 번 세어지고,
+    // 논리 이웃과 시각 이웃이 같은 자리라는 사실이 affinity 둘로 위장된다.
+    // 접히는 조건은 "같은 경계이면서 같은 x"이고, 두 조건이 다 필요하다:
+    // 경계가 같아도 x가 다르면 그것이 BiDi 자리 쌍이고, x가 같아도 경계가
+    // 다르면 폭 0인 cell의 양쪽 모서리다.
+    //
+    // std::unique를 쓰지 않는 이유가 여기 있다. unique는 이웃만 견주므로 어느
+    // 조건이 실제로 일하는지를 정렬 키가 조용히 정해 버린다. 이미 남긴 자리와
+    // 직접 견주면 그 규칙이 정렬 순서와 무관하게 성립한다.
+    std::size_t write = first;
+    for (std::size_t read = first; read < out.size(); ++read) {
+        bool folded = false;
+        for (std::size_t kept = write; kept > first;) {
+            --kept;
+            if (out[kept].logicalGraphemeBoundary !=
+                out[read].logicalGraphemeBoundary) {
+                break;
+            }
+            if (out[kept].position.x.Raw() == out[read].position.x.Raw()) {
+                folded = true;
+                break;
+            }
+        }
+        if (folded) continue;
+        out[write] = out[read];
+        ++write;
+    }
+    out.resize(write);
+
+    // 그리고 시각 진행 순서(왼쪽에서 오른쪽)로 다시 정렬한다. hit test의 구간
+    // 훑기가 줄 안에서 x가 단조롭다는 것을 전제한다.
+    std::stable_sort(firstIt(), out.end(),
+                     [&rank](const CaretStop& a, const CaretStop& b) {
+                         if (a.position.x.Raw() != b.position.x.Raw()) {
+                             return a.position.x.Raw() < b.position.x.Raw();
+                         }
+                         if (a.logicalGraphemeBoundary !=
+                             b.logicalGraphemeBoundary) {
+                             return a.logicalGraphemeBoundary <
+                                    b.logicalGraphemeBoundary;
+                         }
+                         return rank(a.affinity) < rank(b.affinity);
+                     });
+    return true;
+}
+
 bool LayoutRun::PositionLines(TextLayout& layout) {
     Fixed26_6 widest = Fixed26_6::FromRaw(0);
     for (const LineDraft& line : lines_) {
@@ -1601,6 +1820,10 @@ bool LayoutRun::PositionLines(TextLayout& layout) {
             return false;
         }
 
+        // 정렬이 정한 이 줄의 시작 자리. glyph 하나 없는 줄에서도 caret이 설
+        // 자리를 알아야 하므로, pen이 움직이기 전에 붙잡아 둔다.
+        const Fixed26_6 lineOrigin = pen;
+
         line.visualRuns = std::move(draft.visualRuns);
         for (VisualRun& run : line.visualRuns) {
             const bool rightToLeft = (run.bidiLevel & 1U) != 0U;
@@ -1615,6 +1838,11 @@ bool LayoutRun::PositionLines(TextLayout& layout) {
                 }
                 if (!BuildInteriorCarets(glyph, rightToLeft)) return false;
             }
+        }
+        if (!BuildCaretStops(line,
+                             static_cast<std::uint32_t>(layout.lines.size()),
+                             lineOrigin, layout.caretStops)) {
+            return false;
         }
         layout.lines.push_back(std::move(line));
     }

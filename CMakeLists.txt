@@ -210,6 +210,7 @@ set(ENGINE_SOURCES
     src/Text/FontFamilyResolver.cpp
     src/Text/FontRepository.cpp
     src/Text/TextDiagnostic.cpp
+    src/Text/TextHitTesting.cpp
     src/Text/TextLayoutCache.cpp
     src/Text/TextLayoutService.cpp
     src/Text/TextShapingService.cpp

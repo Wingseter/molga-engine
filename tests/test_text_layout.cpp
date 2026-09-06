@@ -8,6 +8,7 @@
 #include "Text/FontFamilyResolver.h"
 #include "Text/FontRepository.h"
 #include "Text/TextDiagnostic.h"
+#include "Text/TextHitTesting.h"
 #include "Text/TextLayoutCache.h"
 #include "Text/TextLayoutService.h"
 #include "Text/TextLayoutTypes.h"
@@ -22,6 +23,7 @@
 #include <unicode/uvernum.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -41,10 +43,14 @@ namespace {
 namespace text = molga::text;
 using molga::Fixed26_6;
 using text::AnalysisItem;
+using text::CaretAffinity;
+using text::CaretPosition;
+using text::CaretStop;
 using text::GraphemeRange;
 using text::ShapedGlyph;
 using text::ShapedRun;
 using text::SourceByteRange;
+using text::TextHitTesting;
 using text::TextLayoutRequest;
 using text::TextOverflowMode;
 using text::TextValidationFact;
@@ -204,6 +210,44 @@ const LayoutFixtureSpec& FixtureSpec(const std::string& name) {
         // 문자 순서가 LTR run 안에서 어긋나는 유일한 종류다.
         {"devanagari-reorder", u8"हिन्दी भाषा", "hi",
          TextWrapMode::Grapheme, TextOverflowMode::Overflow, 16 * 64, 2400, 0},
+        // Task 7.3. 히브리어 뒤의 숫자는 RTL 문단 안에서 level 2가 되므로,
+        // grapheme 경계 4는 논리적으로 한 자리이면서 시각적으로 두 자리다:
+        // 숫자 run의 왼쪽 끝과 히브리 run의 왼쪽 끝이 서로 다른 x에 있다.
+        // 방향이 바뀌지 않는 경계에서는 두 자리가 겹쳐 하나로 접히므로,
+        // affinity가 뜻을 갖는 곳은 정확히 이런 경계뿐이다.
+        {"hebrew-number-boundary", u8"שלום123", "he", TextWrapMode::NoWrap,
+         TextOverflowMode::Overflow, 16 * 64, 0, 0},
+        // 정확한 중점 하나만을 위한 최소 문단. glyph가 하나뿐이라 caret 자리가
+        // 정확히 둘이고, 그 둘 사이의 중점은 나머지 없이 떨어진다.
+        // 18em인 이유는 하나다: 이 크기에서 두 픽스처의 advance가 모두 짝수라
+        // 중점이 나머지 없이 떨어진다. 16em에서는 히브리 alef의 advance가
+        // 홀수라 "정확한 중점"이 1/64 치우친 점이 되어 버린다.
+        {"ltr-midpoint", u8"A", "en", TextWrapMode::NoWrap,
+         TextOverflowMode::Overflow, 18 * 64, 0, 0},
+        // 같은 모양의 RTL 짝. 물리 규칙(동점은 큰 x로)이 같아도 논리 경계는
+        // 반대로 나와야 한다 — LTR 전용 픽스처로는 그 차이를 볼 수 없다.
+        {"rtl-midpoint", u8"א", "he", TextWrapMode::NoWrap,
+         TextOverflowMode::Overflow, 18 * 64, 0, 0},
+        // grapheme 셋을 삼킨 glyph 하나. NotoSans는 이 합자에 GDEF caret을
+        // 싣고 있으므로 저장된 자리만으로 내부 caret 둘이 서야 한다.
+        {"latin-ffi-ligature", u8"ffi", "en", TextWrapMode::NoWrap,
+         TextOverflowMode::Overflow, 16 * 64, 0, 0},
+        // 논리적으로 이어진 선택 하나가 시각적으로는 둘로 갈라지는 문단.
+        // 선택은 히브리 run의 뒤쪽 넷과 뒤따르는 라틴 셋을 덮고, 선택되지 않은
+        // 히브리 첫 글자가 그 둘 사이에 시각적으로 끼어든다.
+        {"mixed-bidi-selection", u8"aאבגדהbcd", "und", TextWrapMode::NoWrap,
+         TextOverflowMode::Overflow, 16 * 64, 0, 0},
+        // 합자 뒤에 결합 문자가 붙은 문단. HarfBuzz는 MONOTONE_CHARACTERS에서
+        // 표식의 cluster를 합자 cluster에 합치지 않으므로, 표식의 grapheme
+        // 범위가 합자 범위의 "같지는 않은 부분집합"으로 도착한다. 순수 LTR
+        // 단일 run에서 가짜 affinity 쌍이 생길 수 있는 유일한 길이다.
+        // U+0335는 보이지 않는 문자라 이스케이프로 적는다.
+        {"latin-ligature-mark", u8"ffi\u0335", "en", TextWrapMode::NoWrap,
+         TextOverflowMode::Overflow, 16 * 64, 0, 0},
+        // RTL run 안의 합자. 라틴 합자로는 방향에 따른 모서리 뒤바뀜을 잴 수
+        // 없다 — lam-alef는 GDEF caret을 싣고 있어 내부 자리까지 함께 잰다.
+        {"arabic-ligature", u8"أهلا", "ar", TextWrapMode::NoWrap,
+         TextOverflowMode::Overflow, 16 * 64, 0, 0},
     };
     for (const LayoutFixtureSpec& spec : kSpecs) {
         if (name == spec.name) return spec;
@@ -347,14 +391,218 @@ bool AnyLineEndsAtGrapheme(const text::TextLayout& layout,
     return false;
 }
 
+// 이 파일 뒤쪽에서 정의된다. 픽스처가 합자 안쪽의 점을 만들 때 쓰는데,
+// 픽스처가 먼저 선언되어야 verbatim 블록이 부르는 이름들이 맞물린다.
+const text::PositionedGlyph& FirstMultiGraphemeGlyph(
+    const text::TextLayout& layout);
+
+// ── Caret / hit-test observation helpers (Task 7.3) ─────────────────────────
+// 하나의 논리 경계가 갖는 시각 자리 전부. BiDi 경계가 아니면 하나, 방향이
+// 바뀌는 경계에서는 둘이다.
+std::vector<CaretStop> StopsAtBoundary(const text::TextLayout& layout,
+                                       std::uint32_t boundary) {
+    std::vector<CaretStop> stops;
+    for (const CaretStop& stop : layout.caretStops) {
+        if (stop.logicalGraphemeBoundary == boundary) stops.push_back(stop);
+    }
+    return stops;
+}
+
+// 요구된 (경계, affinity)의 자리를 정확히 하나 찾는다. 없거나 여럿이면 곧바로
+// 실패한다: 기대값을 만드는 쪽이 조용히 다른 자리를 집으면 아래 비교가
+// 무의미해진다.
+Fixed26_6 CaretStopX(const text::TextLayout& layout, std::uint32_t boundary,
+                     CaretAffinity affinity) {
+    std::vector<Fixed26_6> found;
+    for (const CaretStop& stop : layout.caretStops) {
+        if (stop.logicalGraphemeBoundary != boundary) continue;
+        if (stop.affinity != affinity) continue;
+        found.push_back(stop.position.x);
+    }
+    REQUIRE(found.size() == 1U);
+    return found.front();
+}
+
+// 두 caret 자리 사이의 정확한 중점. 이 픽스처들이 glyph 하나짜리인 이유가
+// 이것이다 — 자리가 둘뿐이라 "정확한 중점"이 유일하게 정해진다.
+molga::FixedPoint ExactMidpoint(const text::TextLayout& layout) {
+    REQUIRE(layout.lines.size() == 1U);
+    REQUIRE(layout.caretStops.size() == 2U);
+    const std::int32_t low = layout.caretStops[0].position.x.Raw();
+    const std::int32_t high = layout.caretStops[1].position.x.Raw();
+    REQUIRE(low < high);
+    // 나머지가 있으면 그 점은 중점이 아니라 1/64만큼 한쪽으로 치우친 점이고,
+    // 그러면 이 케이스는 동점 규칙이 아니라 반올림 방향을 재게 된다.
+    REQUIRE((high - low) % 2 == 0);
+    molga::FixedPoint point;
+    point.x = Fixed26_6::FromRaw(low + (high - low) / 2);
+    point.y = layout.lines.front().baseline;
+    return point;
+}
+
+// 내부 caret이 하나도 없으면 참이 아니다. 합자를 통째로 잃은 회귀가 "모두
+// GDEF에서 왔다"로 조용히 통과하면 이 단언은 아무것도 뜻하지 않는다.
+bool AllInteriorCaretsCameFromAdjustedGdef(const text::TextLayout& layout) {
+    std::size_t seen = 0;
+    for (const text::TextLine& line : layout.lines) {
+        for (const text::VisualRun& run : line.visualRuns) {
+            for (const text::PositionedGlyph& glyph : run.glyphs) {
+                for (const text::GlyphInteriorCaret& caret :
+                     glyph.interiorCarets) {
+                    ++seen;
+                    if (!caret.fromAdjustedGdef) return false;
+                }
+            }
+        }
+    }
+    return seen > 0;
+}
+
+std::vector<std::uint32_t> CaretBoundarySequence(const text::TextLayout& layout) {
+    std::vector<std::uint32_t> boundaries;
+    boundaries.reserve(layout.caretStops.size());
+    for (const CaretStop& stop : layout.caretStops) {
+        boundaries.push_back(stop.logicalGraphemeBoundary);
+    }
+    return boundaries;
+}
+
+bool CaretXPositionsAreStrictlyIncreasing(const text::TextLayout& layout) {
+    // 자리는 줄 단위로 묶여 있고 x는 줄 안에서만 단조롭다. 여러 줄 배치에서는
+    // 이 술어가 옳고 그름을 말하지 못하므로 아예 참이 될 수 없게 못 박는다 —
+    // 이름만 보고 줄바꿈된 문단에 들이대면 이유 없는 빨강이 나온다.
+    if (layout.lines.size() != 1U) return false;
+    if (layout.caretStops.size() < 2U) return false;
+    for (std::size_t index = 1; index < layout.caretStops.size(); ++index) {
+        if (layout.caretStops[index].position.x.Raw() <=
+            layout.caretStops[index - 1U].position.x.Raw()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 모든 자리의 y는 자기 줄의 baseline이다. caret은 줄 위에 서므로 한 줄 안에서
+// 높이가 갈릴 이유가 없고, 이 값은 Milestone 12-14의 IME/caret 소비자가 읽는
+// 공개 출력이다 — 아무도 읽지 않는 필드는 조용히 0이 되어도 드러나지 않는다.
+bool CaretYPositionsAreLineBaselines(const text::TextLayout& layout) {
+    if (layout.caretStops.empty()) return false;
+    for (const CaretStop& stop : layout.caretStops) {
+        if (stop.lineIndex >= layout.lines.size()) return false;
+        if (stop.position.y.Raw() !=
+            layout.lines[stop.lineIndex].baseline.Raw()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 하나의 (경계, affinity) 짝에는 시각 자리가 많아야 하나다. 이것이 성립해야
+// CaretRects의 반환값이 "caret 하나"이지 "후보 자루"가 아니게 된다 — 두 자리가
+// 같은 짝을 달고 나오면 소비자는 어느 쪽을 그려야 하는지 물어볼 곳이 없다.
+bool EveryCaretPositionResolvesToOneStop(const text::TextLayout& layout) {
+    if (layout.caretStops.empty()) return false;
+    for (std::size_t a = 0; a < layout.caretStops.size(); ++a) {
+        for (std::size_t b = a + 1U; b < layout.caretStops.size(); ++b) {
+            if (layout.caretStops[a].logicalGraphemeBoundary !=
+                layout.caretStops[b].logicalGraphemeBoundary) {
+                continue;
+            }
+            if (layout.caretStops[a].affinity != layout.caretStops[b].affinity) {
+                continue;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+// caret은 grapheme 경계에만 선다. 배치 결과만으로 확인할 수 있는 형태는 두
+// 가지다: 모든 자리가 자기 줄의 grapheme 범위 안이고, 한 줄이 갖는 서로 다른
+// 경계 값의 수가 grapheme 수 + 1을 넘지 않는다. 뒤쪽이 실제 관찰이다 —
+// scalar/UTF-16 단위마다 caret을 내는 구현은 결합 문자나 ZWJ가 있는 grapheme
+// 하나에서 곧바로 그 상한을 넘긴다(그래서 데바나가리 케이스가 따로 있다).
+bool NoCaretInsideUtf16ScalarOrGrapheme(const text::TextLayout& layout) {
+    if (layout.caretStops.empty()) return false;
+    for (std::size_t index = 0; index < layout.lines.size(); ++index) {
+        const text::TextLine& line = layout.lines[index];
+        std::vector<std::uint32_t> distinct;
+        for (const CaretStop& stop : layout.caretStops) {
+            if (stop.lineIndex != index) continue;
+            if (stop.logicalGraphemeBoundary < line.graphemes.begin) return false;
+            if (stop.logicalGraphemeBoundary > line.graphemes.end) return false;
+            distinct.push_back(stop.logicalGraphemeBoundary);
+        }
+        std::sort(distinct.begin(), distinct.end());
+        distinct.erase(std::unique(distinct.begin(), distinct.end()),
+                       distinct.end());
+        if (distinct.size() >
+            static_cast<std::size_t>(line.graphemes.end - line.graphemes.begin) +
+                1U) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// 26.6 raw 넷. float로 견주면 1/64 어긋난 사각형이 같다고 나온다.
+using CanonicalRect = std::array<std::int32_t, 4>;
+
+std::vector<CanonicalRect> CanonicalFixedRects(
+    const std::vector<molga::FixedRect>& rects) {
+    std::vector<CanonicalRect> canonical;
+    canonical.reserve(rects.size());
+    for (const molga::FixedRect& rect : rects) {
+        canonical.push_back(CanonicalRect{rect.x.Raw(), rect.y.Raw(),
+                                          rect.width.Raw(), rect.height.Raw()});
+    }
+    return canonical;
+}
+
+// 위에서 아래로, 한 줄 안에서는 왼쪽에서 오른쪽으로, 겹침 없이.
+bool RectsAreInStableVisualOrder(const std::vector<molga::FixedRect>& rects) {
+    if (rects.empty()) return false;
+    for (const molga::FixedRect& rect : rects) {
+        if (rect.width.Raw() <= 0 || rect.height.Raw() <= 0) return false;
+    }
+    for (std::size_t index = 1; index < rects.size(); ++index) {
+        const molga::FixedRect& previous = rects[index - 1U];
+        const molga::FixedRect& next = rects[index];
+        if (next.y.Raw() > previous.y.Raw()) continue;
+        if (next.y.Raw() < previous.y.Raw()) return false;
+        if (next.x.Raw() < previous.x.Raw() + previous.width.Raw()) return false;
+    }
+    return true;
+}
+
+// caret 자리 하나를 통째로 담는 안정된 표현. 자리를 x만으로 견주면 affinity나
+// 줄 번호가 바뀌는 회귀가 그대로 통과한다.
+using CanonicalStop = std::array<std::int32_t, 5>;
+
+std::vector<CanonicalStop> CanonicalCaretStops(const text::TextLayout& layout) {
+    std::vector<CanonicalStop> canonical;
+    canonical.reserve(layout.caretStops.size());
+    for (const CaretStop& stop : layout.caretStops) {
+        canonical.push_back(CanonicalStop{
+            static_cast<std::int32_t>(stop.logicalGraphemeBoundary),
+            static_cast<std::int32_t>(stop.affinity), stop.position.x.Raw(),
+            stop.position.y.Raw(), static_cast<std::int32_t>(stop.lineIndex)});
+    }
+    return canonical;
+}
+
 // ── The layout fixture ──────────────────────────────────────────────────────
 class LayoutFixture {
 public:
-    text::VectorTextDiagnosticSink sink;
+    // Task 7.3의 verbatim 블록 하나가 픽스처를 `const auto`로 잡은 채
+    // Layout()/ExpectedSelectionRects()를 부른다. 배치 자체는 관찰 상태를
+    // 남기므로 논리적으로 const가 아니고, 그 사실을 감추는 const_cast 대신
+    // 변이하는 멤버만 mutable로 적어 둔다.
+    mutable text::VectorTextDiagnosticSink sink;
     LayoutShapeObserver shaper;
     text::TextShapingService shapingService;
     text::TextLayoutCache cache{text::TextLayoutCacheLimits::Production()};
-    text::TextLayoutService service;
+    mutable text::TextLayoutService service;
 
     explicit LayoutFixture(const LayoutFixtureSpec& spec)
         : service(Corpus().Resolver(), shapingService, cache), spec_(spec) {
@@ -399,6 +647,11 @@ public:
         TextLayoutRequest request = MakeRequest(spec_.utf8);
         request.constraints.width = width;
         return Remember(service.Layout(request, sink));
+    }
+
+    // 이 픽스처 이름이 고정한 문단을 그대로 배치한다.
+    std::shared_ptr<const text::TextLayout> Layout() const {
+        return Required(service.Layout(MakeRequest(spec_.utf8), sink));
     }
 
     std::shared_ptr<const text::TextLayout> Layout(TextWrapMode wrap,
@@ -531,6 +784,85 @@ public:
         return text::detail::HarfBuzzObjectCreationCount();
     }
 
+    // hit test는 셰이퍼도 face 자원도 다시 부르지 않는다. 두 계수기를 함께
+    // 0으로 되돌린 뒤 caret/선택 API를 전부 부르는 것이 그 주장의 관찰이다.
+    void ResetFontAndShaperCounters() {
+        text::detail::ResetHarfBuzzObjectCreationCount();
+        molga::detail::ResetLegacyFontFaceMetricCallCount();
+    }
+    // face 자원을 실제로 만지면 올라가는 유일한 프로덕션 계수기.
+    // TextHitTesting이 faceResource를 역참조해 advance/kerning을 다시 물으면
+    // 여기로 드러난다.
+    std::uint64_t FontResourceCallCount() const {
+        return molga::detail::LegacyFontFaceMetricCallCount();
+    }
+
+    // ── Task 7.3 fixture geometry ───────────────────────────────────────────
+    // 합자 '안쪽'의 점. 두 내부 caret 사이를 고르는 이유는 하나다: glyph 앞
+    // 모서리를 고르면 경계 0이 나와 "0보다 크다"가 조용히 통과한다.
+    molga::FixedPoint PointInsideLigature() const {
+        REQUIRE(lastLayout_ != nullptr);
+        const text::PositionedGlyph& ligature =
+            FirstMultiGraphemeGlyph(*lastLayout_);
+        REQUIRE(ligature.interiorCarets.size() >= 2U);
+        const std::int32_t left = ligature.interiorCarets[0].position.x.Raw();
+        const std::int32_t right = ligature.interiorCarets[1].position.x.Raw();
+        REQUIRE(left > ligature.origin.x.Raw());
+        REQUIRE(left < right);
+        molga::FixedPoint point;
+        point.x = Fixed26_6::FromRaw(left + (right - left) / 2);
+        point.y = ligature.origin.y;
+        return point;
+    }
+
+    // 기대되는 선택 사각형을 SelectionRects가 아니라 caret 정지 자리에서
+    // 만든다. 같은 코드로 두 번 계산한 값끼리 견주면 그 비교는 언제나 참이다.
+    //
+    // 이 픽스처에서 히브리 run의 선택된 부분은 경계 6(run의 왼쪽 끝)에서
+    // 경계 2(오른쪽 끝)까지이고, 뒤따르는 라틴 run은 경계 6에서 9까지다.
+    // 같은 경계 6이 서로 다른 두 x를 갖는다는 것이 이 픽스처의 전부다.
+    std::vector<CanonicalRect> ExpectedSelectionRects() const {
+        REQUIRE(Label(spec_.name) == Label("mixed-bidi-selection"));
+        REQUIRE(lastLayout_ != nullptr);
+        REQUIRE(lastLayout_->lines.size() == 1U);
+        const text::TextLine& line = lastLayout_->lines.front();
+        const std::int32_t hebrewLeft =
+            CaretStopX(*lastLayout_, 6, CaretAffinity::Upstream).Raw();
+        const std::int32_t hebrewRight =
+            CaretStopX(*lastLayout_, 2, CaretAffinity::Downstream).Raw();
+        const std::int32_t latinLeft =
+            CaretStopX(*lastLayout_, 6, CaretAffinity::Downstream).Raw();
+        const std::int32_t latinRight =
+            CaretStopX(*lastLayout_, 9, CaretAffinity::Upstream).Raw();
+        // 선택되지 않은 히브리 첫 글자가 두 사각형 사이에 실제로 끼어 있다.
+        // 이 셋이 무너지면 아래 기대값은 두 사각형이 붙어 있는 배치도 통과시킨다.
+        REQUIRE(hebrewLeft < hebrewRight);
+        REQUIRE(hebrewRight < latinLeft);
+        REQUIRE(latinLeft < latinRight);
+        const std::int32_t top = line.top.Raw();
+        const std::int32_t height = line.bottom.Raw() - line.top.Raw();
+        REQUIRE(height > 0);
+        return {CanonicalRect{hebrewLeft, top, hebrewRight - hebrewLeft, height},
+                CanonicalRect{latinLeft, top, latinRight - latinLeft, height}};
+    }
+
+    // 선택되지 않은 채 두 사각형 사이에 놓인 glyph의 advance. 두 사각형이
+    // 정말 떨어져 있는지를 SelectionRects와 무관하게 재는 값이다.
+    std::int32_t UnselectedGapRaw(std::uint32_t grapheme) const {
+        REQUIRE(lastLayout_ != nullptr);
+        for (const text::TextLine& line : lastLayout_->lines) {
+            for (const text::VisualRun& run : line.visualRuns) {
+                for (const text::PositionedGlyph& glyph : run.glyphs) {
+                    if (glyph.glyph.graphemes.begin != grapheme) continue;
+                    if (glyph.glyph.graphemes.end != grapheme + 1U) continue;
+                    return glyph.glyph.advanceX.Raw();
+                }
+            }
+        }
+        REQUIRE_MESSAGE(false, "no single-grapheme glyph at that boundary");
+        return 0;
+    }
+
 private:
     std::optional<std::shared_ptr<const text::TextLayout>> Remember(
         std::optional<std::shared_ptr<const text::TextLayout>> result) {
@@ -541,7 +873,7 @@ private:
     // 실패 닫힌 헬퍼. optional을 확인 없이 역참조하면 성공이 nullopt로 바뀌는
     // 회귀가 UB가 되고, 그 UB는 기대값과 우연히 같은 값을 읽어 통과할 수 있다.
     std::shared_ptr<const text::TextLayout> Required(
-        std::optional<std::shared_ptr<const text::TextLayout>> result) {
+        std::optional<std::shared_ptr<const text::TextLayout>> result) const {
         REQUIRE(result.has_value());
         REQUIRE(*result != nullptr);
         lastLayout_ = *result;
@@ -615,7 +947,7 @@ private:
     }
 
     const LayoutFixtureSpec& spec_;
-    std::shared_ptr<const text::TextLayout> lastLayout_;
+    mutable std::shared_ptr<const text::TextLayout> lastLayout_;
     std::optional<UnicodeTextBuffer> buffer_;
     std::optional<UnicodeAnalysis> analysis_;
     std::vector<ShapedGlyph> referenceGlyphs_;
@@ -2107,4 +2439,989 @@ TEST_CASE("the validation record keeps one fact per damaged byte at scale") {
     }
     std::sort(starts.begin(), starts.end());
     CHECK(std::unique(starts.begin(), starts.end()) == starts.end());
+}
+
+// ── Task 7.3 Step 1: BiDi-affinity caret, selection and hit testing ─────────
+// 방향이 바뀌지 않는 경계에서는 논리 이웃과 시각 이웃이 같은 glyph라, 어떤
+// affinity 논리도 없는 구현이 그대로 통과한다. affinity가 뜻을 갖는 곳은 정확히
+// 방향 경계뿐이므로 관찰도 그곳에서만 이루어져야 한다.
+TEST_CASE("BiDi boundary exposes two affinity-specific visual stops") {
+    const auto layout = LoadLayoutFixture("hebrew-number-boundary").Layout();
+    const auto stops = StopsAtBoundary(*layout, 4);
+    REQUIRE(stops.size() == 2);
+    CHECK(stops[0].affinity != stops[1].affinity);
+    CHECK(stops[0].position.x != stops[1].position.x);
+}
+
+// 위 케이스는 경계 4가 정말 방향 경계인지를 묻지 않는다. 그 사실이 무너지면
+// "자리가 둘"은 우연이 되므로 픽스처 자체를 여기서 못 박는다.
+TEST_CASE("the hebrew-number fixture really changes direction at boundary 4") {
+    const auto layout = LoadLayoutFixture("hebrew-number-boundary").Layout();
+    REQUIRE(layout->lines.size() == 1U);
+    std::uint8_t before = 0;
+    std::uint8_t after = 0;
+    bool sawBefore = false;
+    bool sawAfter = false;
+    for (const text::VisualRun& run : layout->lines[0].visualRuns) {
+        for (const text::PositionedGlyph& glyph : run.glyphs) {
+            if (glyph.glyph.graphemes.end == 4U) {
+                before = run.bidiLevel;
+                sawBefore = true;
+            }
+            if (glyph.glyph.graphemes.begin == 4U) {
+                after = run.bidiLevel;
+                sawAfter = true;
+            }
+        }
+    }
+    REQUIRE(sawBefore);
+    REQUIRE(sawAfter);
+    CHECK(before == 1U);
+    CHECK(after == 2U);
+    CHECK((before % 2U) != (after % 2U));
+
+    // 그리고 그 두 자리는 서로의 시각 이웃이 아니다: 히브리 run의 왼쪽 끝과
+    // 숫자 run의 왼쪽 끝 사이에는 숫자 run 전체가 놓인다.
+    const auto stops = StopsAtBoundary(*layout, 4);
+    REQUIRE(stops.size() == 2U);
+    const std::int32_t span = stops[1].position.x.Raw() - stops[0].position.x.Raw();
+    CHECK(span > 0);
+    CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*layout));
+
+    // 그리고 방향이 바뀌지 않는 경계는 자리를 정확히 하나 갖는다. 이 대조가
+    // 없으면 위 케이스의 "자리가 둘"은 모든 경계에서 참이 되어 아무것도 말하지
+    // 않는다 — 논리 이웃과 시각 이웃이 같은 glyph인 자리에 affinity 둘을
+    // 적어 두는 구현이 그대로 통과한다.
+    CHECK(StopsAtBoundary(*layout, 2).size() == 1U);  // 히브리 run 안쪽
+    CHECK(StopsAtBoundary(*layout, 5).size() == 1U);  // 숫자 run 안쪽
+    CHECK(StopsAtBoundary(*layout, 0).size() == 1U);  // 문단 시작
+    CHECK(StopsAtBoundary(*layout, 7).size() == 1U);  // 문단 끝
+    // 그리고 경계 4가 자리를 둘 갖는 유일한 경계다. 위의 넷만으로는 cell의 앞
+    // 모서리를 pen이 아니라 그리기 원점에서 재는 회귀를 놓친다: 이 픽스처에서
+    // offsetX가 0이 아닌 glyph는 경계 3에 닿으므로, 그 회귀는 방향이 바뀌지도
+    // 않은 경계 3에 두 번째 자리를 심어 놓고 위 넷을 그대로 통과한다.
+    for (std::uint32_t boundary = 0; boundary <= 7U; ++boundary) {
+        const std::size_t expected = (boundary == 4U) ? 2U : 1U;
+        CHECK_MESSAGE(StopsAtBoundary(*layout, boundary).size() == expected,
+                      boundary);
+    }
+    CHECK(CaretYPositionsAreLineBaselines(*layout));
+
+    // hit test는 경계만이 아니라 affinity도 돌려주어야 한다. 같은 논리 경계
+    // 4가 서로 멀리 떨어진 두 자리에서 잡히고, 어느 쪽에서 잡혔는지는
+    // affinity로만 구분된다 — 언제나 Downstream을 돌려주는 구현은 여기서 걸린다.
+    const auto at = [&layout, &line = layout->lines[0]](std::int32_t x) {
+        molga::FixedPoint point;
+        point.x = Fixed26_6::FromRaw(x);
+        point.y = line.baseline;
+        return TextHitTesting::HitTest(*layout, point);
+    };
+    const std::int32_t downstreamX =
+        CaretStopX(*layout, 4, CaretAffinity::Downstream).Raw();
+    const std::int32_t upstreamX =
+        CaretStopX(*layout, 4, CaretAffinity::Upstream).Raw();
+    REQUIRE(upstreamX > downstreamX + 2);
+    const CaretPosition down = at(downstreamX);
+    CHECK(down.boundary == 4U);
+    CHECK(down.affinity == CaretAffinity::Downstream);
+    // 상류 자리 바로 왼쪽. 앞 구간의 중점을 지났으므로 그 자리로 붙는다.
+    const CaretPosition up = at(upstreamX - 1);
+    CHECK(up.boundary == 4U);
+    CHECK(up.affinity == CaretAffinity::Upstream);
+}
+
+// ── Step 1a: exact visual midpoints ─────────────────────────────────────────
+// glyph 한가운데의 점은 leading 모서리와 trailing 모서리를 구분하지 못한다.
+// 동점 규칙(물리적으로 더 큰 x)은 하나인데 논리 경계는 방향에 따라 반대로
+// 나와야 하므로, 두 방향을 함께 보아야 규칙이 실제로 관찰된다.
+TEST_CASE("visual midpoint ties move in the visual run direction") {
+    const auto ltr = LoadLayoutFixture("ltr-midpoint").Layout();
+    const auto rtl = LoadLayoutFixture("rtl-midpoint").Layout();
+    CHECK(TextHitTesting::HitTest(*ltr, ExactMidpoint(*ltr)).boundary == 1);
+    CHECK(TextHitTesting::HitTest(*rtl, ExactMidpoint(*rtl)).boundary == 0);
+}
+
+// 두 픽스처가 정말 반대 방향인지, 그리고 중점 바로 옆의 두 점이 서로 다른
+// 경계로 갈라지는지. 동점 케이스만 보면 "언제나 1을 돌려준다"와 "언제나 큰
+// x를 고른다"가 LTR에서 같은 답을 낸다.
+TEST_CASE("the midpoint fixtures are opposite directions and split at the tie") {
+    const auto ltr = LoadLayoutFixture("ltr-midpoint").Layout();
+    const auto rtl = LoadLayoutFixture("rtl-midpoint").Layout();
+    REQUIRE(ltr->lines.size() == 1U);
+    REQUIRE(rtl->lines.size() == 1U);
+    REQUIRE(ltr->lines[0].visualRuns.size() == 1U);
+    REQUIRE(rtl->lines[0].visualRuns.size() == 1U);
+    CHECK(ltr->lines[0].visualRuns[0].bidiLevel % 2U == 0U);
+    CHECK(rtl->lines[0].visualRuns[0].bidiLevel % 2U == 1U);
+
+    const auto probe = [](const text::TextLayout& layout, std::int32_t delta) {
+        molga::FixedPoint point = ExactMidpoint(layout);
+        point.x = Fixed26_6::FromRaw(point.x.Raw() + delta);
+        return TextHitTesting::HitTest(layout, point).boundary;
+    };
+    CHECK(probe(*ltr, -1) == 0U);
+    CHECK(probe(*ltr, 1) == 1U);
+    CHECK(probe(*rtl, -1) == 1U);
+    CHECK(probe(*rtl, 1) == 0U);
+
+    // 양 끝 바깥은 가장 가까운 자리로 고정된다.
+    molga::FixedPoint farLeft = ExactMidpoint(*ltr);
+    farLeft.x = Fixed26_6::FromRaw(-1000);
+    molga::FixedPoint farRight = ExactMidpoint(*ltr);
+    farRight.x = Fixed26_6::FromRaw(1000 * 64);
+    CHECK(TextHitTesting::HitTest(*ltr, farLeft).boundary == 0U);
+    CHECK(TextHitTesting::HitTest(*ltr, farRight).boundary == 1U);
+    CHECK(TextHitTesting::HitTest(*rtl, farLeft).boundary == 1U);
+    CHECK(TextHitTesting::HitTest(*rtl, farRight).boundary == 0U);
+}
+
+// ── Step 1b: ligature carets ────────────────────────────────────────────────
+TEST_CASE("ligature carets remain on every grapheme boundary") {
+    auto fixture = LoadLayoutFixture("latin-ffi-ligature");
+    const auto layout = fixture.Layout();
+    CHECK(AllInteriorCaretsCameFromAdjustedGdef(*layout));
+    fixture.ResetFontAndShaperCounters();
+    CHECK(CaretBoundarySequence(*layout) ==
+          std::vector<std::uint32_t>{0, 1, 2, 3});
+    CHECK(CaretXPositionsAreStrictlyIncreasing(*layout));
+    CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*layout));
+    CHECK(TextHitTesting::HitTest(*layout, fixture.PointInsideLigature()).boundary > 0);
+    CHECK(fixture.HarfBuzzCallCount() == 0);
+    CHECK(fixture.FontResourceCallCount() == 0);
+}
+
+// 위 케이스의 마지막 두 단언은 계수기가 죽어 있어도 통과한다. 같은 프로세스에서
+// 두 계수기가 실제로 움직인다는 것을 함께 못 박는다(test_text_shaping의 선례).
+TEST_CASE("the hit-test counters are alive, so their zeros mean something") {
+    auto fixture = LoadLayoutFixture("latin-ffi-ligature");
+    fixture.ResetIcuAndHarfBuzzCounters();
+    fixture.ResetFontAndShaperCounters();
+    const auto layout = fixture.Layout();
+    REQUIRE_FALSE(layout->lines.empty());
+    // 차가운 배치는 셰이퍼를 반드시 부른다.
+    CHECK(fixture.HarfBuzzCallCount() > 0);
+
+    fixture.ResetFontAndShaperCounters();
+    molga::FontFace face;
+    std::string error;
+    const fs::path fontPath =
+        fs::path(MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT) / "fonts" /
+        "NotoSans-Regular.ttf";
+    REQUIRE_MESSAGE(face.LoadFromFile(fontPath.string(), &error), error);
+    face.Advance(U'f', 16.0f);
+    face.Kerning(U'f', U'i', 16.0f);
+    CHECK(fixture.FontResourceCallCount() == 2U);
+    molga::detail::ResetLegacyFontFaceMetricCallCount();
+}
+
+// 합자 안쪽의 hit test는 "0보다 크다"보다 정확히 답해야 한다. 내부 caret 하나를
+// 사이에 두고 1/64씩 떨어진 두 점이 서로 다른 경계로 갈라지는지 본다.
+TEST_CASE("hit testing inside a ligature resolves to the nearer interior caret") {
+    auto fixture = LoadLayoutFixture("latin-ffi-ligature");
+    const auto layout = fixture.Layout();
+    const text::PositionedGlyph& ligature = FirstMultiGraphemeGlyph(*layout);
+    REQUIRE(ligature.interiorCarets.size() == 2U);
+    const std::int32_t first = ligature.interiorCarets[0].position.x.Raw();
+    const std::int32_t second = ligature.interiorCarets[1].position.x.Raw();
+    REQUIRE(first + 2 < second);
+
+    const auto at = [&layout](std::int32_t x) {
+        molga::FixedPoint point;
+        point.x = Fixed26_6::FromRaw(x);
+        point.y = layout->lines.front().baseline;
+        return TextHitTesting::HitTest(*layout, point);
+    };
+    CHECK(at(first).boundary == 1U);
+    CHECK(at(second).boundary == 2U);
+    CHECK(at(first + 1).boundary == 1U);
+    CHECK(at(second - 1).boundary == 2U);
+    // 합자의 leading 모서리는 여전히 경계 0이다: 내부 caret이 앞 모서리를
+    // 밀어내면 caret이 글자 앞에 설 수 없게 된다.
+    CHECK(at(ligature.origin.x.Raw()).boundary == 0U);
+}
+
+// ── Step 1c: the stored fallback caret ──────────────────────────────────────
+namespace {
+
+constexpr const char* kNoLigCaretFont = "3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a";
+constexpr const char* kNoLigCaretFamily = "3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b3b";
+
+// NotoSans에서 GDEF LigCaretList 하나만 떼어 낸 사본. 합자 치환은 GSUB에 있으므로
+// 'ffi'는 그대로 만들어지지만 HarfBuzz가 돌려줄 caret 기록이 없어, 최종 합자의
+// adjustedGdefCaretOffsets가 빈 채로 배치에 도착한다.
+//
+// 커밋된 여섯 폰트 중 라틴 합자를 내면서 caret 기록이 없는 폰트는 하나도 없다.
+// 크기를 2 raw로 낮춰 GDEF 값을 무너뜨리는 기존 케이스는 "집합이 있으나 쓸 수
+// 없다"를 재고, 여기서는 "집합이 아예 없다"를 잰다 — 두 갈래는 서로 다른 코드다.
+void AuthorLigCaretStrippedFont(const fs::path& fontsDir,
+                                const std::string& fileName,
+                                const std::string& baseFontName,
+                                const std::string& guid) {
+    std::vector<unsigned char> bytes =
+        test_support::ReadAllBytes(fontsDir / baseFontName);
+    const std::uint16_t tableCount =
+        static_cast<std::uint16_t>((static_cast<std::uint16_t>(bytes[4]) << 8) |
+                                   bytes[5]);
+    REQUIRE(tableCount > 0U);
+    std::size_t gdefRecord = 0;
+    std::size_t gdefOffset = 0;
+    std::size_t gdefLength = 0;
+    for (std::uint16_t index = 0; index < tableCount; ++index) {
+        const std::size_t record = 12U + static_cast<std::size_t>(index) * 16U;
+        const std::string tag(reinterpret_cast<const char*>(&bytes[record]), 4U);
+        if (tag != "GDEF") continue;
+        gdefRecord = record;
+        gdefOffset = test_support::ReadBigEndianU32(bytes, record + 8U);
+        gdefLength = test_support::ReadBigEndianU32(bytes, record + 12U);
+    }
+    REQUIRE(gdefLength >= 12U);
+    // GDEF 헤더의 ligCaretListOffset은 표 시작 + 8이다. 0은 "목록 없음"이다.
+    REQUIRE((static_cast<std::uint32_t>(bytes[gdefOffset + 8U]) << 8 |
+             bytes[gdefOffset + 9U]) != 0U);
+    bytes[gdefOffset + 8U] = 0U;
+    bytes[gdefOffset + 9U] = 0U;
+    test_support::WriteBigEndianU32(bytes, gdefRecord + 4U,
+                                    TableChecksum(bytes, gdefOffset, gdefLength));
+
+    const fs::path source = fontsDir / fileName;
+    REQUIRE_MESSAGE(!fs::exists(source), source.string());
+    test_support::WriteBytes(source, bytes);
+
+    const fs::path metaPath = molga::AssetMeta::MetaPathFor(source);
+    const nlohmann::json meta{
+        {"guid", guid},
+        {"importer", "FontImporter"},
+        {"importerVersion", 2},
+        {"settings",
+         nlohmann::json{{"faceIndex", 0},
+                        {"weight", 400},
+                        {"stretchPercent", 100},
+                        {"slant", "Upright"},
+                        {"redistributableConfirmed", true},
+                        {"licenseKind", "OFL-1.1"},
+                        {"copyright", "fixture provenance: Noto Fonts ffebf8c1"},
+                        {"licenseAssetGuid", test_support::kNotoLicenseGuid}}}};
+    fs::create_directories(metaPath.parent_path());
+    std::ofstream output(metaPath, std::ios::trunc);
+    REQUIRE_MESSAGE(output.good(), metaPath.string());
+    output << meta.dump(2);
+    output.close();
+    REQUIRE_MESSAGE(output.good(), metaPath.string());
+}
+
+// PatchedMetricsCorpus와 같은 이유로 자기만의 자격 트리 사본을 갖는다:
+// 공유 corpus에 폰트를 하나 더 쓰면 다른 케이스가 읽는 카탈로그가 달라진다.
+class LigCaretStrippedCorpus {
+public:
+    LigCaretStrippedCorpus()
+        : store_(std::make_shared<const molga::FontArtifactStore>(
+              molga::FontArtifactStore::ForProject(tree_.ProjectRoot()))) {
+        AuthorLigCaretStrippedFont(tree_.AssetsRoot() / "fonts",
+                                   "no-lig-caret.ttf", "NotoSans-Regular.ttf",
+                                   kNoLigCaretFont);
+        AuthorSingleFaceFamily(tree_.AssetsRoot() / "families",
+                               "no-lig-caret.fontfamily", kNoLigCaretFamily,
+                               kNoLigCaretFont);
+        std::string bindError;
+        REQUIRE_MESSAGE(database_.BindFontArtifactStore(store_, &bindError),
+                        bindError);
+        database_.ScanProject(tree_.AssetsRoot());
+        REQUIRE(database_.Find(std::string(kNoLigCaretFont)) != nullptr);
+    }
+
+    molga::AssetDatabase& Database() noexcept { return database_; }
+
+private:
+    QualificationAssetTreeFixture tree_;
+    molga::AssetDatabase database_;
+    std::shared_ptr<const molga::FontArtifactStore> store_;
+};
+
+}  // namespace
+
+// 폰트가 caret 자리를 하나도 싣지 않은 합자. 배치가 그 자리를 균등 분할로
+// 미리 저장해 두어야 하고, hit/caret/선택 API는 저장된 것만 읽어야 한다 —
+// 질의 시점에 다시 유도하는 구현은 셰이퍼나 face를 다시 부르게 된다.
+TEST_CASE("a ligature with no GDEF carets stores proportional stops up front") {
+    LigCaretStrippedCorpus corpus;
+    text::FontRepository repository(corpus.Database());
+    text::FontFamilyResolver resolver(corpus.Database(), repository);
+    text::TextShapingService shaper;
+    text::TextLayoutCache cache(text::TextLayoutCacheLimits::Production());
+    text::TextLayoutService service(resolver, shaper, cache);
+    text::VectorTextDiagnosticSink sink;
+
+    TextLayoutRequest request;
+    request.utf8 = u8"ffi";
+    request.style.fontFamilyGuid = kNoLigCaretFamily;
+    request.style.shape.fontSize = Fixed26_6::FromRaw(16 * 64);
+    request.style.shape.language = "en";
+    request.style.analysis.locale = "en";
+    const auto result = service.Layout(request, sink);
+    REQUIRE(result);
+    REQUIRE(*result != nullptr);
+    const std::shared_ptr<const text::TextLayout> layout = *result;
+
+    const text::PositionedGlyph& ligature = FirstMultiGraphemeGlyph(*layout);
+    REQUIRE(ligature.glyph.graphemes.begin == 0U);
+    REQUIRE(ligature.glyph.graphemes.end == 3U);
+    // 이 케이스가 재는 갈래가 정말 "빈 집합"인지 먼저 못 박는다.
+    REQUIRE(ligature.glyph.adjustedGdefCaretOffsets.empty());
+    REQUIRE(ligature.interiorCarets.size() == 2U);
+    for (std::size_t index = 0; index < ligature.interiorCarets.size(); ++index) {
+        const text::GlyphInteriorCaret& caret = ligature.interiorCarets[index];
+        CHECK_FALSE(caret.fromAdjustedGdef);
+        const auto expected = Fixed26_6::CheckedMulDiv(
+            ligature.glyph.advanceX, static_cast<std::int64_t>(index) + 1, 3);
+        REQUIRE(expected);
+        CHECK(caret.position.x.Raw() ==
+              ligature.origin.x.Raw() + expected->Raw());
+        CHECK(caret.position.y.Raw() == ligature.origin.y.Raw());
+    }
+    CHECK(CaretBoundarySequence(*layout) ==
+          std::vector<std::uint32_t>{0, 1, 2, 3});
+    CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*layout));
+
+    // 여기서부터가 Step 1c의 본론이다. 계수기를 전부 0으로 되돌리고 모든
+    // hit/caret/선택 API를 부른 뒤, 계수기가 그대로 0이고 저장된 자리가
+    // 한 글자도 달라지지 않았음을 요구한다.
+    const std::vector<CanonicalStop> before = CanonicalCaretStops(*layout);
+    REQUIRE(before.size() == 4U);
+    text::detail::ResetIcuObjectCreationCount();
+    text::detail::ResetLayoutIcuObjectCreationCount();
+    text::detail::ResetHarfBuzzObjectCreationCount();
+    molga::detail::ResetLegacyFontFaceMetricCallCount();
+
+    molga::FixedPoint probe;
+    probe.x = ligature.interiorCarets[0].position.x;
+    probe.y = ligature.origin.y;
+    const CaretPosition hit = TextHitTesting::HitTest(*layout, probe);
+    CHECK(hit.boundary == 1U);
+    const auto caretRects = TextHitTesting::CaretRects(
+        *layout, CaretPosition{2U, CaretAffinity::Downstream},
+        Fixed26_6::FromRaw(64));
+    REQUIRE(caretRects.size() == 1U);
+    CHECK(caretRects[0].x.Raw() == ligature.interiorCarets[1].position.x.Raw());
+    CHECK(caretRects[0].width.Raw() == 64);
+    const auto selection =
+        TextHitTesting::SelectionRects(*layout, GraphemeRange{1U, 2U});
+    REQUIRE(selection.size() == 1U);
+    CHECK(selection[0].x.Raw() == ligature.interiorCarets[0].position.x.Raw());
+    CHECK(selection[0].width.Raw() ==
+          ligature.interiorCarets[1].position.x.Raw() -
+              ligature.interiorCarets[0].position.x.Raw());
+
+    CHECK(text::detail::IcuObjectCreationCount() == 0U);
+    CHECK(text::detail::LayoutIcuObjectCreationCount() == 0U);
+    CHECK(text::detail::HarfBuzzObjectCreationCount() == 0U);
+    CHECK(molga::detail::LegacyFontFaceMetricCallCount() == 0U);
+    CHECK(CanonicalCaretStops(*layout) == before);
+}
+
+// ── Step 1d: mixed BiDi selection ───────────────────────────────────────────
+TEST_CASE("mixed BiDi logical selection emits stable visual rectangles") {
+    const auto fixture = LoadLayoutFixture("mixed-bidi-selection");
+    const auto layout = fixture.Layout();
+    const auto rects = TextHitTesting::SelectionRects(*layout, {2, 9});
+    CHECK(rects.size() > 1);
+    CHECK(CanonicalFixedRects(rects) == fixture.ExpectedSelectionRects());
+    CHECK(RectsAreInStableVisualOrder(rects));
+}
+
+// 위 케이스의 `rects.size() > 1`은 사각형을 glyph마다 하나씩 내는 구현으로도
+// 통과한다. 그래서 (1) 순수 LTR 선택은 정확히 하나이고 (2) 이 픽스처의 둘
+// 사이 간격이 선택되지 않은 히브리 글자 하나의 advance와 정확히 같음을 함께
+// 못 박는다 — 그 둘이 있어야 "논리적으로 이어진 선택이 시각적으로 갈라졌다"가
+// 관찰된다.
+TEST_CASE("a contiguous logical selection splits only where BiDi splits it") {
+    const auto fixture = LoadLayoutFixture("mixed-bidi-selection");
+    const auto layout = fixture.Layout();
+    REQUIRE(layout->lines.size() == 1U);
+    REQUIRE(layout->lines[0].graphemes.end == 9U);
+
+    const auto rects = TextHitTesting::SelectionRects(*layout, {2, 9});
+    REQUIRE(rects.size() == 2U);
+    const std::int32_t gap =
+        rects[1].x.Raw() - (rects[0].x.Raw() + rects[0].width.Raw());
+    CHECK(gap == fixture.UnselectedGapRaw(1U));
+    CHECK(gap > 0);
+
+    // 같은 문단에서 라틴 꼬리만 고르면 사각형은 정확히 하나다. 방향이 갈리지
+    // 않는 선택까지 여럿으로 쪼개는 구현은 여기서 걸린다.
+    const auto latinOnly = TextHitTesting::SelectionRects(*layout, {6, 9});
+    CHECK(latinOnly.size() == 1U);
+    CHECK(RectsAreInStableVisualOrder(latinOnly));
+
+    // 그리고 빈 선택과 뒤집힌 선택은 사각형을 내지 않는다.
+    CHECK(TextHitTesting::SelectionRects(*layout, {4, 4}).empty());
+    CHECK(TextHitTesting::SelectionRects(*layout, {7, 3}).empty());
+}
+
+// ── Steps 4/7: caret rectangles resolve affinity, not just the boundary ─────
+TEST_CASE("caret rectangles follow the requested affinity at a BiDi boundary") {
+    const auto layout = LoadLayoutFixture("hebrew-number-boundary").Layout();
+    REQUIRE(layout->lines.size() == 1U);
+    const text::TextLine& line = layout->lines[0];
+    const auto thickness = Fixed26_6::FromRaw(96);
+
+    const auto upstream = TextHitTesting::CaretRects(
+        *layout, CaretPosition{4U, CaretAffinity::Upstream}, thickness);
+    const auto downstream = TextHitTesting::CaretRects(
+        *layout, CaretPosition{4U, CaretAffinity::Downstream}, thickness);
+    REQUIRE(upstream.size() == 1U);
+    REQUIRE(downstream.size() == 1U);
+    CHECK(upstream[0].x.Raw() != downstream[0].x.Raw());
+    CHECK(upstream[0].y.Raw() == line.top.Raw());
+    CHECK(upstream[0].height.Raw() == line.bottom.Raw() - line.top.Raw());
+    CHECK(upstream[0].width.Raw() == 96);
+    CHECK(downstream[0].height.Raw() == upstream[0].height.Raw());
+    CHECK(upstream[0].x.Raw() ==
+          CaretStopX(*layout, 4, CaretAffinity::Upstream).Raw());
+    CHECK(downstream[0].x.Raw() ==
+          CaretStopX(*layout, 4, CaretAffinity::Downstream).Raw());
+
+    // 방향이 바뀌지 않는 경계에서는 두 affinity가 한 자리로 접힌다. 접힌 자리를
+    // 요구한 affinity로 찾지 못했다고 caret을 잃으면 편집기가 그 자리에서
+    // 커서를 그리지 못한다.
+    const auto collapsedDown = TextHitTesting::CaretRects(
+        *layout, CaretPosition{2U, CaretAffinity::Downstream}, thickness);
+    const auto collapsedUp = TextHitTesting::CaretRects(
+        *layout, CaretPosition{2U, CaretAffinity::Upstream}, thickness);
+    REQUIRE(collapsedDown.size() == 1U);
+    REQUIRE(collapsedUp.size() == 1U);
+    CHECK(collapsedDown[0].x.Raw() == collapsedUp[0].x.Raw());
+
+    // 두께는 호출자의 것이고 양수여야 한다.
+    CHECK(TextHitTesting::CaretRects(
+              *layout, CaretPosition{4U, CaretAffinity::Upstream},
+              Fixed26_6::FromRaw(0))
+              .empty());
+    CHECK(TextHitTesting::CaretRects(
+              *layout, CaretPosition{4U, CaretAffinity::Upstream},
+              Fixed26_6::FromRaw(-64))
+              .empty());
+    // 존재하지 않는 경계는 사각형이 없다.
+    CHECK(TextHitTesting::CaretRects(
+              *layout, CaretPosition{4096U, CaretAffinity::Downstream}, thickness)
+              .empty());
+}
+
+// ── Step 4: every line, including the metric-bearing empty ones ─────────────
+// 빈 줄에 caret 자리가 없으면 편집기가 빈 줄에 커서를 놓을 수 없다. 그리고
+// 여러 줄 배치에서는 y가 줄을 고른다.
+TEST_CASE("every line carries at least one caret stop, empty lines included") {
+    LayoutFixture f = LoadLayoutFixture("empty-lines");
+    const auto layout = f.LayoutText(u8"AB\n\nCD");
+    REQUIRE(layout->lines.size() == 3U);
+    for (std::size_t index = 0; index < layout->lines.size(); ++index) {
+        std::size_t stops = 0;
+        for (const CaretStop& stop : layout->caretStops) {
+            if (stop.lineIndex == index) ++stops;
+        }
+        CHECK_MESSAGE(stops > 0U, index);
+    }
+    CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*layout));
+
+    // 두 번째 줄은 비어 있고, 그 줄의 유일한 자리는 그 줄의 grapheme 시작이다.
+    const auto empty = StopsAtBoundary(*layout, layout->lines[1].graphemes.begin);
+    REQUIRE_FALSE(empty.empty());
+
+    // y가 줄을 고른다: 마지막 줄 한가운데를 찍으면 마지막 줄의 경계가 나온다.
+    molga::FixedPoint point;
+    point.x = Fixed26_6::FromRaw(0);
+    point.y = layout->lines[2].baseline;
+    const CaretPosition last = TextHitTesting::HitTest(*layout, point);
+    CHECK(last.boundary >= layout->lines[2].graphemes.begin);
+    CHECK(last.boundary <= layout->lines[2].graphemes.end);
+    point.y = layout->lines[0].baseline;
+    const CaretPosition first = TextHitTesting::HitTest(*layout, point);
+    CHECK(first.boundary <= layout->lines[0].graphemes.end);
+
+    // 빈 줄의 유일한 자리는 그 줄의 정렬된 시작 자리다. 0으로 고정하면
+    // 오른쪽 정렬 문단의 빈 줄에서 커서가 글이 있는 자리와 어긋난다.
+    TextLayoutRequest request = f.MakeRequest(u8"AB\n\nCD");
+    request.constraints.width = Fixed26_6::FromRaw(400 * 64);
+    request.style.horizontal = text::TextHorizontalAlignment::Right;
+    const auto aligned = f.service.Layout(request, f.sink);
+    REQUIRE(aligned);
+    REQUIRE(*aligned != nullptr);
+    REQUIRE((*aligned)->lines.size() == 3U);
+    const auto emptyStops =
+        StopsAtBoundary(**aligned, (*aligned)->lines[1].graphemes.begin);
+    REQUIRE(emptyStops.size() == 1U);
+    CHECK(emptyStops[0].lineIndex == 1U);
+    // 빈 줄은 advance가 0이므로 정렬 여백이 곧 상자 폭이다.
+    CHECK(emptyStops[0].position.x.Raw() == 400 * 64);
+}
+
+// ── Step 4: multi-codepoint graphemes never gain their own stop ─────────────
+// NoCaretInsideUtf16ScalarOrGrapheme의 상한이 실제로 물리는 곳. 'ffi'는 세
+// grapheme이 전부 코드포인트 하나라 상한이 빡빡하지 않지만, 데바나가리는 한
+// grapheme이 코드포인트 넷까지 간다.
+TEST_CASE("a Devanagari paragraph stops once per grapheme, not per codepoint") {
+    LayoutFixture f = LoadLayoutFixture("devanagari-reorder");
+    const auto layout = f.Layout();
+    REQUIRE_FALSE(layout->lines.empty());
+    CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*layout));
+
+    // 이 픽스처가 정말 다중 코드포인트 grapheme을 담고 있는지 못 박는다.
+    // 담고 있지 않으면 위 단언은 'ffi'와 같은 말이 된다.
+    const std::string utf8 = f.Spec().utf8;
+    std::size_t scalars = 0;
+    for (const char byte : utf8) {
+        if ((static_cast<unsigned char>(byte) & 0xC0U) != 0x80U) ++scalars;
+    }
+    std::uint32_t graphemes = 0;
+    for (const text::TextLine& line : layout->lines) {
+        graphemes += line.graphemes.end - line.graphemes.begin;
+    }
+    REQUIRE(graphemes > 0U);
+    CHECK(scalars > static_cast<std::size_t>(graphemes));
+}
+
+// pre-base 매트라는 자기 자음보다 먼저 그려지므로, 하나의 grapheme을 두 glyph가
+// 나눠 그린다. caret 자리를 glyph마다 내면 그 한 경계가 cluster 안쪽의 서로
+// 다른 두 x에 서게 되고, 화면에서는 그럴듯해 보이는 자리라 눈으로 드러나지
+// 않는다. 아랍어/히브리어로는 이 자리를 만들 수 없다: 그쪽 재배열은 run을
+// 통째로 뒤집을 뿐 cluster 안쪽 순서를 건드리지 않는다.
+TEST_CASE("a grapheme drawn by several glyphs still has one caret stop") {
+    LayoutFixture f = LoadLayoutFixture("devanagari-reorder");
+    const auto layout = f.Layout();
+
+    const text::VisualRun* sharedRun = nullptr;
+    GraphemeRange shared{};
+    std::size_t sharedFirst = 0;
+    std::size_t sharedLast = 0;
+    for (const text::TextLine& line : layout->lines) {
+        for (const text::VisualRun& run : line.visualRuns) {
+            for (std::size_t index = 0; index + 1U < run.glyphs.size(); ++index) {
+                if (!(run.glyphs[index].glyph.graphemes ==
+                      run.glyphs[index + 1U].glyph.graphemes)) {
+                    continue;
+                }
+                if (sharedRun != nullptr) continue;
+                sharedRun = &run;
+                shared = run.glyphs[index].glyph.graphemes;
+                sharedFirst = index;
+                sharedLast = index + 1U;
+                while (sharedLast + 1U < run.glyphs.size() &&
+                       run.glyphs[sharedLast + 1U].glyph.graphemes == shared) {
+                    ++sharedLast;
+                }
+            }
+        }
+    }
+    // 픽스처가 정말 그런 cluster를 담고 있는지 먼저 못 박는다. 담고 있지
+    // 않으면 아래 단언은 아무 배치에서나 참이다.
+    REQUIRE(sharedRun != nullptr);
+    REQUIRE(sharedLast > sharedFirst);
+    REQUIRE(shared.end > shared.begin);
+    // 그리고 이 픽스처가 닿는 범위를 적어 둔다: 여러 glyph가 나눠 그리는 이
+    // cell은 grapheme을 정확히 하나만 덮는다. "glyph도 여럿이고 grapheme도
+    // 여럿"인 조합 — 같은 논리 경계가 cell 안쪽의 서로 다른 x에 두 번 실릴 수
+    // 있는 유일한 배치 — 은 커밋된 corpus 어디에도 없다. BuildCaretStops의
+    // 내부 caret 복사가 그 경우를 걸러 두는 이유가 이것이다.
+    REQUIRE(shared.end - shared.begin == 1U);
+
+    CHECK(StopsAtBoundary(*layout, shared.begin).size() == 1U);
+    CHECK(StopsAtBoundary(*layout, shared.end).size() == 1U);
+
+    // 그리고 그 하나의 자리는 cluster 전체의 바깥 모서리다. 첫 glyph의 pen
+    // 자리이지 두 번째 glyph의 자리가 아니다(이 run은 LTR이다).
+    const text::PositionedGlyph& head = sharedRun->glyphs[sharedFirst];
+    const text::PositionedGlyph& tail = sharedRun->glyphs[sharedLast];
+    REQUIRE(sharedRun->bidiLevel % 2U == 0U);
+    const std::int32_t headPen = head.origin.x.Raw() - head.glyph.offsetX.Raw();
+    const std::int32_t tailPen = tail.origin.x.Raw() - tail.glyph.offsetX.Raw();
+    REQUIRE(tailPen > headPen);
+    const auto begin = StopsAtBoundary(*layout, shared.begin);
+    const auto end = StopsAtBoundary(*layout, shared.end);
+    REQUIRE(begin.size() == 1U);
+    REQUIRE(end.size() == 1U);
+    CHECK(begin[0].position.x.Raw() == headPen);
+    CHECK(end[0].position.x.Raw() == tailPen + tail.glyph.advanceX.Raw());
+}
+
+// ── Step 4: the synthetic ellipsis glyph is not a caret site ────────────────
+// 줄임표 glyph는 원본 grapheme을 하나도 덮지 않는다. 그 glyph에도 자리를
+// 내면 잘린 지점의 논리 경계 하나가 줄임표 양쪽에 두 번 서게 되고, 편집기는
+// 화면에 없는 글자 뒤에 커서를 놓게 된다.
+TEST_CASE("the ellipsis glyph adds no caret stop at the cut") {
+    LayoutFixture f = LoadLayoutFixture("arabic-ellipsis-context");
+    const auto layout = f.LayoutEllipsized();
+    REQUIRE(layout);
+    REQUIRE((*layout)->lines.size() == 1U);
+    const text::TextLine& line = (*layout)->lines[0];
+    REQUIRE((*layout)->ellipsized);
+
+    const text::PositionedGlyph* synthetic = nullptr;
+    for (const text::VisualRun& run : line.visualRuns) {
+        for (const text::PositionedGlyph& glyph : run.glyphs) {
+            if (glyph.glyph.graphemes.begin != glyph.glyph.graphemes.end) continue;
+            REQUIRE(synthetic == nullptr);
+            synthetic = &glyph;
+        }
+    }
+    REQUIRE(synthetic != nullptr);
+    REQUIRE(synthetic->glyph.advanceX.Raw() > 0);
+
+    // 잘린 지점의 논리 경계는 자리를 정확히 하나 갖는다.
+    const auto stops = StopsAtBoundary(*(*layout), line.graphemes.end);
+    REQUIRE(stops.size() == 1U);
+    // 그리고 그 자리는 줄임표 칸의 바깥, 남긴 글 쪽 모서리다. 아랍어 run이라
+    // 줄임표는 시각적으로 왼쪽 끝에 놓이므로 그 칸의 오른쪽 모서리가 된다.
+    const std::int32_t synthLeft =
+        synthetic->origin.x.Raw() - synthetic->glyph.offsetX.Raw();
+    const std::int32_t synthRight = synthLeft + synthetic->glyph.advanceX.Raw();
+    CHECK(stops[0].position.x.Raw() == synthRight);
+    CHECK(stops[0].position.x.Raw() > synthLeft);
+    CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*(*layout)));
+}
+
+// ── Step 8: selection spans pen cells, not glyph draw origins ───────────────
+// glyph 원점은 pen에 GPOS x offset을 더한 그리기 좌표다. 사각형을 원점에서
+// 재면 offset이 0이 아닌 글자에서 선택 영역이 그만큼 밀리고, 이웃한 두
+// 사각형 사이에 틈이나 겹침이 생긴다. 히브리 문단은 실제로 그런 offset을 갖는다.
+TEST_CASE("selection rectangles measure pen cells, not glyph draw origins") {
+    const auto layout = LoadLayoutFixture("hebrew-number-boundary").Layout();
+    REQUIRE(layout->lines.size() == 1U);
+    std::size_t measured = 0;
+    std::size_t offsetGlyphs = 0;
+    for (const text::VisualRun& run : layout->lines[0].visualRuns) {
+        for (const text::PositionedGlyph& glyph : run.glyphs) {
+            const GraphemeRange span = glyph.glyph.graphemes;
+            if (span.end - span.begin != 1U) continue;
+            const auto rects = TextHitTesting::SelectionRects(*layout, span);
+            REQUIRE(rects.size() == 1U);
+            const std::int32_t pen =
+                glyph.origin.x.Raw() - glyph.glyph.offsetX.Raw();
+            CHECK(rects[0].x.Raw() == pen);
+            CHECK(rects[0].width.Raw() == glyph.glyph.advanceX.Raw());
+            if (glyph.glyph.offsetX.Raw() != 0) ++offsetGlyphs;
+            ++measured;
+        }
+    }
+    REQUIRE(measured == 7U);
+    // 이 픽스처에 그리기 원점이 pen과 다른 glyph가 실제로 있어야 위 두 단언이
+    // 두 좌표계를 구분한다. 없으면 어느 규약을 써도 같은 숫자가 나온다.
+    CHECK(offsetGlyphs > 0U);
+}
+
+// ── Step 4: a combining mark does not fork the cell it belongs to ───────────
+// HarfBuzz는 MONOTONE_CHARACTERS에서 합자 뒤 결합 문자의 cluster를 합자
+// cluster에 합치지 않는다. 그래서 표식의 grapheme 범위는 합자 범위와 "같지는
+// 않은 부분집합"으로 도착하고, cell을 범위가 같은 glyph로만 묶으면 표식이 자기
+// cell이 되어 합자의 바깥 모서리에 두 번째 자리를 낸다. 방향이 바뀌지도 않은
+// 경계가 BiDi affinity 쌍과 똑같이 보이게 되는 유일한 순수 LTR 경로다.
+TEST_CASE("a combining mark after a ligature does not add a second stop") {
+    LayoutFixture f = LoadLayoutFixture("latin-ligature-mark");
+    const auto layout = f.Layout();
+    REQUIRE(layout->lines.size() == 1U);
+    REQUIRE(layout->lines[0].visualRuns.size() == 1U);
+    const text::VisualRun& run = layout->lines[0].visualRuns[0];
+    CHECK(run.bidiLevel % 2U == 0U);
+
+    // 픽스처가 정말 그 배치를 담고 있는지 먼저 못 박는다. 담고 있지 않으면
+    // 아래 단언은 'ffi' 케이스와 같은 말이 된다.
+    REQUIRE(run.glyphs.size() == 2U);
+    const text::PositionedGlyph* ligature = nullptr;
+    const text::PositionedGlyph* mark = nullptr;
+    for (const text::PositionedGlyph& glyph : run.glyphs) {
+        const GraphemeRange span = glyph.glyph.graphemes;
+        if (span.end - span.begin > 1U) {
+            ligature = &glyph;
+        } else {
+            mark = &glyph;
+        }
+    }
+    REQUIRE(ligature != nullptr);
+    REQUIRE(mark != nullptr);
+    REQUIRE(ligature->glyph.graphemes.begin == 0U);
+    REQUIRE(ligature->glyph.graphemes.end == 3U);
+    REQUIRE_FALSE(mark->glyph.graphemes == ligature->glyph.graphemes);
+    REQUIRE(mark->glyph.graphemes.begin >= ligature->glyph.graphemes.begin);
+    REQUIRE(mark->glyph.graphemes.end <= ligature->glyph.graphemes.end);
+
+    CHECK(CaretBoundarySequence(*layout) ==
+          std::vector<std::uint32_t>{0, 1, 2, 3});
+    CHECK(CaretXPositionsAreStrictlyIncreasing(*layout));
+    CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*layout));
+    CHECK(CaretYPositionsAreLineBaselines(*layout));
+    for (std::uint32_t boundary = 0; boundary <= 3U; ++boundary) {
+        CHECK_MESSAGE(StopsAtBoundary(*layout, boundary).size() == 1U, boundary);
+    }
+
+    // 그리고 합자 오른쪽 끝 근처의 클릭은 합자의 끝 경계로 간다. 표식이 자기
+    // cell을 만들면 그 자리가 경계 2를 합자 오른쪽 모서리에 한 번 더 세우므로
+    // 같은 점이 경계 2로 떨어진다.
+    const std::int32_t pen =
+        ligature->origin.x.Raw() - ligature->glyph.offsetX.Raw();
+    REQUIRE(ligature->interiorCarets.size() == 2U);
+    const std::int32_t lastInterior =
+        ligature->interiorCarets.back().position.x.Raw();
+    const std::int32_t right = pen + ligature->glyph.advanceX.Raw();
+    REQUIRE(lastInterior + 2 < right);
+    molga::FixedPoint point;
+    point.x = Fixed26_6::FromRaw(lastInterior + (right - lastInterior) / 2 + 1);
+    point.y = layout->lines[0].baseline;
+    CHECK(TextHitTesting::HitTest(*layout, point).boundary == 3U);
+}
+
+// ── Step 8: sub-cluster selection reads the run's direction ─────────────────
+// 한 cell 안의 선택은 논리 시작을 LTR에서 왼쪽 모서리로, RTL에서 오른쪽
+// 모서리로 잡아야 한다. glyph 전체를 덮는 선택만 재면 min/max가 그 뒤바뀜을
+// 삼켜 버리므로, 합자 안쪽을 한 grapheme씩 골라야 방향이 관찰된다.
+TEST_CASE("selection inside a ligature follows the visual run direction") {
+    auto ltrFixture = LoadLayoutFixture("latin-ffi-ligature");
+    const auto ltr = ltrFixture.Layout();
+    REQUIRE(ltr->lines.size() == 1U);
+    REQUIRE(ltr->lines[0].visualRuns.size() == 1U);
+    REQUIRE(ltr->lines[0].visualRuns[0].bidiLevel % 2U == 0U);
+    const text::PositionedGlyph& ligature = FirstMultiGraphemeGlyph(*ltr);
+    REQUIRE(ligature.glyph.graphemes.begin == 0U);
+    REQUIRE(ligature.glyph.graphemes.end == 3U);
+    REQUIRE(ligature.interiorCarets.size() == 2U);
+    const std::int32_t pen =
+        ligature.origin.x.Raw() - ligature.glyph.offsetX.Raw();
+    const std::int32_t firstCaret = ligature.interiorCarets[0].position.x.Raw();
+    const std::int32_t secondCaret = ligature.interiorCarets[1].position.x.Raw();
+    const std::int32_t end = pen + ligature.glyph.advanceX.Raw();
+    REQUIRE(pen < firstCaret);
+    REQUIRE(firstCaret < secondCaret);
+    REQUIRE(secondCaret < end);
+
+    // 논리적으로 앞선 grapheme은 LTR에서 왼쪽 조각이다.
+    const auto head = TextHitTesting::SelectionRects(*ltr, GraphemeRange{0U, 1U});
+    REQUIRE(head.size() == 1U);
+    CHECK(head[0].x.Raw() == pen);
+    CHECK(head[0].width.Raw() == firstCaret - pen);
+    const auto tail = TextHitTesting::SelectionRects(*ltr, GraphemeRange{2U, 3U});
+    REQUIRE(tail.size() == 1U);
+    CHECK(tail[0].x.Raw() == secondCaret);
+    CHECK(tail[0].width.Raw() == end - secondCaret);
+
+    // 그리고 RTL 짝. 라틴 합자로는 이 뒤바뀜을 잴 수 없다.
+    auto rtlFixture = LoadLayoutFixture("arabic-ligature");
+    const auto rtl = rtlFixture.Layout();
+    REQUIRE(rtl->lines.size() == 1U);
+    const text::PositionedGlyph& arabic = FirstMultiGraphemeGlyph(*rtl);
+    bool sawRtlRun = false;
+    for (const text::VisualRun& run : rtl->lines[0].visualRuns) {
+        for (const text::PositionedGlyph& glyph : run.glyphs) {
+            if (glyph.glyph.graphemes.end - glyph.glyph.graphemes.begin <= 1U) {
+                continue;
+            }
+            CHECK(run.bidiLevel % 2U == 1U);
+            sawRtlRun = true;
+        }
+    }
+    REQUIRE(sawRtlRun);
+    const GraphemeRange span = arabic.glyph.graphemes;
+    REQUIRE(span.end - span.begin == 2U);
+    REQUIRE(arabic.interiorCarets.size() == 1U);
+    // grapheme이 둘뿐인 cell에서는 InteriorCaretLogicalBoundary의 LTR 대응
+    // (begin+index)과 RTL 대응(end-index)이 같은 경계를 가리킨다. 그래서 이
+    // 케이스는 저장된 경계값이 아니라 그 자리가 놓인 쪽을 잰다.
+    //
+    // 둘이 갈리려면 홀수 level run 안에 grapheme 셋 이상을 덮는 cluster가
+    // 있어야 하는데, 커밋된 여섯 폰트로는 그런 배치를 만들 수 없다: 아랍어의
+    // lam-alef는 grapheme 둘이고 alef-lam-lam-heh는 합자가 되지 않으며,
+    // 라틴 ffi는 HarfBuzz가 RTL 방향에서 ff와 i로 갈라 놓는다. 그래서
+    // BuildInteriorCarets에 넘기는 방향 인자 자체는 여기서 끝까지 관찰되지
+    // 않고, 대응 함수 쪽은 자기 단위 케이스가 양방향으로 고정한다.
+    CHECK(arabic.interiorCarets[0].logicalGraphemeBoundary == span.begin + 1U);
+    const std::int32_t arabicPen =
+        arabic.origin.x.Raw() - arabic.glyph.offsetX.Raw();
+    const std::int32_t middle = arabic.interiorCarets[0].position.x.Raw();
+    const std::int32_t arabicEnd = arabicPen + arabic.glyph.advanceX.Raw();
+    REQUIRE(arabicPen < middle);
+    REQUIRE(middle < arabicEnd);
+    const auto logicalFirst = TextHitTesting::SelectionRects(
+        *rtl, GraphemeRange{span.begin, span.begin + 1U});
+    REQUIRE(logicalFirst.size() == 1U);
+    // 논리적으로 앞선 grapheme은 RTL run에서 오른쪽 조각이다.
+    CHECK(logicalFirst[0].x.Raw() == middle);
+    CHECK(logicalFirst[0].width.Raw() == arabicEnd - middle);
+    const auto logicalSecond = TextHitTesting::SelectionRects(
+        *rtl, GraphemeRange{span.begin + 1U, span.end});
+    REQUIRE(logicalSecond.size() == 1U);
+    CHECK(logicalSecond[0].x.Raw() == arabicPen);
+    CHECK(logicalSecond[0].width.Raw() == middle - arabicPen);
+}
+
+// ── Steps 6-8: every query addresses the line it was asked about ────────────
+// 하나짜리 줄만 재면 세 API 모두 "언제나 0번 줄"로 줄여도 통과한다.
+TEST_CASE("caret, selection and hit queries address the right line") {
+    LayoutFixture f = LoadLayoutFixture("empty-lines");
+    const auto layout = f.LayoutText(u8"AB\n\nCD");
+    REQUIRE(layout->lines.size() == 3U);
+    REQUIRE(layout->lines[2].top.Raw() > layout->lines[0].top.Raw());
+    CHECK(CaretYPositionsAreLineBaselines(*layout));
+
+    // 줄바꿈을 넘는 선택은 글자가 있는 줄마다 사각형을 하나씩, y가 커지는
+    // 순서로 낸다. 가운데 빈 줄은 glyph가 없어 사각형이 없다.
+    const auto rects = TextHitTesting::SelectionRects(
+        *layout, GraphemeRange{layout->lines[0].graphemes.begin,
+                               layout->lines[2].graphemes.end});
+    REQUIRE(rects.size() == 2U);
+    CHECK(rects[0].y.Raw() == layout->lines[0].top.Raw());
+    CHECK(rects[1].y.Raw() == layout->lines[2].top.Raw());
+    CHECK(RectsAreInStableVisualOrder(rects));
+
+    // caret 사각형은 그 경계가 실제로 놓인 줄의 세로 띠를 쓴다.
+    const auto caret = TextHitTesting::CaretRects(
+        *layout,
+        CaretPosition{layout->lines[1].graphemes.begin,
+                      CaretAffinity::Downstream},
+        Fixed26_6::FromRaw(64));
+    REQUIRE(caret.size() == 1U);
+    CHECK(caret[0].y.Raw() == layout->lines[1].top.Raw());
+    CHECK(caret[0].y.Raw() != layout->lines[0].top.Raw());
+    CHECK(caret[0].height.Raw() ==
+          layout->lines[1].bottom.Raw() - layout->lines[1].top.Raw());
+
+    // 줄 선택은 세로로도 반열림이다: 정확히 첫 줄의 bottom에 놓인 점은 이미
+    // 다음 줄의 것이다.
+    molga::FixedPoint point;
+    point.x = Fixed26_6::FromRaw(0);
+    point.y = layout->lines[0].bottom;
+    CHECK(TextHitTesting::HitTest(*layout, point).boundary ==
+          layout->lines[1].graphemes.begin);
+    point.y = Fixed26_6::FromRaw(layout->lines[0].bottom.Raw() - 1);
+    CHECK(TextHitTesting::HitTest(*layout, point).boundary ==
+          layout->lines[0].graphemes.begin);
+
+    // 그리고 합자가 첫 줄이 아닐 때, 그 내부 자리는 자기 줄의 번호를 달고
+    // 나온다. 0으로 고정하면 그 caret이 첫 줄의 세로 띠에 그려진다.
+    const auto wrapped = f.LayoutText(u8"AB\nffi");
+    REQUIRE(wrapped->lines.size() == 2U);
+    const text::PositionedGlyph& ligature = FirstMultiGraphemeGlyph(*wrapped);
+    REQUIRE(ligature.interiorCarets.size() == 2U);
+    for (const text::GlyphInteriorCaret& interior : ligature.interiorCarets) {
+        const auto stops =
+            StopsAtBoundary(*wrapped, interior.logicalGraphemeBoundary);
+        REQUIRE(stops.size() == 1U);
+        CHECK(stops[0].lineIndex == 1U);
+        CHECK(stops[0].position.x.Raw() == interior.position.x.Raw());
+        // 내부 자리의 affinity도 저장된 값이다. CaretRects의 경계-전용 되짚기가
+        // 이 값을 가려 주므로 공개 API로는 관찰되지 않는다.
+        CHECK(stops[0].affinity == CaretAffinity::Downstream);
+    }
+    CHECK(CaretYPositionsAreLineBaselines(*wrapped));
+}
+
+// ── Step 5: missing interior-caret storage is a failure, not a fallback ─────
+// 여러 grapheme을 덮는 glyph가 내부 caret을 하나도 들고 있지 않은 배치는 배치
+// 쪽 불변식이 깨진 것이다. hit testing은 그 자리를 비례 분할로 지어내는 대신
+// 아무 사각형도 내지 않는다. 서비스는 그런 배치를 내지 않으므로 손으로
+// 조립해야 이 갈래를 관찰할 수 있다.
+TEST_CASE("a multi-grapheme glyph with no stored interior caret yields no rect") {
+    text::TextLayout layout;
+    text::TextLine line;
+    line.graphemes = GraphemeRange{0U, 3U};
+    line.top = Fixed26_6::FromRaw(0);
+    line.baseline = Fixed26_6::FromRaw(10 * 64);
+    line.bottom = Fixed26_6::FromRaw(12 * 64);
+    text::VisualRun run;
+    run.bidiLevel = 0;
+    text::PositionedGlyph glyph;
+    glyph.glyph.graphemes = GraphemeRange{0U, 3U};
+    glyph.glyph.advanceX = Fixed26_6::FromRaw(300);
+    glyph.origin.x = Fixed26_6::FromRaw(0);
+    glyph.origin.y = line.baseline;
+    run.glyphs.push_back(glyph);
+    line.visualRuns.push_back(run);
+    layout.lines.push_back(line);
+
+    // 바깥 모서리만 쓰는 선택은 그대로 나온다. 이 케이스가 "언제나 빈 결과"를
+    // 재고 있는 것이 아님을 먼저 못 박는다.
+    const auto whole =
+        TextHitTesting::SelectionRects(layout, GraphemeRange{0U, 3U});
+    REQUIRE(whole.size() == 1U);
+    CHECK(whole[0].x.Raw() == 0);
+    CHECK(whole[0].width.Raw() == 300);
+    // 안쪽 경계를 요구하면 저장된 자리가 없으므로 사각형이 없다.
+    CHECK(TextHitTesting::SelectionRects(layout, GraphemeRange{1U, 2U}).empty());
+    CHECK(TextHitTesting::SelectionRects(layout, GraphemeRange{0U, 2U}).empty());
+    CHECK(TextHitTesting::SelectionRects(layout, GraphemeRange{1U, 3U}).empty());
+}
+
+// ── Step 6: the defensive line fallback ─────────────────────────────────────
+// 자리의 줄 번호가 어느 줄과도 맞지 않으면 배열 전체를 하나의 구간 사슬로
+// 훑지 않는다. x는 줄 안에서만 단조롭고 줄과 줄 사이에서는 되감기므로 그 훑기는
+// 첫 내리막에서 멈춰 아무 뜻 없는 자리를 고른다.
+TEST_CASE("hit testing falls back to the first stop when no stop names the line") {
+    text::TextLayout layout;
+    text::TextLine line;
+    line.top = Fixed26_6::FromRaw(0);
+    line.baseline = Fixed26_6::FromRaw(48);
+    line.bottom = Fixed26_6::FromRaw(64);
+    layout.lines.push_back(line);
+
+    CaretStop first;
+    first.logicalGraphemeBoundary = 7U;
+    first.affinity = CaretAffinity::Upstream;
+    first.position.x = Fixed26_6::FromRaw(500);
+    first.position.y = line.baseline;
+    first.lineIndex = 9U;  // 어느 줄과도 맞지 않는다
+    layout.caretStops.push_back(first);
+    CaretStop second = first;
+    second.logicalGraphemeBoundary = 8U;
+    second.position.x = Fixed26_6::FromRaw(1000);
+    layout.caretStops.push_back(second);
+
+    molga::FixedPoint point;
+    point.x = Fixed26_6::FromRaw(1000);
+    point.y = Fixed26_6::FromRaw(32);
+    const CaretPosition fallback = TextHitTesting::HitTest(layout, point);
+    CHECK(fallback.boundary == 7U);
+    CHECK(fallback.affinity == CaretAffinity::Upstream);
+
+    // 줄 번호가 맞으면 같은 점이 두 번째 자리로 간다. 되짚기가 "언제나 첫
+    // 자리"로 굳은 것이 아님을 함께 못 박는다.
+    layout.caretStops[0].lineIndex = 0U;
+    layout.caretStops[1].lineIndex = 0U;
+    CHECK(TextHitTesting::HitTest(layout, point).boundary == 8U);
+}
+
+// ── Step 7: one resolved CaretPosition is one caret, never a bag ────────────
+// CaretRects의 반환형은 Step 3이 못 박은 서명 때문에 벡터이지만, 배치가 낸
+// TextLayout에서 하나의 (경계, affinity) 짝은 시각 자리를 많아야 하나 갖는다.
+// 그 성질이 무너지면 편집기는 같은 caret을 두 곳에 그리게 되고, affinity로는
+// 어느 쪽인지 물어볼 수 없다. 방향이 섞인 문단, 합자, 결합 문자, 부드러운
+// 줄바꿈, 딱딱한 줄바꿈, 줄임표를 모두 걸어 둔다.
+TEST_CASE("one logical boundary plus affinity resolves to at most one stop") {
+    for (const char* name :
+         {"hebrew-number-boundary", "mixed-bidi-selection", "latin-ffi-ligature",
+          "latin-ligature-mark", "arabic-ligature", "devanagari-reorder",
+          "final-line-fi"}) {
+        LayoutFixture fixture = LoadLayoutFixture(name);
+        const auto layout = fixture.Layout();
+        CHECK_MESSAGE(EveryCaretPositionResolvesToOneStop(*layout), name);
+        // 그리고 실제로 물어보면 사각형도 하나다.
+        for (const CaretStop& stop : layout->caretStops) {
+            const auto rects = TextHitTesting::CaretRects(
+                *layout,
+                CaretPosition{stop.logicalGraphemeBoundary, stop.affinity},
+                Fixed26_6::FromRaw(64));
+            CHECK_MESSAGE(rects.size() == 1U, name,
+                          stop.logicalGraphemeBoundary);
+        }
+    }
+
+    // 딱딱한 줄바꿈과 빈 줄, 그리고 줄임표까지.
+    LayoutFixture lines = LoadLayoutFixture("empty-lines");
+    const auto hardBreaks = lines.LayoutText(u8"AB\n\nCD");
+    CHECK(EveryCaretPositionResolvesToOneStop(*hardBreaks));
+    LayoutFixture arabic = LoadLayoutFixture("arabic-ellipsis-context");
+    const auto ellipsized = arabic.LayoutEllipsized();
+    REQUIRE(ellipsized);
+    REQUIRE((*ellipsized)->ellipsized);
+    CHECK(EveryCaretPositionResolvesToOneStop(**ellipsized));
+
+    // 술어가 죽어 있지 않다는 대조. 같은 짝을 하나 더 넣으면 거짓이 되어야 한다.
+    text::TextLayout doubled = *hardBreaks;
+    REQUIRE_FALSE(doubled.caretStops.empty());
+    doubled.caretStops.push_back(doubled.caretStops.front());
+    CHECK_FALSE(EveryCaretPositionResolvesToOneStop(doubled));
 }
