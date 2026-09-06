@@ -19,6 +19,44 @@ REGISTER_COMPONENT(TextRenderer2D)
 
 using json = nlohmann::json;
 
+namespace {
+
+using molga::text::BaseDirection;
+
+// UILabel.cpp와 같은 토큰을 쓴다. 두 컴포넌트가 하나의 텍스트 서비스를 기술하는
+// 이상, 같은 정책이 파일에서 다른 이름으로 보이면 안 된다. 정수 서수로 저장하면
+// 열거에 값이 끼어드는 순간 디스크의 기존 scene이 다른 정책을 뜻하게 된다.
+const char* ToToken(BaseDirection value) {
+    switch (value) {
+        case BaseDirection::LeftToRight: return "LTR";
+        case BaseDirection::RightToLeft: return "RTL";
+        case BaseDirection::Auto: break;
+    }
+    return "Auto";
+}
+
+BaseDirection BaseDirectionFromToken(const std::string& token) {
+    if (token == "LTR") return BaseDirection::LeftToRight;
+    if (token == "RTL") return BaseDirection::RightToLeft;
+    return BaseDirection::Auto;
+}
+
+} // namespace
+
+void TextRenderer2D::SetFontFamilyGuid(const std::string& val) {
+    fontFamilyGuid = val;
+    // family를 저작하는 것이 legacy 폰트 지목을 대체할 값을 공급하는 유일한
+    // 행위다. 이때 표식을 내려놓지 않으면 저작한 family가 저장에서 사라진다.
+    if (!fontFamilyGuid.empty()) {
+        loadedLegacyFontGuid = false;
+    }
+}
+
+void TextRenderer2D::SetLocale(const std::string& val) {
+    // 빈 태그는 "locale 없음"이 아니라 root tailoring 요청이다.
+    locale = val.empty() ? std::string("und") : val;
+}
+
 void TextRenderer2D::RenderSprite(Renderer* renderer) {
     if (!gameObject || !enabled || text.empty()) return;
 
@@ -64,6 +102,9 @@ void TextRenderer2D::RenderSprite(Renderer* renderer) {
 }
 
 void TextRenderer2D::Serialize(nlohmann::json& j) const {
+    // schema 2도 legacy 키를 그대로 들고 간다. 위치/회전/월드 스케일은 형제
+    // Transform이 권한을 가지므로 여기서 복제하지 않고, 저작된 bound가 없으므로
+    // 폭/높이 키도 만들지 않는다.
     j["text"] = text;
     j["color"] = { color.r, color.g, color.b, color.a };
     j["scale"] = scale;
@@ -72,10 +113,22 @@ void TextRenderer2D::Serialize(nlohmann::json& j) const {
     j["fontSizePx"] = fontSizePx;
     j["lineSpacing"] = lineSpacing;
     j["fontName"] = fontName;
+    if (!loadedLegacyFontGuid) {
+        // 아직 이관되지 않은 payload에는 새 키가 하나도 새지 않아야 migration 전
+        // scene 파일이 조용히 다시 쓰이지 않는다.
+        j["schemaVersion"] = 2;
+        j["fontFamilyGuid"] = fontFamilyGuid;
+        j["locale"] = locale;
+        j["baseDirection"] = ToToken(baseDirection);
+    }
     molga::SerializeWorldSortSettings(j, GetWorldSortSettings());
 }
 
 void TextRenderer2D::Deserialize(const nlohmann::json& j) {
+    const int schemaVersion = j.value("schemaVersion", 1);
+    // 표식은 payload에서만 온다. 저작 상태에서 유도하면 같은 파일을 두 번
+    // 읽었을 때 서로 다른 형식으로 저장될 수 있다.
+    loadedLegacyFontGuid = schemaVersion < 2;
     const molga::WorldSortSettings2D worldSort =
         molga::DeserializeWorldSortSettings(j);
     sortingLayer = worldSort.sortingLayer;
@@ -100,9 +153,11 @@ void TextRenderer2D::Deserialize(const nlohmann::json& j) {
     }
     if (j.contains("fontSizePx") && j["fontSizePx"].is_number()) {
         SetFontSizePx(j["fontSizePx"].get<float>());
-    } else {
+    } else if (schemaVersion < 2) {
         // Legacy bitmap text used an 8-pixel em. Preserve its previous size
-        // while freshly-created components use the new 16-pixel default.
+        // while freshly-created components use the new 16-pixel default. A
+        // schema 2 document always carries the field, so the bitmap em must not
+        // leak into one that merely lost the key.
         fontSizePx = 8.0f;
     }
     if (j.contains("lineSpacing") && j["lineSpacing"].is_number()) {
@@ -110,6 +165,26 @@ void TextRenderer2D::Deserialize(const nlohmann::json& j) {
     }
     if (j.contains("fontName")) {
         fontName = j["fontName"].get<std::string>();
+    }
+
+    if (schemaVersion >= 2) {
+        if (j.contains("fontFamilyGuid") && j["fontFamilyGuid"].is_string()) {
+            fontFamilyGuid = j["fontFamilyGuid"].get<std::string>();
+        }
+        if (j.contains("locale") && j["locale"].is_string()) {
+            SetLocale(j["locale"].get<std::string>());
+        }
+        if (j.contains("baseDirection") && j["baseDirection"].is_string()) {
+            baseDirection = BaseDirectionFromToken(j["baseDirection"].get<std::string>());
+        }
+    } else {
+        // schema 1 payload를 읽는 것은 부분 갱신이 아니라 그 상태로 되돌리는
+        // 일이다. 실행 취소는 기존 컴포넌트에 스냅샷을 다시 Deserialize하므로,
+        // schema 2 전용 값을 남겨 두면 표식은 legacy인데 메모리는 저작된
+        // family/locale을 들고 있는, 저장 형식과 다른 텍스트 정체성이 남는다.
+        fontFamilyGuid.clear();
+        locale = "und";
+        baseDirection = molga::text::BaseDirection::Auto;
     }
 }
 
