@@ -2483,7 +2483,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
 - Consumes: `ParagraphStyle` inputs, `ShapedGlyph`, portable dependency-contract SHA, and design Section 10 identity fields.
 - Produces: immutable layout/value/validation-fact types, `TextLayoutRequestIndexKey`, structured `TextShapeCacheKey`, `TextParagraphCacheKey`, and bounded `TextLayoutCache::{FindShape,StoreShape,FindByRequest,FindByFinal,Store,Telemetry}`.
 
-- [ ] **Step 1: Add failing one-field identity and collision tests.**
+- [x] **Step 1: Add failing one-field identity and collision tests.**
 
   ```cpp
   TEST_CASE("every shape and paragraph identity field causes a cache miss") {
@@ -2508,7 +2508,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   }
   ```
 
-- [ ] **Step 1a: Add the failing request-byte collision test.**
+- [x] **Step 1a: Add the failing request-byte collision test.**
 
   ```cpp
   TEST_CASE("hash collision never aliases different original bytes") {
@@ -2520,7 +2520,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   }
   ```
 
-- [ ] **Step 1b: Add the failing synthetic-shape-input collision test.**
+- [x] **Step 1b: Add the failing synthetic-shape-input collision test.**
 
   ```cpp
   TEST_CASE("shape-input hash collision never aliases ellipsis bytes") {
@@ -2532,7 +2532,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   }
   ```
 
-- [ ] **Step 1c: Add the failing direct request-index hit test.**
+- [x] **Step 1c: Add the failing direct request-index hit test.**
 
   ```cpp
   TEST_CASE("request index hits before ICU and HarfBuzz") {
@@ -2547,9 +2547,9 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   }
   ```
 
-- [ ] **Step 1d: Implement the one-field mutation tables.** Define separate `MutateEachShapeIdentityField`, `MutateEachRequestIdentityField`, and `MutateEachFinalIdentityField` tables; each changes exactly one named field and includes that field name in a failed miss assertion.
+- [x] **Step 1d: Implement the one-field mutation tables.** Define separate `MutateEachShapeIdentityField`, `MutateEachRequestIdentityField`, and `MutateEachFinalIdentityField` tables; each changes exactly one named field and includes that field name in a failed miss assertion.
 
-- [ ] **Step 1e: Add the failing cache-capacity/owner test.**
+- [x] **Step 1e: Add the failing cache-capacity/owner test.**
 
   ```cpp
   TEST_CASE("bounded eviction drops only cache ownership and zero is disabled") {
@@ -2569,7 +2569,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   }
   ```
 
-- [ ] **Step 1f: Add the failing analysis-identity mutation test.** Starting from one stored shape key, independently mutate `resolvedGraphemeLocale`, `resolvedLineBreakLocale`, `graphemeRuleIdentity`, `lineBreakRuleIdentity`, and `analysisGeneration`; also mutate `clusterPolicy` to a test-only invalid enum value:
+- [x] **Step 1f: Add the failing analysis-identity mutation test.** Starting from one stored shape key, independently mutate `resolvedGraphemeLocale`, `resolvedLineBreakLocale`, `graphemeRuleIdentity`, `lineBreakRuleIdentity`, and `analysisGeneration`; also mutate `clusterPolicy` to a test-only invalid enum value:
 
   ```cpp
   TEST_CASE("analysis identity and project cluster policy are cache identity") {
@@ -2588,7 +2588,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
 
   `MutateAnalysisIdentityAndClusterPolicy` returns exactly six entries and changes only its named field; the invalid cluster enum is tested only as a key value and is rejected before an actual shape call.
 
-- [ ] **Step 1g: Add the public-header HarfBuzz leak probe.** Put this complete probe in `tests/test_text_cache_header.cpp`; its separate target in Step 1i prevents any earlier test include from predefining HarfBuzz macros:
+- [x] **Step 1g: Add the public-header HarfBuzz leak probe.** Put this complete probe in `tests/test_text_cache_header.cpp`; its separate target in Step 1i prevents any earlier test include from predefining HarfBuzz macros:
 
   ```cpp
   #include "doctest.h"
@@ -2609,17 +2609,17 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   }
   ```
 
-- [ ] **Step 1h: Register the cache behavior test.** Call `molga_add_text_test(test_text_cache test_text_cache.cpp)`; its helper owns normal dependency attachment. Use only the common root/session main.
+- [x] **Step 1h: Register the cache behavior test.** Call `molga_add_text_test(test_text_cache test_text_cache.cpp)`; its helper owns normal dependency attachment. Use only the common root/session main.
 
-- [ ] **Step 1i: Register the cache-header isolation test.** Call `molga_add_text_test(test_text_cache_header test_text_cache_header.cpp)` without a second attach call; keep it a separate executable/translation unit from `test_text_cache`.
+- [x] **Step 1i: Register the cache-header isolation test.** Call `molga_add_text_test(test_text_cache_header test_text_cache_header.cpp)` without a second attach call; keep it a separate executable/translation unit from `test_text_cache`.
 
-- [ ] **Step 2: Run the layout-cache red gate.**
+- [x] **Step 2: Run the layout-cache red gate.**
 
   Run: `cmake --build --preset debug --target test_text_cache test_text_cache_header -j`
 
   Expected: compile FAIL because layout/cache types do not exist.
 
-- [ ] **Step 3: Add layout policy enums and constraints.**
+- [x] **Step 3: Add layout policy enums and constraints.**
 
   ```cpp
   enum class TextWrapMode : std::uint8_t { NoWrap, Word, Grapheme };
@@ -2633,7 +2633,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 3a: Add the exact paragraph style.**
+- [x] **Step 3a: Add the exact paragraph style.**
 
   ```cpp
   struct ParagraphStyle {
@@ -2651,7 +2651,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 3b: Add positioned glyph, visual-run, and line records.**
+- [x] **Step 3b: Add positioned glyph, visual-run, and line records.**
 
   ```cpp
   struct GlyphInteriorCaret {
@@ -2683,7 +2683,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 3c: Add caret and validation-fact records.**
+- [x] **Step 3c: Add caret and validation-fact records.**
 
   ```cpp
   struct CaretStop {
@@ -2705,7 +2705,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 3d: Add the immutable layout aggregate.**
+- [x] **Step 3d: Add the immutable layout aggregate.**
 
   ```cpp
   struct TextLayout {
@@ -2718,7 +2718,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 3e: Add diagnostic context and request values.**
+- [x] **Step 3e: Add diagnostic context and request values.**
 
   ```cpp
   struct TextDiagnosticContext {
@@ -2735,9 +2735,9 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 4: Implement cacheable validation facts.** Store facts for replacement-decoded input, missing graphemes/tofu, fallback problems and other layout-producing conditions. Rebuild a `TextDiagnostic` on every cold/warm call by combining the immutable fact with the current request's `TextDiagnosticContext`.
+- [x] **Step 4: Implement cacheable validation facts.** Store facts for replacement-decoded input, missing graphemes/tofu, fallback problems and other layout-producing conditions. Rebuild a `TextDiagnostic` on every cold/warm call by combining the immutable fact with the current request's `TextDiagnosticContext`.
 
-- [ ] **Step 5: Define the family-closure request identities.**
+- [x] **Step 5: Define the family-closure request identities.**
 
   ```cpp
   struct FamilyNodeRequestIdentity {
@@ -2763,7 +2763,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 5a: Define the early request-index key.**
+- [x] **Step 5a: Define the early request-index key.**
 
   ```cpp
   struct TextLayoutRequestIndexKey {
@@ -2788,7 +2788,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
 
   Collision-check `originalUtf8` length/bytes, every canonical style/constraint field, every family node/edge/generation, and every ordered candidate content identity; hashes select buckets only. Exclude `diagnosticContext` so the same immutable layout can be reused while facts are re-contextualized. The key contains no analysis/final-line result and is buildable after family resolution but before ICU/HarfBuzz.
 
-- [ ] **Step 6: Define selected-face and shape-input mapping identities.**
+- [x] **Step 6: Define selected-face and shape-input mapping identities.**
 
   ```cpp
   struct SelectedFaceShapeIdentity {
@@ -2807,7 +2807,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 6a: Define the complete structured shape key.**
+- [x] **Step 6a: Define the complete structured shape key.**
 
   ```cpp
   struct TextShapeCacheKey {
@@ -2839,7 +2839,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 7: Define the complete final paragraph key.**
+- [x] **Step 7: Define the complete final paragraph key.**
 
   ```cpp
   struct TextParagraphCacheKey {
@@ -2861,7 +2861,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
 
   This is the audit/store identity produced after cold layout, not the warm-entry lookup key.
 
-- [ ] **Step 8: Add the exact multi-stage cache value types.**
+- [x] **Step 8: Add the exact multi-stage cache value types.**
 
   ```cpp
   struct CachedShapeResult {
@@ -2888,7 +2888,7 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
 
   `Production()` returns exactly `{4096, 1024, 64ULL * 1024ULL * 1024ULL}`. Each limit is a hard capacity; zero means zero cache capacity, never unlimited.
 
-- [ ] **Step 8a: Add the exact cache service declaration.**
+- [x] **Step 8a: Add the exact cache service declaration.**
 
   ```cpp
   class TextLayoutCache {
@@ -2909,29 +2909,29 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   };
   ```
 
-- [ ] **Step 8b: Keep public cache headers HarfBuzz-free.** `TextLayoutCache.h` may include the project `TextShapingService.h` for `TextClusterPolicy` but may not include `hb.h`, expose `hb_*` types, or mention `HB_BUFFER_*`; only `TextShapingService.cpp` performs the mapping from Task 5.2.
+- [x] **Step 8b: Keep public cache headers HarfBuzz-free.** `TextLayoutCache.h` may include the project `TextShapingService.h` for `TextClusterPolicy` but may not include `hb.h`, expose `hb_*` types, or mention `HB_BUFFER_*`; only `TextShapingService.cpp` performs the mapping from Task 5.2.
 
-- [ ] **Step 9: Implement collision-safe request lookup.** The request hash selects a bucket only; compare every request-index field plus original length/bytes before returning the stored final key/layout. The exact authored locale bytes are already in `ParagraphStyle::analysis`; without canonicalizing them, derive the two requested rule-policy identities as SHA-256 of `{policy kind,policy version,ICU revision,ICU-data SHA}` from compile-time/portable-contract values. They are not claimed to be the actual iterator rule identities. This method contains no Unicode/ICU/HarfBuzz call.
+- [x] **Step 9: Implement collision-safe request lookup.** The request hash selects a bucket only; compare every request-index field plus original length/bytes before returning the stored final key/layout. The exact authored locale bytes are already in `ParagraphStyle::analysis`; without canonicalizing them, derive the two requested rule-policy identities as SHA-256 of `{policy kind,policy version,ICU revision,ICU-data SHA}` from compile-time/portable-contract values. They are not claimed to be the actual iterator rule identities. This method contains no Unicode/ICU/HarfBuzz call.
 
-- [ ] **Step 9a: Implement collision-safe final-key lookup.** `FindByFinal` compares every complete final key field after bucket selection for audits/one-field tests; it never replaces the early request lookup.
+- [x] **Step 9a: Implement collision-safe final-key lookup.** `FindByFinal` compares every complete final key field after bucket selection for audits/one-field tests; it never replaces the early request lookup.
 
-- [ ] **Step 10: Implement collision-safe shape lookup.** `FindShape` compares authored and actual shape-input byte lengths/bytes, every synthetic/source mapping span, all five immutable `UnicodeAnalysis::Identity()` fields, `TextClusterPolicy`, and every remaining structured shape field after bucket selection.
+- [x] **Step 10: Implement collision-safe shape lookup.** `FindShape` compares authored and actual shape-input byte lengths/bytes, every synthetic/source mapping span, all five immutable `UnicodeAnalysis::Identity()` fields, `TextClusterPolicy`, and every remaining structured shape field after bucket selection.
 
-- [ ] **Step 10a: Implement shape storage.** `StoreShape` owns immutable runs plus context-free validation facts; an equal key replaces cache ownership, while a hash collision appends a distinct entry.
+- [x] **Step 10a: Implement shape storage.** `StoreShape` owns immutable runs plus context-free validation facts; an equal key replaces cache ownership, while a hash collision appends a distinct entry.
 
-- [ ] **Step 11: Implement paragraph `Store`.** Replace an exactly equal request entry; otherwise append one linked request/final-key/immutable-layout entry so eviction cannot leave a dangling request index.
+- [x] **Step 11: Implement paragraph `Store`.** Replace an exactly equal request entry; otherwise append one linked request/final-key/immutable-layout entry so eviction cannot leave a dangling request index.
 
-- [ ] **Step 11a: Enforce cache limits.** After each store, evict least-recently-used shape and linked paragraph entries until all exact `TextLayoutCacheLimits` entry/owned-byte bounds hold; dropping cache ownership never mutates external shared owners. Production explicitly uses `TextLayoutCacheLimits::Production()`; tests pass smaller values, and any zero field is zero capacity for that resource rather than unlimited.
+- [x] **Step 11a: Enforce cache limits.** After each store, evict least-recently-used shape and linked paragraph entries until all exact `TextLayoutCacheLimits` entry/owned-byte bounds hold; dropping cache ownership never mutates external shared owners. Production explicitly uses `TextLayoutCacheLimits::Production()`; tests pass smaller values, and any zero field is zero capacity for that resource rather than unlimited.
 
-- [ ] **Step 12: Implement cache telemetry.** Increment shape/request/final hit, miss, store and eviction counters at their authoritative operations; provide a const telemetry snapshot for warm-static tests.
+- [x] **Step 12: Implement cache telemetry.** Increment shape/request/final hit, miss, store and eviction counters at their authoritative operations; provide a const telemetry snapshot for warm-static tests.
 
-- [ ] **Step 13: Run the cache identity green gate.**
+- [x] **Step 13: Run the cache identity green gate.**
 
   Run: `cmake --build --preset debug --target test_text_cache test_text_cache_header -j && ctest --test-dir build/debug -R '^(test_text_cache|test_text_cache_header)$' --output-on-failure`
 
   Expected: every one-field mutation misses, identical values hit, forced hash collision misses, and eviction never mutates a shared immutable layout.
 
-- [ ] **Step 14: Commit layout records and cache identity.**
+- [x] **Step 14: Commit layout records and cache identity.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Text/TextLayoutTypes.h \
@@ -2941,6 +2941,67 @@ the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed 
   ```
 
 **Exit:** Paragraph layout has immutable output types and cannot conflate different bytes, locales, fallback descendants, boundary flags, or constraints.
+
+**Implementation record (2026-09-06).** Commit `d7e068c`. Audit passed after **four blocking** and
+nine important findings were fixed; the landing stage re-ran the exact mutant each finding named —
+**20 mutants, 20 killed**, sources restored byte-identical. All 20 verbatim spec blocks matched
+line-for-line.
+
+**The dispatch warned about exactly this hazard and the warning did not prevent it.** A cache key is
+the purest form of "an assertion taken where correct and broken agree": if every fixture differs in
+more than one component, dropping any single component changes nothing. All four blocking findings
+were that:
+
+- **The shape key compared only string LENGTH**, not bytes, and survived every test (M30, M31).
+- **`FindByFinal`'s full-field comparison could be replaced with `if (true)`** and everything passed
+  (M12).
+- Re-storing a request under a *new* final key could leave the old final key indexed (M48).
+- **Zero paragraph capacity could be made to mean UNLIMITED** and nothing objected (M17).
+
+Closed with same-length forced-collision fixtures for `shapeInputUtf8` and `originalUtf8`, a forced
+final-key hash collision that proves the deep compare, a re-store under a differing final key, and a
+`{4, 0, 1<<20}` capacity fixture. Only mutation testing finds this class; the warning alone did not.
+
+**Three fixes that went beyond the finding:**
+
+1. **Dangling bucket iterators now die in Debug, not only under ASan.** `assert(!IsIndexed(...))`
+   post-conditions on `EraseShape`/`EraseParagraph` plus asserts inside `RemoveFromBucket`, with the
+   assertion message confirmed as the actual detector. This answers the standing lesson that
+   coverage holding in one build configuration is not coverage.
+2. **Key copies now count against `maxOwnedBytes`.** They did not, and the reviewer *measured*
+   **82 MiB of key strings against a 64 MiB budget**. The comment claiming entry counts bound key
+   storage was replaced with why they cannot.
+3. **Hand-written comparators use structured bindings as a portable field-count tripwire** —
+   verified by adding a field to `TextAnalysisOptions` and watching the build break. A durable guard
+   against extending a struct and forgetting its comparator.
+
+Also fixed: both stores now **refuse a null payload** (previously an engaged optional could wrap a
+null layout, so a "hit" returned `nullptr` and telemetry lied); owned-byte repayment is witnessed on
+the erase and both replace paths; LRU victim choice and recency-refresh-on-hit are witnessed, not
+just paragraph-count eviction; and `noexcept` hash functors no longer allocate (`native()` rather
+than `generic_string()`), removing a `std::terminate` path.
+
+**Deliberate skips, both correct:** Step 9's rule-policy identities stay *parameterised* rather than
+internally sourced, because the ICU revision is obtainable only from `unicode/uvernum.h` and Step 8b
+forbids an ICU header in the cache layer — a genuine Task 7.2 wiring point, not an omission. And no
+`kMaxLayoutDiagnosticsPerParagraph` constant was invented, because `MakeContextualDiagnostic` pushes
+to no sink and this task has no consumer for a cap.
+
+---
+
+#### CARRIED TO TASK 7.2
+
+1. **Wire Step 9's rule-policy identities to real contract values.** They currently take the ICU
+   revision and data SHA as parameters and the only caller is a fixture passing the literal `"78.1"`.
+   The "compile-time/portable-contract" half of Step 9 is deferred, not satisfied.
+2. **`originalBytesHash` and `shapeInputBytesHash` are hard equality components with no producer**
+   anywhere in `src/`. `CacheBytesHash(std::string_view)` was added so a producer has something
+   portable to call; a silent-forever-miss is the failure mode if 7.2 does not use it.
+3. **Step 4's fact *population* belongs to 7.2.** `TextValidationFact` exists on both `TextLayout`
+   and `CachedShapeResult` and `MakeContextualDiagnostic` rebuilds a diagnostic per call, but this
+   task's Files list contains no layout producer, so nothing populates facts yet.
+4. **Define the diagnostic cap when the first consumer appears.** 7.2 is the first task to loop over
+   `validationFacts`.
 
 ---
 
