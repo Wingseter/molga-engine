@@ -1470,3 +1470,38 @@ TEST_CASE("DestroyProcessInstance really destroys the process text renderer") {
     TextRenderer::DestroyProcessInstance();
     TextRenderer::DestroyProcessInstance();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 5a: 폭 0짜리 두부 명령은 만들지 않는다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 두부 사각형의 폭은 넓힌 advance의 절댓값이고 최소 raw는 1이다. 그 바닥이
+// 없으면 advance 0인 없는 glyph가 폭 0짜리 명령을 낸다 — 명령 수는 그대로라
+// 계수기를 보는 어떤 케이스도 움직이지 않지만, 그 명령이 화면에 남기는 것은
+// 아무것도 없다. "없는 glyph가 있었다"가 조용히 사라지는 자리다.
+//
+// advance 0으로 가는 실제 입구가 있다: Text 계층 어디에도 font size 검증이
+// 없고(TextLayoutService도 TextShapingService도 크기를 거절하지 않는다),
+// 없는 grapheme의 advance는 EmitMissingSpan이 style의 크기를 그대로 실어
+// 보낸다(TextShapingService.cpp:886-887). 오늘의 두 컴포넌트는 크기를
+// [1, 512]로 clamp하므로 여기까지 오지 못하지만, TextRenderer::Layout은
+// 공개 표면이고 Task 10/11이 소비자를 더 붙인다.
+
+TEST_CASE("a zero-advance missing glyph still emits a nonzero-width rectangle") {
+    SharedTextConsumerFixture f;
+    text::TextLayoutRequest request =
+        f.LabelRequest(u8"A", std::string(kMissingFamily));
+    request.style.shape.fontSize = Fixed26_6::FromRaw(0);
+    const auto draw = f.CollectWith(request, u8"A", f.UiCollectContext());
+    REQUIRE(draw.TextCommands().size() == 1U);
+    // 배치가 정말로 advance 0인 두부 기록을 냈는가. 아니라면 아래 단언은
+    // 바닥이 아니라 다른 것을 재게 된다.
+    REQUIRE(FirstGlyph(draw.Layout()).missing);
+    REQUIRE(FirstGlyph(draw.Layout()).advanceX.Raw() == 0);
+
+    const auto rects = draw.CanonicalTofuRects();
+    REQUIRE(rects.size() == 1U);
+    // 정확히 1 raw. 배치 지표에서 독립적으로 다시 계산한 값과도 같다.
+    CHECK(rects.front().width == 1);
+    CHECK(rects == TofuRectsFromLayoutMetrics(draw.Layout()));
+}
