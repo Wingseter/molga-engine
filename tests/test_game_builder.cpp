@@ -1,13 +1,21 @@
+#include "Assets/FontArtifactStore.h"
+#include "Core/AssetDatabase.h"
 #include "Core/BuildManifest.h"
 #include "Core/PackageLayout.h"
 #include "Core/PathConstants.h"
 #include "Core/PathService.h"
+#include "Editor/GameBuilder.h"
 #include "Editor/Profiling/ProfilerReportSink.h"
+#include "Editor/Project.h"
 #include "Scripting/ScriptApi.h"
 #include "ShaderPackageTestSupport.h"
+#include "SmokeTestSupport.h"
 #include "doctest.h"
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -141,4 +149,117 @@ TEST_CASE("PackageLayout script manifest validation") {
     CHECK(error.empty());
 
     fs::remove_all(tmpDir);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 8.2: 검증된 폰트 산출물이 패키지 경계를 넘는다 — 그리고 없으면 멈춘다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 패키지된 런타임은 폰트 바이트를 원본 .ttf 경로가 아니라 카탈로그의
+// ProjectLibrary locator로만 연다. 그 locator가 가리키는 자리에 바이트가
+// 없으면 패키지된 모든 텍스트가 두부가 되므로, EmitAssetCatalog는 거기서
+// 빌드를 멈춘다.
+//
+// 그 멈춤은 지금까지 아무 테스트도 목격하지 않았다: 복사 자체는 패키지된 e2e
+// smoke가 잡지만(폰트를 안 옮기면 런타임이 종료 코드 4를 낸다), 바이트가
+// 없을 때의 fail-fast는 어떤 픽스처도 만들어 내지 않았다. 반쪽은 증명되고
+// 반쪽은 장식이었다.
+
+namespace {
+
+// 카탈로그가 이름을 대는 폰트. 이름이 아니라 이 GUID가 계약이다.
+constexpr const char* kPackagedFontGuid = "44444444444444444444444444444444";
+constexpr const char* kPackagedFontRelative = "fonts/NotoSans-Regular.ttf";
+
+void CopyFixturePair(const fs::path& sourceRoot, const fs::path& assetsRoot,
+                     const std::string& relative) {
+    // 원본과 .meta는 언제나 한 쌍이다. 한쪽만 옮기면 ScanProject가 새 GUID를
+    // 만들어 버리고 위의 GUID 계약이 조용히 무너진다.
+    for (const std::string suffix : {std::string(), std::string(".meta")}) {
+        const fs::path source = sourceRoot / (relative + suffix);
+        const fs::path destination = assetsRoot / (relative + suffix);
+        REQUIRE_MESSAGE(fs::is_regular_file(source), source.string());
+        fs::create_directories(destination.parent_path());
+        REQUIRE(fs::copy_file(source, destination));
+    }
+}
+
+// project.molga 하나가 Project::Open의 전부다.
+fs::path MakeFontProject(const fs::path& root, const std::string& name) {
+    fs::create_directories(root / "Assets");
+    std::ofstream(root / "project.molga") << "{\"name\":\"" << name << "\"}";
+    return root;
+}
+
+}  // namespace
+
+TEST_CASE("EmitAssetCatalog packages verified font artifacts and refuses without them") {
+    // 하나의 프로세스에 하나의 폰트 산출물 권한. AssetDatabase 싱글턴은
+    // store를 한 번만 묶으므로 이 케이스는 SUBCASE로 갈라지지 않는다 — 두
+    // 번째 진입이 재바인딩에 걸린다.
+    test_support::TempDirectory temp{"game-builder-font-artifacts"};
+
+    // 카탈로그의 권한이 되는 프로젝트: Assets에 폰트 한 쌍, 스캔이 그것을
+    // Library/Imported 아래 불변 산출물로 발행한다.
+    const fs::path authored = MakeFontProject(temp.Path() / "Authored",
+                                              "AuthoredFonts");
+    CopyFixturePair(fs::path(MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT),
+                    authored / "Assets", kPackagedFontRelative);
+
+    molga::AssetDatabase& database = molga::AssetDatabase::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(
+        database.BindFontArtifactStore(
+            std::make_shared<const molga::FontArtifactStore>(
+                molga::FontArtifactStore::ForProject(authored)),
+            &bindError),
+        bindError);
+    database.ScanProject(authored / "Assets");
+
+    const molga::AssetRecord* record =
+        database.Find(std::string(kPackagedFontGuid));
+    REQUIRE(record != nullptr);
+    REQUIRE(record->fontArtifact.has_value());
+    const fs::path locator = record->fontArtifact->locator.relativePath;
+    const std::uint64_t artifactBytes = record->fontArtifact->byteSize;
+    REQUIRE_FALSE(locator.empty());
+    REQUIRE(fs::exists(authored / locator));
+
+    // ── 성공 경로: 산출물이 패키지 경계를 넘는다 ────────────────────────────
+    Project::Get().Close();
+    REQUIRE(Project::Get().Open(authored.string()));
+    const fs::path complete = temp.Path() / "package-complete";
+    fs::create_directories(complete);
+    REQUIRE(molga::detail::EmitAssetCatalogForTest(GameBuilder::Get(),
+                                                   complete.string()));
+    CHECK(fs::exists(complete / "asset_catalog.json"));
+    // 참조된 폰트 바이트가 locator 그대로 실행 파일 옆에 놓인다.
+    REQUIRE(fs::exists(complete / locator));
+    CHECK(fs::file_size(complete / locator) == artifactBytes);
+
+    // ── 실패 경로: 카탈로그가 이름을 댄 바이트가 없다 ───────────────────────
+    // 카탈로그는 여전히 위 locator를 대지만, 패키지되는 프로젝트 루트 아래에는
+    // 그 바이트가 없다. 스캔은 자기 루트의 산출물을 그 자리에서 다시 발행
+    // 하므로 바이트를 지우는 것으로는 이 상태를 만들 수 없다 — 카탈로그의
+    // 권한과 패키지되는 루트가 갈린 상태가 이 실패의 실제 모양이고, 그것이
+    // 정확히 이 fail-fast가 막는 것이다.
+    const fs::path emptied = MakeFontProject(temp.Path() / "Emptied",
+                                             "EmptiedFonts");
+    REQUIRE_FALSE(fs::exists(emptied / locator));
+    Project::Get().Close();
+    REQUIRE(Project::Get().Open(emptied.string()));
+
+    const fs::path tofu = temp.Path() / "package-tofu";
+    fs::create_directories(tofu);
+    CHECK_FALSE(molga::detail::EmitAssetCatalogForTest(GameBuilder::Get(),
+                                                       tofu.string()));
+    // 그리고 무엇이 없는지 이름을 댄다.
+    const std::string error = GameBuilder::Get().GetLastError();
+    CHECK(error.find("missing from the project library") != std::string::npos);
+    CHECK(error.find(locator.filename().string()) != std::string::npos);
+    // 멈췄으므로 그 폰트는 패키지에 실리지 않았다. 계속 진행하는 구현은
+    // 카탈로그만 써 놓고 성공을 보고한다 — 그 패키지의 모든 텍스트가 두부다.
+    CHECK_FALSE(fs::exists(tofu / locator));
+
+    Project::Get().Close();
 }

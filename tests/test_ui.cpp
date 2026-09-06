@@ -18,8 +18,11 @@
 #include "Text/TextDiagnostic.h"
 #include "TextQualificationAssetTree.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 std::shared_ptr<GameObject> MakeCanvas(World& world) {
@@ -719,4 +722,182 @@ TEST_CASE("a UILabel with no font reaches tofu and a typed diagnostic") {
         CHECK(command.resourceLifetimeIdentity == 0U);
     }
     CHECK_FALSE(sink.Diagnostics().empty());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 6a: 라벨의 glyph가 실제로 그 RectTransform 자리에 놓인다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// UISystem::CollectRender의 두 줄 — layoutToOutput.tx/ty = rect.x/rect.y —
+// 은 프로덕션에서 UI 상태로부터 텍스트 affine을 만드는 유일한 자리다.
+// test_text의 affine 단언들은 훌륭하지만 전부 픽스처가 TextCollectContext를
+// 직접 세우므로 이 자리를 지나지 않고, 위의 두 라벨 케이스는 명령 수와
+// 정렬 키와 page 지분만 본다. 그래서 그 두 줄을 0으로 만들어도 — 모든
+// 라벨이 캔버스 원점에 그려져도 — 아무 단언도 움직이지 않았다.
+//
+// 여기서는 실제 UISystem 경로로 수집하고, 나온 정점을 rect가 말하는 자리와
+// 맞춰 본다.
+
+namespace {
+
+// 새 케이스들이 함께 쓰는 준비. 위 두 케이스의 본문은 손대지 않는다.
+struct UiTextFixture {
+    QualificationAssetTreeFixture tree;
+    molga::AssetDatabase database;
+    molga::text::VectorTextDiagnosticSink sink;
+    TextRenderer renderer;
+
+    UiTextFixture() {
+        std::string bindError;
+        REQUIRE_MESSAGE(
+            database.BindFontArtifactStore(
+                std::make_shared<const molga::FontArtifactStore>(
+                    molga::FontArtifactStore::ForProject(tree.ProjectRoot())),
+                &bindError),
+            bindError);
+        database.ScanProject(tree.AssetsRoot());
+        REQUIRE(database.Find(std::string(kUiPrimaryFamilyGuid)) != nullptr);
+        REQUIRE(renderer.Init(database, sink));
+    }
+};
+
+struct QuadBounds {
+    float minX = 0.0f, minY = 0.0f, maxX = 0.0f, maxY = 0.0f;
+};
+
+QuadBounds BoundsOf(const std::vector<molga::RenderCommand>& commands) {
+    REQUIRE_FALSE(commands.empty());
+    QuadBounds bounds{commands.front().vertices[0].x,
+                      commands.front().vertices[0].y,
+                      commands.front().vertices[0].x,
+                      commands.front().vertices[0].y};
+    for (const molga::RenderCommand& command : commands) {
+        for (const molga::Vertex2D& vertex : command.vertices) {
+            bounds.minX = std::min(bounds.minX, vertex.x);
+            bounds.minY = std::min(bounds.minY, vertex.y);
+            bounds.maxX = std::max(bounds.maxX, vertex.x);
+            bounds.maxY = std::max(bounds.maxY, vertex.y);
+        }
+    }
+    return bounds;
+}
+
+}  // namespace
+
+TEST_CASE("UI label glyphs land at the rect the label's RectTransform names") {
+    UiTextFixture f;
+    World world;
+    auto canvas = MakeCanvas(world);
+    auto label = MakeLabel(world, canvas.get(), "Ag", kUiPrimaryFamilyGuid);
+    auto* rectTransform = label->GetComponent<RectTransform>();
+    REQUIRE(rectTransform != nullptr);
+
+    const Vector2 viewport{800.0f, 600.0f};
+    std::uint64_t frame = 0;
+    const auto collect = [&](molga::RenderQueue& queue) {
+        auto scope = f.renderer.BeginGlyphCollection(++frame);
+        UISystem::Get().CollectRender(world, viewport, queue, f.renderer,
+                                      f.sink, TextRasterPolicy{});
+    };
+
+    // 원점에서 떨어진 rect. 이 값이 0이면 아래 등식은 아무것도 말하지 않는다.
+    const AABB offOrigin = rectTransform->GetScreenRect(viewport);
+    REQUIRE(offOrigin.x > 1.0f);
+    REQUIRE(offOrigin.y > 1.0f);
+    molga::RenderQueue offOriginQueue;
+    collect(offOriginQueue);
+    const std::vector<molga::RenderCommand> atRect =
+        offOriginQueue.GetCommands();
+    REQUIRE(atRect.size() == 2U);
+
+    // 같은 라벨을 캔버스 원점으로 옮긴다. 그러면 논리 배치 좌표가 곧 출력
+    // 좌표이므로, 위 수집이 어디에 있어야 하는지를 폰트와 무관하게 말해 준다.
+    rectTransform->SetAnchoredPosition({-offOrigin.x, -offOrigin.y});
+    const AABB atOrigin = rectTransform->GetScreenRect(viewport);
+    REQUIRE(atOrigin.x == doctest::Approx(0.0f));
+    REQUIRE(atOrigin.y == doctest::Approx(0.0f));
+    REQUIRE(atOrigin.width == doctest::Approx(offOrigin.width));
+    REQUIRE(atOrigin.height == doctest::Approx(offOrigin.height));
+    molga::RenderQueue originQueue;
+    collect(originQueue);
+    const std::vector<molga::RenderCommand> atCanvasOrigin =
+        originQueue.GetCommands();
+    REQUIRE(atCanvasOrigin.size() == atRect.size());
+
+    // 정점 하나하나가 정확히 rect의 원점만큼 떨어져 있다.
+    for (std::size_t index = 0; index < atRect.size(); ++index) {
+        for (std::size_t corner = 0; corner < 4U; ++corner) {
+            CHECK(atRect[index].vertices[corner].x ==
+                  doctest::Approx(atCanvasOrigin[index].vertices[corner].x +
+                                  offOrigin.x));
+            CHECK(atRect[index].vertices[corner].y ==
+                  doctest::Approx(atCanvasOrigin[index].vertices[corner].y +
+                                  offOrigin.y));
+        }
+    }
+
+    // 위 등식만으로는 두 수집이 나란히 어긋나는 구현을 배제하지 못한다(tx에
+    // 같은 상수를 더하면 등식은 그대로 성립한다). 그래서 절대 위치도 본다:
+    // glyph는 자기 rect 안에 있다. 1px 여유는 pen 왼쪽에서 시작하는 잉크를
+    // 위한 것이고 — 그것을 폰트에서 되짚으면 이 단언이 폰트의 성질이 된다 —
+    // 250px 어긋남 앞에서는 아무것도 가리지 않는다.
+    const QuadBounds placed = BoundsOf(atRect);
+    CHECK(placed.minX >= offOrigin.x - 1.0f);
+    CHECK(placed.maxX <= offOrigin.x + offOrigin.width);
+    CHECK(placed.minY >= offOrigin.y - 1.0f);
+    CHECK(placed.maxY <= offOrigin.y + offOrigin.height);
+
+    // 그리고 두 수집이 실제로 다른 자리에 있었다. 같았다면 위 등식은
+    // "0을 더한 것과 같다"만 말한다.
+    const QuadBounds atZero = BoundsOf(atCanvasOrigin);
+    CHECK(placed.minX > atZero.minX + 1.0f);
+    CHECK(placed.minY > atZero.minY + 1.0f);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 6: UI 텍스트는 호출자의 래스터 정책으로 래스터된다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 위 두 라벨 케이스는 둘 다 기본 TextRasterPolicy{}를 넘긴다. 그러면 인자와
+// UISystem이 문맥에 싣는 필드가 언제나 같은 값이므로, 문맥 쪽을 상수로
+// 바꿔치기해도 아무 단언도 움직이지 않는다 — HiDPI 화면의 모든 라벨이 1x로
+// 래스터되어도 조용하다. Task 8.1의 "서로 바꿔치기 가능한 값" 그 모양이다.
+//
+// 설계 결정 2에 따라 정책은 키의 배율 자리가 아니라 pixelSize로만 나타난다:
+// pixelSize = roundHalfAway(fontSize.Raw() * rasterScaleKey / 4096).
+
+TEST_CASE("UI text rasterizes at the policy the caller supplies") {
+    UiTextFixture f;
+    World world;
+    auto canvas = MakeCanvas(world);
+    MakeLabel(world, canvas.get(), "Ag", kUiPrimaryFamilyGuid);
+
+    const Vector2 viewport{800.0f, 600.0f};
+    std::uint64_t frame = 0;
+    const auto collectAt = [&](const TextRasterPolicy& policy) {
+        molga::RenderQueue queue;
+        {
+            auto scope = f.renderer.BeginGlyphCollection(++frame);
+            UISystem::Get().CollectRender(world, viewport, queue, f.renderer,
+                                          f.sink, policy);
+        }
+        REQUIRE(queue.GetCommands().size() == 2U);
+        return f.renderer.GlyphAtlas().LastUploadedKeyForTest();
+    };
+
+    // MakeLabel의 24px: 24*64 * 64 / 4096 = 24.
+    const molga::GlyphAtlasKey at1x = collectAt(TextRasterPolicy{});
+    CHECK(at1x.pixelSize == 24);
+
+    TextRasterPolicy hiDpi;
+    hiDpi.rasterScaleKey = 128;  // 2x
+    const molga::GlyphAtlasKey at2x = collectAt(hiDpi);
+    // 24*64 * 128 / 4096 = 48. 정책을 무시하는 구현은 여기서도 24를 낸다.
+    CHECK(at2x.pixelSize == 48);
+    // 같은 glyph의 두 래스터 높이다. 다른 glyph를 본 것이 아니다.
+    CHECK(at1x.glyphId == at2x.glyphId);
+    CHECK(at1x.fontGuid == at2x.fontGuid);
+    // 설계 결정 2: 배율 자리는 두 경우 모두 항등원이다.
+    CHECK(at1x.rasterScaleKey == 64);
+    CHECK(at2x.rasterScaleKey == 64);
 }

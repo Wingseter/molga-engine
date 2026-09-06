@@ -517,7 +517,19 @@ add_test(
         -P "${CMAKE_SOURCE_DIR}/tests/test_shader_bundle_tool.cmake")
 set_tests_properties(test_shader_bundle_tool PROPERTIES
     LABELS "unit;shader-bundle")
+# Task 8.2: this target is named for GameBuilder but did not compile it, so the
+# packaged-font stage — including the fail-fast that stops a package shipping
+# tofu — had no unit-level cover at all.
 molga_add_test(test_game_builder      test_game_builder.cpp)
+target_sources(test_game_builder PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/GameBuilder.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+    ${CMAKE_SOURCE_DIR}/src/Platform/Process.cpp
+    ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp
+)
+target_include_directories(test_game_builder PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_game_builder PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 molga_add_test(test_package_finalizer test_package_finalizer.cpp)
 
 molga_add_test(test_profile_scope     test_profile_scope.cpp)

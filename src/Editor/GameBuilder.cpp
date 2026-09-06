@@ -294,6 +294,15 @@ GameBuilder& GameBuilder::Get() {
     return instance;
 }
 
+namespace molga::detail {
+
+bool EmitAssetCatalogForTest(GameBuilder& builder,
+                             const std::string& outputPath) {
+    return builder.EmitAssetCatalog(outputPath);
+}
+
+}  // namespace molga::detail
+
 bool GameBuilder::Build(const BuildSettings& settings) {
     long long totalStart = molga::NowNanos();
 

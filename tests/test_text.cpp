@@ -1028,6 +1028,7 @@ TEST_CASE("an out-of-range raster scale key emits LayoutInvalid and no lookup") 
     // pixelSize = roundHalfAway(16*64 * 65535 / 4096) = 16384 > ... 아니라
     // 유효하지만, 0은 언제나 거절이다.
     context.rasterPolicy.rasterScaleKey = 0;
+    const std::size_t diagnosticsBefore = f.Diagnostics().size();
     {
         auto scope = f.renderer.BeginGlyphCollection(1234);
         f.renderer.CollectLayout(f.queue, *layout, context, f.sink);
@@ -1035,6 +1036,16 @@ TEST_CASE("an out-of-range raster scale key emits LayoutInvalid and no lookup") 
     CHECK(f.queue.TextCommandCount() == 0);
     CHECK(f.glyphAtlas.LookupCountForTest() == 0);
     CHECK(HasDiagnostic(f.sink, TextDiagnosticCode::LayoutInvalid));
+    // 위 세 줄은 문단 차원의 거절이 통째로 사라져도 그대로 참이다: 배율 0은
+    // pixelHeight를 0으로 만들고, glyph마다의 [1, 65535] 경계가 같은 입력을
+    // 한 층 아래에서 다시 잡으므로 명령도 조회도 여전히 0이다. 달라지는 것은
+    // "몇 개의, 무엇을 말하는 진단인가"뿐이므로 그 둘을 못 박는다 — 문단
+    // 하나에 정확히 하나, 그리고 그 하나가 래스터 배율 키를 이름으로 지목
+    // 한다. glyph마다 한 개씩, 엉뚱한 크기를 탓하는 진단이 오는 것은 저작자
+    // 에게 다른 이야기를 하는 것이다.
+    REQUIRE(f.Diagnostics().size() == diagnosticsBefore + 1U);
+    CHECK(f.Diagnostics().back().message.find("raster scale key") !=
+          std::string::npos);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1094,6 +1105,11 @@ TEST_CASE("TextRenderer::Init stores no diagnostic sink") {
 
 TEST_CASE("a paragraph at the production byte cap lays out and one byte over is refused") {
     SharedTextConsumerFixture f;
+    // 상한의 *값*도 계약이다. 아래 두 케이스는 경계를 기호로만 적으므로,
+    // 상한이 16 KiB에서 64 KiB로 올라가도 전부 그대로 통과한다. 값을 한 번
+    // 숫자로 못 박는 자리가 여기다 — 이 파이프라인이 사실 스트림의 성장을
+    // 묶는 것은 "어떤 상한이 있다"가 아니라 "이 상한이다"이므로.
+    CHECK(kMaxProductionTextBytes == 16U * 1024U);
     // 정확히 상한. ASCII이므로 바이트 수가 곧 문자 수이고, 경계에서 잘리는
     // 코드 단위가 없다.
     const std::string atCap(kMaxProductionTextBytes, 'A');
@@ -1245,4 +1261,212 @@ TEST_CASE("TextRenderer2D: legacy scenes preserve bitmap sizing") {
     CHECK(component.GetFontSizePx() == doctest::Approx(8.0f));
     CHECK(component.GetComponentScale() == doctest::Approx(2.0f));
     CHECK(component.GetLineSpacing() == doctest::Approx(1.2f));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 설계 결정 1: 저작된 family가 레거시 폰트 지목을 이긴다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// TextLayoutTypes.h가 이 우선순위를 공유 타입의 성질로 적어 두었고,
+// TextLayoutService가 그것을 강제한다. 프로덕션 호출자 둘(UISystem,
+// TextRenderer2D)은 오늘 if/else로 한쪽만 채우므로 이 규칙은 그 둘의 뒤에서
+// 방어선으로만 서 있다 — 그리고 방어선은 아무도 밀어 보지 않으면 있는지
+// 알 수 없다. 두 자리를 동시에 채운 요청 하나가 이 규칙의 유일한 증인이다.
+
+namespace {
+// 자격 트리의 Arabic face 하나. family가 아니라 폰트 지목이므로 레거시
+// 단일 face 경로의 입력이다.
+constexpr const char* kArabicFaceGuid = "66666666666666666666666666666666";
+constexpr const char* kDevanagariFaceGuid = "12121212121212121212121212121212";
+}  // namespace
+
+TEST_CASE("an authored family wins over a legacy single-face pick") {
+    SharedTextConsumerFixture f;
+    const std::string mixed = u8"سلام हिन्दी";
+
+    text::TextLayoutRequest both =
+        f.LabelRequest(mixed, std::string(kPrimaryFamilyGuid));
+    both.style.legacyFontGuid = kArabicFaceGuid;
+    const auto withFamily = f.CollectWith(both, mixed, f.UiCollectContext());
+
+    bool sawArabic = false;
+    bool sawDevanagari = false;
+    for (const auto& record : withFamily.CanonicalGlyphRecords()) {
+        // family 폐포가 살아 있으면 두 script 모두 자기 face를 찾는다.
+        CHECK_FALSE(record.missing);
+        if (record.fontGuid == kArabicFaceGuid) sawArabic = true;
+        if (record.fontGuid == kDevanagariFaceGuid) sawDevanagari = true;
+    }
+    CHECK(sawArabic);
+    CHECK(sawDevanagari);
+
+    // 성공 증인. 같은 원문을 레거시 지목만으로 요청하면 face 하나짜리
+    // 경로로 가고, 그 face에 없는 Devanagari는 없는 glyph가 된다. 이 대비가
+    // 없으면 위 단언들은 "어느 경로로 가든 결과가 같다"와 구별되지 않는다.
+    text::TextLayoutRequest legacyOnly = f.LabelRequest(mixed, std::string());
+    legacyOnly.style.legacyFontGuid = kArabicFaceGuid;
+    const auto withLegacy =
+        f.CollectWith(legacyOnly, mixed, f.UiCollectContext());
+    CHECK_FALSE(withFamily.CanonicalGlyphRecords() ==
+                withLegacy.CanonicalGlyphRecords());
+    CHECK(std::any_of(withLegacy.CanonicalGlyphRecords().begin(),
+                      withLegacy.CanonicalGlyphRecords().end(),
+                      [](const CanonicalGlyphRecord& record) {
+                          return record.missing;
+                      }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 5: 없는 glyph는 face가 묶여 있어도 atlas에 닿지 않는다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 수집의 사전 판정은 `glyph.missing || !faceResource || !rasterFace`다. 이
+// 스위트의 모든 두부 픽스처는 face가 아예 없는 쪽으로만 그 판정에 닿으므로,
+// 첫 항을 지워도 아무 단언도 움직이지 않는다. 오늘의 셰이퍼는 없는 grapheme의
+// face 자원을 비우고 내보내지만(TextShapingService::EmitMissingSpan), 그것은
+// 셰이퍼의 성질이지 수집의 성질이 아니다 — 수집은 자기가 받은 기록만 보고
+// 판정한다. 그 항이 없으면 missing으로 표시된 기록이 폰트의 .notdef를 그리고,
+// atlas 예산과 page 지분까지 먹는다. 화면에는 "빠졌다"가 아니라 무언가가
+// 그려지고, 어떤 진단도 그것을 말하지 않는다.
+
+TEST_CASE("a missing glyph with a bound face still never reaches the atlas") {
+    SharedTextConsumerFixture f;
+    // 실제 배치에서 face가 묶인 기록을 하나 얻는다. 손으로 만든 face가 아니라
+    // 프로덕션이 낸 그것이어야 "묶여 있다"가 진짜다.
+    const auto real = f.LayoutLabel("family-a", u8"A");
+    REQUIRE(real.has_value());
+    REQUIRE_FALSE((*real)->lines.empty());
+    REQUIRE_FALSE((*real)->lines.front().visualRuns.empty());
+    REQUIRE_FALSE((*real)->lines.front().visualRuns.front().glyphs.empty());
+    const text::PositionedGlyph& source =
+        (*real)->lines.front().visualRuns.front().glyphs.front();
+    REQUIRE(static_cast<bool>(source.glyph.faceResource));
+    REQUIRE(source.glyph.faceResource->rasterFace != nullptr);
+    REQUIRE_FALSE(source.glyph.missing);
+
+    auto layout = std::make_shared<text::TextLayout>();
+    text::TextLine line;
+    line.baseline = Fixed26_6::FromRaw(16 * 64);
+    line.ascent = Fixed26_6::FromRaw(16 * 64);
+    line.descent = Fixed26_6::FromRaw(4 * 64);
+    text::VisualRun run;
+    text::PositionedGlyph positioned = source;
+    positioned.glyph.missing = true;
+    positioned.origin = FixedPoint{Fixed26_6::FromRaw(0), line.baseline};
+    run.glyphs.push_back(std::move(positioned));
+    line.visualRuns.push_back(std::move(run));
+    layout->lines.push_back(std::move(line));
+
+    const std::uint64_t lookupsBefore = f.glyphAtlas.LookupCountForTest();
+    const std::size_t commandsBefore = f.queue.TextCommandCount();
+    {
+        auto scope = f.renderer.BeginGlyphCollection(4242);
+        f.renderer.CollectLayout(f.queue, *layout, f.UiCollectContext(),
+                                 f.sink);
+    }
+    REQUIRE(f.queue.TextCommandCount() == commandsBefore + 1U);
+    const molga::RenderCommand& command = f.queue.Raw().GetCommands().back();
+
+    // 조회 자체가 page를 만들 수 있으므로, 닿지 않았다는 것이 주장의 전부다.
+    CHECK(f.glyphAtlas.LookupCountForTest() == lookupsBefore);
+    // 절차적 두부: 유효하지 않은 핸들, page 정체성도 토큰도 없다.
+    CHECK(command.resourceLifetimeIdentity == 0U);
+    CHECK_FALSE(static_cast<bool>(command.resourceLifetime));
+    CHECK_FALSE(static_cast<bool>(command.batchKey.texture));
+    CHECK(command.batchKey.textureStableId == 0U);
+    // 그리고 기하는 배치 지표에서 독립적으로 다시 계산한 두부 사각형이다.
+    const CollectedDraw draw(layout, {command});
+    CHECK(draw.CanonicalTofuRects() == TofuRectsFromLayoutMetrics(*layout));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 7a: 월드 텍스트의 래스터 정책은 오브젝트의 실제 배율에서 나온다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// ScaledForWorldTransform은 위에서 홀로 단위 테스트되지만, 프로덕션 호출자가
+// 그것에 진짜 배율을 건네는지는 아무 데서도 관찰되지 않았다. 그 자리에 1을
+// 적어 넣으면 4배로 키운 월드 텍스트가 1x로 래스터되어 계속 흐릿하고,
+// 스위트는 조용하다.
+
+TEST_CASE("world text derives its raster policy from the object's real scale") {
+    SharedTextConsumerFixture f;
+    f.worldText.SetComponentScale(1.0f);
+    f.worldTransform.SetWorldScale({3.0f, -2.0f});
+    WorldRenderCollectionContext frame = f.WorldCollectionContext();
+    frame.baseTextRasterPolicy.rasterScaleKey = 64;  // 1x 프레임
+
+    const auto context = f.worldText.BuildWorldTextContext(frame, f.sink);
+    REQUIRE(context.has_value());
+    // 프레임 정책 × max(|3|, |-2|). 음수 배율은 거울일 뿐 크기가 아니다.
+    CHECK(context->rasterPolicy.rasterScaleKey == 192);
+
+    // 컴포넌트 배율도 같은 곱에 든다.
+    f.worldText.SetComponentScale(2.0f);
+    const auto doubled = f.worldText.BuildWorldTextContext(frame, f.sink);
+    REQUIRE(doubled.has_value());
+    CHECK(doubled->rasterPolicy.rasterScaleKey == 384);
+
+    // 그리고 그 정책이 실제 래스터 높이가 된다. 위 두 줄만으로는 문맥의
+    // 필드가 수집까지 흘러갔는지 말하지 못한다.
+    f.worldText.SetComponentScale(1.0f);
+    f.worldText.SetText("A");
+    {
+        auto scope = f.renderer.BeginGlyphCollection(777);
+        molga::CollectWorldRender(f.worldObjects, f.queue, frame);
+    }
+    REQUIRE(f.queue.TextCommandCount() > 0);
+    // 16px 폰트 × 192/64 = 48px.
+    CHECK(f.glyphAtlas.LastUploadedKeyForTest().pixelSize == 48);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Step 9: 프로세스 인스턴스는 종결 정리보다 먼저 죽는다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// ShutdownRendererThenTextGpuResources는 renderer가 idle을 증명한 다음
+// DestroyProcessInstance()를 부른다. 그 호출이 없거나(정적 저장 수명으로
+// 되돌아가거나) 아무 일도 하지 않으면 인스턴스는 프로세스 종료 시점에,
+// 즉 ICU guard의 u_cleanup 다음에 죽는다. 그 순서는 주석으로만 적혀 있었고
+// DestroyProcessInstance에는 테스트 호출자가 아예 없었다.
+//
+// 여기서 관찰하는 것은 "정말로 부수는가"다: 부순 뒤의 Get()이 일한 적 없는
+// 새 인스턴스를 내놓아야 한다. 주소 비교는 할당기가 같은 블록을 되돌려 줄 수
+// 있으므로 쓰지 않는다 — 인스턴스가 소유한 atlas의 조회 계수기를 본다.
+
+TEST_CASE("DestroyProcessInstance really destroys the process text renderer") {
+    SharedTextConsumerFixture f;
+    text::VectorTextDiagnosticSink processSink;
+    std::uint64_t lookupsOnFirst = 0;
+    {
+        TextRenderer& first = TextRenderer::Get();
+        REQUIRE(first.Init(f.database, processSink));
+        const auto layout = first.Layout(
+            f.LabelRequest(u8"Ag", std::string(kPrimaryFamilyGuid)),
+            processSink);
+        REQUIRE(layout.has_value());
+        // 큐와 배치는 이 블록 안에서 끝난다. 밖으로 나간 page 토큰을 들고
+        // 인스턴스를 부수면 이 케이스가 관찰하려는 것이 아니라 종료 순서
+        // 위반을 관찰하게 된다.
+        molga::RenderQueue queue;
+        {
+            auto scope = first.BeginGlyphCollection(9001);
+            first.CollectLayout(queue, **layout, f.UiCollectContext(),
+                                processSink);
+        }
+        lookupsOnFirst = first.GlyphAtlas().LookupCountForTest();
+    }
+    REQUIRE(lookupsOnFirst > 0U);
+
+    TextRenderer::DestroyProcessInstance();
+
+    // 새 인스턴스다. 소멸이 일어나지 않았다면 — 정적 저장 수명으로 되돌려
+    // 두고 이 호출을 no-op으로 만들었다면 — 아래 계수기는 위에서 센 값을
+    // 그대로 들고 있다.
+    CHECK(TextRenderer::Get().GlyphAtlas().LookupCountForTest() == 0U);
+
+    // 프로세스에 인스턴스를 남기지 않는다. 두 번 불러도 안전하다 — 이
+    // 호출은 종료 경로에서 한 번만 불리지만, nullptr 위에서 무너지면
+    // 그 종료 경로가 정확히 한 번만 지나간다는 데 목숨을 걸게 된다.
+    TextRenderer::DestroyProcessInstance();
+    TextRenderer::DestroyProcessInstance();
 }
