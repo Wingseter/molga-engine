@@ -1,6 +1,5 @@
 #include "Rendering/FontAtlas.h"
 
-#include "Core/AssetDatabase.h"
 #include "Rendering/Texture.h"
 
 #include <algorithm>
@@ -15,33 +14,12 @@
 namespace molga {
 namespace {
 
-struct CacheKey {
-    std::string guid;
-    int pixelSize = 0;
-
-    bool operator==(const CacheKey& other) const {
-        return pixelSize == other.pixelSize && guid == other.guid;
-    }
-};
-
-struct CacheKeyHash {
-    std::size_t operator()(const CacheKey& key) const {
-        const std::size_t guidHash = std::hash<std::string>{}(key.guid);
-        const std::size_t sizeHash = std::hash<int>{}(key.pixelSize);
-        return guidHash ^ (sizeHash + 0x9e3779b9U + (guidHash << 6U) + (guidHash >> 2U));
-    }
-};
-
-int NormalizePixelSize(int pixelSize) {
-    return std::max(1, std::min(pixelSize, 512));
-}
-
 bool CanCreateTextures() {
     return GraphicsDevice::Current() != nullptr;
 }
 
-// 두 캐시가 같은 shelf packer와 같은 RGBA page 표현을 공유한다. 레거시
-// codepoint 어댑터가 Task 8.2에서 사라질 때 남는 것은 이 한 벌이다.
+// 한 벌뿐인 shelf packer와 RGBA page 표현. 이것을 함께 쓰던 레거시 codepoint
+// 어댑터는 Task 8.2에서 사라졌다.
 struct AtlasPage {
     explicit AtlasPage(int requestedSize)
         : size(requestedSize), pixels(static_cast<std::size_t>(size) *
@@ -109,20 +87,6 @@ struct AtlasPage {
     int rowHeight = 0;
     std::vector<unsigned char> pixels;
     std::unique_ptr<Texture> texture;
-};
-
-// 레거시 항목 하나. GlyphInfo가 논리 advance를 담지 않으므로, 아직 셰이퍼가
-// 없는 codepoint 경로를 위해 래스터 advance를 옆에 둔다.
-struct LegacyGlyphEntry {
-    FontAtlasGlyph info;
-    float xAdvance = 0.0f;
-};
-
-struct CachedFontSize {
-    FontFace face;
-    FontFaceMetrics metrics;
-    std::vector<AtlasPage> pages;
-    std::unordered_map<std::uint32_t, LegacyGlyphEntry> glyphs;
 };
 
 // ── Glyph atlas page ownership ──────────────────────────────────────────────
@@ -225,6 +189,9 @@ struct GlyphAtlasCache::Impl {
           pageBytes(static_cast<std::uint64_t>(pageSize) *
                     static_cast<std::uint64_t>(pageSize) *
                     static_cast<std::uint64_t>(kBytesPerPixel)) {}
+
+    // Task 8.2: GetGlyph 호출 횟수. 아래 telemetry와 달리 결과와 무관하다.
+    std::uint64_t lookups = 0;
 
     void ReportExhausted(text::TextDiagnosticSink& sink,
                          const GlyphAtlasKey& key, const char* reason) {
@@ -462,6 +429,9 @@ GlyphHandle GlyphAtlasCache::GetGlyph(const GlyphAtlasKey& key,
                                       const FontFace& face,
                                       text::TextDiagnosticSink& sink) {
     Impl& state = *impl_;
+    // Task 8.2: 물어본 사실을 무엇보다 먼저 남긴다. 이른 반환 뒤에 세면
+    // "닿지 않았다"와 "닿았지만 아무 일도 없었다"가 같은 값이 된다.
+    ++state.lookups;
     GlyphHandle handle;
 
     auto found = state.glyphs.find(key);
@@ -626,6 +596,10 @@ std::size_t GlyphAtlasCache::ResidentPageCount() const noexcept {
     return impl_->pages.size();
 }
 
+std::uint64_t GlyphAtlasCache::LookupCountForTest() const noexcept {
+    return impl_->lookups;
+}
+
 std::uint64_t GlyphAtlasCache::PageBytes() const noexcept {
     return impl_->pageBytes;
 }
@@ -661,168 +635,5 @@ void SetGlyphAtlasGlyphsPerPageForTest(GlyphAtlasCache& cache,
 }
 
 } // namespace detail
-
-// ── Legacy codepoint adapter ────────────────────────────────────────────────
-
-struct FontAtlasCache::Impl {
-    explicit Impl(int requestedPageSize)
-        : pageSize(std::max(16, requestedPageSize)) {}
-
-    CachedFontSize* FindOrLoad(const std::string& guid, int requestedPixelSize) {
-        if (guid.empty()) return nullptr;
-        const CacheKey key{guid, NormalizePixelSize(requestedPixelSize)};
-        auto found = caches.find(key);
-        if (found != caches.end()) return found->second.get();
-
-        const std::filesystem::path path = AssetDatabase::Get().AbsoluteSourcePath(guid);
-        if (path.empty()) {
-            // Cache failures as well: a broken scene must not hit the file
-            // system twice per label on every frame. Asset reimport/project
-            // scans invalidate the renderer cache before retrying.
-            caches.emplace(key, nullptr);
-            return nullptr;
-        }
-
-        auto cached = std::make_unique<CachedFontSize>();
-        if (!cached->face.LoadFromFile(path)) {
-            caches.emplace(key, nullptr);
-            return nullptr;
-        }
-        cached->metrics = cached->face.Metrics(static_cast<float>(key.pixelSize));
-        CachedFontSize* result = cached.get();
-        caches.emplace(key, std::move(cached));
-        return result;
-    }
-
-    const CachedFontSize* Find(const std::string& guid, int requestedPixelSize) const {
-        const CacheKey key{guid, NormalizePixelSize(requestedPixelSize)};
-        const auto found = caches.find(key);
-        return found == caches.end() ? nullptr : found->second.get();
-    }
-
-    // 두 공개 진입점이 같은 항목을 본다. 갈라지면 measure와 draw가 서로 다른
-    // advance를 쓰게 되고, 그 어긋남은 커서 위치로만 드러난다.
-    LegacyGlyphEntry* FindOrRasterize(const std::string& fontGuid, int pixelSize,
-                                      std::uint32_t codepoint) {
-        CachedFontSize* cached = FindOrLoad(fontGuid, pixelSize);
-        if (!cached) return nullptr;
-
-        auto found = cached->glyphs.find(codepoint);
-        if (found != cached->glyphs.end()) {
-            LegacyGlyphEntry& entry = found->second;
-            if (entry.info.pageIndex >= 0) {
-                entry.info.texture =
-                    cached->pages[static_cast<std::size_t>(entry.info.pageIndex)]
-                        .EnsureTexture();
-            }
-            return &entry;
-        }
-
-        const FontGlyphBitmap bitmap = cached->face.Rasterize(
-            codepoint, static_cast<float>(NormalizePixelSize(pixelSize)));
-        LegacyGlyphEntry entry;
-        entry.info.width = bitmap.width;
-        entry.info.height = bitmap.height;
-        entry.info.xOffset = bitmap.xOffset;
-        entry.info.yOffset = bitmap.yOffset;
-        entry.xAdvance = bitmap.xAdvance;
-
-        if (bitmap.width > 0 && bitmap.height > 0 && !bitmap.coverage.empty()) {
-            if (cached->pages.empty()) cached->pages.emplace_back(pageSize);
-            int x = 0;
-            int y = 0;
-            if (!cached->pages.back().TryPlace(bitmap.width, bitmap.height, x, y)) {
-                cached->pages.emplace_back(pageSize);
-                if (!cached->pages.back().TryPlace(bitmap.width, bitmap.height, x, y)) {
-                    cached->pages.pop_back();
-                    return &cached->glyphs.emplace(codepoint, entry).first->second;
-                }
-            }
-
-            AtlasPage& page = cached->pages.back();
-            page.CopyCoverage(x, y, bitmap);
-            entry.info.pageIndex = static_cast<int>(cached->pages.size() - 1U);
-            entry.info.u0 = static_cast<float>(x) / static_cast<float>(page.size);
-            entry.info.v0 = static_cast<float>(y) / static_cast<float>(page.size);
-            entry.info.u1 =
-                static_cast<float>(x + bitmap.width) / static_cast<float>(page.size);
-            entry.info.v1 =
-                static_cast<float>(y + bitmap.height) / static_cast<float>(page.size);
-            entry.info.texture = page.EnsureTexture();
-            entry.info.drawable = true;
-        }
-
-        return &cached->glyphs.emplace(codepoint, entry).first->second;
-    }
-
-    int pageSize = FontAtlasCache::kDefaultPageSize;
-    std::unordered_map<CacheKey, std::unique_ptr<CachedFontSize>, CacheKeyHash> caches;
-};
-
-FontAtlasCache::FontAtlasCache(int pageSize)
-    : impl_(std::make_unique<Impl>(pageSize)) {}
-FontAtlasCache::~FontAtlasCache() = default;
-FontAtlasCache::FontAtlasCache(FontAtlasCache&&) noexcept = default;
-FontAtlasCache& FontAtlasCache::operator=(FontAtlasCache&&) noexcept = default;
-
-bool FontAtlasCache::GetMetrics(const std::string& fontGuid, int pixelSize,
-                                FontFaceMetrics& outMetrics) {
-    CachedFontSize* cached = impl_->FindOrLoad(fontGuid, pixelSize);
-    if (!cached) return false;
-    outMetrics = cached->metrics;
-    return true;
-}
-
-bool FontAtlasCache::GetGlyph(const std::string& fontGuid, int pixelSize,
-                              std::uint32_t codepoint, FontAtlasGlyph& outGlyph) {
-    const LegacyGlyphEntry* entry =
-        impl_->FindOrRasterize(fontGuid, pixelSize, codepoint);
-    if (!entry) return false;
-    outGlyph = entry->info;
-    return true;
-}
-
-float FontAtlasCache::GetAdvance(const std::string& fontGuid, int pixelSize,
-                                 std::uint32_t codepoint) {
-    const LegacyGlyphEntry* entry =
-        impl_->FindOrRasterize(fontGuid, pixelSize, codepoint);
-    return entry ? entry->xAdvance : 0.0f;
-}
-
-float FontAtlasCache::GetKerning(const std::string& fontGuid, int pixelSize,
-                                 std::uint32_t left, std::uint32_t right) {
-    CachedFontSize* cached = impl_->FindOrLoad(fontGuid, pixelSize);
-    return cached ? cached->face.Kerning(
-                        left, right, static_cast<float>(NormalizePixelSize(pixelSize)))
-                  : 0.0f;
-}
-
-void FontAtlasCache::Invalidate(const std::string& fontGuid) {
-    for (auto iterator = impl_->caches.begin(); iterator != impl_->caches.end();) {
-        if (iterator->first.guid == fontGuid) {
-            iterator = impl_->caches.erase(iterator);
-        } else {
-            ++iterator;
-        }
-    }
-}
-
-void FontAtlasCache::Clear() {
-    impl_->caches.clear();
-}
-
-std::size_t FontAtlasCache::PageCount(const std::string& fontGuid, int pixelSize) const {
-    const CachedFontSize* cached = impl_->Find(fontGuid, pixelSize);
-    return cached ? cached->pages.size() : 0U;
-}
-
-std::size_t FontAtlasCache::GlyphCount(const std::string& fontGuid, int pixelSize) const {
-    const CachedFontSize* cached = impl_->Find(fontGuid, pixelSize);
-    return cached ? cached->glyphs.size() : 0U;
-}
-
-std::size_t FontAtlasCache::CachedFontSizeCount() const {
-    return impl_->caches.size();
-}
 
 } // namespace molga

@@ -773,14 +773,18 @@ std::shared_ptr<GameObject> Editor::ShareObjectById(unsigned int id) const {
     return nullptr;
 }
 
-void Editor::SetSceneViewResources(Renderer* renderer, Shader* shader) {
+void Editor::SetSceneViewResources(
+    Renderer* renderer, Shader* shader, TextRenderer* textRenderer,
+    molga::text::TextDiagnosticSink* textDiagnostics) {
     auto* sceneView = windowManager.GetAs<SceneViewWindow>(EditorConstants::WIN_SCENE);
     if (sceneView) {
-        sceneView->SetSceneResources(renderer, shader, gameObjects);
+        sceneView->SetSceneResources(renderer, shader, gameObjects,
+                                     textRenderer, textDiagnostics);
     }
     auto* gameView = windowManager.GetAs<GameViewWindow>(EditorConstants::WIN_GAME);
     if (gameView) {
-        gameView->SetSceneResources(renderer, shader, gameObjects);
+        gameView->SetSceneResources(renderer, shader, gameObjects,
+                                    textRenderer, textDiagnostics);
     }
 }
 

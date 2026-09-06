@@ -26,7 +26,9 @@ public:
     void SetSceneResources(
         Renderer* renderer,
         Shader* spriteShader,
-        std::vector<std::shared_ptr<GameObject>>* objects);
+        std::vector<std::shared_ptr<GameObject>>* objects,
+        TextRenderer* textRenderer,
+        molga::text::TextDiagnosticSink* textDiagnostics);
     void SetGameObjects(std::vector<std::shared_ptr<GameObject>>* objects) {
         gameObjects_ = objects;
     }
@@ -46,6 +48,9 @@ private:
 
     Renderer* renderer_ = nullptr;
     Shader* spriteShader_ = nullptr;
+    // Task 8.2 Step 7d: 이 프레임의 텍스트 권한. main이 주입한 그 하나다.
+    TextRenderer* textRenderer_ = nullptr;
+    molga::text::TextDiagnosticSink* textDiagnostics_ = nullptr;
     std::vector<std::shared_ptr<GameObject>>* gameObjects_ = nullptr;
     molga::RenderTarget outputTarget_;
     molga::GameOutputRenderer outputRenderer_;

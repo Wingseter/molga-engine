@@ -35,14 +35,37 @@ file(WRITE "${FIXTURE_ROOT}/Assets/PostProcessing/runtime.postfx.meta" [=[
 }
 ]=])
 
+# Task 8.2: the shipped Korean face is the static OTF, not the variable TTF.
+# Task 4's font importer is static-only, so a font carrying `fvar` publishes no
+# verified immutable artifact, no face binds, and the startup label renders tofu.
+# The fixture must author a font the way a real project must: a static face with
+# authored import settings. The UILabel below stays schema 1 on purpose — the
+# legacy single-face route is exactly what this fixture proves.
 file(COPY
-    "${CMAKE_CURRENT_LIST_DIR}/../fixtures/fonts/NotoSansKR-Regular.ttf"
+    "${CMAKE_CURRENT_LIST_DIR}/../fixtures/text/fonts/NotoSansKR-Regular.otf"
     "${CMAKE_CURRENT_LIST_DIR}/../fixtures/fonts/OFL.txt"
     DESTINATION "${FIXTURE_ROOT}/Assets/Fonts")
-file(WRITE "${FIXTURE_ROOT}/Assets/Fonts/NotoSansKR-Regular.ttf.meta" [=[
+file(WRITE "${FIXTURE_ROOT}/Assets/Fonts/NotoSansKR-Regular.otf.meta" [=[
 {
   "guid": "22222222222222222222222222222222",
   "importer": "FontImporter",
+  "importerVersion": 2,
+  "settings": {
+    "faceIndex": 0,
+    "weight": 400,
+    "stretchPercent": 100,
+    "slant": "Upright",
+    "redistributableConfirmed": true,
+    "licenseKind": "OFL-1.1",
+    "copyright": "smoke fixture provenance: Noto Fonts",
+    "licenseAssetGuid": "23232323232323232323232323232323"
+  }
+}
+]=])
+file(WRITE "${FIXTURE_ROOT}/Assets/Fonts/OFL.txt.meta" [=[
+{
+  "guid": "23232323232323232323232323232323",
+  "importer": "DefaultImporter",
   "importerVersion": 1
 }
 ]=])

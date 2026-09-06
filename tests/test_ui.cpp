@@ -11,7 +11,15 @@
 #include "ECS/GameObject.h"
 #include "UI/UISystem.h"
 
+#include "Assets/FontArtifactStore.h"
+#include "Core/AssetDatabase.h"
+#include "Rendering/RenderQueue.h"
+#include "Rendering/TextRenderer.h"
+#include "Text/TextDiagnostic.h"
+#include "TextQualificationAssetTree.h"
+
 #include <memory>
+#include <string>
 
 namespace {
 std::shared_ptr<GameObject> MakeCanvas(World& world) {
@@ -603,4 +611,112 @@ TEST_CASE("clearing a UILabel family is not a migration and an empty locale is u
     // 빈 태그는 "locale 없음"이 아니라 root tailoring이다.
     authored.SetLocale("");
     CHECK(authored.GetLocale() == "und");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 8.2 Step 6/6a: UILabel은 공유 파이프라인으로만 그려진다
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// 이 케이스가 없으면 UISystem::CollectRender의 새 경로는 smoke e2e에서만
+// 간접적으로 지나간다 — 실패했을 때 "무엇이" 깨졌는지 말해 주지 않는 자리다.
+
+namespace {
+
+// 자격 트리 위의 실제 family/폰트 하나. 이름이 아니라 이 상수가 계약이다.
+constexpr const char* kUiPrimaryFamilyGuid = "11111111111111111111111111111111";
+
+std::shared_ptr<GameObject> MakeLabel(World& world, GameObject* parent,
+                                      const char* text,
+                                      const std::string& familyGuid) {
+    auto object = std::make_shared<GameObject>("Label");
+    auto* rect = object->AddComponent<RectTransform>();
+    rect->SetAnchors({0.5f, 0.5f}, {0.5f, 0.5f});
+    rect->SetPivot({0.5f, 0.5f});
+    rect->SetSizeDelta({300.0f, 100.0f});
+    auto* label = object->AddComponent<UILabel>();
+    label->SetText(text);
+    label->SetFontFamilyGuid(familyGuid);
+    label->SetFontSizePx(24.0f);
+    object->SetParent(parent);
+    world.Add(object);
+    return object;
+}
+
+}  // namespace
+
+TEST_CASE("UISystem collects labels through the shared text renderer") {
+    QualificationAssetTreeFixture tree;
+    molga::AssetDatabase database;
+    std::string bindError;
+    REQUIRE_MESSAGE(
+        database.BindFontArtifactStore(
+            std::make_shared<const molga::FontArtifactStore>(
+                molga::FontArtifactStore::ForProject(tree.ProjectRoot())),
+            &bindError),
+        bindError);
+    database.ScanProject(tree.AssetsRoot());
+    REQUIRE(database.Find(std::string(kUiPrimaryFamilyGuid)) != nullptr);
+
+    molga::text::VectorTextDiagnosticSink sink;
+    TextRenderer renderer;
+    REQUIRE(renderer.Init(database, sink));
+
+    World world;
+    auto canvas = MakeCanvas(world);
+    MakeLabel(world, canvas.get(), "Ag", kUiPrimaryFamilyGuid);
+
+    molga::RenderQueue queue;
+    {
+        auto scope = renderer.BeginGlyphCollection(1);
+        UISystem::Get().CollectRender(world, {800.0f, 600.0f}, queue, renderer,
+                                      sink, TextRasterPolicy{});
+    }
+    // 두 grapheme, 두 명령. 그리고 그 명령들은 atlas page를 실제로 붙들고
+    // 있으므로 셰이핑과 래스터를 정말로 지났다.
+    REQUIRE(queue.GetCommands().size() == 2U);
+    for (const molga::RenderCommand& command : queue.GetCommands()) {
+        CHECK(command.sortKey.cameraPass == 1);
+        CHECK(command.isBatchableSprite);
+        CHECK(command.resourceLifetimeIdentity != 0U);
+        CHECK(static_cast<bool>(command.resourceLifetime));
+    }
+    // 성공 경로는 조용하다.
+    CHECK(sink.Diagnostics().empty());
+}
+
+// 반대편: family를 지목하지 않은 라벨은 명령을 만들지 못하고, 그 사실이 진단에
+// 남는다. 이 케이스가 없으면 위 케이스는 "언제나 두 명령"과 구별되지 않는다.
+TEST_CASE("a UILabel with no font reaches tofu and a typed diagnostic") {
+    QualificationAssetTreeFixture tree;
+    molga::AssetDatabase database;
+    std::string bindError;
+    REQUIRE_MESSAGE(
+        database.BindFontArtifactStore(
+            std::make_shared<const molga::FontArtifactStore>(
+                molga::FontArtifactStore::ForProject(tree.ProjectRoot())),
+            &bindError),
+        bindError);
+    database.ScanProject(tree.AssetsRoot());
+
+    molga::text::VectorTextDiagnosticSink sink;
+    TextRenderer renderer;
+    REQUIRE(renderer.Init(database, sink));
+
+    World world;
+    auto canvas = MakeCanvas(world);
+    MakeLabel(world, canvas.get(), "Ag", "missing-family");
+
+    molga::RenderQueue queue;
+    {
+        auto scope = renderer.BeginGlyphCollection(1);
+        UISystem::Get().CollectRender(world, {800.0f, 600.0f}, queue, renderer,
+                                      sink, TextRasterPolicy{});
+    }
+    REQUIRE(queue.GetCommands().size() == 2U);
+    for (const molga::RenderCommand& command : queue.GetCommands()) {
+        // 절차적 두부: 유효하지 않은 핸들, page 지분 없음.
+        CHECK_FALSE(static_cast<bool>(command.batchKey.texture));
+        CHECK(command.resourceLifetimeIdentity == 0U);
+    }
+    CHECK_FALSE(sink.Diagnostics().empty());
 }

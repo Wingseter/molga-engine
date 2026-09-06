@@ -867,6 +867,32 @@ bool GameBuilder::EmitAssetCatalog(const std::string& outputPath) {
             lastError = "Failed to write asset_catalog.json";
             return false;
         }
+
+        // ── Task 8.2: 검증된 폰트 산출물이 패키지 경계를 넘는다 ──────────────
+        // 패키지된 런타임은 폰트 바이트를 원본 .ttf 경로가 아니라 카탈로그의
+        // ProjectLibrary locator로만 연다(레거시 codepoint atlas가 쓰던 원본
+        // 경로 우회로는 Task 8.2가 지웠다). 그 locator는 실행 파일 옆을 뿌리로
+        // 해석되므로, 그 상대 경로에 바이트가 실제로 있어야 한다 — 없으면
+        // 패키지된 모든 텍스트가 두부가 된다.
+        //
+        // 참조된 폰트만 옮긴다. Library/Imported 전체를 복사하면 어떤 scene도
+        // 쓰지 않는 폰트가 배포물에 실린다.
+        const fs::path projectRoot = fs::path(Project::Get().GetPath());
+        for (const auto& [guid, record] : molga::AssetDatabase::Get().All()) {
+            if (!record.fontArtifact) continue;
+            const fs::path relative = record.fontArtifact->locator.relativePath;
+            if (relative.empty()) continue;
+            const fs::path source = projectRoot / relative;
+            const fs::path destination = fs::path(outputPath) / relative;
+            if (!fs::exists(source)) {
+                lastError = "Font artifact is missing from the project "
+                            "library: " + source.string();
+                return false;
+            }
+            fs::create_directories(destination.parent_path());
+            fs::copy_file(source, destination,
+                          fs::copy_options::overwrite_existing);
+        }
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to emit asset catalog: " + std::string(e.what());

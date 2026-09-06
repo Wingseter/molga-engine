@@ -37,6 +37,21 @@ struct LayoutConstraints {
 // 비교/해시에 손으로 추가되어야 정체성이 된다.
 struct ParagraphStyle {
     std::string fontFamilyGuid;
+    // ── Task 8.2 설계 개정(2026-09-07): 레거시 단일 face ────────────────────
+    // schema 1 컴포넌트는 family가 아니라 폰트 하나를 이름으로 지목했다. 그
+    // 지목을 fontFamilyGuid에 넣어 흘리면 resolver가 FontImporter 기록을
+    // family로 읽으려다 exists=false와 엉뚱한 FontFamilyInvalid를 낸다. 그래서
+    // 두 지목은 서로 다른 필드다.
+    //
+    // 의미도 다르다: 이 경로는 face 하나이고 fallback이 없다(Task 5.1의
+    // BuildLegacySingleFace가 그 계약이다). 비어 있지 않고 fontFamilyGuid가
+    // 비어 있을 때만 쓰인다 — family를 저작하는 것이 레거시 지목을 대체하는
+    // 유일한 행위이므로, 둘 다 있으면 family가 이긴다.
+    //
+    // 캐시 정체성이다: 아래 TextLayoutCache의 비교/해시/크기 추정 셋 모두에
+    // 들어간다. 그러지 않으면 같은 원문의 legacy 배치와 family 배치가 한
+    // 항목을 나눠 갖는다.
+    std::string legacyFontGuid;
     FontRequest fontRequest;
     ShapeStyle shape;
     TextAnalysisOptions analysis;

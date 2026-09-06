@@ -82,6 +82,9 @@ bool SameConstraints(const LayoutConstraints& a, const LayoutConstraints& b) {
 
 bool SameParagraphStyle(const ParagraphStyle& a, const ParagraphStyle& b) {
     return a.fontFamilyGuid == b.fontFamilyGuid &&
+           // Task 8.2: 레거시 단일 face 지목도 정체성이다. 빠뜨리면 같은
+           // 원문의 legacy 배치와 family 배치가 한 항목을 나눠 갖는다.
+           a.legacyFontGuid == b.legacyFontGuid &&
            SameFontRequest(a.fontRequest, b.fontRequest) &&
            SameShapeStyle(a.shape, b.shape) &&
            SameAnalysisOptions(a.analysis, b.analysis) && a.wrap == b.wrap &&
@@ -202,6 +205,7 @@ void MixConstraints(std::uint64_t& state,
 void MixParagraphStyle(std::uint64_t& state,
                        const ParagraphStyle& style) noexcept {
     MixBytes(state, style.fontFamilyGuid);
+    MixBytes(state, style.legacyFontGuid);
     MixValue(state, style.fontRequest.weight);
     MixValue(state, style.fontRequest.stretchPercent);
     MixValue(state, static_cast<std::uint64_t>(style.fontRequest.slant));
@@ -354,7 +358,8 @@ std::uint64_t EstimateShapeKeyBytes(const TextShapeCacheKey& key) {
 }
 
 std::uint64_t EstimateParagraphStyleBytes(const ParagraphStyle& style) {
-    return style.fontFamilyGuid.size() + style.shape.language.size() +
+    return style.fontFamilyGuid.size() + style.legacyFontGuid.size() +
+           style.shape.language.size() +
            style.shape.orderedFeatures.size() * sizeof(ShapeFeature) +
            style.analysis.locale.size() + style.ellipsisUtf8.size();
 }

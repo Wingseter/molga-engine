@@ -12,7 +12,9 @@
 #include "Rendering/Renderer.h"
 #include "Rendering/RenderSystem2D.h"
 #include "Rendering/ShaderManager.h"
+#include "Rendering/TextRenderer.h"
 #include "Rendering/WorldRenderTraversal.h"
+#include "Text/TextDiagnostic.h"
 #include "UI/UISystem.h"
 
 #include <algorithm>
@@ -42,7 +44,9 @@ struct PreparedWorldLayer2D {
 
 bool PrepareWorldLayer(
     const std::vector<std::shared_ptr<GameObject>>& objects,
-    const CameraOutputEntry& entry, PreparedWorldLayer2D& prepared) {
+    const CameraOutputEntry& entry, PreparedWorldLayer2D& prepared,
+    TextRenderer& textRenderer,
+    molga::text::TextDiagnosticSink& textDiagnostics) {
     if (!entry.camera || !entry.renderable ||
         !entry.camera->PrepareForViewport(
             {entry.viewport.width, entry.viewport.height})) {
@@ -52,7 +56,19 @@ bool PrepareWorldLayer(
     if (!prepared.camera) return false;
     prepared.clearColor = entry.camera->GetBackgroundColor();
     prepared.queue.SetViewBounds(prepared.camera->GetViewBounds());
-    CollectWorldRender(objects, prepared.queue, entry.camera->GetCullingMask());
+    // Task 8.2 Step 3a/7d: 이 카메라의 world-to-physical 배율 하나에서 프레임
+    // 래스터 정책이 나온다. glyph advance에서도 수집 affine에서도 되짚지
+    // 않는다 — 둘 다 폰트와 배치에 따라 달라지므로, 같은 화면에서 글자마다
+    // 다른 래스터 높이를 만든다.
+    WorldRenderCollectionContext textContext;
+    textContext.textRenderer = &textRenderer;
+    textContext.textDiagnostics = &textDiagnostics;
+    if (const auto policy = TextRasterPolicy::FromWorldPixelsPerUnit(
+            static_cast<double>(prepared.camera->GetZoom()), textDiagnostics)) {
+        textContext.baseTextRasterPolicy = *policy;
+    }
+    CollectWorldRender(objects, prepared.queue, entry.camera->GetCullingMask(),
+                       textContext);
     return true;
 }
 
@@ -88,13 +104,25 @@ bool DrawPreparedWorldLayer(PreparedWorldLayer2D& prepared,
 bool RenderUiLayer(const std::vector<std::shared_ptr<GameObject>>& objects,
                    PixelSize logicalSize, RenderTarget& target,
                    Renderer& renderer, Shader* spriteShader,
+                   TextRenderer& textRenderer,
+                   molga::text::TextDiagnosticSink& textDiagnostics,
                    std::string& error) {
     RenderQueue queue;
+    // UI는 논리 프레임버퍼에 그려지고 그 다음에 정수 배로 확대된다. 그러므로
+    // 이 층의 물리 픽셀은 논리 크기 그대로다 — 확대 뒤 화면 픽셀로 정책을
+    // 잡으면 논리 버퍼에 담기지도 않을 해상도로 래스터하게 된다.
+    TextRasterPolicy uiPolicy;
+    if (const auto derived = TextRasterPolicy::FromUiScale(
+            FixedSize{Fixed26_6::FromRaw(logicalSize.width * 64),
+                      Fixed26_6::FromRaw(logicalSize.height * 64)},
+            logicalSize, textDiagnostics)) {
+        uiPolicy = *derived;
+    }
     UISystem::Get().CollectRender(
         objects,
         {static_cast<float>(logicalSize.width),
          static_cast<float>(logicalSize.height)},
-        queue);
+        queue, textRenderer, textDiagnostics, uiPolicy);
     if (queue.GetCommands().empty()) return true;
     if (!renderer.BeginTarget(target, {0, 0, 0, 1}, LoadAction::Load, &error)) {
         return false;
@@ -176,7 +204,9 @@ Camera* GameOutputRenderer::FindMainCamera(
 
 GameOutputResult GameOutputRenderer::RenderLogical(
     const std::vector<std::shared_ptr<GameObject>>& objects,
-    PixelSize logicalSize, Renderer& renderer, Shader* spriteShader) {
+    PixelSize logicalSize, Renderer& renderer, Shader* spriteShader,
+    TextRenderer& textRenderer,
+    molga::text::TextDiagnosticSink& textDiagnostics) {
     GameOutputResult result;
     if (!logicalSize.IsValid() || !spriteShader || !renderer.HasFrame()) {
         return result;
@@ -248,7 +278,8 @@ GameOutputResult GameOutputRenderer::RenderLogical(
         }
 
         PreparedWorldLayer2D prepared;
-        if (!PrepareWorldLayer(objects, entry, prepared)) {
+        if (!PrepareWorldLayer(objects, entry, prepared, textRenderer,
+                               textDiagnostics)) {
             result.cameraResults.push_back(cameraResult);
             continue;
         }
@@ -401,7 +432,7 @@ GameOutputResult GameOutputRenderer::RenderLogical(
     }
 
     if (!RenderUiLayer(objects, logicalSize, logicalFramebuffer_, renderer,
-                       spriteShader, error)) {
+                       spriteShader, textRenderer, textDiagnostics, error)) {
         Log::Warn("GameOutput", "UI pass failed: " + error);
     }
     const auto pruneUnused = [](auto& cache, const auto& used) {
@@ -422,7 +453,8 @@ GameOutputResult GameOutputRenderer::RenderLogical(
 GameOutputResult GameOutputRenderer::Render(
     const std::vector<std::shared_ptr<GameObject>>& objects,
     const GameOutputRequest& request, Renderer& renderer,
-    Shader* spriteShader) {
+    Shader* spriteShader, TextRenderer& textRenderer,
+    molga::text::TextDiagnosticSink& textDiagnostics) {
     GameOutputResult result;
     result.presentation = OutputPresentationLayout::Calculate(
         request.scaleMode, request.logicalSize, request.targetSize);
@@ -453,7 +485,8 @@ GameOutputResult GameOutputRenderer::Render(
         return result;
     }
     const OutputPresentationLayout presentation = result.presentation;
-    result = RenderLogical(objects, logicalSize, renderer, spriteShader);
+    result = RenderLogical(objects, logicalSize, renderer, spriteShader,
+                           textRenderer, textDiagnostics);
     result.presentation = presentation;
 
     ColorAttachmentDescriptor destination =
@@ -473,12 +506,14 @@ GameOutputResult GameOutputRenderer::Render(
 
 GameOutputResult GameOutputRenderer::Render(
     const std::vector<std::shared_ptr<GameObject>>& objects,
-    PixelSize outputSize, Renderer& renderer, Shader* spriteShader) {
+    PixelSize outputSize, Renderer& renderer, Shader* spriteShader,
+    TextRenderer& textRenderer,
+    molga::text::TextDiagnosticSink& textDiagnostics) {
     GameOutputRenderer path;
     return path.Render(objects,
         GameOutputRequest{outputSize, outputSize,
                           GameOutputScaleMode::Native, nullptr},
-        renderer, spriteShader);
+        renderer, spriteShader, textRenderer, textDiagnostics);
 }
 
 } // namespace molga

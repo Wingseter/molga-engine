@@ -131,10 +131,10 @@ struct RenderCommand {
     // 때문이다: 한 프레임 안에서 같은 page를 가리키는 명령은 수백 개가 될 수
     // 있지만 되돌려줄 것은 page 하나이고, 그 중복 제거의 키가 정체성이다.
     //
-    // 아직 이 두 필드를 채우는 프로덕션 생산자는 없다. TextRenderer::CollectText
-    // 는 Task 8.2가 지울 레거시 FontAtlasCache 위에 있어서 GlyphHandle을 아예
-    // 만들지 않는다. 그 두 필드를 실제로 싣는 것은 Task 8.2의 소비자 이전이고,
-    // 그때까지 여기 실려 오는 값은 테스트가 넣은 것뿐이다.
+    // Task 8.2가 소비자를 옮긴 뒤로 이 두 필드를 채우는 프로덕션 생산자가
+    // 있다: TextRenderer::CollectLayout이 그릴 수 있는 glyph마다 GlyphHandle의
+    // 정체성과 토큰을 짝으로 복사한다. 아래 RetainCommandResourceLifetime의
+    // 두 방어가 살아 있는 것은 그래서다.
     //
     // 두 필드 모두 BatchKey/SortKey 밖에 있다. 안에 넣으면 같은 atlas
     // 텍스처를 쓰는 glyph들이 page마다 다른 batch로 쪼개져, 수명 회계가
@@ -159,14 +159,25 @@ void RetainCommandResourceLifetime(RendererLike& renderer,
                                    const RenderCommand& command) {
     // 널 토큰은 지분이 없다는 뜻이다(공백 glyph와 포화 tofu가 그 모양이다).
     if (!command.resourceLifetime) return;
-    // 여기서 걸러 내는 것은 널 토큰뿐이다. Renderer::RetainUntilFrameComplete
-    // 는 정체성이 0이거나 활성 프레임이 없으면 std::logic_error를 던지고, 이
-    // 호출은 SpriteBatcher::Begin/End 사이에 있으므로 그 예외는 batcher를
-    // 열어 둔 채 RenderSystem2D::Render 밖으로 나간다. 오늘은 닿을 수 없다 —
-    // resourceLifetime을 채우는 프로덕션 생산자가 없다. Task 8.2가 소비자를
-    // 옮기는 순간 닿을 수 있게 되므로, 그때 프레임 밖 Render 호출자
-    // (ParticleSystem/SpriteRenderer/MarrowRenderer의 RenderSprite)를 함께
-    // 확인해야 한다.
+    // ── Task 8.2: 던지는 두 조건을 여기서 닫는다 ───────────────────────────
+    // Renderer::RetainUntilFrameComplete는 정체성이 0이거나 활성 프레임이
+    // 없으면 std::logic_error를 던진다. 이 호출은 SpriteBatcher::Begin/End
+    // 사이에 있으므로 그 예외는 batcher를 열어 둔 채 RenderSystem2D::Render
+    // 밖으로 나간다 — 프레임 하나가 깨지는 것이 아니라 batcher 상태가 깨진다.
+    //
+    // Task 8.2 전에는 resourceLifetime을 채우는 프로덕션 생산자가 없어 닿을
+    // 수 없었다. 지금은 텍스트 명령이 그리는 glyph마다 이 두 필드를 채우므로
+    // 두 조건 모두 살아 있다:
+    //
+    //  - 정체성 0 + 토큰 있음은 애초에 만들어지지 않는 모양이다(atlas는 셋을
+    //    짝으로만 낸다). 그래도 받아 주면 이름 없는 여러 자원이 가짜 page 0
+    //    하나로 뭉쳐 서로의 반납을 막으므로, 붙들지 않는 쪽이 맞다.
+    //  - 프레임 밖 Render는 실제로 있다(ParticleSystem/SpriteRenderer/
+    //    MarrowRenderer의 RenderSprite 경로, 그리고 프레임을 얻지 못한
+    //    프레임). 붙들 fence가 없으므로 붙들 것도 없다: 지분을 넘길 곳이
+    //    없다는 뜻이지, 지분이 필요한데 버린다는 뜻이 아니다.
+    if (command.resourceLifetimeIdentity == 0U) return;
+    if (!renderer.HasFrame()) return;
     renderer.RetainUntilFrameComplete(command.resourceLifetimeIdentity,
                                       command.resourceLifetime);
 }

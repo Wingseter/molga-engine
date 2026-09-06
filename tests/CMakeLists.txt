@@ -70,11 +70,26 @@ target_sources(test_asset_watcher PRIVATE
 molga_add_test(test_create_sprite_from_asset test_create_sprite_from_asset.cpp)
 target_sources(test_create_sprite_from_asset PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Commands/CreateSpriteFromAssetCommand.cpp)
-molga_add_test(test_text              test_text.cpp)
+# Task 8.2 Step 0/1g: test_text now drives the production shared-text pipeline,
+# so it needs the same one-session-per-process ICU lifetime every other ready
+# text test uses. MOLGA_TEXT_INTER_FONT is the hot-reload fixture's replacement
+# face; the test never discovers a host font.
+molga_add_text_test(test_text         test_text.cpp)
+target_compile_definitions(test_text PRIVATE MOLGA_TEXT_INTER_FONT="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf")
+target_compile_definitions(test_text PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 molga_add_text_test(test_font         test_font.cpp)
 target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
-    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
+    # Task 8.2: 위 NotoSansKR-Regular.ttf는 가변 폰트(fvar)라 Task 4의 static
+    # 전용 import 계약을 통과하지 못한다. 셰이핑 경로를 지나는 케이스는 자격
+    # 트리와 같은 static OTF를 쓴다 — 가변 폰트는 저작 자체가 거절되므로,
+    # 그것으로 셰이핑을 재면 재는 것이 셰이핑이 아니라 거절이 된다.
+    MOLGA_TEST_KOREAN_STATIC_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansKR-Regular.otf"
+    # Task 8.2 Step 8a.1: HasCodepoint/GlyphId가 셰이핑/레이아웃/렌더 소비자에
+    # 없다는 주장은 그 파일들의 소스 텍스트로만 관찰된다.
+    MOLGA_ENGINE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 molga_add_test(test_text_dependencies test_text_dependencies.cpp)
 # One executable, five translation units. Compile definitions are target-scoped,
 # so every source added here inherits all six provenance macros from the single
@@ -454,9 +469,18 @@ molga_add_test(test_game_view         test_game_view.cpp)
 molga_add_test(test_camera_output_layout test_camera_output_layout.cpp)
 molga_add_test(test_post_process      test_post_process.cpp)
 molga_add_test(test_lighting_2d       test_lighting_2d.cpp)
-molga_add_test(test_rendering_sdlgpu  test_rendering_sdlgpu.cpp)
+# Task 8.2 Step 0: the GPU text proofs now collect real shaped glyph commands,
+# so this executable needs the shared one-session ICU lifetime too. Every
+# property below is the one molga_add_test used to leave behind, re-applied
+# after target creation: the gpu;sdlgpu;pixel label is what the CI filters on.
+molga_add_text_test(test_rendering_sdlgpu  test_rendering_sdlgpu.cpp)
 target_compile_definitions(test_rendering_sdlgpu PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"
     MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
+    # Task 8.2: 위 파일은 가변 폰트(fvar)라 Task 4의 static 전용 import 계약이
+    # 거절한다. 셰이핑 파이프라인을 지나는 픽셀 오라클은 자격 트리와 같은
+    # static OTF를 쓴다.
+    MOLGA_TEST_KOREAN_STATIC_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansKR-Regular.otf"
     # Task 6.3: src/main.cpp와 src/runtime_main.cpp는 어떤 테스트 바이너리도
     # 컴파일하지 않는다. 그 두 진입점의 종료 순서/수집 범위는 소스 텍스트로만
     # 붙들 수 있으므로, 그 텍스트가 어디 있는지를 여기서 알려 준다.
@@ -598,8 +622,11 @@ target_include_directories(test_runtime_script_package_loader PRIVATE "${CMAKE_C
 molga_add_test(test_storage test_storage.cpp)
 target_include_directories(test_storage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-molga_add_test(test_ui test_ui.cpp)
+# Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
+molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
 molga_add_test(test_editor_undo_dirty test_editor_undo_dirty.cpp)
 target_sources(test_editor_undo_dirty PRIVATE

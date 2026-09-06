@@ -1600,30 +1600,22 @@ TEST_CASE("a lone isolate item draws nothing and never reports a missing glyph")
 }
 
 // ── Step 11: stb_truetype never shapes, kerns, or measures ─────────────────
-TEST_CASE("shaping never calls the legacy stb advance or kerning helpers") {
-    molga::detail::ResetLegacyFontFaceMetricCallCount();
+// Task 8.2 Step 8a.1/8b가 FontFace::Advance/Kerning과 그 호출 계수기를 함께
+// 지웠다. 이제 이 주장을 지키는 것은 실행 시 계수기가 아니라 컴파일러다:
+// 부를 함수가 없으므로 셰이핑이 그쪽으로 돌아갈 수 없고, 되살리려면 지운
+// API를 다시 넣는 diff가 필요하다. 남은 것은 그 밑에 있던 행동 주장이다 —
+// 성공 경로와 없는 glyph 경로 둘 다 셰이퍼를 실제로 지난다.
+TEST_CASE("shaping produces glyphs on both the present and missing paths") {
     auto fixture = LoadTextFixture(u8"ffi لا क्षि", "und");
     const auto shaped = fixture.ShapeAllItems();
     REQUIRE(shaped);
     REQUIRE_FALSE(FlattenGlyphs(*shaped).empty());
-    CHECK(molga::detail::LegacyFontFaceMetricCallCount() == 0U);
 
     // 없는 glyph 경로도 함께 본다. 앞으로 절차적 metric이 필요해질 때 가장
-    // 먼저 손이 가는 곳이 FontFace이므로, "0이다"라는 주장이 덮어야 하는 곳은
-    // 성공 경로만이 아니다.
+    // 먼저 손이 가는 곳이 FontFace이므로, 이 주장이 덮어야 하는 곳은 성공
+    // 경로만이 아니다.
     auto missing = LoadTextFixture(u8"👩", "und");
     const auto missingShaped = missing.ShapeAllItems();
     REQUIRE(missingShaped);
     REQUIRE(AnyMissingGlyph(*missingShaped));
-    CHECK(molga::detail::LegacyFontFaceMetricCallCount() == 0U);
-
-    // 양성 대조. 계수기 자체가 죽어 있으면 위 단언은 아무것도 뜻하지 않는다.
-    const auto reference = ExplicitPinnedRuns()[0];
-    molga::FontFace face;
-    std::string error;
-    REQUIRE_MESSAGE(face.LoadFromFile(reference.facePath, &error), error);
-    face.Advance(U'f', 16.0f);
-    face.Kerning(U'f', U'i', 16.0f);
-    CHECK(molga::detail::LegacyFontFaceMetricCallCount() == 2U);
-    molga::detail::ResetLegacyFontFaceMetricCallCount();
 }

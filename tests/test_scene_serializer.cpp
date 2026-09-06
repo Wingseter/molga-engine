@@ -537,7 +537,7 @@ TEST_CASE("authored TextRenderer2D persists schema 2 text identity with legacy k
     text.SetFontGuid("font-b");
     text.SetFontName("arial");
     text.SetFontSizePx(12.0f);
-    text.SetScale(2.0f);
+    text.SetComponentScale(2.0f);
     text.SetSortingOrder(9);
     text.SetText("world");
 
@@ -559,7 +559,7 @@ TEST_CASE("authored TextRenderer2D persists schema 2 text identity with legacy k
     CHECK(reloaded.GetFontGuid() == "font-b");
     CHECK(reloaded.GetFontName() == "arial");
     CHECK(reloaded.GetFontSizePx() == doctest::Approx(12.0f));
-    CHECK(reloaded.GetScale() == doctest::Approx(2.0f));
+    CHECK(reloaded.GetComponentScale() == doctest::Approx(2.0f));
     CHECK(reloaded.GetSortingOrder() == 9);
 }
 

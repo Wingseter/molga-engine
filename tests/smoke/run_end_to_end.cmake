@@ -74,7 +74,7 @@ foreach(required_path
     "${PACKAGE_ROOT}/Assets/Textures/smoke.ppm"
     "${PACKAGE_ROOT}/Assets/Textures/smoke_normal.ppm"
     "${PACKAGE_ROOT}/Assets/Textures/p1_character.ppm"
-    "${PACKAGE_ROOT}/Assets/Fonts/NotoSansKR-Regular.ttf"
+    "${PACKAGE_ROOT}/Assets/Fonts/NotoSansKR-Regular.otf"
     "${PACKAGE_ROOT}/Assets/Fonts/OFL.txt"
     "${PACKAGE_ROOT}/Assets/Prefabs/TitleBadge.prefab"
     "${PACKAGE_ROOT}/Assets/Animations/player_idle.animclip"

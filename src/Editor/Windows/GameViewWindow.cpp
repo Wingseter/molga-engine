@@ -38,10 +38,14 @@ GameViewWindow::~GameViewWindow() {
 void GameViewWindow::SetSceneResources(
     Renderer* renderer,
     Shader* spriteShader,
-    std::vector<std::shared_ptr<GameObject>>* objects) {
+    std::vector<std::shared_ptr<GameObject>>* objects,
+    TextRenderer* textRenderer,
+    molga::text::TextDiagnosticSink* textDiagnostics) {
     renderer_ = renderer;
     spriteShader_ = spriteShader;
     gameObjects_ = objects;
+    textRenderer_ = textRenderer;
+    textDiagnostics_ = textDiagnostics;
 }
 
 molga::PixelSize GameViewWindow::RequestedOutputSize() const {
@@ -174,11 +178,12 @@ void GameViewWindow::OnGUI() {
     }
 
     logicalOutput_ = RequestedLogicalSize();
-    if (outputTarget_.IsValid() && renderer_ && spriteShader_ && gameObjects_) {
+    if (outputTarget_.IsValid() && renderer_ && spriteShader_ && gameObjects_ &&
+        textRenderer_ && textDiagnostics_) {
         const molga::GameOutputResult result = outputRenderer_.Render(
             *gameObjects_,
             {activeOutput_, logicalOutput_, RequestedScaleMode(), &outputTarget_},
-            *renderer_, spriteShader_);
+            *renderer_, spriteShader_, *textRenderer_, *textDiagnostics_);
         presentation_ = result.presentation;
         hasOutputCamera_ = result.cameraLayout.HasRenderableCamera();
         auto& renderStats = Editor::Get().RenderStats();

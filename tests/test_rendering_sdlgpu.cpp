@@ -30,7 +30,9 @@
 #include "Rendering/Texture.h"
 #include "Rendering/TextRenderer.h"
 #include "Systems/Particle.h"
+#include "Common/Fixed26_6.h"
 #include "Text/TextDiagnostic.h"
+#include "Text/TextLayoutTypes.h"
 #include "doctest.h"
 
 #include <array>
@@ -77,10 +79,15 @@ bool RenderOutputFrame(
     molga::GameOutputScaleMode scaleMode, molga::GameOutputResult& result,
     std::string& error) {
     if (!Acquire(host, renderer, error)) return false;
+    // Task 8.2 Step 7d: 게임 출력은 이 프레임의 텍스트 권한을 인자로 받는다.
+    // 프로덕션과 같은 하나의 프로세스 renderer를 쓴다 — 여기서 두 번째
+    // TextRenderer를 세우면 이 픽스처가 재는 것이 프로덕션이 아니게 된다.
+    static molga::text::VectorTextDiagnosticSink textSink;
     result = output.Render(
         objects,
         {{target.Width(), target.Height()}, logicalSize, scaleMode, &target},
-        renderer, ShaderManager::Get().Get("default"));
+        renderer, ShaderManager::Get().Get("default"), TextRenderer::Get(),
+        textSink);
     if (!result.presented) {
         error = "game output was not presented";
         return false;
@@ -461,6 +468,32 @@ std::vector<std::string>* g_shutdownStages = nullptr;
 void RecordShutdownStage(const char* stage) {
     if (g_shutdownStages != nullptr) g_shutdownStages->push_back(stage);
 }
+
+// ── Task 8.2 Step 7f: ShutdownAfterGpuIdle 안의 두 사건 ──────────────────────
+// 계약은 atlas_cleared < text_services_destroyed < u_cleanup이다. 앞의 두
+// 사건은 그 함수 안에서만 일어나므로, 밖에서 두 번 표시를 찍으면 순서가 아니라
+// 표시를 찍은 순서를 재게 된다. 위 renderer hook과 같은 규칙이다.
+std::vector<std::string>* g_textShutdownStages = nullptr;
+void RecordTextShutdownStage(const char* stage) {
+    if (g_textShutdownStages != nullptr) g_textShutdownStages->push_back(stage);
+}
+
+class TextShutdownStageLog {
+public:
+    TextShutdownStageLog() {
+        g_textShutdownStages = &stages;
+        molga::detail::SetTextRendererShutdownStageHookForTest(
+            &RecordTextShutdownStage);
+    }
+    ~TextShutdownStageLog() {
+        molga::detail::SetTextRendererShutdownStageHookForTest(nullptr);
+        g_textShutdownStages = nullptr;
+    }
+    TextShutdownStageLog(const TextShutdownStageLog&) = delete;
+    TextShutdownStageLog& operator=(const TextShutdownStageLog&) = delete;
+
+    std::vector<std::string> stages;
+};
 
 class ShutdownStageLog {
 public:
@@ -1824,15 +1857,22 @@ TEST_CASE("production shutdown releases text GPU pages only after proven idle") 
     REQUIRE(host);
 
     ShutdownStageLog log;
+    TextShutdownStageLog textStages;
     TextRendererErrorLog errors;
     Renderer renderer;
     std::string error;
     REQUIRE_MESSAGE(renderer.Init(&error), error);
     TextRenderer text;
+    // 텍스트 서비스가 실제로 서 있어야 그 파괴가 사건이 된다. 준비된 런타임이
+    // 없으면 Init이 거절하고, 그때 text_services_destroyed는 "부술 것이 없다"를
+    // 뜻하게 되어 순서가 아무것도 말하지 않는다.
+    molga::text::VectorTextDiagnosticSink initSink;
+    REQUIRE(text.Init(molga::AssetDatabase::Get(), initSink));
     SubmittedGlyphPageFixture submitted(*host, renderer, text);
     REQUIRE(errors.ErrorCount() == 0U);
 
-    ShutdownRendererThenTextGpuResources(renderer, text);
+    molga::text::VectorTextDiagnosticSink shutdownSink;
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, shutdownSink));
 
     // renderer 쪽이 실제로 idle을 증명하고 반납 큐를 비운 다음 자기 GPU
     // 자원을 부수는 순서로 지나갔다.
@@ -1848,6 +1888,13 @@ TEST_CASE("production shutdown releases text GPU pages only after proven idle") 
     // 올바른 순서는 아무것도 보고하지 않는다. 아래 반대편 케이스가 정확히 한
     // 건을 요구하므로, 이 0이 그 1의 짝이다.
     CHECK(errors.ErrorCount() == 0U);
+    CHECK(shutdownSink.Diagnostics().empty());
+    // Step 7f: atlas가 먼저 비워지고 그다음 텍스트 서비스가 파괴된다. 이 두
+    // 사건 다음에야 guard의 종결 u_cleanup이 도는데, 그 세 번째 자리는
+    // test_text_runtime_dependencies의 진입점 unwind 케이스가 붙든다: 두
+    // 진입점 모두 이 함수를 guard가 사는 범위 안에서만 부른다.
+    CHECK(textStages.stages ==
+          std::vector<std::string>{"atlas_cleared", "text_services_destroyed"});
 }
 
 // 반대편. 순서를 되돌리면 — 텍스트/atlas teardown이 renderer의 idle 증명과
@@ -1863,34 +1910,63 @@ TEST_CASE("text GPU teardown before the renderer drain is refused, not silent") 
     auto host = EngineInit(config);
     REQUIRE(host);
 
+    TextShutdownStageLog textStages;
     TextRendererErrorLog errors;
     Renderer renderer;
     std::string error;
     REQUIRE_MESSAGE(renderer.Init(&error), error);
     TextRenderer text;
+    molga::text::VectorTextDiagnosticSink initSink;
+    REQUIRE(text.Init(molga::AssetDatabase::Get(), initSink));
     SubmittedGlyphPageFixture submitted(*host, renderer, text);
     REQUIRE(errors.ErrorCount() == 0U);
 
     // 되돌린 순서: 제출된 프레임이 아직 page를 붙들고 있는데 텍스트가 먼저
     // 내려간다.
-    text.Shutdown();
+    //
+    // Task 8.2: 거절의 보고 자리가 옮겨졌다. ShutdownAfterGpuIdle은 자기
+    // 사유를 진단 sink로 내고(호출자가 프레임 sink를 이미 들고 있다),
+    // Log::Error는 그 위의 공유 함수가 남긴다. 두 자리 모두 여기서 붙든다.
+    molga::text::VectorTextDiagnosticSink refusedSink;
+    CHECK_FALSE(text.ShutdownAfterGpuIdle(refusedSink));
     CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 1U);
     CHECK(text.GlyphAtlas().ResidentPageCount() == 1U);
     CHECK(text.GlyphAtlas().IsPageResident(submitted.pageIdentity));
     // 거절은 조용하지 않다. 진입점 두 곳은 어떤 테스트도 컴파일하지 않으므로,
-    // 그쪽에서 순서가 뒤집혔을 때 남는 유일한 실행 시 증거가 이 한 줄이다.
+    // 그쪽에서 순서가 뒤집혔을 때 남는 유일한 실행 시 증거가 이 진단이다.
+    REQUIRE(refusedSink.Diagnostics().size() == 1U);
+    CHECK(refusedSink.Diagnostics().front().code ==
+          molga::text::TextDiagnosticCode::ReferenceInvalid);
+    CHECK(refusedSink.Diagnostics().front().message.find(
+              "submitted atlas pages were still held") != std::string::npos);
+    // Step 7f: 거절된 teardown은 아무것도 부수지 않는다. 두 표식 중 하나라도
+    // 남으면 그것은 "거절했다고 말하면서 이미 절반을 부쉈다"는 뜻이다.
+    CHECK(textStages.stages.empty());
+
+    // 그리고 공유 함수를 통해 거절되면 Log::Error 한 줄이 함께 남는다. 진입점
+    // 두 곳이 부르는 것은 이 함수이므로, 그쪽의 실행 시 증거는 이 한 줄이다.
+    molga::text::VectorTextDiagnosticSink wrapperSink;
+    Renderer stillBusy;
+    REQUIRE_MESSAGE(stillBusy.Init(&error), error);
+    CHECK_FALSE(
+        ShutdownRendererThenTextGpuResources(stillBusy, text, wrapperSink));
     CHECK(errors.ErrorCount() == 1U);
-    CHECK(errors.LastErrorMessage().find("before the renderer proved idle") !=
+    CHECK(errors.LastErrorMessage().find("after the renderer proved idle") !=
           std::string::npos);
 
     // 그리고 올바른 순서를 밟으면 같은 page가 풀린다. 거절이 영구적인 고장이
     // 아니라 순서의 함수라는 것이 이 두 줄이다.
     renderer.Shutdown();
-    text.Shutdown();
+    molga::text::VectorTextDiagnosticSink orderedSink;
+    CHECK(text.ShutdownAfterGpuIdle(orderedSink));
     CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 0U);
     CHECK(text.GlyphAtlas().ResidentPageCount() == 0U);
     // 그리고 그 성공은 두 번째 보고를 남기지 않는다.
     CHECK(errors.ErrorCount() == 1U);
+    CHECK(orderedSink.Diagnostics().empty());
+    // 성공한 다음에야 두 표식이 순서대로 나온다.
+    CHECK(textStages.stages ==
+          std::vector<std::string>{"atlas_cleared", "text_services_destroyed"});
 }
 
 // ── Task 6.3 Step 4: 붙듦의 유일한 프로덕션 호출 지점 ────────────────────────
@@ -2008,7 +2084,8 @@ TEST_CASE("RenderSystem2D hands a drawn text command's page to the active frame"
     CHECK(text.GlyphAtlas().IsPageResident(handle.pageIdentity));
 
     REQUIRE_MESSAGE(renderer.SubmitFrame(&error), error);
-    ShutdownRendererThenTextGpuResources(renderer, text);
+    molga::text::VectorTextDiagnosticSink shutdownSink;
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, shutdownSink));
     CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 0U);
     CHECK(text.GlyphAtlas().ResidentPageCount() == 0U);
     molga::RenderSystem2D::Get().Shutdown();
@@ -2082,50 +2159,82 @@ TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") 
     const fs::path root = authority.AssetsCaseRoot("korean-font");
     std::error_code filesystemError;
     fs::create_directories(root / "Assets" / "Fonts");
-    fs::copy_file(fs::path(MOLGA_TEST_KOREAN_FONT_PATH),
-                  root / "Assets" / "Fonts" / "NotoSansKR-Regular.ttf",
+    const fs::path koreanFont =
+        root / "Assets" / "Fonts" / "NotoSansKR-Regular.otf";
+    fs::copy_file(fs::path(MOLGA_TEST_KOREAN_STATIC_FONT_PATH), koreanFont,
                   fs::copy_options::overwrite_existing);
+    // Task 8.2: 저작된 import 설정이 있어야 AssetDatabase가 검증된 불변
+    // 산출물을 발행하고, 산출물이 있어야 face가 묶인다. 레거시 codepoint
+    // atlas는 원본 경로에서 바이트를 직접 읽어 이 계약을 우회했다.
+    {
+        std::ofstream meta(koreanFont.string() + ".meta");
+        REQUIRE(meta.good());
+        meta << R"({
+  "guid": "cccccccccccccccccccccccccccccccc",
+  "importer": "FontImporter",
+  "importerVersion": 2,
+  "settings": {
+    "faceIndex": 0, "weight": 400, "stretchPercent": 100, "slant": "Upright",
+    "redistributableConfirmed": true, "licenseKind": "OFL-1.1",
+    "copyright": "test fixture provenance",
+    "licenseAssetGuid": "88888888888888888888888888888888"
+  }
+})";
+    }
     auto& database = molga::AssetDatabase::Get();
     database.Clear();
     database.ScanProject(root / "Assets");
     const std::string guid =
-        database.GuidForSource("Fonts/NotoSansKR-Regular.ttf");
+        database.GuidForSource("Fonts/NotoSansKR-Regular.otf");
     REQUIRE_FALSE(guid.empty());
 
     Renderer renderer;
     std::string error;
     REQUIRE(renderer.Init(&error));
     molga::RenderSystem2D::Get().Init();
+    molga::text::VectorTextDiagnosticSink textSink;
     TextRenderer& text = TextRenderer::Get();
-    text.Shutdown();
-    REQUIRE(text.Init());
-    text.InvalidateAllFonts();
+    CHECK(text.ShutdownAfterGpuIdle(textSink));
+    REQUIRE(text.Init(database, textSink));
 
     // Task 6.3 Step 8: 프레임 번호가 정해진 뒤, 텍스트가 큐에 담기기 전에
     // 이 프레임의 glyph 수집을 연다. 범위가 아래 제출과 픽셀 판독을 전부
     // 덮으므로, 명령들이 page 토큰을 다 복사하기 전에 수집이 닫히지 않는다.
     //
     // optional인 이유는 정리 순서 때문이다: 수집이 열려 있는 동안
-    // TextRenderer::Shutdown은 (옳게도) atlas 해제를 거절한다.
+    // ShutdownAfterGpuIdle은 (옳게도) atlas 해제를 거절한다.
     std::optional<TextRenderer::GlyphCollectionScope> glyphCollection(
         text.BeginGlyphCollection(1));
 
+    // ── Task 8.2 Step 7e: 정확한 Layout/CollectLayout 경로 ───────────────────
+    // 이 GUID는 schema 1의 폰트 지목이므로 레거시 단일 face 경로로 간다(Task
+    // 8.2 설계 개정). 폰트 GUID/픽셀 크기 단위의 atlas 계수기는 더 이상 증거가
+    // 아니다 — 아래는 셰이핑된 glyph-ID 명령이 0 아닌 page 정체성과 붙든
+    // 토큰을 함께 들고 나왔는지만 본다.
+    molga::text::TextLayoutRequest request;
+    request.utf8 = u8"한글 타이틀";
+    request.style.legacyFontGuid = guid;
+    request.style.shape.fontSize = molga::Fixed26_6::FromRaw(40 * 64);
+    request.diagnosticContext.componentType = "UILabel";
+    const auto layout = text.Layout(request, textSink);
+    REQUIRE(layout.has_value());
+
     molga::RenderQueue queue;
-    TextDrawParams params;
-    params.text = u8"한글 타이틀";
-    params.fontGuid = guid;
-    params.fontSizePx = 40.0f;
-    params.x = 4.0f;
-    params.y = 4.0f;
-    params.color = Color::Red();
-    text.CollectText(queue, params);
+    TextCollectContext collect;
+    collect.layoutToOutput.tx = 4.0f;
+    collect.layoutToOutput.ty = 4.0f;
+    collect.color = Color::Red();
+    text.CollectLayout(queue, **layout, collect, textSink);
     REQUIRE(queue.GetCommands().size() == 5U);
     for (const auto& command : queue.GetCommands()) {
         CHECK(command.batchKey.textureStableId != 0U);
         CHECK(command.batchKey.texture);
         CHECK(command.batchKey.textureSampler);
+        // Task 6.3의 계약: 텍스처를 든 명령은 자기 page의 이름과 지분도 든다.
+        CHECK(command.resourceLifetimeIdentity != 0U);
+        CHECK(static_cast<bool>(command.resourceLifetime));
     }
-    CHECK(text.GetAtlasPageCount(guid, 40) >= 1U);
+    CHECK(text.GlyphAtlas().Telemetry().uploads >= 5U);
 
     molga::RenderTarget target;
     REQUIRE(target.Init(256, 64, &error));
@@ -2166,11 +2275,17 @@ TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") 
             }
         }
     }
-    CHECK(coloredPixels == 1243U);
+    // Task 8.2 Step 7e: 이 네 값은 공유 파이프라인으로 옮기면서 다시 고정된
+    // 것이다. 두 가지가 함께 바뀌었다. (1) 세로 자리: 예전 경로는 y를 줄의
+    // 위쪽으로 썼고, 배치는 y를 배치 원점으로 쓴 뒤 그 안에 baseline을 둔다.
+    // (2) 폰트 파일: 가변 TTF는 static 전용 import 계약이 거절하므로 자격
+    // 트리와 같은 static OTF를 쓴다. 잉크 높이(24 -> 25)가 사실상 그대로인
+    // 것이 "같은 글자를 같은 크기로 그린다"의 증거이고, 달라진 것은 자리다.
+    CHECK(coloredPixels == 1756U);
     CHECK(minX == 5);
-    CHECK(minY == 13);
-    CHECK(maxX == 135);
-    CHECK(maxY == 37);
+    CHECK(minY == 27);
+    CHECK(maxX == 185);
+    CHECK(maxY == 52);
     INFO("Korean opaque probe=" << opaqueX << "," << opaqueY);
     CHECK(opaqueX >= 0);
     CHECK(opaqueY >= 0);
@@ -2186,7 +2301,145 @@ TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") 
 
     queue.Clear();
     glyphCollection.reset();
-    text.Shutdown();
+    // Task 8.2: 이제 제출된 명령이 atlas page 지분을 실제로 프레임에 넘기므로,
+    // 텍스트 teardown은 renderer가 idle을 증명하고 반납 큐를 비운 다음에만
+    // 성립한다. 프로덕션 진입점과 같은 함수를 쓴다.
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, textSink));
+    molga::RenderSystem2D::Get().Shutdown();
+    database.Clear();
+    fs::remove_all(root, filesystemError);
+}
+
+// ── Task 8.2 Step 5b/5c: 두부는 renderer의 흰 텍스처로 실제로 그려진다 ───────
+// 절차적 두부 명령은 molga::TextureHandle{}을 그대로 들고 나간다. 그 핸들을
+// renderer 소유의 흰 텍스처로 묶는 것이 sprite 경로이고, 그래야 atlas 예산이
+// 0인 화면에서도 없는 grapheme마다 "그릴 수 있는" 명령이 하나씩 남는다.
+//
+// 그 묶음은 헤드리스에서 관찰되지 않는다: 장치가 없으면 유효한 핸들도 무효한
+// 핸들도 똑같이 널이라, 어느 쪽으로 굳혀도 단언이 움직이지 않는다. 그래서 이
+// 케이스만 진짜 장치 위에서 픽셀을 읽는다.
+TEST_CASE("SDL_GPU saturated tofu draws as solid color through the white fallback") {
+    namespace fs = std::filesystem;
+    WindowConfig config;
+    config.title = "Molga SDL_GPU tofu white fallback";
+    config.width = 128;
+    config.height = 64;
+    config.visible = false;
+    config.graphicsValidation = true;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("tofu-white");
+    std::error_code filesystemError;
+    fs::create_directories(root / "Assets" / "Fonts");
+    const fs::path fontPath =
+        root / "Assets" / "Fonts" / "NotoSansKR-Regular.otf";
+    fs::copy_file(fs::path(MOLGA_TEST_KOREAN_STATIC_FONT_PATH), fontPath,
+                  fs::copy_options::overwrite_existing);
+    {
+        std::ofstream meta(fontPath.string() + ".meta");
+        REQUIRE(meta.good());
+        meta << R"({
+  "guid": "dededededededededededededededede",
+  "importer": "FontImporter",
+  "importerVersion": 2,
+  "settings": {
+    "faceIndex": 0, "weight": 400, "stretchPercent": 100, "slant": "Upright",
+    "redistributableConfirmed": true, "licenseKind": "OFL-1.1",
+    "copyright": "test fixture provenance",
+    "licenseAssetGuid": "88888888888888888888888888888888"
+  }
+})";
+    }
+    auto& database = molga::AssetDatabase::Get();
+    database.Clear();
+    database.ScanProject(root / "Assets");
+    const std::string guid =
+        database.GuidForSource("Fonts/NotoSansKR-Regular.otf");
+    REQUIRE_FALSE(guid.empty());
+
+    Renderer renderer;
+    std::string error;
+    REQUIRE(renderer.Init(&error));
+    molga::RenderSystem2D::Get().Init();
+    molga::text::VectorTextDiagnosticSink textSink;
+    TextRenderer& text = TextRenderer::Get();
+    CHECK(text.ShutdownAfterGpuIdle(textSink));
+    REQUIRE(text.Init(database, textSink));
+
+    molga::text::TextLayoutRequest request;
+    request.utf8 = u8"한글";
+    request.style.legacyFontGuid = guid;
+    request.style.shape.fontSize = molga::Fixed26_6::FromRaw(24 * 64);
+    request.diagnosticContext.componentType = "UILabel";
+    const auto layout = text.Layout(request, textSink);
+    REQUIRE(layout.has_value());
+
+    // 예산 0. 배치는 정상이고 face도 있지만 atlas가 page를 만들 수 없으므로
+    // GetGlyph가 절차적 두부를 돌려준다(Step 5b).
+    text.GlyphAtlas().SetResidentBudget(0);
+    molga::RenderQueue queue;
+    TextCollectContext collect;
+    collect.layoutToOutput.tx = 8.0f;
+    collect.layoutToOutput.ty = 8.0f;
+    collect.color = Color(0.0f, 1.0f, 0.0f, 1.0f);
+    {
+        auto scope = text.BeginGlyphCollection(1);
+        text.CollectLayout(queue, **layout, collect, textSink);
+    }
+    REQUIRE(queue.GetCommands().size() == 2U);
+    for (const auto& command : queue.GetCommands()) {
+        // 유효하지 않은 핸들 그대로. page 지분도 없다.
+        CHECK_FALSE(static_cast<bool>(command.batchKey.texture));
+        CHECK(command.batchKey.textureStableId == 0U);
+        CHECK(command.resourceLifetimeIdentity == 0U);
+        CHECK(command.isBatchableSprite);
+    }
+
+    molga::RenderTarget target;
+    REQUIRE(target.Init(128, 64, &error));
+    REQUIRE(Acquire(*host, renderer, error));
+    REQUIRE(renderer.BeginTarget(target, {0, 0, 0, 1},
+                                 molga::LoadAction::Clear, &error));
+    Camera2D camera(128.0f, 64.0f);
+    Shader* batch = ShaderManager::Get().Get("batch");
+    REQUIRE(batch);
+    {
+        molga::RenderPass pass(renderer, batch, &camera);
+        molga::RenderSystem2D::Get().Render(queue, &renderer, &camera);
+    }
+    REQUIRE(renderer.EndTarget(&error));
+    REQUIRE(renderer.SubmitFrame(&error));
+
+    const auto pixels = ReadTarget(*host, target, error);
+    REQUIRE(pixels.size() == 128U * 64U * 4U);
+    std::size_t greenPixels = 0;
+    std::size_t otherPixels = 0;
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 128; ++x) {
+            const auto pixel = Pixel(pixels, 128, x, y);
+            if (pixel[0] == 0U && pixel[1] == 0U && pixel[2] == 0U) continue;
+            if (Near(pixel[0], 0) && Near(pixel[1], 255, 5) &&
+                Near(pixel[2], 0) && Near(pixel[3], 255, 5)) {
+                ++greenPixels;
+            } else {
+                ++otherPixels;
+            }
+        }
+    }
+    // 두부는 꽉 찬 사각형이다. 흰 텍스처가 묶이지 않으면 아무것도 그려지지
+    // 않거나 정점 색이 무시된 다른 색이 나온다.
+    CHECK(greenPixels > 100U);
+    CHECK(otherPixels == 0U);
+
+    queue.Clear();
+    text.GlyphAtlas().SetResidentBudget(
+        molga::GlyphAtlasCache::DefaultResidentBudgetBytes);
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, textSink));
     molga::RenderSystem2D::Get().Shutdown();
     database.Clear();
     fs::remove_all(root, filesystemError);

@@ -784,17 +784,14 @@ public:
         return text::detail::HarfBuzzObjectCreationCount();
     }
 
-    // hit test는 셰이퍼도 face 자원도 다시 부르지 않는다. 두 계수기를 함께
-    // 0으로 되돌린 뒤 caret/선택 API를 전부 부르는 것이 그 주장의 관찰이다.
+    // hit test는 셰이퍼를 다시 부르지 않는다. 계수기를 0으로 되돌린 뒤
+    // caret/선택 API를 전부 부르는 것이 그 주장의 관찰이다.
+    //
+    // Task 8.2 Step 8a.1: face 자원 쪽 계수기는 함께 사라졌다. 그것이 세던
+    // FontFace::Advance/Kerning이 더 이상 존재하지 않으므로, "hit test가
+    // advance/kerning을 다시 묻지 않는다"는 이제 컴파일러가 지킨다.
     void ResetFontAndShaperCounters() {
         text::detail::ResetHarfBuzzObjectCreationCount();
-        molga::detail::ResetLegacyFontFaceMetricCallCount();
-    }
-    // face 자원을 실제로 만지면 올라가는 유일한 프로덕션 계수기.
-    // TextHitTesting이 faceResource를 역참조해 advance/kerning을 다시 물으면
-    // 여기로 드러난다.
-    std::uint64_t FontResourceCallCount() const {
-        return molga::detail::LegacyFontFaceMetricCallCount();
     }
 
     // ── Task 7.3 fixture geometry ───────────────────────────────────────────
@@ -1350,13 +1347,14 @@ TEST_CASE("line metrics come from imported design integers, never the rasterizer
     CHECK(expectedDescent->Raw() == 264);
     CHECK(expectedLineGap->Raw() == 132);
 
-    molga::detail::ResetLegacyFontFaceMetricCallCount();
+    // Task 8.2 Step 8a.1: 여기 있던 "stb measurement 호출 0" 단언은 그 API가
+    // 지워지면서 컴파일러의 것이 되었다. 남은 주장은 차가운 경로와 따뜻한
+    // 경로가 같은 저작 정수에서 같은 지표를 낸다는 것이다.
     const auto cold = layoutOnce();
     REQUIRE(cold->lines.size() == 1U);
     CHECK(cold->lines[0].ascent.Raw() == expectedAscent->Raw());
     CHECK(cold->lines[0].descent.Raw() == expectedDescent->Raw());
     CHECK(cold->lines[0].lineGap.Raw() == expectedLineGap->Raw());
-    CHECK(molga::detail::LegacyFontFaceMetricCallCount() == 0U);
 }
 
 // ── Step 1e: the whole-candidate ellipsis ───────────────────────────────────
@@ -2587,11 +2585,10 @@ TEST_CASE("ligature carets remain on every grapheme boundary") {
     CHECK(NoCaretInsideUtf16ScalarOrGrapheme(*layout));
     CHECK(TextHitTesting::HitTest(*layout, fixture.PointInsideLigature()).boundary > 0);
     CHECK(fixture.HarfBuzzCallCount() == 0);
-    CHECK(fixture.FontResourceCallCount() == 0);
 }
 
-// 위 케이스의 마지막 두 단언은 계수기가 죽어 있어도 통과한다. 같은 프로세스에서
-// 두 계수기가 실제로 움직인다는 것을 함께 못 박는다(test_text_shaping의 선례).
+// 위 케이스의 마지막 단언은 계수기가 죽어 있어도 통과한다. 같은 프로세스에서
+// 그 계수기가 실제로 움직인다는 것을 함께 못 박는다(test_text_shaping의 선례).
 TEST_CASE("the hit-test counters are alive, so their zeros mean something") {
     auto fixture = LoadLayoutFixture("latin-ffi-ligature");
     fixture.ResetIcuAndHarfBuzzCounters();
@@ -2601,17 +2598,10 @@ TEST_CASE("the hit-test counters are alive, so their zeros mean something") {
     // 차가운 배치는 셰이퍼를 반드시 부른다.
     CHECK(fixture.HarfBuzzCallCount() > 0);
 
-    fixture.ResetFontAndShaperCounters();
-    molga::FontFace face;
-    std::string error;
-    const fs::path fontPath =
-        fs::path(MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT) / "fonts" /
-        "NotoSans-Regular.ttf";
-    REQUIRE_MESSAGE(face.LoadFromFile(fontPath.string(), &error), error);
-    face.Advance(U'f', 16.0f);
-    face.Kerning(U'f', U'i', 16.0f);
-    CHECK(fixture.FontResourceCallCount() == 2U);
-    molga::detail::ResetLegacyFontFaceMetricCallCount();
+    // Task 8.2 Step 8a.1: 이 자리에 있던 양성 대조는 face 계수기의 것이었고,
+    // 그 계수기가 세던 FontFace::Advance/Kerning과 함께 사라졌다. 셰이퍼
+    // 계수기 쪽 양성 대조는 바로 위 "차가운 배치는 셰이퍼를 반드시 부른다"가
+    // 그대로 맡는다.
 }
 
 // 합자 안쪽의 hit test는 "0보다 크다"보다 정확히 답해야 한다. 내부 caret 하나를
@@ -2790,7 +2780,6 @@ TEST_CASE("a ligature with no GDEF carets stores proportional stops up front") {
     text::detail::ResetIcuObjectCreationCount();
     text::detail::ResetLayoutIcuObjectCreationCount();
     text::detail::ResetHarfBuzzObjectCreationCount();
-    molga::detail::ResetLegacyFontFaceMetricCallCount();
 
     molga::FixedPoint probe;
     probe.x = ligature.interiorCarets[0].position.x;
@@ -2814,7 +2803,6 @@ TEST_CASE("a ligature with no GDEF carets stores proportional stops up front") {
     CHECK(text::detail::IcuObjectCreationCount() == 0U);
     CHECK(text::detail::LayoutIcuObjectCreationCount() == 0U);
     CHECK(text::detail::HarfBuzzObjectCreationCount() == 0U);
-    CHECK(molga::detail::LegacyFontFaceMetricCallCount() == 0U);
     CHECK(CanonicalCaretStops(*layout) == before);
 }
 

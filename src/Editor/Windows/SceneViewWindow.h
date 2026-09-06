@@ -21,6 +21,10 @@
 class Renderer;
 class Shader;
 class GameObject;
+// Task 8.2 Step 7d: Scene View의 텍스트 권한. 값으로 담지 않으므로 선언만
+// 있으면 된다.
+class TextRenderer;
+namespace molga::text { class TextDiagnosticSink; }
 class SpriteRenderer;
 class Transform;
 
@@ -39,7 +43,9 @@ public:
     void SetSceneResources(
         Renderer* renderer,
         Shader*   spriteShader,
-        std::vector<std::shared_ptr<GameObject>>* objects
+        std::vector<std::shared_ptr<GameObject>>* objects,
+        TextRenderer* textRenderer,
+        molga::text::TextDiagnosticSink* textDiagnostics
     );
 
     // 씬 변경 시 오브젝트 목록 갱신
@@ -52,6 +58,10 @@ private:
     Renderer*   renderer_     = nullptr;
     Shader*     spriteShader_ = nullptr;
     std::vector<std::shared_ptr<GameObject>>* gameObjects_ = nullptr;
+    // main이 주입한 그 하나. 창이 스스로 TextRenderer::Get()을 부르면 이
+    // 프로세스에 두 번째 텍스트 서비스가 생길 수 있다.
+    TextRenderer* textRenderer_ = nullptr;
+    molga::text::TextDiagnosticSink* textDiagnostics_ = nullptr;
 
     // Scene View 전용 오프스크린 타깃
     molga::RenderTarget sceneTarget_;

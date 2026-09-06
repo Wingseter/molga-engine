@@ -52,8 +52,8 @@
 #include "Core/SaveSystem.h"
 #include "UI/UISystem.h"
 #include "Scripting/ScriptPackageLoader.h"
-#include "Rendering/FontFace.h"
-#include "Rendering/Utf8.h"
+#include "Common/Fixed26_6.h"
+#include "Text/TextLayoutTypes.h"
 #include "Text/TextDiagnostic.h"
 #include "Text/TextRuntimeDependencies.h"
 #include <nlohmann/json.hpp>
@@ -396,7 +396,13 @@ struct KoreanTitleProbe {
     }
 };
 
-KoreanTitleProbe ProbeKoreanTitle(World& world) {
+// ── Task 8.2 Step 7e: 패키지된 시작 화면의 텍스트 증명 ───────────────────────
+// 폰트 GUID/codepoint 단위의 atlas 계수기는 증거가 아니다: 그 계수기는 셰이핑도
+// page 소유권도 보지 않으므로, 셰이핑이 통째로 빠져도 같은 값을 낸다. 그래서
+// 이 증명은 프로덕션과 정확히 같은 Layout/CollectLayout 경로를 지나 "셰이핑된
+// glyph-ID 명령이 0 아닌 page 정체성과 붙든 토큰과 함께 모였다"만 본다.
+KoreanTitleProbe ProbeKoreanTitle(World& world,
+                                  molga::text::TextDiagnosticSink& sink) {
     static constexpr const char* kExpectedTitle = u8"한글 타이틀 - 시작";
     KoreanTitleProbe result;
 
@@ -409,49 +415,73 @@ KoreanTitleProbe ProbeKoreanTitle(World& world) {
         }
     }
     if (!title) return result;
+    // 원문이 정확히 위 상수와 같다는 것이 곧 "한글이 보존되었다"이다.
     result.textPreserved = true;
 
-    const std::string& fontGuid = title->GetFontGuid();
-    const auto fontPath = molga::AssetDatabase::Get().AbsoluteSourcePath(fontGuid);
-    molga::FontFace face;
-    if (fontGuid.empty() || fontPath.empty() || !face.LoadFromFile(fontPath)) {
-        return result;
+    molga::text::TextLayoutRequest request;
+    request.utf8 = title->GetText();
+    // 저작된 family가 이기고, 없으면 schema 1의 폰트 지목이 레거시 단일 face
+    // 경로로 간다 — 패키지된 이 라벨이 정확히 그 경우다.
+    const UILabel::FontFamilyView family = title->ResolveFontFamilyView();
+    if (!family.familyGuid.empty()) {
+        request.style.fontFamilyGuid = family.familyGuid;
+    } else if (!family.faceFontGuids.empty()) {
+        request.style.legacyFontGuid = family.faceFontGuids.front();
     }
+    if (const auto fontSize =
+            molga::Fixed26_6::FromFloat(title->GetFontSizePx())) {
+        request.style.shape.fontSize = *fontSize;
+    }
+    request.style.analysis.locale = title->GetLocale();
+    request.style.analysis.baseDirection = title->GetBaseDirection();
+    request.style.wrap = title->GetWrapMode();
+    request.style.overflow = title->GetOverflowMode();
+    request.style.maxLines = title->GetMaxLines();
+    if (const auto spacing =
+            molga::Fixed26_6::FromFloat(title->GetLineSpacing())) {
+        request.style.lineSpacing = *spacing;
+    }
+    request.diagnosticContext.componentType = "UILabel";
 
-    int drawableCodepoints = 0;
-    bool sawHangul = false;
+    const auto layout = TextRenderer::Get().Layout(request, sink);
+    if (!layout) return result;
+
+    // 없는 glyph가 하나도 없다는 것이 "이 폰트가 이 글자들을 실제로 그린다"의
+    // 권한 있는 형태다. HasCodepoint/GlyphId 같은 검사용 seam은 셰이핑도
+    // fallback도 대신하지 못하므로 여기서 부르지 않는다.
+    int shapedGlyphs = 0;
     bool allGlyphsPresent = true;
-    for (const std::uint32_t codepoint : molga::DecodeUtf8(title->GetText())) {
-        if (codepoint == ' ' || codepoint == '\n' || codepoint == '\r' ||
-            codepoint == '\t') {
-            continue;
+    for (const molga::text::TextLine& line : (*layout)->lines) {
+        for (const molga::text::VisualRun& run : line.visualRuns) {
+            for (const molga::text::PositionedGlyph& positioned : run.glyphs) {
+                ++shapedGlyphs;
+                allGlyphsPresent =
+                    allGlyphsPresent && !positioned.glyph.missing;
+            }
         }
-        sawHangul = sawHangul || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U);
-        allGlyphsPresent = allGlyphsPresent && face.HasGlyph(codepoint);
-        ++drawableCodepoints;
     }
-    result.fontGlyphsPresent = sawHangul && allGlyphsPresent && drawableCodepoints > 0;
+    result.fontGlyphsPresent = allGlyphsPresent && shapedGlyphs > 0;
 
     molga::RenderQueue proofQueue;
-    TextDrawParams params;
-    params.text = title->GetText();
-    params.fontGuid = fontGuid;
-    params.fontSizePx = title->GetFontSizePx();
-    params.lineSpacing = title->GetLineSpacing();
-    TextRenderer::Get().CollectText(proofQueue, params);
+    TextCollectContext collect;  // 항등 affine, 1배 래스터 정책
+    // 수집 범위를 열지 않는다. 프레임 수집은 프레임 루프의 것 하나뿐이고, 이
+    // 증명은 그 루프 밖에서 한 번 도는 시작 검사다. GlyphAtlasCache는 범위와
+    // 무관하게 page 정체성과 지분 토큰을 함께 내주므로, 아래 단언이 재는 것은
+    // 그대로 남는다 — 범위가 하는 일은 프레임 경계에서 pin 집합을 넘기는
+    // 것이지 지분을 만드는 것이 아니다.
+    TextRenderer::Get().CollectLayout(proofQueue, **layout, collect, sink);
     result.glyphQuads = static_cast<int>(proofQueue.GetCommands().size());
 
-    bool allQuadsUseAtlasTextures = !proofQueue.GetCommands().empty();
+    bool allQuadsRetainAtlasPages = !proofQueue.GetCommands().empty();
     for (const auto& command : proofQueue.GetCommands()) {
-        allQuadsUseAtlasTextures = allQuadsUseAtlasTextures &&
-                                   static_cast<bool>(command.batchKey.texture) &&
-                                   command.batchKey.isBatchable;
+        allQuadsRetainAtlasPages =
+            allQuadsRetainAtlasPages &&
+            static_cast<bool>(command.batchKey.texture) &&
+            command.batchKey.isBatchable &&
+            command.resourceLifetimeIdentity != 0U &&
+            static_cast<bool>(command.resourceLifetime);
     }
-    const int atlasPixelSize = std::max(
-        1, std::min(static_cast<int>(std::lround(title->GetFontSizePx())), 512));
-    result.atlasQuadsCollected = result.glyphQuads == drawableCodepoints &&
-        allQuadsUseAtlasTextures &&
-        TextRenderer::Get().GetAtlasPageCount(fontGuid, atlasPixelSize) > 0U;
+    result.atlasQuadsCollected = allQuadsRetainAtlasPages;
     return result;
 }
 
@@ -840,11 +870,26 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         return 4;
     }
 
-    // Initialize text renderer
-    // Step 10a forward risk: this singleton's storage outlives main. See the
-    // note at its Shutdown() call. Task 8.2 must give it a non-static owner
-    // declared after the text lifetime guard.
-    TextRenderer::Get().Init();
+    // ── Task 8.2 Step 3b/7f: 공유 텍스트 서비스 한 벌 ────────────────────────
+    // 텍스트 런타임 guard는 이 함수 맨 위에 이미 서 있다. database는 프로세스
+    // 소유의 그 권한이고, 바로 아래에서 봉인/프로젝트 폰트 산출물 저장소를
+    // 받는다 — 첫 폰트 요청보다 먼저다. 프로세스 인스턴스는 정적 저장 수명이
+    // 아니라 heap에 있고, 아래 ShutdownRendererThenTextGpuResources가 guard의
+    // u_cleanup 전에 부순다.
+    if (!TextRenderer::Get().Init(molga::AssetDatabase::Get(), textDiagnostics)) {
+        std::cerr << "Rendered text is unavailable: the shared text services "
+                     "could not be initialized." << std::endl;
+        for (const molga::text::TextDiagnostic& diagnostic :
+             textDiagnostics.Diagnostics()) {
+            std::cerr << molga::text::StableTextDiagnosticCode(diagnostic.code)
+                      << ": " << diagnostic.message << '\n';
+        }
+        molga::RenderSystem2D::Get().Shutdown();
+        ShaderManager::Get().Shutdown();
+        renderer.reset();
+        EngineShutdown(host);
+        return 4;
+    }
 
     // Load asset catalog if present (runtime mode: read-only, no .meta creation)
     PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
@@ -902,10 +947,11 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         }
         sceneRuntime.Shutdown();
         PlayerPrefs::Shutdown();
-        // Step 10a forward risk: see the note at the final Shutdown() below.
-        // Task 6.3: 이 실패 경로도 같은 순서를 쓴다. 여기서 아직 제출된
-        // 프레임이 없다는 것은 사실이지만, 그것은 논증이지 구조가 아니다.
-        ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get());
+        // Task 6.3/8.2 Step 7f: 이 실패 경로도 같은 순서를 쓴다. 여기서 아직
+        // 제출된 프레임이 없다는 것은 사실이지만, 그것은 논증이지 구조가 아니다.
+        (void)ShutdownRendererThenTextGpuResources(*renderer,
+                                                   TextRenderer::Get(),
+                                                   textDiagnostics);
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
         renderer.reset();
@@ -919,7 +965,7 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // that its GUID-backed font can rasterize those codepoints into real atlas
     // quads. Merely finding a font file in the catalog is not sufficient.
     const KoreanTitleProbe koreanTitleProbe =
-        ProbeKoreanTitle(sceneRuntime.ActiveWorld());
+        ProbeKoreanTitle(sceneRuntime.ActiveWorld(), textDiagnostics);
 
     int renderedFrames = 0;
     std::vector<double> benchmarkCpuMilliseconds;
@@ -1149,7 +1195,7 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
                     world.Objects(),
                     {framebufferSize, configuredLogicalSize,
                      config.outputScaleMode},
-                    *renderer, shader);
+                    *renderer, shader, TextRenderer::Get(), textDiagnostics);
             }
         }
 
@@ -1454,18 +1500,15 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
     sceneRuntime.Shutdown();
     UISystem::Get().ResetPointerCapture();
     PlayerPrefs::Shutdown();
-    // Step 10a forward risk: TextRenderer::Get() is a Meyers singleton, so the
-    // object itself outlives main and is destroyed after the guard's
-    // u_cleanup. That is a real Step 10a violation the moment this renderer
-    // becomes ICU/HarfBuzz-backed; today it is only stb_truetype (no hb_ or
-    // unicode/ anywhere in src/Rendering/TextRenderer.*), so the explicit
-    // Shutdown() inside the call below is what releases its resources inside
-    // this scope. Task 8.2 must give it a non-static owner declared after the
-    // guard.
-    //
-    // Task 6.3: 텍스트/atlas GPU 자원은 renderer가 GPU idle을 증명하고 반납
-    // 큐를 비운 다음에만 파괴된다. 그 순서는 이 함수 한 곳에만 적혀 있다.
-    ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get());
+    // Task 6.3/8.2 Step 7f: 텍스트/atlas GPU 자원은 renderer가 GPU idle을
+    // 증명하고 반납 큐를 비운 다음에만 파괴되고, 텍스트 서비스는 그 다음,
+    // guard의 종결 u_cleanup은 맨 마지막이다. 그 순서는 이 함수 한 곳에만
+    // 적혀 있다.
+    if (!ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get(),
+                                              textDiagnostics)) {
+        std::cerr << "Text GPU teardown was refused during runtime shutdown."
+                  << std::endl;
+    }
     gameOutputRenderer.reset();
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();

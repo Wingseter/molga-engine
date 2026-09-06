@@ -1250,16 +1250,10 @@ TEST_CASE("glyph rasterization is addressed by glyph id, not by codepoint") {
     REQUIRE(byGlyphId.height > 0);
     REQUIRE_FALSE(byGlyphId.coverage.empty());
 
-    // 같은 그림이 legacy codepoint 경로에서도 나온다: glyph ID 경로는 cmap을
-    // 건너뛰었을 뿐 다른 래스터라이저가 아니다.
-    const molga::FontGlyphBitmap legacy = face.Rasterize(U'A', 23.0f);
-    CHECK(byGlyphId.width == legacy.width);
-    CHECK(byGlyphId.height == legacy.height);
-    CHECK(byGlyphId.xOffset == legacy.xOffset);
-    CHECK(byGlyphId.yOffset == legacy.yOffset);
-    CHECK(byGlyphId.coverage == legacy.coverage);
-
-    // 그리고 codepoint 숫자를 glyph ID로 쓴 것과는 다른 그림이다.
+    // Task 8.2 Step 8a.1: legacy codepoint 래스터 경로는 지워졌으므로 "같은
+    // 그림"의 반대편은 이제 codepoint 숫자를 glyph ID로 착각한 경우뿐이다.
+    // 그 하나로 충분하다: 이 케이스가 붙드는 것은 "cmap을 건너뛴다"이고,
+    // 착각한 번호가 다른 그림을 내는 것이 곧 그 증거다.
     const molga::FontGlyphBitmap byCodepointNumber =
         face.RasterizeGlyph(static_cast<std::uint32_t>(U'A'), 23U, 64U);
     CHECK(byCodepointNumber.coverage != byGlyphId.coverage);
@@ -1267,7 +1261,7 @@ TEST_CASE("glyph rasterization is addressed by glyph id, not by codepoint") {
     // 논리 advance는 HarfBuzz의 몫이다. 이 함수는 비트맵 경계/bearing/coverage만
     // 돌려준다.
     CHECK(byGlyphId.xAdvance == 0.0f);
-    CHECK(legacy.xAdvance > 0.0f);
+    CHECK(byCodepointNumber.xAdvance == 0.0f);
 }
 
 TEST_CASE("the raster scale key scales the rasterized image") {

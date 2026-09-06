@@ -9,6 +9,10 @@
 namespace molga::text {
 namespace {
 
+// Task 8.2: 산출물 바이트를 실제로 읽은 횟수. 읽기 직전에 올린다 — 사후에
+// 세면 "열려다 실패했다"가 흔적 없이 사라진다.
+std::uint64_t g_byteLoads = 0;
+
 // 한 번의 Load 실패에 진단 하나. TextDiagnosticRateLimitKey는 code, assetGuid,
 // sceneObjectId, componentType, sourceByteRange를 모두 접지만 이 호출부는 뒤의
 // 셋을 기본값으로 두므로 key가 사실상 code+assetGuid로 줄어들고, 로거 경로에서는
@@ -168,6 +172,7 @@ std::optional<FontFaceResourcePtr> FontRepository::Load(
     artifact.artifactSha256 = asset->artifactSha256;
     artifact.byteSize = asset->artifactByteSize;
 
+    ++g_byteLoads;
     const auto bytes = store->ReadVerified(artifact, sink);
     if (!bytes || !*bytes) {
         // ReadVerified가 이미 사유가 있는 FontInvalid를 보고했다.
@@ -220,5 +225,12 @@ std::optional<FontFaceResourcePtr> FontRepository::Load(
     Publish(fontGuid, published);
     return published;
 }
+
+namespace detail {
+
+std::uint64_t FontRepositoryByteLoadCount() noexcept { return g_byteLoads; }
+void ResetFontRepositoryByteLoadCount() noexcept { g_byteLoads = 0; }
+
+} // namespace detail
 
 } // namespace molga::text

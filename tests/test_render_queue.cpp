@@ -36,6 +36,11 @@ struct RecordingRenderer {
 
     RecordingStats& Stats() noexcept { return stats; }
 
+    // Task 8.2: 진짜 Renderer와 같은 질문을 받는다. RetainUntilFrameComplete가
+    // 활성 프레임 없이 불리면 std::logic_error를 던지므로, 그 조건을 걸러 내는
+    // 것은 제출 루프의 몫이고 그 판단은 이 함수 하나로만 관찰된다.
+    bool HasFrame() const noexcept { return hasFrame; }
+
     void RetainUntilFrameComplete(std::uint64_t pageIdentity,
                                   std::shared_ptr<const void> pageLifetime) {
         log_->push_back("retain");
@@ -45,6 +50,7 @@ struct RecordingRenderer {
     const std::vector<std::string>& CallOrder() const noexcept { return *log_; }
 
     RecordingStats stats;
+    bool hasFrame = true;
     std::vector<std::pair<std::uint64_t, std::shared_ptr<const void>>> retained;
 
 private:
@@ -289,6 +295,49 @@ TEST_CASE("a command without a page token draws without retaining") {
     f.Render();
     CHECK(f.renderer.retained.empty());
     CHECK(f.renderer.CallOrder() == std::vector<std::string>{"draw"});
+}
+
+// ── Task 8.2: Renderer::RetainUntilFrameComplete가 던지는 두 조건 ───────────
+// 그 함수는 정체성이 0이거나 활성 프레임이 없으면 std::logic_error를 던진다.
+// 이 호출은 SpriteBatcher::Begin/End 사이에 있으므로, 던지면 batcher가 열린
+// 채로 예외가 RenderSystem2D::Render 밖으로 나간다 — 프레임 하나가 아니라
+// batcher 상태가 깨진다. Task 8.2 전에는 resourceLifetime을 채우는 프로덕션
+// 생산자가 없어 닿을 수 없었고, 텍스트 소비자를 옮긴 지금은 살아 있다.
+//
+// 양쪽을 다 요구한다. "붙들지 않는다"만 보면 붙듦을 통째로 지운 구현도
+// 통과하므로, 같은 픽스처에서 정상 명령이 실제로 붙들리는 것을 함께 본다.
+TEST_CASE("a token without a page identity draws without retaining") {
+    RenderQueueFixture f;
+    auto orphan = std::make_shared<int>(1);
+    auto named = std::make_shared<int>(2);
+    // 정체성 0 + 토큰 있음. atlas는 이 모양을 만들지 않지만, 받아 주면 이름
+    // 없는 여러 자원이 가짜 page 0 하나로 뭉쳐 서로의 반납을 막는다.
+    f.EnqueueTextCommand(0, orphan);
+    f.EnqueueTextCommand(31, named);
+    f.Render();
+    REQUIRE(f.renderer.retained.size() == 1U);
+    CHECK(f.renderer.retained.front().first == 31U);
+    CHECK(f.renderer.retained.front().second == named);
+}
+
+TEST_CASE("a text command outside an active frame draws without retaining") {
+    RenderQueueFixture f;
+    auto token = std::make_shared<int>(1);
+    f.EnqueueTextCommand(17, token);
+    // 프레임 밖 Render는 실제로 있다: ParticleSystem/SpriteRenderer/
+    // MarrowRenderer의 RenderSprite 경로와, 프레임을 얻지 못한 프레임.
+    f.renderer.hasFrame = false;
+    f.Render();
+    CHECK(f.renderer.retained.empty());
+    CHECK(f.renderer.CallOrder() == std::vector<std::string>{"draw"});
+
+    // 같은 명령이 프레임 안에서는 붙들린다. 이 대조가 없으면 위 케이스는
+    // 붙듦을 통째로 지운 구현과 구분되지 않는다.
+    RenderQueueFixture inFrame;
+    inFrame.EnqueueTextCommand(17, token);
+    inFrame.Render();
+    REQUIRE(inFrame.renderer.retained.size() == 1U);
+    CHECK(inFrame.renderer.retained.front().first == 17U);
 }
 
 // 페이지 지분이 배치를 바꾸지 않는다는 것이 이 필드들을 BatchKey 밖에 둔

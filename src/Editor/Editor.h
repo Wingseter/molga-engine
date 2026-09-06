@@ -17,6 +17,8 @@
 
 class GameObject;
 class Renderer;
+class TextRenderer;
+namespace molga::text { class TextDiagnosticSink; }
 class Shader;
 class Camera2D;
 class HierarchyWindow;
@@ -85,7 +87,12 @@ public:
     }
 
     // SceneView에 렌더 리소스 주입
-    void SetSceneViewResources(Renderer* renderer, Shader* shader);
+    // Task 8.2 Step 7d: Scene View와 Game View는 텍스트 권한을 스스로 찾지
+    // 않는다. 프로세스 소유자(main)가 해석한 renderer/sink 하나를 여기로
+    // 흘려보내고, 두 창은 그것을 순회 문맥에 담아 넘긴다.
+    void SetSceneViewResources(Renderer* renderer, Shader* shader,
+                               TextRenderer* textRenderer,
+                               molga::text::TextDiagnosticSink* textDiagnostics);
     void ProcessPlayUIInput();
     void ResetPlayUIInput();
 

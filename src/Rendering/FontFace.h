@@ -8,13 +8,6 @@
 
 namespace molga {
 
-struct FontFaceMetrics {
-    float ascent = 0.0f;
-    float descent = 0.0f;
-    float lineGap = 0.0f;
-    float lineHeight = 0.0f;
-};
-
 struct FontGlyphBitmap {
     int width = 0;
     int height = 0;
@@ -52,6 +45,11 @@ public:
     // cmap 조회용 비-fallback 검사 유틸리티. 0은 .notdef이다. 셰이핑의 face
     // 선택은 이 두 함수가 아니라 임포트된 coverage와 대상 범위로 한정한
     // HarfBuzz probe로 결정한다.
+    //
+    // Task 8.2 Step 8a.1: 검사 전용이라는 것이 계약이다. 셰이핑/레이아웃/렌더
+    // 소비자는 이 둘을 부르지 않으며, 그 주장은 test_font.cpp의 소스 스캔이
+    // 지킨다 — 호출 하나가 늘어나도 결과는 그럴듯하게 나오므로 코드를 읽어서는
+    // 증명되지 않는다.
     std::uint32_t GlyphId(char32_t codepoint) const noexcept;
     bool HasCodepoint(char32_t codepoint) const noexcept;
 
@@ -95,33 +93,22 @@ public:
     // 그 하나 때문에 race가 되지 않도록 atomic이다.
     std::uint32_t LastRasterizedGlyphId() const noexcept;
 
-    // 아래 codepoint 기반 헬퍼는 아직 이관되지 않은 레거시 렌더러 전용이며,
-    // Task 8.2에서 함께 사라진다. 새 셰이핑/레이아웃 코드는 부르지 않는다:
-    // 이들은 셰이핑도 커닝도 fallback도 대신하지 못한다.
-    FontFaceMetrics Metrics(float pixelHeight) const;
-    FontGlyphBitmap Rasterize(std::uint32_t codepoint, float pixelHeight) const;
-    float Advance(std::uint32_t codepoint, float pixelHeight) const;
-    float Kerning(std::uint32_t left, std::uint32_t right, float pixelHeight) const;
-    bool HasGlyph(std::uint32_t codepoint) const;
+    // ── Task 8.2: 이 face에 실제로 래스터를 물은 횟수 ────────────────────────
+    // 위 LastRasterizedGlyphId와 같은 자리, 같은 이유의 seam이다. hot reload
+    // 이후 "옛 배치도 새 배치도 각자의 바이트로 그려졌다"는 주장은 face마다
+    // 따로 세어야만 관찰된다: 전역 하나로는 두 번의 래스터가 같은 face에서
+    // 났는지 서로 다른 face에서 났는지가 사라진다.
+    std::uint64_t RasterizeCallCountForTest() const noexcept;
+
+    // Task 8.2 Step 8a.1/8b: codepoint 기반 measurement/rasterization 헬퍼는
+    // 여기 있었고 지워졌다. 셰이핑도 커닝도 fallback도 대신하지 못하는
+    // 근사였고, 마지막 프로덕션 소비자(레거시 codepoint atlas)가 사라진
+    // 지금은 그것들이 없다는 사실 자체가 "stb는 비트맵 래스터화만 한다"의
+    // 증명이다. 위 RasterizeGlyph가 남은 유일한 stb 진입점이다.
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
-
-namespace detail {
-
-// stb_truetype이 셰이핑/커닝/fallback/줄바꿈에 쓰이지 않는다는 주장은 코드를
-// 읽어서는 증명되지 않는다 — 새 호출 하나가 조용히 늘어나도 결과는 그럴듯하게
-// 나오기 때문이다. 그래서 위 두 레거시 헬퍼가 불린 횟수를 호출 직전에 센다.
-//
-// UnicodeAnalysis.h의 ICU 계수기와 같은 이유로 출하되는 빌드에 들어 있다.
-// 시험할 가치가 있는 주장이 프로덕션 경로에 대한 것이므로, 테스트에만
-// 컴파일되는 계수기는 다른 프로그램을 재게 된다. Task 8.2가 두 헬퍼를 지울 때
-// 이 계수기도 함께 사라진다.
-std::uint64_t LegacyFontFaceMetricCallCount() noexcept;
-void          ResetLegacyFontFaceMetricCallCount() noexcept;
-
-} // namespace detail
 
 } // namespace molga

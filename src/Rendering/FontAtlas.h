@@ -46,12 +46,11 @@ struct GlyphAtlasKeyHash {
 // 이 하위 시스템에서 수명 단위는 오직 page 하나이며, 이름은
 // GlyphHandle::pageIdentity이고 지분은 GlyphHandle::pageLifetime이다.
 //
-// 이 타입에는 한때 서로 다른 방향의 보증이 두 개 붙어 있었다. 아래
-// FontAtlasCache의 "page는 캐시 수명 내내 Texture를 유지한다"는 보증은 그
-// 클래스의 성질이지 이 타입의 성질이 아니다 — `using FontAtlasGlyph =
-// GlyphInfo;`라는 별칭 하나가 그렇게 읽히게 만들었을 뿐이고, 그 별칭은
-// 레거시 소비자가 컴파일되도록 남아 있다가 FontAtlasCache와 함께 Task 8.2에서
-// 사라진다. GlyphAtlasCache 쪽에는 그런 보증이 없다:
+// 이 타입에는 한때 서로 다른 방향의 보증이 두 개 붙어 있었다. 지금은 지워진
+// 레거시 codepoint 어댑터의 "page는 캐시 수명 내내 Texture를 유지한다"는
+// 보증은 그 클래스의 성질이었지 이 타입의 성질이 아니었다 — 별칭 하나가
+// 그렇게 읽히게 만들었을 뿐이고, 그 어댑터도 별칭도 Task 8.2에서 사라졌다.
+// GlyphAtlasCache 쪽에는 그런 보증이 없다:
 //
 //  - `texture`는 page가 소유하는 원시 포인터다. 그것을 살려 두는 것은 이
 //    구조체가 아니라 GlyphHandle::pageLifetime이다. handle을 버리고
@@ -71,7 +70,6 @@ struct GlyphInfo {
     int width = 0, height = 0, xOffset = 0, yOffset = 0;
     bool drawable = false;
 };
-using FontAtlasGlyph = GlyphInfo; // removed with the legacy adapter in Task 8.2
 
 // 한 glyph 조회의 결과이자, 그 glyph가 놓인 page의 지분.
 //
@@ -193,6 +191,13 @@ public:
     // 주석에 적힌 주장으로만 남는다.
     bool IsPageResident(std::uint64_t pageIdentity) const noexcept;
 
+    // ── Task 8.2: GetGlyph가 불린 횟수 ───────────────────────────────────
+    // "없는 family는 atlas에 닿지 않는다"는 주장은 이 값으로만 관찰된다.
+    // Telemetry의 hits/misses로는 부족하다 — 조회가 캐시 적중도 실패도 아닌
+    // 이른 반환으로 끝나면 두 값 다 움직이지 않으므로, 닿았는지 자체가
+    // 보이지 않는다. 호출 직전에 올린다.
+    std::uint64_t LookupCountForTest() const noexcept;
+
     // 이 page에 새 glyph를 써 넣어도 되는가. 상주하지 않으면 false다.
     //
     // 끝난 수집이 밖으로 내보낸 page는 그 토큰이 풀릴 때까지 false다: 제출된
@@ -218,51 +223,6 @@ private:
     friend void detail::SetGlyphAtlasGlyphsPerPageForTest(GlyphAtlasCache&,
                                                           std::size_t) noexcept;
 
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
-
-// ── Legacy codepoint adapter ────────────────────────────────────────────────
-// Task 8.2가 UILabel과 TextRenderer2D를 한 커밋에서 옮기며 이 클래스를 지운다.
-// 그때까지 아직 이관되지 않은 소비자만 이것을 쓰고, 위 GlyphAtlasCache를
-// 호출하지도 채우지도 않는다. 새 셰이핑/레이아웃 코드는 GlyphAtlasCache만
-// 의존한다 — 소비자 하나를 조용히 미리 옮기면 두 캐시가 동시에 상주한다.
-//
-// Lazy per-(font GUID, pixel size) glyph atlas. Pages retain their Texture
-// object for the cache lifetime so RenderQueue texture pointers stay stable.
-class FontAtlasCache {
-public:
-    static constexpr int kDefaultPageSize = 1024;
-
-    explicit FontAtlasCache(int pageSize = kDefaultPageSize);
-    ~FontAtlasCache();
-
-    FontAtlasCache(FontAtlasCache&&) noexcept;
-    FontAtlasCache& operator=(FontAtlasCache&&) noexcept;
-
-    FontAtlasCache(const FontAtlasCache&) = delete;
-    FontAtlasCache& operator=(const FontAtlasCache&) = delete;
-
-    bool GetMetrics(const std::string& fontGuid, int pixelSize,
-                    FontFaceMetrics& outMetrics);
-    bool GetGlyph(const std::string& fontGuid, int pixelSize,
-                  std::uint32_t codepoint, FontAtlasGlyph& outGlyph);
-    // GlyphInfo는 논리 advance를 담지 않는다(그 값은 HarfBuzz의 것이다).
-    // 레거시 codepoint 경로에는 아직 셰이퍼가 없으므로, 캐시된 래스터 advance를
-    // 여기서 따로 돌려준다. 이 함수도 Task 8.2에서 함께 사라진다.
-    float GetAdvance(const std::string& fontGuid, int pixelSize,
-                     std::uint32_t codepoint);
-    float GetKerning(const std::string& fontGuid, int pixelSize,
-                     std::uint32_t left, std::uint32_t right);
-
-    void Invalidate(const std::string& fontGuid);
-    void Clear();
-
-    std::size_t PageCount(const std::string& fontGuid, int pixelSize) const;
-    std::size_t GlyphCount(const std::string& fontGuid, int pixelSize) const;
-    std::size_t CachedFontSizeCount() const;
-
-private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

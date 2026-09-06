@@ -106,11 +106,15 @@ SceneViewWindow::~SceneViewWindow() = default;
 void SceneViewWindow::SetSceneResources(
     Renderer* renderer,
     Shader*   spriteShader,
-    std::vector<std::shared_ptr<GameObject>>* objects)
+    std::vector<std::shared_ptr<GameObject>>* objects,
+    TextRenderer* textRenderer,
+    molga::text::TextDiagnosticSink* textDiagnostics)
 {
-    renderer_     = renderer;
-    spriteShader_ = spriteShader;
-    gameObjects_  = objects;
+    renderer_        = renderer;
+    spriteShader_    = spriteShader;
+    gameObjects_     = objects;
+    textRenderer_    = textRenderer;
+    textDiagnostics_ = textDiagnostics;
 
     InitGridShader();
 }
@@ -548,6 +552,9 @@ void SceneViewWindow::DrawGrid() {
 
 void SceneViewWindow::DrawSprites() {
     if (!renderer_ || !spriteShader_ || !gameObjects_) return;
+    // Task 8.2 Step 7d: 텍스트 권한 없이 순회하지 않는다. 문맥 없는 순회
+    // 오버로드는 존재하지 않으므로 이 검사가 곧 컴파일러의 것이다.
+    if (!textRenderer_ || !textDiagnostics_) return;
 
     // Reset stats before drawing
     renderer_->ResetStats();
@@ -589,12 +596,23 @@ void SceneViewWindow::DrawSprites() {
         };
     {
         MOLGA_PROFILE_SCOPE("RenderQueue.Collect", molga::ProfileCategory::Rendering);
+        // 에디터 카메라의 world-to-physical 배율 하나가 이 프레임의 래스터
+        // 정책이다. 줌을 바꾸면 같은 글자가 새 해상도로 다시 래스터된다.
+        WorldRenderCollectionContext textContext;
+        textContext.textRenderer = textRenderer_;
+        textContext.textDiagnostics = textDiagnostics_;
+        if (const auto policy = TextRasterPolicy::FromWorldPixelsPerUnit(
+                static_cast<double>(activeCamera->GetZoom()),
+                *textDiagnostics_)) {
+            textContext.baseTextRasterPolicy = *policy;
+        }
         if (previewCamera) {
             molga::CollectWorldRender(
                 *gameObjects_, queue, previewCamera->GetCullingMask(),
-                collectOverride);
+                textContext, collectOverride);
         } else {
-            molga::CollectWorldRender(*gameObjects_, queue, collectOverride);
+            molga::CollectWorldRender(*gameObjects_, queue, textContext,
+                                      collectOverride);
         }
     }
 
@@ -715,8 +733,21 @@ void SceneViewWindow::DrawSprites() {
 
 void SceneViewWindow::DrawUI(float vpW, float vpH) {
     if (!renderer_ || !spriteShader_ || !gameObjects_) return;
+    if (!textRenderer_ || !textDiagnostics_) return;
     molga::RenderQueue queue;
-    UISystem::Get().CollectRender(*gameObjects_, {vpW, vpH}, queue);
+    // Scene View의 UI 층은 패널 픽셀에 1:1로 그려진다.
+    TextRasterPolicy uiPolicy;
+    const molga::PixelSize uiPixels{static_cast<int>(vpW),
+                                    static_cast<int>(vpH)};
+    if (const auto derived = TextRasterPolicy::FromUiScale(
+            molga::FixedSize{
+                molga::Fixed26_6::FromRaw(uiPixels.width * 64),
+                molga::Fixed26_6::FromRaw(uiPixels.height * 64)},
+            uiPixels, *textDiagnostics_)) {
+        uiPolicy = *derived;
+    }
+    UISystem::Get().CollectRender(*gameObjects_, {vpW, vpH}, queue,
+                                  *textRenderer_, *textDiagnostics_, uiPolicy);
     if (queue.GetCommands().empty()) return;
 
     Camera2D uiCamera(vpW, vpH);

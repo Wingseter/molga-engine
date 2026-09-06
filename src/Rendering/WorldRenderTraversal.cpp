@@ -3,6 +3,7 @@
 #include "ECS/Component.h"
 #include "ECS/GameObject.h"
 #include "Rendering/RenderQueue.h"
+#include "Rendering/TextRenderer.h"
 
 namespace molga {
 
@@ -12,6 +13,7 @@ void CollectWorldRenderImpl(
     const std::vector<std::shared_ptr<GameObject>>& objects,
     RenderQueue& queue,
     const std::uint32_t* cullingMask,
+    const WorldRenderCollectionContext& context,
     const WorldRenderCollectOverride& overrideCollector) {
     for (const auto& object : objects) {
         if (!object || !object->IsActive()) continue;
@@ -22,7 +24,7 @@ void CollectWorldRenderImpl(
         for (Component* component : object->GetComponents()) {
             if (!component || !component->IsEnabled()) continue;
             if (overrideCollector && overrideCollector(*component, queue)) continue;
-            component->CollectRender(queue);
+            component->CollectRender(queue, context);
         }
     }
 }
@@ -55,16 +57,19 @@ void ForEachWorldRenderComponent(
 void CollectWorldRender(
     const std::vector<std::shared_ptr<GameObject>>& objects,
     RenderQueue& queue,
+    const WorldRenderCollectionContext& context,
     const WorldRenderCollectOverride& overrideCollector) {
-    CollectWorldRenderImpl(objects, queue, nullptr, overrideCollector);
+    CollectWorldRenderImpl(objects, queue, nullptr, context, overrideCollector);
 }
 
 void CollectWorldRender(
     const std::vector<std::shared_ptr<GameObject>>& objects,
     RenderQueue& queue,
     std::uint32_t cullingMask,
+    const WorldRenderCollectionContext& context,
     const WorldRenderCollectOverride& overrideCollector) {
-    CollectWorldRenderImpl(objects, queue, &cullingMask, overrideCollector);
+    CollectWorldRenderImpl(objects, queue, &cullingMask, context,
+                           overrideCollector);
 }
 
 } // namespace molga

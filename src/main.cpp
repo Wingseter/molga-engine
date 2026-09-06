@@ -356,17 +356,29 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     }
     SceneDocument sceneDoc;
 
-    // Initialize Text Renderer
-    // Step 10a forward risk: this singleton's storage outlives main. See the
-    // note at its Shutdown() call. Task 8.2 must give it a non-static owner
-    // declared after the text lifetime guard.
-    TextRenderer::Get().Init();
+    // ── Task 8.2 Step 3b/7f: 공유 텍스트 서비스 한 벌 ────────────────────────
+    // 텍스트 런타임 guard는 이 함수 맨 위에 이미 서 있고, 이 renderer는 그
+    // 다음이다. database는 프로세스가 소유하는 그 권한이며 나중에 프로젝트/
+    // 봉인된 폰트 산출물 저장소를 받고 이 renderer보다 오래 산다.
+    //
+    // 실패해도 에디터 셸은 그대로 쓸 수 있다: 텍스트가 없는 상태가 되고,
+    // 사유는 textDiagnostics(에디터 콘솔)로 나간다. 대체 렌더러는 세우지
+    // 않는다 — 조용히 다른 폰트로 그리는 것이 텍스트가 없는 것보다 나쁘다.
+    // 프로세스 인스턴스는 정적 저장 수명이 아니라 heap에 있고, 아래
+    // ShutdownRendererThenTextGpuResources가 guard의 u_cleanup 전에 부순다.
+    if (!TextRenderer::Get().Init(molga::AssetDatabase::Get(), textDiagnostics)) {
+        Log::Error("text-runtime",
+                   "Rendered text is unavailable: the shared text services "
+                   "could not be initialized. The editor shell remains "
+                   "usable.");
+    }
 
     // Initialize Editor
     Editor::Get().Init();
     Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
     // SceneView에 렌더 리소스 주입 (FBO 렌더 활성화)
-    Editor::Get().SetSceneViewResources(renderer.get(), shader);
+    Editor::Get().SetSceneViewResources(renderer.get(), shader,
+                                        &TextRenderer::Get(), &textDiagnostics);
 
     EditorState& editorState = EditorState::Get();
     editorState.SetPlayCallbacks(
@@ -476,7 +488,8 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
             Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
             Editor::Get().SetCurrentScenePath(mainScene.string());
             // 씬 로드 후 SceneView 리소스 재주입 (오브젝트 목록 갱신)
-            Editor::Get().SetSceneViewResources(renderer.get(), shader);
+            Editor::Get().SetSceneViewResources(renderer.get(), shader,
+                                        &TextRenderer::Get(), &textDiagnostics);
             std::cout << "[Main] Loaded project startup scene: " << mainScene << std::endl;
         } else {
             std::cerr << "[Main] Project startup scene not found or invalid: "
@@ -620,18 +633,19 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     Project::Get().Close();
     Editor::Get().Shutdown();
     ImGuiLayer::Shutdown();
-    // Step 10a forward risk: TextRenderer::Get() is a Meyers singleton, so the
-    // object itself outlives main and is destroyed after the guard's
-    // u_cleanup. That is a real Step 10a violation the moment this renderer
-    // becomes ICU/HarfBuzz-backed; today it is only stb_truetype (no hb_ or
-    // unicode/ anywhere in src/Rendering/TextRenderer.*), so the explicit
-    // Shutdown() inside the call below is what releases its resources inside
-    // this scope. Task 8.2 must give it a non-static owner declared after the
-    // guard.
-    //
-    // Task 6.3: 텍스트/atlas GPU 자원은 renderer가 GPU idle을 증명하고 반납
-    // 큐를 비운 다음에만 파괴된다. 그 순서는 이 함수 한 곳에만 적혀 있다.
-    ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get());
+    // Task 6.3/8.2 Step 7f: 텍스트/atlas GPU 자원은 renderer가 GPU idle을
+    // 증명하고 반납 큐를 비운 다음에만 파괴되고, 텍스트 서비스는 그 다음,
+    // guard의 종결 u_cleanup은 맨 마지막이다. 그 순서는 이 함수 한 곳에만
+    // 적혀 있다. 프로세스 인스턴스도 성공 시 그 안에서 놓이므로, guard가
+    // 죽은 뒤에 도는 소멸자가 남지 않는다.
+    if (!ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get(),
+                                              textDiagnostics)) {
+        // 거절되었다는 것은 종료 순서가 뒤집혔다는 뜻이다. 붙들려 있는 page
+        // 위에서 부수는 것보다 OS가 회수하게 두는 쪽이 싸므로, 여기서는
+        // 사유만 남기고 인스턴스를 그대로 둔다(Task 6의 잠정 종결 분기).
+        Log::Error("TextRenderer",
+                   "Text GPU teardown was refused during editor shutdown.");
+    }
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
     renderer.reset();

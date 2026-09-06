@@ -68,4 +68,19 @@ private:
     mutable std::unordered_map<std::string, FaceCache> cache_;
 };
 
+namespace detail {
+
+// ── Task 8.2: 검증된 산출물 바이트를 실제로 읽은 횟수 ────────────────────────
+// UnicodeAnalysis.h의 ICU 계수기, FontFace.h의 레거시 계수기와 같은 성격의
+// seam이고 같은 이유로 출하되는 빌드에 들어 있다. 시험할 가치가 있는 주장 —
+// "명령을 모으는 동안 어떤 GUID도 다시 열리지 않는다" — 이 프로덕션 경로에
+// 대한 것이므로, 테스트에만 컴파일되는 계수기는 다른 프로그램을 재게 된다.
+//
+// 캐시 적중은 세지 않는다. 세고 싶은 것은 "바이트를 다시 읽었는가"이고,
+// 이미 발행된 불변 자원을 돌려주는 것은 그 사건이 아니다.
+std::uint64_t FontRepositoryByteLoadCount() noexcept;
+void          ResetFontRepositoryByteLoadCount() noexcept;
+
+} // namespace detail
+
 } // namespace molga::text

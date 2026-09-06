@@ -468,8 +468,22 @@ void LayoutRun::Fail(std::string message, SourceByteRange range) const {
 // ── Step 4: the pre-analysis family closure ─────────────────────────────────
 bool LayoutRun::ResolveFamilyClosure() {
     VectorTextDiagnosticSink resolveSink;
-    auto resolved = resolver_.BuildCandidates(
-        request_.style.fontFamilyGuid, request_.style.fontRequest, resolveSink);
+    // Task 8.2 설계 개정(2026-09-07): schema 1 컴포넌트는 family가 아니라 폰트
+    // 하나를 지목한다. 그 지목을 family GUID로 흘리면 FontImporter 기록을
+    // family로 읽으려다 후보 0개와 엉뚱한 FontFamilyInvalid가 되므로, 레거시
+    // 지목은 Task 5.1이 이 경우를 위해 만든 단일 face 경로로 간다 — face
+    // 하나, fallback 없음. family가 저작되어 있으면 그쪽이 이긴다: family를
+    // 저작하는 것이 레거시 지목을 대체하는 유일한 행위이기 때문이다.
+    const bool legacySingleFace = request_.style.fontFamilyGuid.empty() &&
+                                  !request_.style.legacyFontGuid.empty();
+    auto resolved =
+        legacySingleFace
+            ? resolver_.BuildLegacySingleFace(request_.style.legacyFontGuid,
+                                              request_.style.fontRequest,
+                                              resolveSink)
+            : resolver_.BuildCandidates(request_.style.fontFamilyGuid,
+                                        request_.style.fontRequest,
+                                        resolveSink);
     if (!resolved) {
         // nullopt는 "family가 없다"가 아니라 "FontArtifactStore가 묶이지
         // 않았다"는 뜻이다(Task 5.1의 계약). 절차적 두부로 넘어갈 수 있는

@@ -29,6 +29,22 @@ struct ProjectSettingsScope {
     nlohmann::json before;
 };
 
+// ── Task 8.2 Step 7d: 널 텍스트 권한을 쓸 자격 ───────────────────────────────
+// NonTextOnlyForTesting()은 널 renderer/sink를 담는다. 그것을 받은 순회는
+// 텍스트 컴포넌트를 만나면 아무 명령도 만들지 않으므로, "이 world에 텍스트가
+// 없다"를 먼저 증명하지 않고 쓰면 사라진 텍스트가 통과로 읽힌다. 그 증명이
+// 여기 있고, 아래 순회는 전부 이 함수를 지나서만 문맥을 얻는다.
+WorldRenderCollectionContext NonTextWorld(
+    const std::vector<std::shared_ptr<GameObject>>& objects) {
+    for (const auto& object : objects) {
+        if (!object) continue;
+        for (Component* component : object->GetComponents()) {
+            REQUIRE(dynamic_cast<TextRenderer2D*>(component) == nullptr);
+        }
+    }
+    return WorldRenderCollectionContext::NonTextOnlyForTesting();
+}
+
 class TraversalProbeA final : public Component {
 public:
     COMPONENT_TYPE(TraversalProbeA)
@@ -85,8 +101,10 @@ TEST_CASE("world render traversal preserves object and component slots") {
     inactive->SetActive(false);
 
     molga::RenderQueue queue;
+    const std::vector<std::shared_ptr<GameObject>> objects{first, second,
+                                                           inactive};
     molga::CollectWorldRender(
-        {first, second, inactive}, queue,
+        objects, queue, NonTextWorld(objects),
         [](Component& component, molga::RenderQueue& target) {
             if (!dynamic_cast<TraversalProbeB*>(&component)) return false;
             molga::RenderCommand replacement;

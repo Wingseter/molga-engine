@@ -12,7 +12,6 @@
 #include "Core/TextureImportSettings.h"
 #include "Core/PathService.h"
 #include "Core/TextureManager.h"
-#include "Rendering/TextRenderer.h"
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
@@ -602,9 +601,10 @@ const AssetRecord* AssetDatabase::PreviouslyPublished(
 }
 
 void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
-    if (this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateAllFonts();
-    }
+    // Task 8.2 Step 8d: 여기서 렌더러를 직접 무효화하던 통로는 지워졌다.
+    // 발행에 성공한 폰트/family 기록은 아래에서 Task 4의 content generation을
+    // 올리고, 그 값은 이미 resolver/layout/resource 캐시 정체성의 일부다 —
+    // 다음 요청이 스스로 갈리므로 Core가 Rendering으로 손을 뻗을 이유가 없다.
     assetRoot_ = assetRoot;
     catalogPackageRoot_ = false;
     // 스캔은 byGuid_를 통째로 다시 세우므로, 그 자리에서 "직전 발행"을 찾으면
@@ -807,9 +807,6 @@ bool AssetDatabase::TryReimport(const std::string& guid, std::string* errorOut) 
             return false;
         }
     }
-    if (previous.importer == "FontImporter" && this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateFont(guid);
-    }
     if (errorOut) errorOut->clear();
     return true;
 }
@@ -850,14 +847,8 @@ void AssetDatabase::OnSourceRemoved(const std::filesystem::path& rel) {
     std::string key = GetCanonicalPathStatic(absPath, assetRoot_);
     auto it = sourceToGuid_.find(key);
     if (it == sourceToGuid_.end()) return;
-    const std::string guid = it->second;
-    const auto record = byGuid_.find(guid);
-    const bool isFont = record != byGuid_.end() && record->second.importer == "FontImporter";
     byGuid_.erase(it->second);
     sourceToGuid_.erase(it);
-    if (isFont && this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateFont(guid);
-    }
 }
 
 void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
@@ -875,11 +866,7 @@ void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
     sourceToGuid_[newKey] = guid;
     auto recIt = byGuid_.find(guid);
     if (recIt != byGuid_.end()) {
-        const bool isFont = recIt->second.importer == "FontImporter";
         recIt->second.sourcePath = newKey;
-        if (isFont && this == &AssetDatabase::Get()) {
-            TextRenderer::Get().InvalidateFont(guid);
-        }
     }
 }
 
@@ -992,9 +979,6 @@ bool AssetDatabase::LoadCatalog(const std::filesystem::path& catalogPath,
 }
 
 void AssetDatabase::Clear() {
-    if (this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateAllFonts();
-    }
     byGuid_.clear();
     sourceToGuid_.clear();
     // 세대는 지금 버리는 카탈로그 안에서만 의미가 있다. 남겨 두면 프로젝트 A가

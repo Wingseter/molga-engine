@@ -26,11 +26,6 @@ namespace {
 
 constexpr std::uintmax_t kMaximumFontBytes = 256U * 1024U * 1024U;
 
-// 아래 두 레거시 헬퍼의 호출 횟수. 호출 직전에 올리므로 유효하지 않은 face에
-// 대한 호출도 남는다: 세고 싶은 것은 "몇 번 답을 얻었는가"가 아니라 "누가
-// stb에게 물었는가"다.
-std::uint64_t g_legacyMetricCalls = 0;
-
 std::uint16_t ReadU16(const std::vector<std::uint8_t>& bytes, std::size_t offset) {
     return static_cast<std::uint16_t>(
         (static_cast<std::uint16_t>(bytes[offset]) << 8U) |
@@ -139,6 +134,9 @@ struct FontFace::Impl {
     // 기록 하나가 그 공유를 data race로 바꾸어서는 안 된다. 순서 보장은 필요
     // 없으므로 relaxed다.
     mutable std::atomic<std::uint32_t> lastRasterizedGlyphId{0};
+    // Task 8.2: 같은 이유, 같은 규칙(mutable atomic, relaxed)의 두 번째 관찰
+    // 기록. 위와 달리 값이 아니라 횟수를 센다.
+    mutable std::atomic<std::uint64_t> rasterizeCalls{0};
     bool valid = false;
 };
 
@@ -292,6 +290,7 @@ FontGlyphBitmap FontFace::RasterizeGlyph(std::uint32_t glyphId,
     // 물어본 사실을 먼저 남긴다. 성공한 요청만 세면 "잘못된 face에 물어서
     // 빈 비트맵이 나왔다"는 가장 위험한 경우가 흔적 없이 사라진다.
     state.lastRasterizedGlyphId.store(glyphId, std::memory_order_relaxed);
+    state.rasterizeCalls.fetch_add(1U, std::memory_order_relaxed);
     if (!IsValid()) return result;
     // 범위 밖 glyph ID는 여기서 닫는다. stb도 loca 경계를 검사하지만, 그
     // 방어가 우리 것이 아니면 벤더 사본을 갱신하는 날 조용히 사라진다.
@@ -334,83 +333,8 @@ std::uint32_t FontFace::LastRasterizedGlyphId() const noexcept {
                  : 0U;
 }
 
-FontFaceMetrics FontFace::Metrics(float pixelHeight) const {
-    FontFaceMetrics result;
-    if (!IsValid()) return result;
-
-    const float scale = stbtt_ScaleForPixelHeight(&impl_->info, SafePixelHeight(pixelHeight));
-    int ascent = 0;
-    int descent = 0;
-    int lineGap = 0;
-    stbtt_GetFontVMetrics(&impl_->info, &ascent, &descent, &lineGap);
-    result.ascent = static_cast<float>(ascent) * scale;
-    result.descent = static_cast<float>(descent) * scale;
-    result.lineGap = static_cast<float>(lineGap) * scale;
-    result.lineHeight = static_cast<float>(ascent - descent + lineGap) * scale;
-    return result;
+std::uint64_t FontFace::RasterizeCallCountForTest() const noexcept {
+    return impl_ ? impl_->rasterizeCalls.load(std::memory_order_relaxed) : 0U;
 }
-
-FontGlyphBitmap FontFace::Rasterize(std::uint32_t codepoint, float pixelHeight) const {
-    FontGlyphBitmap result;
-    if (!IsValid() || codepoint > 0x10FFFFU) return result;
-
-    const float scale = stbtt_ScaleForPixelHeight(&impl_->info, SafePixelHeight(pixelHeight));
-    int advance = 0;
-    int bearing = 0;
-    stbtt_GetCodepointHMetrics(&impl_->info, static_cast<int>(codepoint), &advance, &bearing);
-    result.xAdvance = static_cast<float>(advance) * scale;
-
-    int x0 = 0;
-    int y0 = 0;
-    int x1 = 0;
-    int y1 = 0;
-    stbtt_GetCodepointBitmapBox(&impl_->info, static_cast<int>(codepoint),
-                                scale, scale, &x0, &y0, &x1, &y1);
-    result.width = std::max(0, x1 - x0);
-    result.height = std::max(0, y1 - y0);
-    result.xOffset = x0;
-    result.yOffset = y0;
-    if (result.width == 0 || result.height == 0) return result;
-
-    result.coverage.resize(static_cast<std::size_t>(result.width) *
-                           static_cast<std::size_t>(result.height));
-    stbtt_MakeCodepointBitmap(&impl_->info, result.coverage.data(),
-                              result.width, result.height, result.width,
-                              scale, scale, static_cast<int>(codepoint));
-    return result;
-}
-
-float FontFace::Advance(std::uint32_t codepoint, float pixelHeight) const {
-    ++g_legacyMetricCalls;
-    if (!IsValid() || codepoint > 0x10FFFFU) return 0.0f;
-    int advance = 0;
-    int bearing = 0;
-    stbtt_GetCodepointHMetrics(&impl_->info, static_cast<int>(codepoint), &advance, &bearing);
-    const float scale = stbtt_ScaleForPixelHeight(&impl_->info, SafePixelHeight(pixelHeight));
-    return static_cast<float>(advance) * scale;
-}
-
-float FontFace::Kerning(std::uint32_t left, std::uint32_t right, float pixelHeight) const {
-    ++g_legacyMetricCalls;
-    if (!IsValid() || left > 0x10FFFFU || right > 0x10FFFFU) return 0.0f;
-    const float scale = stbtt_ScaleForPixelHeight(&impl_->info, SafePixelHeight(pixelHeight));
-    return static_cast<float>(stbtt_GetCodepointKernAdvance(
-        &impl_->info, static_cast<int>(left), static_cast<int>(right))) * scale;
-}
-
-bool FontFace::HasGlyph(std::uint32_t codepoint) const {
-    return IsValid() && codepoint <= 0x10FFFFU &&
-           stbtt_FindGlyphIndex(&impl_->info, static_cast<int>(codepoint)) != 0;
-}
-
-namespace detail {
-
-std::uint64_t LegacyFontFaceMetricCallCount() noexcept {
-    return g_legacyMetricCalls;
-}
-
-void ResetLegacyFontFaceMetricCallCount() noexcept { g_legacyMetricCalls = 0; }
-
-} // namespace detail
 
 } // namespace molga

@@ -2,13 +2,13 @@
 
 #include "../Component.h"
 #include "../../Common/Types.h"
+#include "../../Rendering/TextRenderer.h"
 #include "../../Rendering/WorldSort2D.h"
 #include "Text/TextLayoutTypes.h"
 #include "Text/UnicodeAnalysis.h"
 #include <algorithm>
+#include <optional>
 #include <string>
-
-class Renderer;
 
 class TextRenderer2D : public Component {
 public:
@@ -29,8 +29,11 @@ public:
     void SetColor(const Color& val) { color = val; }
     const Color& GetColor() const { return color; }
 
-    void SetScale(float val) { scale = val; }
-    float GetScale() const { return scale; }
+    // Task 8.2 Step 1d: 이 배율은 Transform의 월드 배율과 곱해지는 컴포넌트
+    // 자신의 몫이다. 옛 이름 SetScale은 "월드 배율"과 구분되지 않아, 둘 중
+    // 어느 쪽을 만지는지가 호출부에서 보이지 않았다.
+    void SetComponentScale(float val) { scale = val; }
+    float GetComponentScale() const { return scale; }
 
     void SetAlignment(Alignment val) { alignment = val; }
     Alignment GetAlignment() const { return alignment; }
@@ -82,9 +85,21 @@ public:
         return {sortingLayer, sortingOrder, sortMode, ySortOffset};
     }
 
-    // Lifecycle
-    void RenderSprite(Renderer* renderer) override;
-    void CollectRender(molga::RenderQueue& queue) override;
+    // ── Task 8.2 Step 7/7a/7b: 공유 파이프라인으로 가는 유일한 진입점 ────────
+    // 한 인자짜리 CollectRender도 RenderSprite도 재정의하지 않는다. 둘 다
+    // renderer/서비스/sink 권한을 스스로 찾아야 하는 모양이고, 그것이 곧 이
+    // 프로세스에 두 번째 텍스트 서비스가 생기는 길이다. 그래서 문맥을 요구하는
+    // 이쪽만 있고, 문맥 없는 호출에는 Component의 기본 no-op이 남는다.
+    void CollectRender(molga::RenderQueue& queue,
+                       const WorldRenderCollectionContext& context) override;
+
+    // Step 7: 제약 없는 공유 요청. 폭/높이를 만들어 내지 않는다(설계 7.3).
+    molga::text::TextLayoutRequest BuildLayoutRequest() const;
+    // Step 7a/7b: scale-rotate-translate affine과 프레임 권한에서 온 정렬/래스터
+    // 값. 형제 Transform이 없거나 배율이 래스터 정책을 벗어나면 nullopt다.
+    std::optional<TextCollectContext> BuildWorldTextContext(
+        const WorldRenderCollectionContext& context,
+        molga::text::TextDiagnosticSink& sink) const;
 
     // Serialization
     void Serialize(nlohmann::json& j) const override;

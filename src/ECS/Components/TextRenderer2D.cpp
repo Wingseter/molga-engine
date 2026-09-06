@@ -2,13 +2,11 @@
 #include "Transform.h"
 #include "../GameObject.h"
 #include "../ComponentFactory.h"
-#include "../../Rendering/Renderer.h"
-#include "../../Rendering/Shader.h"
 #include "../../Rendering/TextRenderer.h"
 #include "Rendering/RenderQueue.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
-#include <vector>
+#include <cmath>
 #include <cstring>
 
 #ifdef MOLGA_EDITOR
@@ -41,6 +39,40 @@ BaseDirection BaseDirectionFromToken(const std::string& token) {
     return BaseDirection::Auto;
 }
 
+// ── Task 8.2 Step 7a: 사분면 회전의 정확한 sin/cos ───────────────────────────
+// std::cos(90도)는 0이 아니라 -4.4e-8이다. 그 값이 배율과 곱해져 정점마다
+// 다른 방향으로 새므로, 축에 정렬된 텍스트가 프레임마다 같은 좌표를 내지
+// 못한다 — 배치는 불변인데 정점은 아닌, 가장 찾기 어려운 종류의 흔들림이다.
+// 사분면은 정확한 값이 존재하므로 그것을 쓴다. 그 밖의 각은 그대로 계산한다.
+struct SinCos { float sin = 0.0f; float cos = 1.0f; };
+
+SinCos SinCosDegrees(float degrees) {
+    if (std::isfinite(degrees)) {
+        const float wrapped = std::fmod(degrees, 360.0f);
+        const float positive = wrapped < 0.0f ? wrapped + 360.0f : wrapped;
+        if (positive == 0.0f)   return {0.0f, 1.0f};
+        if (positive == 90.0f)  return {1.0f, 0.0f};
+        if (positive == 180.0f) return {0.0f, -1.0f};
+        if (positive == 270.0f) return {-1.0f, 0.0f};
+    }
+    constexpr float kPi = 3.14159265358979323846f;
+    const float radians = degrees * kPi / 180.0f;
+    return {std::sin(radians), std::cos(radians)};
+}
+
+molga::text::TextHorizontalAlignment ToLayoutAlignment(
+    TextRenderer2D::Alignment value) {
+    switch (value) {
+        case TextRenderer2D::Alignment::Center:
+            return molga::text::TextHorizontalAlignment::Center;
+        case TextRenderer2D::Alignment::Right:
+            return molga::text::TextHorizontalAlignment::Right;
+        case TextRenderer2D::Alignment::Left:
+            break;
+    }
+    return molga::text::TextHorizontalAlignment::Left;
+}
+
 } // namespace
 
 void TextRenderer2D::SetFontFamilyGuid(const std::string& val) {
@@ -57,48 +89,88 @@ void TextRenderer2D::SetLocale(const std::string& val) {
     locale = val.empty() ? std::string("und") : val;
 }
 
-void TextRenderer2D::RenderSprite(Renderer* renderer) {
-    if (!gameObject || !enabled || text.empty()) return;
+// ── Step 7: 제약 없는 공유 요청 ─────────────────────────────────────────────
+molga::text::TextLayoutRequest TextRenderer2D::BuildLayoutRequest() const {
+    molga::text::TextLayoutRequest request;
+    request.utf8 = text;
+    // 저작된 family가 이긴다. 없을 때만 schema 1의 폰트 지목이 레거시 단일
+    // face 경로로 간다(Task 8.2 설계 개정) — 그 경로는 face 하나, fallback
+    // 없음이라는 예전 동작 그대로다.
+    if (!fontFamilyGuid.empty()) {
+        request.style.fontFamilyGuid = fontFamilyGuid;
+    } else {
+        request.style.legacyFontGuid = fontGuid;
+    }
+    const auto fontSize = molga::Fixed26_6::FromFloat(fontSizePx);
+    if (fontSize) request.style.shape.fontSize = *fontSize;
+    request.style.analysis.locale = locale;
+    request.style.analysis.baseDirection = baseDirection;
+    // 월드 텍스트에는 저작된 bound가 없으므로 접을 기준도 없다. 폭/높이 제약을
+    // 만들어 내지 않는다 — 만들면 여기 없는 값을 렌더러가 지어내게 된다.
+    request.style.wrap = WrapMode();
+    request.style.overflow = OverflowMode();
+    request.style.horizontal = ToLayoutAlignment(alignment);
+    const auto spacing = molga::Fixed26_6::FromFloat(lineSpacing);
+    if (spacing) request.style.lineSpacing = *spacing;
+    request.diagnosticContext.componentType = "TextRenderer2D";
+    if (gameObject) request.diagnosticContext.sceneObjectId = gameObject->GetID();
+    return request;
+}
 
+// ── Step 7a/7b: 월드 affine과 프레임 권한 ────────────────────────────────────
+std::optional<TextCollectContext> TextRenderer2D::BuildWorldTextContext(
+    const WorldRenderCollectionContext& context,
+    molga::text::TextDiagnosticSink& sink) const {
+    if (!gameObject) return std::nullopt;
     Transform* transform = gameObject->GetComponent<Transform>();
-    if (!transform) return;
+    if (!transform) return std::nullopt;
 
-    Vector2 pos = transform->GetWorldPosition();
+    const Vector2 worldScale = transform->GetWorldScale();
+    const float sx = scale * worldScale.x;
+    const float sy = scale * worldScale.y;
+    // 래스터 배율은 프레임 정책 × max(|sx|,|sy|)이다. affine에서 되짚지
+    // 않는다: 회전이 섞이면 affine 성분은 배율이 아니게 된다.
+    const auto rasterPolicy =
+        context.baseTextRasterPolicy.ScaledForWorldTransform(sx, sy, sink);
+    if (!rasterPolicy) return std::nullopt;
 
-    // Split text by '\n'
-    std::vector<std::string> lines;
-    {
-        std::string curLine;
-        for (char c : text) {
-            if (c == '\n') {
-                lines.push_back(curLine);
-                curLine.clear();
-            } else {
-                curLine.push_back(c);
-            }
-        }
-        lines.push_back(curLine);
-    }
+    const SinCos rotation = SinCosDegrees(transform->GetWorldRotation());
+    const Vector2 position = transform->GetWorldPosition();
 
-    TextRenderer& tr = TextRenderer::Get();
-    const float legacyBitmapScale = (fontSizePx / 8.0f) * scale;
-    float lineHeight = tr.GetTextHeight(legacyBitmapScale);
-    Shader* activeShader = renderer->GetCurrentShader();
+    TextCollectContext collect;
+    // scale-rotate-translate. 음수/비균등 배율이 그대로 보존된다 — 배율을
+    // 크기로 접으면 거울상 텍스트가 조용히 정상 방향으로 그려진다.
+    collect.layoutToOutput = TextAffine2D{rotation.cos * sx,
+                                          -rotation.sin * sy,
+                                          rotation.sin * sx,
+                                          rotation.cos * sy,
+                                          position.x,
+                                          position.y};
+    collect.color = color;
+    const molga::SortKey sortKey =
+        molga::MakeWorldSortKey(GetWorldSortSettings(), position.y);
+    collect.cameraPass = sortKey.cameraPass;
+    collect.sortingLayer = sortKey.sortingLayer;
+    collect.sortingOrder = sortKey.sortingOrder;
+    collect.depthOrYSort = sortKey.depthOrYSort;
+    collect.rasterPolicy = *rasterPolicy;
+    return collect;
+}
 
-    for (size_t i = 0; i < lines.size(); ++i) {
-        const auto& line = lines[i];
-        float width = tr.GetTextWidth(line, legacyBitmapScale);
-        float offsetX = 0.0f;
-        if (alignment == Alignment::Center) {
-            offsetX = -width * 0.5f;
-        } else if (alignment == Alignment::Right) {
-            offsetX = -width;
-        }
+void TextRenderer2D::CollectRender(molga::RenderQueue& queue,
+                                   const WorldRenderCollectionContext& context) {
+    if (!gameObject || !enabled || text.empty()) return;
+    // Step 7b: 널 권한은 배치도 atlas 조회도 하기 전에 거절한다. 임시 sink를
+    // 지어내지도, TextRenderer::Get()을 묻지도 않는다 — 둘 다 "이 프레임의
+    // 권한"이 아니라 다른 무언가를 쓰게 되는 길이다.
+    if (!context.textRenderer || !context.textDiagnostics) return;
+    molga::text::TextDiagnosticSink& sink = *context.textDiagnostics;
 
-        float lineY = pos.y + i * lineHeight * lineSpacing;
-        tr.RenderText(renderer, activeShader, line, pos.x + offsetX, lineY,
-                      legacyBitmapScale, color);
-    }
+    const auto collect = BuildWorldTextContext(context, sink);
+    if (!collect) return;
+    const auto layout = context.textRenderer->Layout(BuildLayoutRequest(), sink);
+    if (!layout) return;
+    context.textRenderer->CollectLayout(queue, **layout, *collect, sink);
 }
 
 void TextRenderer2D::Serialize(nlohmann::json& j) const {
@@ -240,41 +312,4 @@ void TextRenderer2D::OnInspectorGUI() {
         sortingOrder = order;
     }
 #endif
-}
-
-void TextRenderer2D::CollectRender(molga::RenderQueue& queue) {
-    if (!gameObject || !enabled || text.empty()) return;
-
-    Transform* transform = gameObject->GetComponent<Transform>();
-    if (!transform) return;
-
-    const Vector2 position = transform->GetWorldPosition();
-    TextDrawParams params;
-    params.text = text;
-    params.fontGuid = fontGuid;
-    params.x = position.x;
-    params.y = position.y;
-    params.fontSizePx = fontSizePx;
-    params.scale = scale;
-    params.lineSpacing = lineSpacing;
-    params.color = color;
-    const molga::SortKey sortKey = molga::MakeWorldSortKey(
-        GetWorldSortSettings(), position.y);
-    params.cameraPass = sortKey.cameraPass;
-    params.sortingLayer = sortKey.sortingLayer;
-    params.sortingOrder = sortKey.sortingOrder;
-    params.depthOrYSort = sortKey.depthOrYSort;
-    switch (alignment) {
-        case Alignment::Center:
-            params.alignment = TextHorizontalAlignment::Center;
-            break;
-        case Alignment::Right:
-            params.alignment = TextHorizontalAlignment::Right;
-            break;
-        case Alignment::Left:
-        default:
-            params.alignment = TextHorizontalAlignment::Left;
-            break;
-    }
-    TextRenderer::Get().CollectText(queue, params);
 }

@@ -9,6 +9,10 @@
 class GameObject;
 class Renderer;
 namespace molga { class RenderQueue; }
+// Task 8.2 Step 7c: 월드 순회가 텍스트 컴포넌트에 건네는 renderer/서비스/sink
+// 권한. 전역 이름인 것은 TextRenderer와 같은 이유다 — 이 헤더는 그것을 값으로
+// 담지 않으므로 선언만 있으면 된다.
+struct WorldRenderCollectionContext;
 
 // Compile-time type ID for O(1) component lookup
 class ComponentTypeID {
@@ -53,6 +57,18 @@ public:
     virtual void Render() {}
     virtual void RenderSprite(Renderer* renderer) {}
     virtual void CollectRender(molga::RenderQueue& queue) {}
+
+    // Task 8.2 Step 7c: 텍스트를 그릴 수 있는 컴포넌트의 유일한 수집 진입점.
+    //
+    // 기본 구현은 텍스트가 아닌 컴포넌트를 위해 위의 한 인자짜리 가상 함수로
+    // 넘긴다. 그래서 스프라이트/타일맵/파티클은 이 태스크에서 한 줄도 바뀌지
+    // 않고, 텍스트만 문맥을 요구한다. TextRenderer2D는 이쪽만 재정의하므로
+    // 문맥 없는 호출로는 텍스트가 큐에 들어갈 수 없다 — 그것이 "renderer를
+    // 스스로 찾지 않는다"를 컴파일러의 것으로 만드는 방법이다.
+    virtual void CollectRender(molga::RenderQueue& queue,
+                               const WorldRenderCollectionContext& /*context*/) {
+        CollectRender(queue);
+    }
 
     // Called when the owning GameObject is being destroyed.
     // Use for releasing external resources (physics bodies, GPU handles, etc.)

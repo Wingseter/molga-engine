@@ -13,7 +13,12 @@
 #include "Rendering/TextRenderer.h"
 #include "Rendering/Texture.h"
 
+#include "Common/Fixed26_6.h"
+#include "Text/TextDiagnostic.h"
+#include "Text/TextLayoutTypes.h"
+
 #include <algorithm>
+#include <optional>
 #include <tuple>
 #include <vector>
 
@@ -107,6 +112,67 @@ void SubmitRect(molga::RenderQueue& queue, const AABB& rect, const Color& color,
     FillVertex(command.vertices[2], rect.x + rect.width, rect.y + rect.height, 1.0f, 1.0f, color);
     FillVertex(command.vertices[3], rect.x, rect.y + rect.height, 0.0f, 1.0f, color);
     queue.Submit(command);
+}
+
+// ── Task 8.2 Step 6: 라벨 하나를 제약 있는 공유 요청으로 ────────────────────
+molga::text::TextHorizontalAlignment ToLayoutAlignment(
+    UILabel::HorizontalAlignment value) {
+    switch (value) {
+        case UILabel::HorizontalAlignment::Center:
+            return molga::text::TextHorizontalAlignment::Center;
+        case UILabel::HorizontalAlignment::Right:
+            return molga::text::TextHorizontalAlignment::Right;
+        case UILabel::HorizontalAlignment::Left:
+            break;
+    }
+    return molga::text::TextHorizontalAlignment::Left;
+}
+
+molga::text::TextVerticalAlignment ToLayoutAlignment(
+    UILabel::VerticalAlignment value) {
+    switch (value) {
+        case UILabel::VerticalAlignment::Middle:
+            return molga::text::TextVerticalAlignment::Middle;
+        case UILabel::VerticalAlignment::Bottom:
+            return molga::text::TextVerticalAlignment::Bottom;
+        case UILabel::VerticalAlignment::Top:
+            break;
+    }
+    return molga::text::TextVerticalAlignment::Top;
+}
+
+molga::text::TextLayoutRequest BuildLabelRequest(const UILabel& label,
+                                                 const GameObject& object,
+                                                 const AABB& rect) {
+    molga::text::TextLayoutRequest request;
+    request.utf8 = label.GetText();
+    // 저작된 family가 이긴다. 없을 때만 schema 1의 폰트 지목이 레거시 단일 face
+    // 경로로 간다(Task 8.2 설계 개정): face 하나, fallback 없음.
+    const UILabel::FontFamilyView family = label.ResolveFontFamilyView();
+    if (!family.familyGuid.empty()) {
+        request.style.fontFamilyGuid = family.familyGuid;
+    } else if (!family.faceFontGuids.empty()) {
+        request.style.legacyFontGuid = family.faceFontGuids.front();
+    }
+    const auto fontSize = molga::Fixed26_6::FromFloat(label.GetFontSizePx());
+    if (fontSize) request.style.shape.fontSize = *fontSize;
+    request.style.analysis.locale = label.GetLocale();
+    request.style.analysis.baseDirection = label.GetBaseDirection();
+    request.style.wrap = label.GetWrapMode();
+    request.style.overflow = label.GetOverflowMode();
+    request.style.maxLines = label.GetMaxLines();
+    request.style.horizontal = ToLayoutAlignment(label.GetHorizontalAlignment());
+    request.style.vertical = ToLayoutAlignment(label.GetVerticalAlignment());
+    const auto spacing = molga::Fixed26_6::FromFloat(label.GetLineSpacing());
+    if (spacing) request.style.lineSpacing = *spacing;
+    // 정확한 RectTransform 폭/높이가 그대로 제약이다. 없는 값을 0으로 적으면
+    // "폭 0으로 접어라"라는 정당한 요청과 구분되지 않으므로, 변환에 실패한
+    // 축은 제약 없음으로 남긴다.
+    request.constraints.width = molga::Fixed26_6::FromFloat(rect.width);
+    request.constraints.height = molga::Fixed26_6::FromFloat(rect.height);
+    request.diagnosticContext.componentType = "UILabel";
+    request.diagnosticContext.sceneObjectId = object.GetID();
+    return request;
 }
 } // namespace
 
@@ -251,13 +317,20 @@ GameObject* UISystem::HitTest(
 }
 
 void UISystem::CollectRender(World& world, const Vector2& viewportSize,
-                             molga::RenderQueue& queue) {
-    CollectRender(world.Objects(), viewportSize, queue);
+                             molga::RenderQueue& queue,
+                             TextRenderer& textRenderer,
+                             molga::text::TextDiagnosticSink& textDiagnostics,
+                             const TextRasterPolicy& rasterPolicy) {
+    CollectRender(world.Objects(), viewportSize, queue, textRenderer,
+                  textDiagnostics, rasterPolicy);
 }
 
 void UISystem::CollectRender(
     const std::vector<std::shared_ptr<GameObject>>& objects,
-    const Vector2& viewportSize, molga::RenderQueue& queue) {
+    const Vector2& viewportSize, molga::RenderQueue& queue,
+    TextRenderer& textRenderer,
+    molga::text::TextDiagnosticSink& textDiagnostics,
+    const TextRasterPolicy& rasterPolicy) {
     for (const auto& object : objects) {
         if (!object || !IsHierarchyActive(object.get())) continue;
         auto* rectTransform = object->GetComponent<RectTransform>();
@@ -275,36 +348,23 @@ void UISystem::CollectRender(
         }
         if (auto* label = object->GetComponent<UILabel>(); label && label->IsEnabled() &&
             !label->GetText().empty()) {
-            TextRenderer& textRenderer = TextRenderer::Get();
-            const TextMetrics metrics = textRenderer.MeasureText(
-                label->GetText(), label->GetFontGuid(), label->GetFontSizePx(),
-                1.0f, label->GetLineSpacing());
-
-            TextDrawParams params;
-            params.text = label->GetText();
-            params.fontGuid = label->GetFontGuid();
-            params.fontSizePx = label->GetFontSizePx();
-            params.lineSpacing = label->GetLineSpacing();
-            params.color = label->GetColor();
-            params.cameraPass = 1;
-            params.sortingLayer = canvasOrder;
-            params.sortingOrder = label->GetSortingOrder();
-            params.y = rect.y;
-            if (label->GetVerticalAlignment() == UILabel::VerticalAlignment::Middle) {
-                params.y += (rect.height - metrics.height) * 0.5f;
-            } else if (label->GetVerticalAlignment() == UILabel::VerticalAlignment::Bottom) {
-                params.y += rect.height - metrics.height;
-            }
-
-            params.x = rect.x;
-            if (label->GetHorizontalAlignment() == UILabel::HorizontalAlignment::Center) {
-                params.alignment = TextHorizontalAlignment::Center;
-                params.x += rect.width * 0.5f;
-            } else if (label->GetHorizontalAlignment() == UILabel::HorizontalAlignment::Right) {
-                params.alignment = TextHorizontalAlignment::Right;
-                params.x += rect.width;
-            }
-            textRenderer.CollectText(queue, params);
+            // Step 6: 하나의 제약 있는 공유 요청. 정렬은 배치가 제약 안에서
+            // 처리하므로, 예전처럼 측정값에서 원점을 되짚지 않는다 — 그렇게
+            // 되짚은 원점은 셰이핑이 실제로 낸 줄과 어긋날 수 있다.
+            const auto layout = textRenderer.Layout(
+                BuildLabelRequest(*label, *object, rect), textDiagnostics);
+            if (!layout) continue;
+            // Step 6a: UI는 항등 + 평행이동이다. 논리 UI 원점이 tx/ty 전부다.
+            TextCollectContext context;
+            context.layoutToOutput.tx = rect.x;
+            context.layoutToOutput.ty = rect.y;
+            context.color = label->GetColor();
+            context.cameraPass = 1;
+            context.sortingLayer = canvasOrder;
+            context.sortingOrder = label->GetSortingOrder();
+            context.rasterPolicy = rasterPolicy;
+            textRenderer.CollectLayout(queue, **layout, context,
+                                       textDiagnostics);
         }
     }
 }
