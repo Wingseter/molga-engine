@@ -297,6 +297,26 @@ set_tests_properties(test_gpu_retirement PROPERTIES
     LABELS "unit;text-runtime;gpu;sdlgpu"
     RUN_SERIAL TRUE)
 
+# Task 7.1 Step 1h: the layout-cache behaviour test. It reaches no ICU or
+# HarfBuzz object of its own — a cache lookup that did would defeat the whole
+# point of the warm request index — but it reads the ICU/HarfBuzz creation
+# counters to prove exactly that, and those live in molga_core alongside the
+# runtime. Registered through the same session helper as its neighbours for the
+# same reason test_glyph_atlas is: the helper owns normal dependency
+# attachment, and no case here may be the first to discover a missing staged
+# runtime. It needs no qualification root — every key and payload is built from
+# literal values, so no font, family or fixture tree can drift underneath it.
+molga_add_text_test(test_text_cache test_text_cache.cpp)
+
+# Task 7.1 Step 1i: the public-header isolation probe, deliberately its own
+# executable and its own translation unit. Its `#ifdef HB_H` / `#ifdef
+# HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS` checks are only meaningful if
+# nothing else in the same TU has already pulled HarfBuzz in, so it must not
+# share a target with test_text_cache or any other text test. No second attach
+# call: molga_add_text_test has already done it, and the property guard would
+# make a repeat a no-op anyway.
+molga_add_text_test(test_text_cache_header test_text_cache_header.cpp)
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────
