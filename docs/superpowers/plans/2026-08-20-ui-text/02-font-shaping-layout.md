@@ -2064,7 +2064,7 @@ by documented contract, but the `const` no longer means what it reads as.
 - Consumes: SDL_GPU submission fence creation/polling and atlas page tokens.
 - Produces: `IGpuCompletionFence`, `GpuRetirementQueue::{Enqueue,RetainWithoutFence,Poll,DrainAfterGpuIdle}`, and `Renderer::RetainUntilFrameComplete(std::uint64_t pageIdentity, std::shared_ptr<const void>)` with per-frame page deduplication.
 
-- [ ] **Step 1: Add the failing fence-retirement tests.**
+- [x] **Step 1: Add the failing fence-retirement tests.**
 
   ```cpp
   TEST_CASE("submitted page lifetime releases only after its fence signals") {
@@ -2083,7 +2083,7 @@ by documented contract, but the `const` no longer means what it reads as.
   }
   ```
 
-- [ ] **Step 1a: Add the failing missing-fence retention test.**
+- [x] **Step 1a: Add the failing missing-fence retention test.**
 
   ```cpp
   TEST_CASE("missing submission fence retains resources until idle drain") {
@@ -2099,7 +2099,7 @@ by documented contract, but the `const` no longer means what it reads as.
   }
   ```
 
-- [ ] **Step 1b: Add the failing per-frame page-deduplication test.**
+- [x] **Step 1b: Add the failing per-frame page-deduplication test.**
 
   ```cpp
   TEST_CASE("one submitted frame retains one token per atlas page") {
@@ -2116,7 +2116,7 @@ by documented contract, but the `const` no longer means what it reads as.
   }
   ```
 
-- [ ] **Step 1c: Add the interim failing idle-wait abort-order test.**
+- [x] **Step 1c: Add the interim failing idle-wait abort-order test.**
 
   ```cpp
   TEST_CASE("failed GPU idle wait aborts before resource teardown") {
@@ -2134,15 +2134,15 @@ by documented contract, but the `const` no longer means what it reads as.
   terminal branch while adding `EngineShutdownStatus::GpuDrainFailed`; no final
   implementation retains both behaviors.
 
-- [ ] **Step 1d: Implement the shutdown subprocess fixture.** Define `RunRendererShutdownSubprocess` in `test_gpu_retirement.cpp` with the existing process-test helper and a uniquely named temporary marker file; the child owns a live page token before injected shutdown.
+- [x] **Step 1d: Implement the shutdown subprocess fixture.** Define `RunRendererShutdownSubprocess` in `test_gpu_retirement.cpp` with the existing process-test helper and a uniquely named temporary marker file; the child owns a live page token before injected shutdown.
 
-- [ ] **Step 2: Run the retirement red gate.**
+- [x] **Step 2: Run the retirement red gate.**
 
   Run: `cmake --build --preset debug --target test_gpu_retirement -j`
 
   Expected: compile FAIL because the fence abstraction and retirement queue do not exist.
 
-- [ ] **Step 3: Add the mockable fence boundary.**
+- [x] **Step 3: Add the mockable fence boundary.**
 
   ```cpp
   class IGpuCompletionFence {
@@ -2152,7 +2152,7 @@ by documented contract, but the `const` no longer means what it reads as.
   };
   ```
 
-- [ ] **Step 3a: Add the retirement queue declaration.**
+- [x] **Step 3a: Add the retirement queue declaration.**
 
   ```cpp
   class GpuRetirementQueue {
@@ -2167,33 +2167,33 @@ by documented contract, but the `const` no longer means what it reads as.
   };
   ```
 
-- [ ] **Step 4: Implement signaled-fence retirement.** `Enqueue` stores one fence with its token vector; `Poll` erases that entry only after `IsSignaled()==true`, preserving insertion order for deterministic audits.
+- [x] **Step 4: Implement signaled-fence retirement.** `Enqueue` stores one fence with its token vector; `Poll` erases that entry only after `IsSignaled()==true`, preserving insertion order for deterministic audits.
 
-- [ ] **Step 5: Implement unfenced retention.** `RetainWithoutFence` appends tokens to a separate list ignored by `Poll`; `DrainAfterGpuIdle` clears both signaled/unfenced storage only after the caller proves a successful GPU-idle wait.
+- [x] **Step 5: Implement unfenced retention.** `RetainWithoutFence` appends tokens to a separate list ignored by `Poll`; `DrainAfterGpuIdle` clears both signaled/unfenced storage only after the caller proves a successful GPU-idle wait.
 
-- [ ] **Step 6: Add the active-frame retain guard.** `Renderer::RetainUntilFrameComplete` ignores null tokens, rejects a zero page identity, and throws `logic_error` when called outside an active `FrameContext`.
+- [x] **Step 6: Add the active-frame retain guard.** `Renderer::RetainUntilFrameComplete` ignores null tokens, rejects a zero page identity, and throws `logic_error` when called outside an active `FrameContext`.
 
-- [ ] **Step 6a: Deduplicate by page identity.** Insert the first token into the active frame map keyed by nonzero page identity; repeated commands for that page leave the retained-token count unchanged.
+- [x] **Step 6a: Deduplicate by page identity.** Insert the first token into the active frame map keyed by nonzero page identity; repeated commands for that page leave the retained-token count unchanged.
 
-- [ ] **Step 6b: Reject conflicting owners for one page ID.** Compare shared ownership identity with `!a.owner_before(b) && !b.owner_before(a)` and throw `logic_error` if the same page ID arrives with a different owner.
+- [x] **Step 6b: Reject conflicting owners for one page ID.** Compare shared ownership identity with `!a.owner_before(b) && !b.owner_before(a)` and throw `logic_error` if the same page ID arrives with a different owner.
 
-- [ ] **Step 7: Transfer frame tokens at submit.** Move the complete vector with the acquired SDL fence into `GpuRetirementQueue`; if fence acquisition fails, call `RetainWithoutFence` and do not release tokens.
+- [x] **Step 7: Transfer frame tokens at submit.** Move the complete vector with the acquired SDL fence into `GpuRetirementQueue`; if fence acquisition fails, call `RetainWithoutFence` and do not release tokens.
 
-- [ ] **Step 8: Poll at the frame boundary.** Call `GpuRetirementQueue::Poll()` once after beginning a renderer frame and before collecting new commands.
+- [x] **Step 8: Poll at the frame boundary.** Call `GpuRetirementQueue::Poll()` once after beginning a renderer frame and before collecting new commands.
 
-- [ ] **Step 8a: Stop work and wait for successful GPU idle.** Shutdown first prevents new collection/submission, then calls `SDL_WaitForGPUIdle`; it performs no atlas/device teardown until that call reports success.
+- [x] **Step 8a: Stop work and wait for successful GPU idle.** Shutdown first prevents new collection/submission, then calls `SDL_WaitForGPUIdle`; it performs no atlas/device teardown until that call reports success.
 
-- [ ] **Step 8b: Drain and destroy in device-safe order.** After successful idle, drain fenced/unfenced tokens, destroy atlas/text GPU resources while `GraphicsDevice` is alive, and destroy the device last.
+- [x] **Step 8b: Drain and destroy in device-safe order.** After successful idle, drain fenced/unfenced tokens, destroy atlas/text GPU resources while `GraphicsDevice` is alive, and destroy the device last.
 
-- [ ] **Step 9: Fail safely when idle wait or device-loss drain fails.** Wire the Step 1 subprocess injection at the `SDL_WaitForGPUIdle` result and route any equivalent device-loss teardown failure through the same interim terminal branch. Emit fatal marker/code `GPU_IDLE_WAIT_FAILED` and call `std::abort()` before atlas or device teardown; do not unwind GPU page destructors against a stale device. The OS owns final process resource reclamation in this pre-Task-11 path; Task 11.2 replaces the test and branch in one buildable commit with retryable host-owned shutdown.
+- [x] **Step 9: Fail safely when idle wait or device-loss drain fails.** Wire the Step 1 subprocess injection at the `SDL_WaitForGPUIdle` result and route any equivalent device-loss teardown failure through the same interim terminal branch. Emit fatal marker/code `GPU_IDLE_WAIT_FAILED` and call `std::abort()` before atlas or device teardown; do not unwind GPU page destructors against a stale device. The OS owns final process resource reclamation in this pre-Task-11 path; Task 11.2 replaces the test and branch in one buildable commit with retryable host-owned shutdown.
 
-- [ ] **Step 10: Run CPU and SDL_GPU retirement green gates.**
+- [x] **Step 10: Run CPU and SDL_GPU retirement green gates.**
 
   Run: `cmake --build --preset debug --target test_gpu_retirement test_rendering_sdlgpu -j && ctest --test-dir build/debug -R '^(test_gpu_retirement|test_rendering_sdlgpu)$' --output-on-failure`
 
   Expected: PASS; fake fences and the real SDL_GPU fixture preserve tokens until signaled/idle and leave no premature texture destruction.
 
-- [ ] **Step 11: Commit fence-backed retirement.**
+- [x] **Step 11: Commit fence-backed retirement.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Rendering/GpuRetirementQueue.* \
@@ -2203,6 +2203,86 @@ by documented contract, but the `const` no longer means what it reads as.
   ```
 
 **Exit:** GPU submission, not CPU frame age, is the sole authority for releasing in-flight atlas page tokens.
+
+**Implementation record (2026-09-06).** Commit `c0442e4`. Debug suite **97/97**, run alone and
+confirmed independently by the controller; zero warnings in this task's files on a forced rebuild.
+Reviewed by a mutation lens (24 mutations, 19 caught) and a spec/integration lens; every fix carries
+its own mutation evidence.
+
+#### The defect that mattered: SDL 3.4.14's Metal fence query is inverted
+
+`METAL_QueryFence` (`SDL_gpu_metal.m:3625`) returns `METAL_INTERNAL_IsFenceBusy` — true while the
+buffer is `Committed` or `Scheduled` — where `SDL_gpu.h:4455` documents "true if the fence is
+**signaled**". Vulkan (`SDL_gpu_vulkan.c:9782`) and D3D12 (`SDL_gpu_d3d12.c:1553`) follow the
+documentation. Wiring the query naively would have reported every frame complete at submission and
+recycled pages while the GPU read them — silently, on the **one backend this project qualifies**.
+
+The polarity is therefore **measured once per device** rather than hardcoded: submit an empty
+command buffer, wait on its fence, query it. Hardcoding the inversion would break Vulkan and D3D12
+today and Metal the day SDL fixes the bug. A failed measurement yields `Unusable`, under which every
+fence answers "not signaled" — the correct direction, because reporting completion wrongly destroys
+a texture under submitted commands while reporting it late costs one page held to the drain.
+Calibration runs at the *end* of `GraphicsDevice::Create`, so no fence predates it, and only two
+`SDL_QueryGPUFence` call sites exist (the wrapper and the calibration itself).
+
+#### What review caught
+
+- **Nothing asserted a real fence ever answers `false`.** `IsSignaled() { return true; }` passed the
+  entire suite, because every real-fence assertion was taken *after* an idle wait where "signalled"
+  is the correct answer. This is the catastrophic direction — premature retirement on every frame.
+  Closed with **deterministic** witnesses needing no GPU timing: null-device, null-fence and
+  `Unusable` instances must each answer false.
+- **A test whose name promised ordering it never asserted** — `abort()` could be moved after
+  `DrainAfterGpuIdle` *and* the whole GPU-destroy loop with the subprocess case still green, because
+  the probe wrote its markers only after `Shutdown` returned. The ordering is now observable from
+  inside `Shutdown`.
+- `ResetFrame`'s `RetainWithoutFence` fallback had no witness; the atlas seal check could be moved
+  after `TryPlace`, burning a sealed page's shelf on rejected placements (103 vs 89 accepted glyphs).
+
+#### Two deliberate decisions
+
+1. **A lost fence no longer reports the frame as failed** — a production behaviour change. SDL marks
+   the buffer `submitted` before dispatching, so the frame genuinely presented, and closing the
+   runtime over a bookkeeping failure that did not affect output was disproportionate. Its pages are
+   held to the drain instead. This is safe **only** because the backlog is now bounded; the two
+   changes stand or fall together. Previously `Unusable` also grew `submissions_` every frame
+   forever, lifted no seal, and turned every new glyph into permanent tofu once the budget filled —
+   announced by a single log below `SDL_LOG_PRIORITY_ERROR` and so invisible to
+   `ValidationErrorCount()`.
+2. **One escape stays open and is unfalsifiable here.** Nothing proves calibration *ran*:
+   `CalibrateFenceQuery → return ReportsBusy` is observationally identical on a Metal-only host —
+   verified by building and running it, including against the disagreement assertion proposed to
+   close it. The opposite hardcode now dies with 3 assertions, and the stored polarity is pinned to
+   the device's actual answer so it breaks first if SDL ever fixes `METAL_QueryFence`. Closing it
+   properly needs a second backend, i.e. Linux/Vulkan CI.
+
+#### The three items inherited from Task 6.1
+
+Write-sealing is **genuinely enforced** — `IsWriteSealed` gates the only in-place write path and is
+checked before `TryPlace`, and sealed pages are un-evictable. `FontFace::RasterizeGlyph`'s `const` is
+now **compiler-enforced** via a `const Impl&`. The `GlyphInfo` contract is coherent and
+`RetainedTexture` exists, but it has **zero production callers** and `GlyphInfo::texture` is still
+public, so it is a guardrail rather than enforcement — Task 6.3 must use `RetainedTexture`, not
+`handle.glyph.texture`.
+
+---
+
+#### BLOCKING PRECONDITION FOR TASK 6.3
+
+**Step 8b's ordering is not achieved at the production entry points.** `src/main.cpp:624` and
+`src/runtime_main.cpp:1456` destroy text/atlas GPU resources *before* the idle wait at
+`renderer.reset()`, which is exactly the "texture destructor observes commands still in flight"
+hazard Steps 8a/8b exist to close. It holds inside `Renderer::Shutdown` and in the probe, but not
+where it ships.
+
+Damage is nil **today** for two independent reasons — production still uses the legacy
+`FontAtlasCache`, and `PageLifetimeToken` holds a `shared_ptr` so any page an in-flight submission
+references survives `TextRenderer::Shutdown()`. But that is safety by argument, not by the structural
+ordering the spec requires, and the argument breaks for any submission that did not go through
+`RetainUntilFrameComplete`.
+
+Both files are in **Task 6.3's** Files list (its Step 8 already edits them), so the fix is 6.3's and
+must land before it closes.
 
 ---
 
