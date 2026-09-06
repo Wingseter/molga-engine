@@ -2308,7 +2308,7 @@ must land before it closes.
 - Consumes: `GlyphHandle::pageLifetime`, `Renderer::RetainUntilFrameComplete`, and per-frame collection index.
 - Produces: `RenderCommand::{resourceLifetimeIdentity,resourceLifetime}`, `TextRenderer::GlyphCollectionScope`, and `TextRenderer::{BeginGlyphCollection,GlyphAtlas}` over one renderer-owned atlas.
 
-- [ ] **Step 1: Add failing command and collection-scope tests.**
+- [x] **Step 1: Add failing command and collection-scope tests.**
 
   ```cpp
   TEST_CASE("resource lifetime is retained immediately before actual draw") {
@@ -2322,7 +2322,7 @@ must land before it closes.
   }
   ```
 
-- [ ] **Step 1a: Add the failing non-nestable scope test.**
+- [x] **Step 1a: Add the failing non-nestable scope test.**
 
   ```cpp
   TEST_CASE("glyph collection scope is non-nestable and exception safe") {
@@ -2335,23 +2335,23 @@ must land before it closes.
   }
   ```
 
-- [ ] **Step 2: Run the page-pin red gate.**
+- [x] **Step 2: Run the page-pin red gate.**
 
   Run: `cmake --build --preset debug --target test_glyph_atlas test_render_queue -j`
 
   Expected: compile FAIL because command lifetime and collection scope do not exist.
 
-- [ ] **Step 3: Add page lifetime fields outside `BatchKey`.** Add `std::uint64_t resourceLifetimeIdentity = 0` and `std::shared_ptr<const void> resourceLifetime` to `RenderCommand`. Text commands copy `GlyphHandle::pageIdentity` and token together; sort/equality/batch functions ignore both.
+- [x] **Step 3: Add page lifetime fields outside `BatchKey`.** Add `std::uint64_t resourceLifetimeIdentity = 0` and `std::shared_ptr<const void> resourceLifetime` to `RenderCommand`. Text commands copy `GlyphHandle::pageIdentity` and token together; sort/equality/batch functions ignore both.
 
-- [ ] **Step 4: Retain only submitted commands.** In `RenderSystem2D`, immediately before each actual `SpriteBatcher` submission call `renderer.RetainUntilFrameComplete(command.resourceLifetimeIdentity, command.resourceLifetime)` when non-null. Culled/skipped commands do not transfer a token; repeated glyphs on one page dedupe in `FrameContext`.
+- [x] **Step 4: Retain only submitted commands.** In `RenderSystem2D`, immediately before each actual `SpriteBatcher` submission call `renderer.RetainUntilFrameComplete(command.resourceLifetimeIdentity, command.resourceLifetime)` when non-null. Culled/skipped commands do not transfer a token; repeated glyphs on one page dedupe in `FrameContext`.
 
-- [ ] **Step 5: Run the focused command-lifetime gate.**
+- [x] **Step 5: Run the focused command-lifetime gate.**
 
   Run: `cmake --build --preset debug --target test_render_queue -j && ctest --test-dir build/debug -R '^test_render_queue$' --output-on-failure`
 
   Expected: command call order is retain-before-draw and `BatchKey` remains unchanged.
 
-- [ ] **Step 6: Add the movable, noncopyable collection-scope declaration.**
+- [x] **Step 6: Add the movable, noncopyable collection-scope declaration.**
 
   ```cpp
   class TextRenderer::GlyphCollectionScope {
@@ -2371,25 +2371,25 @@ must land before it closes.
   const GlyphAtlasCache& GlyphAtlas() const noexcept;
   ```
 
-- [ ] **Step 6a: Implement exact scope enter/leave behavior.** `TextRenderer` owns exactly one `GlyphAtlasCache atlas_`; both `GlyphAtlas()` overloads return that exact object and never a process-global second cache. Construction throws before mutation when another scope is active, otherwise calls `atlas_.BeginFrame`; move transfers the owner, and destruction calls `atlas_.EndCollection` exactly once when it still owns the scope. The mutable accessor is used for startup budget configuration and focused fixtures; normal rendering reaches the atlas only through `CollectLayout`. Qualification/performance reads telemetry through the const overload.
+- [x] **Step 6a: Implement exact scope enter/leave behavior.** `TextRenderer` owns exactly one `GlyphAtlasCache atlas_`; both `GlyphAtlas()` overloads return that exact object and never a process-global second cache. Construction throws before mutation when another scope is active, otherwise calls `atlas_.BeginFrame`; move transfers the owner, and destruction calls `atlas_.EndCollection` exactly once when it still owns the scope. The mutable accessor is used for startup budget configuration and focused fixtures; normal rendering reaches the atlas only through `CollectLayout`. Qualification/performance reads telemetry through the const overload.
 
-- [ ] **Step 7: Run the focused scope gate.**
+- [x] **Step 7: Run the focused scope gate.**
 
   Run: `cmake --build --preset debug --target test_glyph_atlas -j && ctest --test-dir build/debug -R '^test_glyph_atlas$' --output-on-failure`
 
   Expected: nesting throws and every normal/exception return ends collection once.
 
-- [ ] **Step 8: Open one scope in every frame collection entry.** Editor `main.cpp`, standalone `runtime_main.cpp`, canonical/offscreen paths, and SDL_GPU smoke fixtures create it after frame index is fixed and before world/UI text queue collection; lexical scope covers every early return until all commands have copied page tokens.
+- [x] **Step 8: Open one scope in every frame collection entry.** Editor `main.cpp`, standalone `runtime_main.cpp`, canonical/offscreen paths, and SDL_GPU smoke fixtures create it after frame index is fixed and before world/UI text queue collection; lexical scope covers every early return until all commands have copied page tokens.
 
-- [ ] **Step 9: Add the direct old-resource atlas test.** Shape a layout, replace the font, derive a key from one old `ShapedGlyph`, then open `auto scope = textRenderer.BeginGlyphCollection(93)` and call `textRenderer.GlyphAtlas().GetGlyph(key, *oldGlyph.faceResource->rasterFace, sink)` after forcing a miss. Verify the old raster face receives the glyph ID while a newly shaped glyph carries/uses the replacement SHA; let the scope close before assertions finish. This tests ownership without switching a production consumer.
+- [x] **Step 9: Add the direct old-resource atlas test.** Shape a layout, replace the font, derive a key from one old `ShapedGlyph`, then open `auto scope = textRenderer.BeginGlyphCollection(93)` and call `textRenderer.GlyphAtlas().GetGlyph(key, *oldGlyph.faceResource->rasterFace, sink)` after forcing a miss. Verify the old raster face receives the glyph ID while a newly shaped glyph carries/uses the replacement SHA; let the scope close before assertions finish. This tests ownership without switching a production consumer.
 
-- [ ] **Step 10: Run complete atlas/lifetime/render green gates.**
+- [x] **Step 10: Run complete atlas/lifetime/render green gates.**
 
   Run: `cmake --build --preset debug --target test_glyph_atlas test_gpu_retirement test_render_queue test_rendering_sdlgpu -j && ctest --test-dir build/debug -R '^(test_glyph_atlas|test_gpu_retirement|test_render_queue|test_rendering_sdlgpu)$' --output-on-failure`
 
   Expected: PASS; page lifetimes survive collection, sorting, submission, eviction pressure and fences, and resident bytes stay at or below the configured cap.
 
-- [ ] **Step 11: Commit collection-to-fence ownership.**
+- [x] **Step 11: Commit collection-to-fence ownership.**
 
   ```bash
   git add CMakeLists.txt src/Rendering/RenderQueue.h \
@@ -2400,6 +2400,67 @@ must land before it closes.
   ```
 
 **Exit:** Every future text command can carry the exact page lifetime from collection through a real completion fence without affecting draw batching.
+
+**Implementation record (2026-09-06).** Commit `c09020e`. Debug suite **97/97**, verified
+independently by the controller. Audit passed after one blocking and six important findings were
+fixed, each re-killed by the mutation that exposed it. **Milestone 6 is complete.**
+
+**Controller error, corrected by review.** The dispatch told this task "you are the task that makes
+`RetainedTexture` real". That was wrong: Global Constraint 35 of this subplan says UILabel and
+TextRenderer2D *"must switch together in Task 8.2… no production consumer is partly migrated"*, and
+this task's own Step 9 says it tests ownership **without** switching a production consumer. The
+implementer declined the instruction and the spec lens verified the refusal against the constraint
+rather than against either party's assertion. It built the strongest witness available without a
+producer instead: against a real GPU texture, `RetainedTexture(handle)` equals the raw field while
+the share is held and is **`nullptr` after `pageLifetime.reset()` while the raw field still holds a
+stale pointer** — the guardrail catching precisely the bug it exists for. **The obligation moves to
+Task 8.2.**
+
+**Blocking finding.** The retain could be deleted from its sole production call site with the whole
+suite green. Now pinned on a real device with a real atlas page, two-sided in one frame (culled-only
+queue → 0 retained, visible queue → 1), plus an **identity** witness — the test drops its own
+`pageLifetime` and asserts `LiveExternalPagePinCount()==1` and `IsPageResident(handle.pageIdentity)`
+— so "some page" cannot pass for "this page".
+
+**The precondition inherited from Task 6.2 is fixed and pinned.** Both production entry points now
+call `ShutdownRendererThenTextGpuResources`, so the idle wait precedes GPU-resource destruction. The
+pin is unusual and worth knowing: the test reads `src/main.cpp` and `src/runtime_main.cpp` **as
+source text** through a new `MOLGA_ENGINE_SOURCE_ROOT`, requiring per file zero
+`TextRenderer::Get().Shutdown()`, at least one `ShutdownRendererThenTextGpuResources(`, and exactly
+one `BeginGlyphCollection(` — with a counter self-witness and a `source.size() > 1024` guard so a
+wrong path cannot make the zero-counts vacuously true. Restoring the old order kills it with three
+assertions.
+
+Also fixed: a refused `ReleaseAfterGpuIdle` could be completely silent (now one `Error` on a
+filtered ring sink, asserted present in the reversed-order case and absent in the correct one);
+retain-before-draw was pinned in only one of three submission branches, with both geometry branches
+surviving reordering; and the frame index handed to the atlas was never observed.
+
+**Named additions, none of them drift:** the per-command submit loop moved from `RenderSystem2D.cpp`
+into a `molga::SubmitVisibleCommands` template in `RenderQueue.h`, so the retain-before-draw ordering
+is asserted against production code rather than a copy of the loop in a fixture — verified
+mechanically that the moved body is otherwise identical. A `GlyphCollectionEndHook` test seam follows
+the `SetRendererShutdownStageHookForTest` precedent from Task 6.2; it is needed because
+`GlyphAtlasCache::EndCollection` is idempotent, so "exactly once" is not observable from cache state.
+
+---
+
+#### CARRIED TO TASK 8.2
+
+1. **Make `RetainedTexture` enforcement, not a guardrail.** It still has zero production callers and
+   `GlyphInfo::texture` remains public. The only production glyph→command site
+   (`TextRenderer.cpp:633-636`) still reads the legacy `FontAtlasCache` `GlyphInfo`, so
+   `RetainedTexture` cannot apply there until the consumer migrates. 8.2 is the task that migrates it.
+2. **`RetainUntilFrameComplete` throws when there is no active frame, and the submit loop calls it
+   unguarded.** `RetainCommandResourceLifetime` guards only on a null token, exactly as Step 4
+   specifies, and no production producer sets `RenderCommand::resourceLifetime` today — so the branch
+   is unreachable. From 8.2 onward, the first `RenderSystem2D::Render` on a queue carrying text tokens
+   while the renderer has no active frame becomes an **uncaught `std::logic_error` out of the main
+   loop**.
+3. **The production call site rests on the extraction, not on an assertion.** A mutation inside
+   `SubmitVisibleCommands` dies, but one that reverts `RenderSystem2D.cpp` to an inline loop without
+   the retain calls would be caught by no test — unavoidable today, since `SpriteBatcher` needs a GPU
+   device and no producer sets a token.
 
 ---
 
