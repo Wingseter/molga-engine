@@ -3344,7 +3344,7 @@ values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are assert
 - Consumes: immutable final `TextLayout`, its precomputed `PositionedGlyph::interiorCarets`, and ICU visual run order; it has no HarfBuzz/font dependency.
 - Produces: `CaretPosition` and `TextHitTesting::{HitTest,CaretRects,SelectionRects}`.
 
-- [ ] **Step 1: Add failing affinity/ligature/selection/hit tests.**
+- [x] **Step 1: Add failing affinity/ligature/selection/hit tests.**
 
   ```cpp
   TEST_CASE("BiDi boundary exposes two affinity-specific visual stops") {
@@ -3356,7 +3356,7 @@ values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are assert
   }
   ```
 
-- [ ] **Step 1a: Add the failing visual-midpoint test.**
+- [x] **Step 1a: Add the failing visual-midpoint test.**
 
   ```cpp
   TEST_CASE("visual midpoint ties move in the visual run direction") {
@@ -3367,7 +3367,7 @@ values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are assert
   }
   ```
 
-- [ ] **Step 1b: Add the failing ligature-caret test.**
+- [x] **Step 1b: Add the failing ligature-caret test.**
 
   ```cpp
   TEST_CASE("ligature carets remain on every grapheme boundary") {
@@ -3385,9 +3385,9 @@ values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are assert
   }
   ```
 
-- [ ] **Step 1c: Add the failing stored-fallback-caret test.** Use a synthetic final shaped ligature with empty `adjustedGdefCaretOffsets`, lay it out, and require all `PositionedGlyph::interiorCarets` are present with `fromAdjustedGdef=false` and exact `CheckedMulDiv` positions. Reset layout/shaper/font counters, call every hit/caret/selection API, and require all counters remain zero with identical returned stops.
+- [x] **Step 1c: Add the failing stored-fallback-caret test.** Use a synthetic final shaped ligature with empty `adjustedGdefCaretOffsets`, lay it out, and require all `PositionedGlyph::interiorCarets` are present with `fromAdjustedGdef=false` and exact `CheckedMulDiv` positions. Reset layout/shaper/font counters, call every hit/caret/selection API, and require all counters remain zero with identical returned stops.
 
-- [ ] **Step 1d: Add the failing mixed-BiDi selection test.**
+- [x] **Step 1d: Add the failing mixed-BiDi selection test.**
 
   ```cpp
   TEST_CASE("mixed BiDi logical selection emits stable visual rectangles") {
@@ -3400,13 +3400,13 @@ values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are assert
   }
   ```
 
-- [ ] **Step 2: Run the hit-testing red gate.**
+- [x] **Step 2: Run the hit-testing red gate.**
 
   Run: `cmake --build --preset debug --target test_text_layout -j`
 
   Expected: compile FAIL because `TextHitTesting` and affinity-aware results do not exist.
 
-- [ ] **Step 3: Add the exact public hit API.**
+- [x] **Step 3: Add the exact public hit API.**
 
   ```cpp
   struct CaretPosition {
@@ -3423,23 +3423,23 @@ values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are assert
   };
   ```
 
-- [ ] **Step 4: Generate grapheme-only caret stops.** At each logical grapheme boundary emit the visual stop(s) from final line visual order. A BiDi boundary may emit Upstream and Downstream at different visual positions. Never create a stop inside a surrogate pair or combining/ZWJ grapheme.
+- [x] **Step 4: Generate grapheme-only caret stops.** At each logical grapheme boundary emit the visual stop(s) from final line visual order. A BiDi boundary may emit Upstream and Downstream at different visual positions. Never create a stop inside a surrogate pair or combining/ZWJ grapheme.
 
-- [ ] **Step 5: Consume only stored ligature carets.** Copy `PositionedGlyph::interiorCarets` into the line's grapheme-boundary stop sequence in stable visual order. `TextHitTesting.cpp` may not include HarfBuzz/font headers, dereference `faceResource`, call `hb_ot_layout_get_ligature_carets`, or perform proportional division; missing/invalid interior-caret storage is a layout invariant failure, not a late fallback.
+- [x] **Step 5: Consume only stored ligature carets.** Copy `PositionedGlyph::interiorCarets` into the line's grapheme-boundary stop sequence in stable visual order. `TextHitTesting.cpp` may not include HarfBuzz/font headers, dereference `faceResource`, call `hb_ot_layout_get_ligature_carets`, or perform proportional division; missing/invalid interior-caret storage is a layout invariant failure, not a late fallback.
 
-- [ ] **Step 6: Implement half-open visual hit testing.** Build intervals between adjacent visual stops, treat them as half-open, and resolve an exact midpoint to the stop in visual progression direction.
+- [x] **Step 6: Implement half-open visual hit testing.** Build intervals between adjacent visual stops, treat them as half-open, and resolve an exact midpoint to the stop in visual progression direction.
 
-- [ ] **Step 7: Implement caret rectangles.** Resolve the requested logical boundary plus affinity to its exact visual stop and produce checked 26.6 rectangles with the caller's positive thickness.
+- [x] **Step 7: Implement caret rectangles.** Resolve the requested logical boundary plus affinity to its exact visual stop and produce checked 26.6 rectangles with the caller's positive thickness.
 
-- [ ] **Step 8: Implement selection rectangles.** For logical half-open `[start,end)`, intersect each visual run segment and emit one rect per nonempty segment in stable visual order; mixed BiDi may return multiple rects.
+- [x] **Step 8: Implement selection rectangles.** For logical half-open `[start,end)`, intersect each visual run segment and emit one rect per nonempty segment in stable visual order; mixed BiDi may return multiple rects.
 
-- [ ] **Step 9: Run hit-testing and sanitizer green gates.**
+- [x] **Step 9: Run hit-testing and sanitizer green gates.**
 
   Run: `cmake --build --preset debug --target test_text_layout -j && ctest --test-dir build/debug -R '^test_text_layout$' --output-on-failure && cmake --build --preset asan --target test_text_layout -j && ctest --test-dir build/asan -R '^test_text_layout$' --output-on-failure`
 
   Expected: affinity, ligature fallback, multi-rect selection, visual order, and exact tie behavior pass.
 
-- [ ] **Step 10: Commit hit testing.**
+- [x] **Step 10: Commit hit testing.**
 
   ```bash
   git add CMakeLists.txt src/Text/TextHitTesting.* \
@@ -3448,6 +3448,61 @@ values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are assert
   ```
 
 **Exit:** Caret and selection operate only on logical grapheme boundaries while preserving multiple visual positions at BiDi boundaries.
+
+**Implementation record (2026-09-07).** Commit `2e7553f`. Audit passed after **four blocking** and
+nine important findings were fixed, each witnessed by a mutant that was built, compiled and run.
+Green in Debug, ASan and UBSan. **Milestone 7 is complete.**
+
+**The dispatch's named fixture traps were all real.** Every blocking finding was one of them:
+
+- **`SelectionRects`' `rightToLeft` flag had no witness** — inverting it silently returned the wrong
+  rectangle for any selection. Closed with sub-ligature selection on an LTR ligature *and* a new
+  `arabic-ligature` (`أهلا`) RTL mirror; inverting now fails 8 assertions.
+- **The pen correction on a cluster's leading edge was unwitnessed** — flipping its sign injected a
+  phantom stop. Now every boundary 0–7 of `hebrew-number-boundary` has its stop count pinned, with
+  only four permitted to carry two.
+- **No multi-line coverage of any public API in this task** — `SelectionRects`, `CaretRects` and
+  interior-caret line attribution could all misattribute. Three separate mutants now die.
+- **A mark following a ligature forked its caret cell**, emitting a phantom affinity pair, because
+  `BuildCaretStops` grouped glyphs by *exact* grapheme-range equality. It now groups on **overlap**.
+  The reviewer's claim was re-confirmed against the committed font before the code was changed.
+
+**A genuine defect found during implementation, not by review:** caret cells were measured from
+`origin.x` (pen **plus** GPOS x offset), so two clusters' shared edge disagreed by the offset delta
+and **every** boundary looked like a BiDi boundary. Caught by `collapsedDown[0].x ==
+collapsedUp[0].x` failing 2746 vs 2756.
+
+**One mutant survived and is recorded rather than papered over.** The guard against duplicate
+interior stops in a multi-glyph, multi-grapheme cell is unreachable in the committed corpus, so its
+mutant lives. Rather than manufacture an assertion, the Devanagari case now carries
+`REQUIRE(shared.end - shared.begin == 1U)` stating exactly how far the fixture reaches.
+
+Also fixed: a Step 5 invariant was enforced by `assert`, making it untestable in Debug and
+unenforced under `NDEBUG` — the fail-closed `return false` is now the whole policy;
+`CaretStop::position.y` was write-only across three conventions and is now the line baseline,
+predicated on three fixtures; and the caret-stop dedup's `position.x` conjunct did nothing, because
+`std::unique` made the rule depend on the sort key — the fold now compares against already-kept
+stops, so **both** conjuncts are load-bearing where previously only one was.
+
+---
+
+#### CARRIED FORWARD — a coordinate-basis split that should move Task 7.2, not 7.3
+
+Interior caret stops (added by 7.2) are anchored at `glyph.origin.x`, which is **pen + GPOS x
+offset**. The cluster leading/trailing edges this task adds are anchored at the **pen**. For a
+ligature glyph with a nonzero GPOS x offset the interior carets sit outside their own cluster's
+cell, and `CaretXPositionsAreStrictlyIncreasing` could invert.
+
+**The pen basis is the correct one** — GDEF ligature caret offsets are measured along the advance
+from the pen, not from the GPOS-adjusted draw position — so the reconciliation belongs in 7.2's
+formula, not this task's. 7.3 correctly declined to alter a committed formula and its committed
+assertion. Not currently observable: the only fixture with nonzero-offset glyphs carries
+single-grapheme glyphs, which have no interior carets.
+
+Also still open from 7.2 and inherited by any consumer: `BlocksAuthoredPackage(code)` disagrees with
+`fact.blocksAuthoredPackage` for a successful fallback — **read the field, never switch on the
+code**; direct `ubidi_*` calls hold no `TextRuntimeClientHandle` lease; and the display-paragraph
+split disagrees with the UBA paragraph split for U+000B/U+000C/U+2028 and U+001C–U+001E.
 
 ---
 
