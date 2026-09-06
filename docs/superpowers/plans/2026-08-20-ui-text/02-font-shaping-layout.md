@@ -3655,6 +3655,63 @@ Recorded rather than resolved unilaterally.
 
 ---
 
+#### CONTROLLER DECISIONS (2026-09-07) — read before implementing Task 8.2
+
+A first attempt at this task stopped at **BLOCKED**, correctly, and both conflicts it raised are
+confirmed. These are the rulings; they are binding and take precedence over the step text where they
+conflict.
+
+**DECISION 1 — the legacy `fontGuid` blocker: take resolution B, wire `BuildLegacySingleFace`.**
+
+The problem: a component with a legacy `fontGuid` and no authored `fontFamilyGuid` has no route to a
+face. `ParagraphStyle` (`TextLayoutTypes.h:38-50`) carries only `fontFamilyGuid`;
+`LayoutRun::ResolveFamilyClosure` (`TextLayoutService.cpp:469-472`) calls only `BuildCandidates`;
+and passing a font GUID as a family GUID yields `exists=false`, zero candidates and a misleading
+`FontFamilyInvalid`. This is not cosmetic — `tests/smoke/create_fixture.cmake` has **zero**
+`.fontfamily` assets and its startup `UILabel` is schema 1, so Step 7e cannot pass and
+`run_end_to_end.cmake:592-595` asserts `koreanGlyphQuads: 8`. **Every already-shipped scene would
+lose its text.**
+
+The deciding evidence: `FontFamilyResolver::BuildLegacySingleFace` was built by **Task 5.1 for
+exactly this case** and has **zero production callers** — it appears in
+`src/Text/FontFamilyResolver.{h,cpp}` and in three test files, nowhere else. The plan always
+intended a legacy single-face route into layout and simply never connected `ParagraphStyle` to it.
+Resolution B completes that intent; it does not invent a new concept.
+
+Resolution A (render tofu until Milestone 15) is rejected: it is a user-visible regression for every
+shipped scene, which is not a call to make silently. Resolution C (land Milestone 15 first) is
+rejected as disproportionate: Milestone 15 lives in subplan 05 and depends on subplans 03 and 04, so
+"first" means deferring this task behind three subplans, leaving the legacy path alive across all of
+them.
+
+**This is a design amendment.** Adding a legacy-single-face expression to `ParagraphStyle` changes
+cache identity, fallback order and supported font scope, which Global Constraint 2 reserves for an
+amendment. It is recorded here as one. Preserve legacy semantics exactly — one face, no fallback —
+and keep the smoke fixture schema 1 so `koreanGlyphQuads: 8` still proves the real path.
+
+**DECISION 2 — the raster-scale notation: fold the policy scale into `pixelSize` once.**
+
+Step 4's formula already folds the policy scale into `pixelSize`, and the atlas multiplies by
+`rasterScaleKey` again (`FontAtlas.cpp:493`, `FontFace.cpp:305-308`), so carrying the policy key in
+the key's raster field **squares the scale** — 16.5 px at a 2x policy would rasterize at 66 px, not
+33. At the default `rasterScaleKey == 64` the two readings are numerically identical, which is why
+no existing test caught it. `FontAtlas.h:26-28` explicitly delegates the notation choice to this
+task.
+
+Ruling: `key.pixelSize` is the **final** raster pixel height (Step 4's formula, verbatim), and
+`key.rasterScaleKey` is the identity `64`, so the atlas's own multiplication is a no-op. Step 3d's
+inverse conversion continues to use the **policy** key from `context.rasterPolicy`. This also makes
+two `(fontSize, policy)` pairs that produce byte-identical rasters share one cache entry, which is
+the waste `FontAtlas.h` complains about.
+
+**Consequence: Step 1h's supplied test is unsatisfiable as written and must be amended.** It asserts
+`keyAt2x.rasterScaleKey == 128`, which contradicts this ruling; under the other reading its
+companion assertions fail instead. Amend it to assert that `pixelSize` differs between the two
+policies while `rasterScaleKey` is `64` for both. That still discriminates a dropped policy scale,
+which is what the step exists to prove.
+
+---
+
 ### Task 8.2: Atomically migrate every rendered-text consumer to the shared pipeline
 
 **Prerequisite:** Tasks 4–7 and schema Task 8.1 are green. This is the only task allowed to remove the legacy production renderer.
