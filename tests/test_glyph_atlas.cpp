@@ -1163,3 +1163,168 @@ TEST_CASE("peak resident bytes is a high-water mark, not the latest value") {
     // 이 한 줄이 mutant를 죽인다: 대입이었다면 여기서 PageBytes가 된다.
     CHECK(f.cache.Telemetry().peakResidentBytes == highWater);
 }
+
+// ── Task 6.2: 제출된 page는 살아 있을 뿐 아니라 바뀌지도 않는다 ──────────────
+// 같은 순서를 두 번 돈다. 유일한 차이는 프레임 1의 handle을 프레임 2 전에
+// 놓아주는가 — 즉 그 프레임의 fence가 신호해 GpuRetirementQueue가 토큰을
+// 반납했는가 — 이다. 놓아준 쪽이 같은 page의 남은 선반에 이어 쓰는 것이,
+// 놓지 않은 쪽이 새 page로 가는 이유가 봉인임을 증명한다. 한쪽만 보면
+// "원래 프레임마다 새 page를 연다"와 구별되지 않는다.
+TEST_CASE("a page an in-flight frame still holds is not written again") {
+    for (const bool retired : {true, false}) {
+        CAPTURE(retired);
+        GlyphAtlasFixture f;
+        f.cache.BeginFrame(1);
+        auto first = f.ResolveGlyph(1);
+        REQUIRE(first.glyph.drawable);
+        const std::uint64_t firstPage = first.pageIdentity;
+        // 이 page에는 아직 자리가 넉넉하다: 같은 수집의 두 번째 glyph가 같은
+        // page에 들어간다. 수집 안에서는 봉인이 없다 — 아직 제출되지 않았다.
+        REQUIRE(f.ResolveGlyph(2).pageIdentity == firstPage);
+        REQUIRE(f.cache.IsPageWritable(firstPage));
+        f.cache.EndCollection(1);
+
+        // 수집이 끝나는 순간 밖에 나가 있는 page는 봉인된다.
+        CHECK_FALSE(f.cache.IsPageWritable(firstPage));
+        if (retired) first.pageLifetime.reset();
+        CHECK(f.cache.IsPageWritable(firstPage) == retired);
+
+        f.cache.BeginFrame(2);
+        const auto next = f.ResolveGlyph(3);
+        REQUIRE_FALSE(next.proceduralTofu);
+        CHECK((next.pageIdentity == firstPage) == retired);
+        // 봉인은 축출이 아니다: 어느 쪽이든 page는 그대로 상주하고 hit을 낸다.
+        CHECK(f.cache.IsPageResident(firstPage));
+        f.cache.EndCollection(2);
+    }
+}
+
+// 봉인이 한 번 서고 영원히 서 있으면 page는 다시는 채워지지 않는다. 위
+// 케이스의 retired 갈래는 토큰이 만료된 "그 순간"만 보므로, 새 토큰이 발급된
+// 뒤에도 봉인이 내려가 있는지는 여기서 본다.
+TEST_CASE("a reused page is sealed again only by the next collection") {
+    GlyphAtlasFixture f;
+    f.cache.BeginFrame(1);
+    auto first = f.ResolveGlyph(1);
+    const std::uint64_t page = first.pageIdentity;
+    f.cache.EndCollection(1);
+    first.pageLifetime.reset();
+
+    // 새 수집이 같은 page를 다시 열고 새 토큰을 발급한다. 그 수집이 끝나기
+    // 전까지는 계속 쓸 수 있어야 한다.
+    f.cache.BeginFrame(2);
+    auto reused = f.ResolveGlyph(2);
+    REQUIRE(reused.pageIdentity == page);
+    CHECK(f.cache.IsPageWritable(page));
+    REQUIRE(f.ResolveGlyph(3).pageIdentity == page);
+    f.cache.EndCollection(2);
+    CHECK_FALSE(f.cache.IsPageWritable(page));
+
+    // 상주하지 않는 정체성은 쓸 수 있는 page가 아니다(0도 마찬가지다).
+    CHECK_FALSE(f.cache.IsPageWritable(0U));
+    CHECK_FALSE(f.cache.IsPageWritable(page + 1000U));
+}
+
+// ── Task 6.2: GlyphInfo는 수명 단위가 아니다 ─────────────────────────────────
+// 이 하위 시스템의 수명 단위는 page 하나이고, 이름은 pageIdentity, 지분은
+// pageLifetime이다. 세 handle 모양 전부에서 그 둘이 짝을 이루는지 못 박는다:
+// 이름만 있는 handle은 반납해 줄 지분이 없고, 지분만 있는 handle은
+// Renderer::RetainUntilFrameComplete이 0 정체성으로 거절한다.
+TEST_CASE("every glyph handle pairs its page name with a page claim") {
+    GlyphAtlasFixture f = GlyphAtlasFixture::OneGlyphPerPage();
+    f.cache.BeginFrame(1);
+
+    // 1) 그릴 수 있는 glyph: 이름과 지분이 둘 다 있다.
+    const auto drawable = f.ResolveGlyph(1);
+    REQUIRE(drawable.glyph.drawable);
+    CHECK(drawable.pageIdentity != 0U);
+    CHECK(drawable.pageLifetime != nullptr);
+
+    // 2) 공백 glyph: 어떤 page에도 놓이지 않으므로 둘 다 없다.
+    const molga::GlyphAtlasKey blankKey = f.KeyForGlyph(3);
+    const auto blank = f.cache.GetGlyph(blankKey, f.FaceForKey(blankKey), f.sink);
+    REQUIRE_FALSE(blank.proceduralTofu);
+    REQUIRE_FALSE(blank.glyph.drawable);
+    CHECK(blank.pageIdentity == 0U);
+    CHECK(blank.pageLifetime == nullptr);
+    CHECK(molga::RetainedTexture(blank) == nullptr);
+
+    // 3) 포화 tofu: 한 page짜리 예산에서 두 번째 page는 거절된다.
+    const auto tofu = f.ResolveGlyph(2);
+    REQUIRE(tofu.proceduralTofu);
+    CHECK(tofu.pageIdentity == 0U);
+    CHECK(tofu.pageLifetime == nullptr);
+    CHECK(molga::RetainedTexture(tofu) == nullptr);
+    f.cache.EndCollection(1);
+
+    // 헤드리스에는 GraphicsDevice가 없어 캐시가 Texture를 만들지 않으므로,
+    // 위 handle들의 texture는 전부 널이다 — 그것만 보면 언제나 널을 돌려주는
+    // 구현도 통과한다. 규칙 자체("지분이 없으면 돌려주지 않는다")를 재려면
+    // 널이 아닌 포인터가 필요하므로 handle 하나를 손으로 만든다. 이 주소는
+    // 값으로만 쓰이고 역참조되지 않는다.
+    molga::GlyphHandle synthetic;
+    Texture* const marker =
+        reinterpret_cast<Texture*>(static_cast<std::uintptr_t>(0x1000U));
+    synthetic.glyph.texture = marker;
+    synthetic.pageIdentity = 7U;
+    synthetic.pageLifetime = std::make_shared<int>(1);
+    CHECK(molga::RetainedTexture(synthetic) == marker);
+    synthetic.pageLifetime.reset();
+    CHECK(molga::RetainedTexture(synthetic) == nullptr);
+}
+
+// ── Task 6.2: 거절된 배치는 봉인된 page의 선반을 건드리지 않는다 ────────────
+// 봉인 검사는 TryPlace보다 앞에 와야 한다. TryPlace는 성공하면 선반 커서를
+// 옮기므로, 뒤에 두면 거절된 요청마다 봉인된 page의 자리가 사라진다: 비행
+// 중인 프레임이 바쁠수록, 정작 glyph 하나 받지 못한 page가 예산만 태운다.
+//
+// 두 순서 모두 "이번 프레임은 이 page를 쓰지 않는다"는 같은 결과를 내므로,
+// 그 결과만 보는 픽스처는 둘을 구별하지 못한다. 구별되는 것은 봉인이 풀린
+// 뒤 그 page가 몇 개를 더 받는가뿐이다. 여기서는 같은 순서를 두 번 돌면서
+// 봉인 중의 거절만 넣고 빼고, 최종 수용 개수가 같은지를 본다.
+TEST_CASE("a rejected placement leaves the sealed page's shelf untouched") {
+    std::size_t accepted[2] = {0U, 0U};
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool interfered = pass == 1;
+        CAPTURE(interfered);
+        // 한 page짜리 예산. 봉인된 page를 비켜 간 요청은 새 page를 열지 못해
+        // tofu가 되므로, 관찰되는 것은 그 요청이 봉인된 page에 무엇을 했는가
+        // 하나뿐이다.
+        GlyphAtlasFixture f(GlyphAtlasFixture::PageBytes);
+        f.cache.BeginFrame(1);
+        auto first = f.ResolveGlyph(1);
+        REQUIRE(first.glyph.drawable);
+        const std::uint64_t page = first.pageIdentity;
+        f.cache.EndCollection(1);
+        REQUIRE_FALSE(f.cache.IsPageWritable(page));
+
+        f.cache.BeginFrame(2);
+        if (interfered) {
+            for (std::size_t ordinal = 2U; ordinal <= 9U; ++ordinal) {
+                REQUIRE(f.ResolveGlyph(ordinal).proceduralTofu);
+            }
+        }
+        f.cache.EndCollection(2);
+        REQUIRE(f.cache.ResidentPageCount() == 1U);
+
+        // 봉인이 풀린다. 이제 남은 선반을 끝까지 쓴다.
+        first.pageLifetime.reset();
+        f.cache.BeginFrame(3);
+        REQUIRE(f.cache.IsPageWritable(page));
+        bool saturated = false;
+        for (std::size_t ordinal = 2U; ordinal <= 120U; ++ordinal) {
+            const molga::GlyphHandle handle = f.ResolveGlyph(ordinal);
+            if (handle.proceduralTofu) {
+                saturated = true;
+                continue;
+            }
+            REQUIRE(handle.pageIdentity == page);
+            ++accepted[pass];
+        }
+        f.cache.EndCollection(3);
+        // 포화하지 않으면 잃어버린 자리가 개수에 드러나지 않는다.
+        REQUIRE(saturated);
+        REQUIRE(accepted[pass] > 0U);
+    }
+    CHECK(accepted[0] == accepted[1]);
+}

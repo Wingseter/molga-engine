@@ -111,6 +111,7 @@ set(ENGINE_SOURCES
     src/Rendering/Utf8.cpp
     src/Rendering/FontFace.cpp
     src/Rendering/FontAtlas.cpp
+    src/Rendering/GpuRetirementQueue.cpp
     src/Core/MolgaTime.cpp
     src/Systems/Input.cpp
     src/Rendering/Camera2D.cpp

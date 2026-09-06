@@ -154,6 +154,10 @@ struct PageRecord {
     // 이 page가 죽을 때 함께 무효화되어야 하는 항목들. 이것이 없으면 축출된
     // page를 가리키는 항목이 캐시에 남아 다음 hit에서 죽은 텍스처를 돌려준다.
     std::vector<GlyphAtlasKey> keys;
+    // 이미 끝난 수집이 이 page를 밖으로 내보냈다 = 제출된 명령이 이것을
+    // 가리키고 있을 수 있다. EndCollection이 세우고, 앞 토큰이 만료된 뒤
+    // 새 토큰을 발급할 때 PinPage가 내린다.
+    bool submittedPin = false;
 };
 
 struct GlyphEntry {
@@ -246,6 +250,21 @@ struct GlyphAtlasCache::Impl {
 
     bool AtCellLimit(const PageRecord& record) const {
         return glyphsPerPage != 0U && record.glyphsPlaced >= glyphsPerPage;
+    }
+
+    // ── Task 6.2: 제출된 page는 더 채우지 않는다 ────────────────────────────
+    // pin은 page를 살려 둘 뿐 바꾸지 않게 하지는 않는다. 이 검사가 없으면
+    // 프레임 N이 제출한 텍스처에 프레임 N+1의 새 glyph가 곧바로 써 넣어지고
+    // (CopyCoverage는 살아 있는 텍스처에 즉시 업로드한다), GPU가 아직 읽고
+    // 있는 픽셀이 그 자리에서 바뀐다. fence 반납이 지키려는 것이 정확히 그
+    // 바이트이므로, 수명만 지키고 내용을 지키지 않으면 아무것도 지키지 않은
+    // 것이다.
+    //
+    // 봉인은 스스로 풀린다: 토큰이 만료되었다는 것은 그 프레임의 fence가
+    // 신호해 GpuRetirementQueue가 놓아주었다는 뜻이고, 그때부터 이 page의
+    // 남은 선반은 다시 쓸 수 있다.
+    bool IsWriteSealed(const PageRecord& record) const {
+        return record.submittedPin && !record.externalToken.expired();
     }
 
     // 축출 가능한 조건은 정확히 둘이다: 이번 수집이 pin하지 않았고, 외부 토큰이
@@ -371,6 +390,9 @@ struct GlyphAtlasCache::Impl {
         if (!token) {
             token = std::make_shared<const PageLifetimeToken>(record.resource);
             record.externalToken = token;
+            // 앞 토큰이 만료된 뒤의 첫 발급이다 = 앞 제출은 반납되었다.
+            // 여기서 내리지 않으면 봉인이 한 번 서고 영원히 서 있게 된다.
+            record.submittedPin = false;
         }
         return token;
     }
@@ -385,12 +407,10 @@ struct GlyphAtlasCache::Impl {
     // 아직 선반이 남은 page. 프레임 경계에서 비우지 않는다 — 비우면 프레임마다
     // 새 page가 열려 1024짜리 page가 glyph 몇 개만 담고 예산을 태운다.
     //
-    // 그 대가로: pin은 page를 살려 둘 뿐 바꾸지 않게 하지는 않는다. 프레임 N이
-    // 제출한 page에 프레임 N+1의 새 glyph가 곧바로 써 넣어질 수 있고,
-    // CopyCoverage는 살아 있는 텍스처에 즉시 업로드한다. 제출된 프레임 밑에서
-    // 일어나는 그 write-after-read를 막는 것(제출 중인 page는 더 채우지 않거나
-    // 프레임별 쓰기 영역을 분리하는 것)은 GPU 제출 소유권을 맡는 Task 6.2의
-    // 몫이며, GlyphHandle::pageLifetime 하나로는 막히지 않는다.
+    // 그 대가였던 write-after-read는 IsWriteSealed가 막는다: 밖으로 나간 채
+    // 수집이 끝난 page는 그 토큰이 풀릴 때까지 재사용 후보에서 빠지므로,
+    // 여기 남아 있는 정체성이 봉인된 page를 가리킬 수 있다(그러면 그 프레임은
+    // 새 page를 연다).
     std::uint64_t openPage = 0;
     bool collectionActive = false;
     std::size_t diagnosticsThisCollection = 0;
@@ -427,6 +447,15 @@ void GlyphAtlasCache::EndCollection(std::uint64_t frameIndex) {
     impl_->currentFrame = frameIndex;
     impl_->collectionActive = false;
     impl_->currentCollectionPins.clear();
+    // 이 수집이 밖으로 내보낸 page는 이 순간부터 "제출될 수 있는" 것으로
+    // 본다. 캐시는 명령이 실제로 제출되었는지 알 수 없고, 알 수 없을 때
+    // 안전한 쪽은 쓰지 않는 쪽이다 — 틀렸을 때의 대가는 page 하나를 더
+    // 여는 것뿐이지만, 반대로 틀리면 제출된 프레임의 픽셀이 바뀐다.
+    for (auto& entry : impl_->pages) {
+        if (!entry.second.externalToken.expired()) {
+            entry.second.submittedPin = true;
+        }
+    }
 }
 
 GlyphHandle GlyphAtlasCache::GetGlyph(const GlyphAtlasKey& key,
@@ -507,7 +536,10 @@ GlyphHandle GlyphAtlasCache::GetGlyph(const GlyphAtlasKey& key,
     int y = 0;
     if (state.openPage != 0U) {
         auto open = state.pages.find(state.openPage);
+        // 봉인 검사가 TryPlace보다 앞에 온다: TryPlace는 성공하면 선반 커서를
+        // 옮기므로, 뒤에 두면 거절된 요청이 page의 배치 상태를 바꾼다.
         if (open != state.pages.end() && !state.AtCellLimit(open->second) &&
+            !state.IsWriteSealed(open->second) &&
             open->second.resource->TryPlace(bitmap.width, bitmap.height, x, y)) {
             pageIdentity = open->first;
             target = &open->second;
@@ -552,6 +584,10 @@ const GlyphAtlasTelemetry& GlyphAtlasCache::Telemetry() const noexcept {
     return impl_->telemetry;
 }
 
+Texture* RetainedTexture(const GlyphHandle& handle) noexcept {
+    return handle.pageLifetime ? handle.glyph.texture : nullptr;
+}
+
 std::size_t GlyphAtlasCache::LiveExternalPagePinCount() const noexcept {
     std::size_t live = 0U;
     for (const auto& entry : impl_->pages) {
@@ -579,6 +615,11 @@ bool GlyphAtlasCache::ReleaseAfterGpuIdle() noexcept {
 
 bool GlyphAtlasCache::IsPageResident(std::uint64_t pageIdentity) const noexcept {
     return impl_->pages.find(pageIdentity) != impl_->pages.end();
+}
+
+bool GlyphAtlasCache::IsPageWritable(std::uint64_t pageIdentity) const noexcept {
+    const auto found = impl_->pages.find(pageIdentity);
+    return found != impl_->pages.end() && !impl_->IsWriteSealed(found->second);
 }
 
 std::size_t GlyphAtlasCache::ResidentPageCount() const noexcept {

@@ -41,14 +41,24 @@ struct GlyphAtlasKeyHash {
     std::size_t operator()(const GlyphAtlasKey&) const noexcept;
 };
 
-// GlyphAtlasCache가 돌려준 GlyphInfo는 그 자체로 수명 단위가 아니다.
+// ── GlyphInfo가 무엇인지 (Task 6.2에서 확정) ────────────────────────────────
+// GlyphInfo는 래스터 배치를 읽어 가는 값 view일 뿐, 수명 단위가 아니다.
+// 이 하위 시스템에서 수명 단위는 오직 page 하나이며, 이름은
+// GlyphHandle::pageIdentity이고 지분은 GlyphHandle::pageLifetime이다.
+//
+// 이 타입에는 한때 서로 다른 방향의 보증이 두 개 붙어 있었다. 아래
+// FontAtlasCache의 "page는 캐시 수명 내내 Texture를 유지한다"는 보증은 그
+// 클래스의 성질이지 이 타입의 성질이 아니다 — `using FontAtlasGlyph =
+// GlyphInfo;`라는 별칭 하나가 그렇게 읽히게 만들었을 뿐이고, 그 별칭은
+// 레거시 소비자가 컴파일되도록 남아 있다가 FontAtlasCache와 함께 Task 8.2에서
+// 사라진다. GlyphAtlasCache 쪽에는 그런 보증이 없다:
 //
 //  - `texture`는 page가 소유하는 원시 포인터다. 그것을 살려 두는 것은 이
-//    구조체가 아니라 아래 GlyphHandle::pageLifetime이다. handle을 버리고
+//    구조체가 아니라 GlyphHandle::pageLifetime이다. handle을 버리고
 //    GlyphInfo만 복사해 두면, 바로 그 순간 축출 조건(외부 토큰 만료)이
-//    성립하므로 다음 할당이 그 텍스처를 해제할 수 있다. 파일 아래쪽
-//    FontAtlasCache의 "page는 캐시 수명 내내 Texture를 유지한다"는 보증은
-//    레거시 어댑터에만 해당하고 이 캐시에는 해당하지 않는다.
+//    성립하므로 다음 할당이 그 텍스처를 해제할 수 있다. 새 소비자는 아래
+//    RetainedTexture(handle)로만 텍스처를 꺼낸다 — 지분 없이 얻은 포인터는
+//    돌려주지 않는다.
 //  - `pageIndex`는 재사용되는 조밀한 slot 번호다(텍스처 배열/배치 바인딩용).
 //    축출된 page의 자리는 다음 page가 그대로 물려받는다. 프로세스 수명 동안
 //    재사용되지 않는 유일한 page 정체성은 GlyphHandle::pageIdentity이며,
@@ -71,16 +81,25 @@ using FontAtlasGlyph = GlyphInfo; // removed with the legacy adapter in Task 8.2
 // 프로세스 수명 동안 재사용되지 않으므로, 늦게 도착한 fence가 같은 번호를 단
 // 다른 page를 반납하는 일이 없다(Task 6.2/6.3).
 //
-// 다만 pin은 page를 *살려 둘* 뿐, *바꾸지 않게* 하지는 않는다. 아직 선반이
-// 남은 page는 다음 프레임의 새 glyph를 같은 텍스처에 곧바로 써 넣는다
-// (GetGlyph의 openPage 재사용). 제출된 프레임의 page에 대한 그 in-place 쓰기를
-// 막는 것은 Task 6.2의 몫이며, 이 handle 하나로는 막히지 않는다.
+// pin이 page를 *살려 둘* 뿐 *바꾸지 않게* 하지는 않던 구멍은 Task 6.2에서
+// 닫혔다: 수집이 끝나는 순간 밖으로 나가 있는 page는 쓰기 봉인되고
+// (IsPageWritable 참조), 그 프레임의 fence가 신호해 토큰이 풀릴 때까지
+// GetGlyph는 그 텍스처에 새 glyph를 써 넣지 않는다.
+//
+// 세 가지 모양뿐이고 셋 다 pageIdentity와 pageLifetime이 짝을 이룬다:
+// 그릴 수 있는 glyph(둘 다 있음), 공백 glyph와 포화 tofu(둘 다 없음).
+// 한쪽만 있는 handle은 반납할 수 없거나 이름이 없는 지분이므로 만들지 않는다.
 struct GlyphHandle {
     GlyphInfo glyph;
     std::uint64_t pageIdentity = 0;
     std::shared_ptr<const void> pageLifetime;
     bool proceduralTofu = false;
 };
+
+// handle이 실제로 page 지분을 들고 있을 때만 텍스처를 돌려준다. GlyphInfo만
+// 복사해 둔 소비자는 이 질문을 할 수 없다 — 그것이 GlyphInfo가 수명 단위가
+// 아니라는 말의 실제 내용이다.
+Texture* RetainedTexture(const GlyphHandle& handle) noexcept;
 
 struct GlyphAtlasTelemetry {
     std::uint64_t hits = 0, misses = 0, uploads = 0, evictions = 0;
@@ -173,6 +192,14 @@ public:
     // 관찰이 없으면 "예산을 넘지 않는다"와 "정체성을 재사용하지 않는다"는
     // 주석에 적힌 주장으로만 남는다.
     bool IsPageResident(std::uint64_t pageIdentity) const noexcept;
+
+    // 이 page에 새 glyph를 써 넣어도 되는가. 상주하지 않으면 false다.
+    //
+    // 끝난 수집이 밖으로 내보낸 page는 그 토큰이 풀릴 때까지 false다: 제출된
+    // 명령이 읽고 있는 텍스처에 in-place로 쓰면 화면에 뜯긴 glyph가 나오고,
+    // 어떤 진단도 그것을 보고하지 않는다. 이 값은 상주/축출과 무관하다 —
+    // 봉인된 page도 계속 캐시 hit을 낸다.
+    bool IsPageWritable(std::uint64_t pageIdentity) const noexcept;
     std::size_t ResidentPageCount() const noexcept;
     std::uint64_t PageBytes() const noexcept;
     const GlyphAtlasKey& LastUploadedKeyForTest() const noexcept;

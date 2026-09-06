@@ -269,6 +269,34 @@ molga_add_text_test(test_glyph_atlas test_glyph_atlas.cpp)
 target_compile_definitions(test_glyph_atlas PRIVATE
     MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
+# ── Task 6.2 Step 1d: the renderer-shutdown child ────────────────────────────
+# 실패한 GPU idle wait는 프로세스를 죽이므로 부모 안에서는 관찰할 수 없다.
+# molga_text_runtime_probe와 같은 모양의 전용 child다: CTest 항목이 아니고,
+# 자기 root를 유도하지 않으며, 부모가 넘긴 리터럴 argv만 읽는다. 폰트만은
+# 매크로로 받는다 — 커밋된 자격 트리의 face 하나여야 host font 탐색이 끼어들
+# 여지가 없기 때문이다.
+add_executable(molga_gpu_retirement_probe
+    gpu_retirement_shutdown_probe_main.cpp)
+target_link_libraries(molga_gpu_retirement_probe PRIVATE molga_core molga_warnings)
+target_include_directories(molga_gpu_retirement_probe PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(molga_gpu_retirement_probe PRIVATE
+    MOLGA_GPU_RETIREMENT_PROBE_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSans-Regular.ttf")
+molga_attach_text_dependencies(molga_gpu_retirement_probe)
+
+# Task 6.2: fence 기반 반납. 이웃들과 같은 세션 헬퍼로 등록한다 — 여기서
+# ICU/HarfBuzz 객체를 직접 만들지는 않지만, atlas page를 다루는 실행 파일이
+# 스테이징된 런타임 없이 서 있는 상태를 만들지 않기 위해서다(test_glyph_atlas와
+# 같은 이유). 진짜 SDL_GPU 장치를 열고 child 프로세스를 띄우므로 GPU 라벨을
+# 달고 직렬로 돈다.
+molga_add_text_test(test_gpu_retirement test_gpu_retirement.cpp)
+target_compile_definitions(test_gpu_retirement PRIVATE
+    MOLGA_GPU_RETIREMENT_PROBE="$<TARGET_FILE:molga_gpu_retirement_probe>")
+add_dependencies(test_gpu_retirement molga_gpu_retirement_probe)
+set_tests_properties(test_gpu_retirement PROPERTIES
+    LABELS "unit;text-runtime;gpu;sdlgpu"
+    RUN_SERIAL TRUE)
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────

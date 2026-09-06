@@ -281,16 +281,22 @@ FontGlyphBitmap FontFace::RasterizeGlyph(std::uint32_t glyphId,
                                          std::uint16_t pixelHeight,
                                          std::uint16_t rasterScaleKey) const {
     FontGlyphBitmap result;
+    if (!impl_) return result;
+    // ── const가 실제로 const가 되게 한다 (Task 6.2) ──────────────────────────
+    // pimpl이 unique_ptr이라 이 함수의 const는 Impl로 전파되지 않는다:
+    // `impl_->`로는 무엇이든 쓸 수 있고, 그러면 이 함수가 face를 바꾸지
+    // 않는다는 것은 주석의 주장일 뿐이다. const 참조 하나를 끼워 넣어 그
+    // 주장을 컴파일러의 것으로 만든다 — 아래에서 lastRasterizedGlyphId
+    // (mutable atomic) 외의 멤버에 쓰면 컴파일되지 않는다.
+    const Impl& state = *impl_;
     // 물어본 사실을 먼저 남긴다. 성공한 요청만 세면 "잘못된 face에 물어서
     // 빈 비트맵이 나왔다"는 가장 위험한 경우가 흔적 없이 사라진다.
-    if (impl_) {
-        impl_->lastRasterizedGlyphId.store(glyphId, std::memory_order_relaxed);
-    }
+    state.lastRasterizedGlyphId.store(glyphId, std::memory_order_relaxed);
     if (!IsValid()) return result;
     // 범위 밖 glyph ID는 여기서 닫는다. stb도 loca 경계를 검사하지만, 그
     // 방어가 우리 것이 아니면 벤더 사본을 갱신하는 날 조용히 사라진다.
-    if (impl_->info.numGlyphs <= 0 ||
-        glyphId >= static_cast<std::uint32_t>(impl_->info.numGlyphs)) {
+    if (state.info.numGlyphs <= 0 ||
+        glyphId >= static_cast<std::uint32_t>(state.info.numGlyphs)) {
         return result;
     }
 
@@ -301,13 +307,13 @@ FontGlyphBitmap FontFace::RasterizeGlyph(std::uint32_t glyphId,
                            static_cast<std::uint64_t>(rasterScaleKey)) /
         64.0f;
     const float scale =
-        stbtt_ScaleForPixelHeight(&impl_->info, SafePixelHeight(requestedHeight));
+        stbtt_ScaleForPixelHeight(&state.info, SafePixelHeight(requestedHeight));
 
     int x0 = 0;
     int y0 = 0;
     int x1 = 0;
     int y1 = 0;
-    stbtt_GetGlyphBitmapBox(&impl_->info, static_cast<int>(glyphId),
+    stbtt_GetGlyphBitmapBox(&state.info, static_cast<int>(glyphId),
                             scale, scale, &x0, &y0, &x1, &y1);
     result.width = std::max(0, x1 - x0);
     result.height = std::max(0, y1 - y0);
@@ -317,7 +323,7 @@ FontGlyphBitmap FontFace::RasterizeGlyph(std::uint32_t glyphId,
 
     result.coverage.resize(static_cast<std::size_t>(result.width) *
                            static_cast<std::size_t>(result.height));
-    stbtt_MakeGlyphBitmap(&impl_->info, result.coverage.data(),
+    stbtt_MakeGlyphBitmap(&state.info, result.coverage.data(),
                           result.width, result.height, result.width,
                           scale, scale, static_cast<int>(glyphId));
     return result;

@@ -69,6 +69,11 @@ public:
     // 때문이다 — atlas는 face를 소유하지 않고, face의 글자 모양도 바꾸지
     // 않는다. 다만 완전히 무변이는 아니다: 아래 LastRasterizedGlyphId의
     // 관찰용 기록 하나만은 이 함수가 쓴다(mutable atomic, relaxed).
+    //
+    // pimpl이 unique_ptr이라 이 const는 Impl로 전파되지 않으므로, 구현은
+    // `const Impl&`를 하나 끼워 넣어 그 예외가 정확히 하나뿐임을 컴파일러가
+    // 강제하게 한다. shared_ptr<const FontFace>로 공유되는 face가 atlas miss
+    // 때마다 조용히 변이되는 일이 없다는 뜻이다.
     FontGlyphBitmap RasterizeGlyph(std::uint32_t glyphId,
                                    std::uint16_t pixelHeight,
                                    std::uint16_t rasterScaleKey) const;

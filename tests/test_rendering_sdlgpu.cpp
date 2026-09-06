@@ -389,6 +389,95 @@ TEST_CASE("SDL_GPU RHI rejects stale handles and invalid frame ordering") {
     host->Graphics().DestroyBuffer(live);
 }
 
+// ── Task 6.2: 진짜 제출 fence ───────────────────────────────────────────────
+// GpuRetirementQueue의 CPU 케이스는 가짜 fence로 "신호하기 전에는 놓지 않는다"를
+// 재고, 여기서는 그 경계의 반대쪽 — 실제 SDL_GPU 제출이 완료를 보고하는가 — 을
+// 잰다. 이 단언이 없으면 IsSignaled()가 언제나 false인 구현도, 극성이 뒤집힌
+// 구현도 CPU 스위트를 전부 통과한다.
+//
+// 벤더된 SDL 3.4.14의 Metal 백엔드에서 SDL_QueryGPUFence는 문서와 반대로
+// "진행 중"을 돌려준다(METAL_QueryFence -> METAL_INTERNAL_IsFenceBusy). 그래서
+// 이 케이스는 장치 생성 시 측정한 극성이 실제로 적용될 때만 통과한다.
+TEST_CASE("SDL_GPU submission fences report completion after a device idle wait") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU submission fence";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    std::string error;
+    molga::BeginFrameResult acquired = host->BeginFrame();
+    REQUIRE(acquired.status == molga::FrameAcquireStatus::Acquired);
+    molga::RenderPassDescriptor pass;
+    pass.color.swapchain = true;
+    pass.color.loadAction = molga::LoadAction::Clear;
+    REQUIRE(acquired.frame.BeginRenderPass(pass, &error));
+    acquired.frame.EndRenderPass();
+
+    std::unique_ptr<molga::IGpuCompletionFence> fence;
+    REQUIRE_MESSAGE(acquired.frame.SubmitAndAcquireFence(fence, &error), error);
+    REQUIRE(fence);
+    REQUIRE_MESSAGE(host->Graphics().WaitIdle(&error), error);
+    CHECK(fence->IsSignaled());
+
+    // 이미 제출된 프레임은 두 번째 fence를 만들지 않는다. 실패한 호출이
+    // 낡은 fence를 남겨 두면 그 다음 Poll이 남의 제출을 보고 page를 놓는다.
+    std::unique_ptr<molga::IGpuCompletionFence> second;
+    CHECK_FALSE(acquired.frame.SubmitAndAcquireFence(second, &error));
+    CHECK_FALSE(second);
+
+    // fence 객체는 장치보다 먼저 사라져야 한다. 이 줄이 그 순서다.
+    fence.reset();
+}
+
+// 위 케이스는 한쪽 방향만 잰다. 완료된 fence에 대한 CHECK(IsSignaled())는
+// IsSignaled()가 통째로 `return true`인 구현도 만족시키는데, 그것이야말로 이
+// 마일스톤이 막으려는 방향이다 — 제출된 순간 모든 page가 반납되고, GPU가
+// 읽고 있는 텍스처가 그 밑에서 사라진다.
+//
+// 진짜 fence를 비행 중에 붙잡는 단언은 쓸 수 없다(GPU가 먼저 끝내면 그 단언은
+// 사라진다). 대신 fail-closed 세 갈래를 완료가 증명된 진짜 fence 위에서
+// 결정적으로 관찰한다: 장치가 없는 것, fence가 없는 것, 극성을 측정하지 못한
+// 것. 셋 다 "아직 아니다"여야 한다.
+TEST_CASE("a real submission fence answers false whenever it lacks proof") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU fence polarity";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    molga::detail::CompletionFenceProbe probe =
+        molga::detail::ProbeCompletionFenceForTest(host->Graphics());
+    REQUIRE(probe.valid);
+
+    // 성공 증인. 이것이 없으면 IsSignaled()가 언제나 false인 구현이 아래 세
+    // 단언을 전부 통과한다.
+    CHECK(probe.completed->IsSignaled());
+
+    // 증거가 없는 세 갈래. 이 셋이 `return true`를 죽인다.
+    CHECK_FALSE(probe.withoutDevice->IsSignaled());
+    CHECK_FALSE(probe.withoutFence->IsSignaled());
+    CHECK_FALSE(probe.completedWithUnusablePolarity->IsSignaled());
+
+    // 측정한 극성은 이 장치의 실제 답과 맞아야 한다. 벤더된 SDL 3.4.14의
+    // Metal 백엔드에서 SDL_QueryGPUFence는 완료된 fence에 false를 돌려주므로
+    // (METAL_QueryFence -> METAL_INTERNAL_IsFenceBusy), 여기서 극성은
+    // ReportsBusy이고 IsSignaled()는 원값과 어긋나야 한다. 극성을 상수로
+    // 박아 두면 SDL이 고쳐지는 날 이 줄이 먼저 깨진다.
+    CHECK(probe.polarity != molga::FenceQueryPolarity::Unusable);
+    if (probe.polarity == molga::FenceQueryPolarity::ReportsBusy) {
+        CHECK_FALSE(probe.rawQueryOnCompletedFence);
+        CHECK(probe.completed->IsSignaled() != probe.rawQueryOnCompletedFence);
+    } else {
+        CHECK(probe.rawQueryOnCompletedFence);
+        CHECK(probe.completed->IsSignaled() == probe.rawQueryOnCompletedFence);
+    }
+}
+
 TEST_CASE("SDL_GPU pipeline keys are deterministic and state-complete") {
     molga::ShaderBundleEntry entry;
     entry.name = "key-test";

@@ -28,6 +28,80 @@ namespace {
 
 GraphicsDevice* currentDevice = nullptr;
 
+// Task 6.2: 아래 두 주입은 GraphicsDevice.h의 detail 선언이 켜고 끈다.
+bool injectGpuIdleWaitFailure = false;
+bool injectGpuFenceAcquisitionFailure = false;
+
+// fence 획득 실패는 프레임마다 날 수 있다. 진단은 상한이 있어야 한다 —
+// FontAtlas의 kMaxAtlasDiagnosticsPerCollection과 같은 이유로, 고장 난 장치
+// 하나가 로그를 초당 수백 줄로 채우면 그 로그는 아무도 읽지 않는다.
+constexpr unsigned kMaxFenceAcquisitionDiagnostics = 4U;
+unsigned fenceAcquisitionDiagnostics = 0U;
+
+// ── The real submission fence ───────────────────────────────────────────────
+// 장치가 살아 있는 동안에만 유효하다. 반납 큐는 렌더러 종료의 성공한 idle
+// wait 직후, 장치가 파괴되기 전에 비워지므로 이 소멸자가 죽은 장치를 만나는
+// 순서는 만들어지지 않는다.
+class SdlGpuCompletionFence final : public IGpuCompletionFence {
+public:
+    SdlGpuCompletionFence(SDL_GPUDevice* device, SDL_GPUFence* fence,
+                          FenceQueryPolarity polarity) noexcept
+        : device_(device), fence_(fence), polarity_(polarity) {}
+
+    SdlGpuCompletionFence(const SdlGpuCompletionFence&) = delete;
+    SdlGpuCompletionFence& operator=(const SdlGpuCompletionFence&) = delete;
+
+    ~SdlGpuCompletionFence() override {
+        if (device_ && fence_) SDL_ReleaseGPUFence(device_, fence_);
+    }
+
+    bool IsSignaled() const noexcept override {
+        // 증거가 없으면 "끝났다"고 답하지 않는다. 신호를 잘못 보고하는 쪽의
+        // 대가는 제출된 명령 밑에서 사라지는 텍스처이고, 반대쪽의 대가는
+        // page 하나가 종료까지 남는 것뿐이다.
+        if (!device_ || !fence_ ||
+            polarity_ == FenceQueryPolarity::Unusable) {
+            return false;
+        }
+        const bool queried = SDL_QueryGPUFence(device_, fence_);
+        return polarity_ == FenceQueryPolarity::ReportsBusy ? !queried
+                                                            : queried;
+    }
+
+private:
+    SDL_GPUDevice* device_ = nullptr;
+    SDL_GPUFence* fence_ = nullptr;
+    FenceQueryPolarity polarity_ = FenceQueryPolarity::Unusable;
+};
+
+// 빈 명령 버퍼 하나를 제출하고 그것이 끝날 때까지 기다린 다음 질의한다. 그
+// 시점의 답은 모호하지 않다: 완료된 fence에 true면 문서대로이고, false면
+// 이 백엔드는 "busy"를 돌려주고 있다.
+FenceQueryPolarity CalibrateFenceQuery(SDL_GPUDevice* device) {
+    SDL_GPUCommandBuffer* command = SDL_AcquireGPUCommandBuffer(device);
+    if (!command) return FenceQueryPolarity::Unusable;
+    SDL_GPUFence* fence = SDL_SubmitGPUCommandBufferAndAcquireFence(command);
+    if (!fence) return FenceQueryPolarity::Unusable;
+    SDL_GPUFence* fences[] = {fence};
+    const bool waited = SDL_WaitForGPUFences(device, true, fences, 1);
+    // 질의 직전에 지운다. 여기서 읽는 오류 문자열은 이 질의의 것이어야 한다.
+    SDL_ClearError();
+    const bool queried = SDL_QueryGPUFence(device, fence);
+    const char* queryError = SDL_GetError();
+    const bool queryFailed = queryError != nullptr && queryError[0] != '\0';
+    SDL_ReleaseGPUFence(device, fence);
+    if (!waited) return FenceQueryPolarity::Unusable;
+    if (queried) return FenceQueryPolarity::ReportsSignaled;
+    // "완료된 fence가 false"는 뒤집힌 백엔드의 신호이지만, 질의 자체가 실패해도
+    // false다 — Vulkan의 VULKAN_QueryFence는 VK_SUCCESS도 VK_NOT_READY도 아닌
+    // 결과(특히 VK_ERROR_DEVICE_LOST)를 SET_ERROR_AND_RETURN(..., false)로
+    // 흘린다. 그 둘을 뭉치면 여기서 "뒤집혔다"로 잘못 측정되고, 그 뒤로 계속
+    // 실패하는 질의가 전부 "신호했다"로 보고된다: GPU가 읽고 있는 page를
+    // 놓아 주는 그 방향이다. 구별할 수 없으면 Unusable이 답이다.
+    if (queryFailed) return FenceQueryPolarity::Unusable;
+    return FenceQueryPolarity::ReportsBusy;
+}
+
 struct GpuLogMonitor {
     GpuLogMonitor();
     ~GpuLogMonitor();
@@ -283,6 +357,7 @@ struct GraphicsDevice::Impl {
     SDL_GPUDevice* device = nullptr;
     GraphicsDeviceInfo info;
     std::unique_ptr<GpuLogMonitor> logMonitor;
+    FenceQueryPolarity fenceQueryPolarity = FenceQueryPolarity::Unusable;
 
     std::vector<ResourceSlot<SDL_GPUBuffer, BufferDescriptor>> buffers;
     std::vector<ResourceSlot<SDL_GPUTexture, TextureDescriptor>> textures;
@@ -812,6 +887,17 @@ bool FrameContext::Blit(TextureView source, PixelRectU32 sourceRect,
 }
 
 bool FrameContext::Submit(std::string* errorOut) {
+    return SubmitInternal(nullptr, errorOut);
+}
+
+bool FrameContext::SubmitAndAcquireFence(
+    std::unique_ptr<IGpuCompletionFence>& fenceOut, std::string* errorOut) {
+    return SubmitInternal(&fenceOut, errorOut);
+}
+
+bool FrameContext::SubmitInternal(
+    std::unique_ptr<IGpuCompletionFence>* fenceOut, std::string* errorOut) {
+    if (fenceOut) fenceOut->reset();
     if (!IsValid()) {
         SetError(errorOut, "frame was already submitted or is invalid");
         return false;
@@ -822,16 +908,51 @@ bool FrameContext::Submit(std::string* errorOut) {
         impl_->copyPass = nullptr;
     }
     SDL_GPUCommandBuffer* command = impl_->command;
+    SDL_GPUDevice* device = impl_->owner->impl_->device;
     impl_->command = nullptr;
     impl_->submitted = true;
-    const bool success = SDL_SubmitGPUCommandBuffer(command);
+    SDL_GPUFence* fence = nullptr;
+    bool success = false;
+    if (fenceOut) {
+        fence = SDL_SubmitGPUCommandBufferAndAcquireFence(command);
+        // 주입은 획득한 fence를 버리는 방식이다. 제출 자체를 건너뛰면
+        // swapchain 텍스처가 영영 제시되지 않아, 재려던 것("끝을 관찰할 수
+        // 없는 제출")과 다른 상황이 된다.
+        if (fence && injectGpuFenceAcquisitionFailure) {
+            SDL_ReleaseGPUFence(device, fence);
+            fence = nullptr;
+        }
+        // SDL은 백엔드로 넘기기 전에 명령 버퍼를 소비 완료로 표시한다
+        // (SDL_gpu.c의 commandBufferHeader->submitted = true). fence가 없다는
+        // 것은 제출이 없었다는 뜻이 아니다.
+        success = true;
+    } else {
+        success = SDL_SubmitGPUCommandBuffer(command);
+    }
     for (SDL_GPUTransferBuffer* transfer : impl_->transfers) {
-        SDL_ReleaseGPUTransferBuffer(impl_->owner->impl_->device, transfer);
+        SDL_ReleaseGPUTransferBuffer(device, transfer);
     }
     impl_->transfers.clear();
     if (!success) {
         SetError(errorOut, SdlError("could not submit SDL_GPU frame"));
         return false;
+    }
+    if (fenceOut && fence) {
+        *fenceOut = std::make_unique<SdlGpuCompletionFence>(
+            device, fence, impl_->owner->impl_->fenceQueryPolarity);
+    } else if (fenceOut) {
+        // 제출은 되었고 fence만 없다. 이것을 제출 실패로 보고하면 실제로
+        // 화면에 나간 프레임 때문에 애플리케이션이 종료된다. 대신 여기서
+        // 알린다 — 호출자는 fenceOut이 비었다는 것을 보고 RetainWithoutFence로
+        // 물러서고, 그 상태가 계속되면 반납이 막힌다는 사실이 오류 severity로
+        // 남아야 한다(ValidationErrorCount가 세는 유일한 층이다).
+        if (fenceAcquisitionDiagnostics < kMaxFenceAcquisitionDiagnostics) {
+            ++fenceAcquisitionDiagnostics;
+            SDL_LogError(SDL_LOG_CATEGORY_GPU,
+                         "SDL_GPU frame was submitted without a completion "
+                         "fence; its resources can be retired only by a "
+                         "forced GPU idle wait");
+        }
     }
     SetError(errorOut, {});
     return true;
@@ -951,6 +1072,21 @@ std::unique_ptr<GraphicsDevice> GraphicsDevice::Create(
         return nullptr;
     }
 #endif
+    // 장치마다 한 번. 빈 제출 하나의 비용으로, 이 백엔드의 fence 질의가
+    // "신호"를 뜻하는지 "진행 중"을 뜻하는지 확정한다.
+    impl->fenceQueryPolarity = CalibrateFenceQuery(device);
+    if (impl->fenceQueryPolarity == FenceQueryPolarity::Unusable) {
+        // 장치당 한 번뿐이지만 오류다. 이 장치에서는 제출의 완료를 관찰할 수
+        // 없으므로 fence 기반 반납이 통째로 멈춘다. 반납이 멈추면 atlas의
+        // 봉인이 영원히 풀리지 않고, 예산이 차는 순간부터 새 glyph가 전부
+        // tofu가 된다 — 그 증상만 보고 여기까지 되짚어 올 수는 없다.
+        // 경고로 두면 ValidationErrorCount()가 세지 않아 smoke 보고서도
+        // 조용히 통과하므로, 아무도 보지 않는 진단이 된다.
+        SDL_LogError(SDL_LOG_CATEGORY_GPU,
+                     "SDL_GPU fence completion is not observable on this "
+                     "device; submitted resources can be retired only by a "
+                     "forced GPU idle wait");
+    }
     errorOut.clear();
     return std::unique_ptr<GraphicsDevice>(new GraphicsDevice(std::move(impl)));
 }
@@ -1438,11 +1574,17 @@ bool GraphicsDevice::RenderCapabilityFrame(float r, float g, float b, float a,
 }
 
 bool GraphicsDevice::WaitIdle(std::string* errorOut) {
-    if (SDL_WaitForGPUIdle(impl_->device)) {
+    // 주입은 진짜 대기를 먼저 하고 결과만 뒤집는다. 대기를 건너뛰면 이 뒤의
+    // 종료 경로가 재려는 것과 다른 상태(정말로 명령이 남아 있는 장치)에서
+    // 돌게 된다.
+    const bool waited = SDL_WaitForGPUIdle(impl_->device);
+    if (waited && !injectGpuIdleWaitFailure) {
         SetError(errorOut, {});
         return true;
     }
-    SetError(errorOut, SdlError("could not wait for SDL_GPU idle"));
+    SetError(errorOut, injectGpuIdleWaitFailure
+                           ? "injected SDL_GPU idle wait failure"
+                           : SdlError("could not wait for SDL_GPU idle"));
     return false;
 }
 
@@ -1462,5 +1604,60 @@ std::unique_ptr<GraphicsDevice> CreateGraphicsDevice(
     void* nativeWindow, bool debugValidation, std::string& errorOut) {
     return GraphicsDevice::Create(nativeWindow, debugValidation, errorOut);
 }
+
+namespace detail {
+
+void SetGpuIdleWaitFailureInjectionForTest(bool enabled) noexcept {
+    injectGpuIdleWaitFailure = enabled;
+}
+
+void SetGpuFenceAcquisitionFailureInjectionForTest(bool enabled) noexcept {
+    injectGpuFenceAcquisitionFailure = enabled;
+}
+
+CompletionFenceProbe ProbeCompletionFenceForTest(GraphicsDevice& device) {
+    CompletionFenceProbe probe;
+    SDL_GPUDevice* raw = device.impl_->device;
+    if (!raw) return probe;
+    probe.polarity = device.impl_->fenceQueryPolarity;
+
+    // 진짜 fence 두 개. 하나는 측정한 극성으로, 다른 하나는 Unusable로 감싼다.
+    // 같은 fence를 둘이 감싸면 소멸자가 SDL_ReleaseGPUFence를 두 번 부른다.
+    SDL_GPUFence* fences[2] = {nullptr, nullptr};
+    for (SDL_GPUFence*& slot : fences) {
+        SDL_GPUCommandBuffer* command = SDL_AcquireGPUCommandBuffer(raw);
+        if (!command) break;
+        slot = SDL_SubmitGPUCommandBufferAndAcquireFence(command);
+        if (!slot) break;
+    }
+    const bool acquired = fences[0] != nullptr && fences[1] != nullptr;
+    // 완료를 증명한다. 이 뒤의 관찰은 GPU 타이밍에 좌우되지 않는다.
+    if (!acquired || !SDL_WaitForGPUFences(raw, true, fences, 2)) {
+        for (SDL_GPUFence* slot : fences) {
+            if (slot) SDL_ReleaseGPUFence(raw, slot);
+        }
+        return probe;
+    }
+
+    probe.rawQueryOnCompletedFence = SDL_QueryGPUFence(raw, fences[0]);
+    probe.completed = std::make_unique<SdlGpuCompletionFence>(raw, fences[0],
+                                                              probe.polarity);
+    probe.completedWithUnusablePolarity =
+        std::make_unique<SdlGpuCompletionFence>(raw, fences[1],
+                                                FenceQueryPolarity::Unusable);
+    probe.withoutFence = std::make_unique<SdlGpuCompletionFence>(
+        raw, nullptr, probe.polarity);
+    // 장치만 없는 경우. 이 fence 주소는 값으로만 쓰이고 역참조되지 않는다 —
+    // device_가 널이면 IsSignaled는 질의 전에 답하고 소멸자도 해제하지 않는다.
+    // "fence가 없는 것"과 구별하려면 널이 아니어야 한다.
+    probe.withoutDevice = std::make_unique<SdlGpuCompletionFence>(
+        nullptr,
+        reinterpret_cast<SDL_GPUFence*>(static_cast<std::uintptr_t>(0x1000U)),
+        probe.polarity);
+    probe.valid = true;
+    return probe;
+}
+
+} // namespace detail
 
 } // namespace molga

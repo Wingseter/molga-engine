@@ -2,6 +2,7 @@
 
 #include "Common/Log.h"
 #include "Rendering/Camera2D.h"
+#include "Rendering/GpuRetirementQueue.h"
 #include "Rendering/RenderTarget.h"
 #include "Rendering/LightingPipeline2D.h"
 #include "Rendering/Shader.h"
@@ -11,12 +12,22 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 
 namespace {
+
+// Task 6.2: Renderer.h의 detail 선언이 켜고 끈다. 널이면 아무 일도 없다.
+molga::detail::RendererShutdownStageHook shutdownStageHook = nullptr;
+
+void NotifyShutdownStage(const char* stage) {
+    if (shutdownStageHook) shutdownStageHook(stage);
+}
 
 template <typename T>
 std::vector<std::uint8_t> BytesOf(const T& value) {
@@ -149,8 +160,87 @@ struct Renderer::Impl {
     molga::TextureFormat activeColorFormat = molga::TextureFormat::SRGBA8;
     bool activeHasDepth = false;
     molga::TextureFormat activeDepthFormat = molga::TextureFormat::Depth24Stencil8;
+    // Task 6.2. 이 프레임이 붙든 page(정체성 -> 토큰 하나)와, 제출된 프레임들이
+    // fence를 기다리며 붙들고 있는 토큰들.
+    std::map<std::uint64_t, std::shared_ptr<const void>> frameRetainedPages;
+    molga::GpuRetirementQueue retirement;
+    // fence 없이 붙든 묶음의 수. 큐는 이것을 세지 않고(공개 선언은 계획이 준
+    // 그대로다), 아래 상한 검사는 fence가 있는 쪽과 없는 쪽을 함께 보아야
+    // 한다 — 자라는 것은 둘 다이기 때문이다.
+    std::size_t unfencedRetainCount = 0U;
+    unsigned stalledDrainDiagnostics = 0U;
+
+    // ── Task 6.2: 반납이 막혔을 때의 상한 ───────────────────────────────────
+    // fence 질의가 불가능한 장치(FenceQueryPolarity::Unusable)나 fence 획득이
+    // 계속 실패하는 제출에서는 Poll이 아무것도 반납하지 못한다. 그대로 두면
+    // 붙든 토큰이 프레임마다 늘고, atlas page의 쓰기 봉인이 영원히 풀리지
+    // 않아 예산이 차는 순간부터 새 glyph가 전부 tofu가 된다. 실패 경로가
+    // 무한히 자라는 것은 fail-closed가 아니다.
+    //
+    // 32는 정상 장치에서 결코 닿지 않는 값이다: fence가 신호하는 장치에서는
+    // 비행 중인 제출이 스왑체인 깊이(2~3)를 넘지 않는다. 동시에 봉인이 풀리기
+    // 까지의 최악 지연을 32 프레임으로 묶는다 — 그 사이 atlas는 봉인된 page를
+    // 비켜 새 page를 열지만, 상한이 없으면 그것이 영원히 계속된다.
+    static constexpr std::size_t kMaxStalledRetirements = 32U;
+    static constexpr unsigned kMaxStalledDrainDiagnostics = 4U;
+
+    std::vector<std::shared_ptr<const void>> TakeRetainedPages() {
+        std::vector<std::shared_ptr<const void>> tokens;
+        tokens.reserve(frameRetainedPages.size());
+        for (auto& entry : frameRetainedPages) {
+            tokens.push_back(std::move(entry.second));
+        }
+        frameRetainedPages.clear();
+        return tokens;
+    }
+
+    void HoldWithoutFence(std::vector<std::shared_ptr<const void>> tokens) {
+        if (tokens.empty()) return;
+        retirement.RetainWithoutFence(std::move(tokens));
+        ++unfencedRetainCount;
+    }
+
+    void ClearRetirementAfterProvenIdle() {
+        retirement.DrainAfterGpuIdle();
+        unfencedRetainCount = 0U;
+    }
+
+    // 상한에 닿으면 증거를 만들어서 푼다: 성공한 GPU idle wait는 fence 신호
+    // 보다 강한 증거이므로, 그 뒤의 drain은 "제출이 끝난 뒤에만 놓는다"는
+    // 계약을 깨지 않는다. 대가는 프레임 경계 하나에서의 동기 정지이고, 그것은
+    // fence를 잃은 장치에서만 일어난다. idle wait마저 실패하면 아무것도 놓지
+    // 않는다 — 그때는 증거가 없고, 증거가 없으면 붙들고 있는 것이 안전한
+    // 쪽이다.
+    void DrainBackloggedRetirements() {
+        if (!device) return;
+        if (retirement.PendingSubmissionCount() + unfencedRetainCount <
+            kMaxStalledRetirements) {
+            return;
+        }
+        std::string idleError;
+        if (!device->WaitIdle(&idleError)) {
+            Log::Error("Renderer",
+                       "GPU retirement is stalled and the idle wait failed: " +
+                           idleError);
+            return;
+        }
+        ClearRetirementAfterProvenIdle();
+        if (stalledDrainDiagnostics < kMaxStalledDrainDiagnostics) {
+            ++stalledDrainDiagnostics;
+            Log::Error("Renderer",
+                       "GPU submission fences are not retiring; forced a GPU "
+                       "idle wait to release retained atlas pages");
+        }
+    }
 
     void ResetFrame() {
+        // EndMainPassAndSubmit을 거치지 않고 닫힌 프레임의 토큰이 여기로
+        // 온다. 공개 탈출구인 Renderer::CurrentFrame()으로 FrameContext를
+        // 직접 제출한 경우가 그렇고, 아직 제출되지 않은 프레임이라면
+        // ~FrameContext가 swapchain 명령 버퍼를 그대로 제출한다. 어느 쪽이든
+        // 명령은 GPU에 갔고 그 끝을 증명할 fence는 없으므로, 여기서 놓으면
+        // 제출된 명령 밑에서 텍스처가 사라진다.
+        HoldWithoutFence(TakeRetainedPages());
         frame.reset();
         vertexBytes.clear();
         indices.clear();
@@ -244,11 +334,39 @@ bool Renderer::Init(std::string* errorOut) {
 
 void Renderer::Shutdown() {
     if (!impl_) return;
+    // ── Step 8a: 먼저 일을 멈추고, 그다음에 idle을 기다린다 ──────────────────
+    // 열려 있던 프레임을 닫아야 그 프레임의 명령과 page 토큰이 아래 idle
+    // wait가 증명하는 범위 안으로 들어온다. 이 두 줄이 끝나면 활성 프레임이
+    // 없으므로 새 수집(RetainUntilFrameComplete)도 새 제출도 거절된다.
     if (impl_->frame && impl_->frame->IsValid()) {
-        impl_->frame->Submit(nullptr);
+        EndMainPassAndSubmit(nullptr);
     }
+    impl_->ResetFrame();
     if (impl_->device) {
-        impl_->device->WaitIdle(nullptr);
+        // ── Step 9: idle을 증명하지 못하면 아무것도 부수지 않는다 ───────────
+        // 살아 있을지 모르는 명령 버퍼 밑에서 텍스처를 파괴하는 것보다,
+        // 여기서 죽고 OS에 자원 회수를 맡기는 편이 안전하다. 이것은 host가
+        // 소유하는 재시도 가능한 종료가 생기기 전까지의 임시 계약이다:
+        // Task 11.2가 이 분기와 그 subprocess 케이스를 한 커밋에서 지우고
+        // EngineShutdownStatus::GpuDrainFailed로 바꾼다.
+        std::string idleError;
+        if (!impl_->device->WaitIdle(&idleError)) {
+            // 아직 붙들고 있는 제출 수를 함께 남긴다. 이 값이 0이 아니라는
+            // 것이 "drain보다 먼저 죽었다"의 증거다 — 종료 코드만으로는
+            // abort를 drain 뒤로 옮긴 구현과 구별되지 않는다.
+            std::fprintf(stderr,
+                         "GPU_IDLE_WAIT_FAILED: %s (pending submissions: %zu)\n",
+                         idleError.c_str(),
+                         impl_->retirement.PendingSubmissionCount());
+            std::fflush(stderr);
+            std::abort();
+        }
+        NotifyShutdownStage("idle-wait-proven");
+        // ── Step 8b: idle이 증명된 다음에만, 장치가 살아 있는 동안 ──────────
+        // 반납 큐를 먼저 비운다. 여기 남은 fence 객체는 장치를 가리키고
+        // 있으므로 장치보다 먼저 사라져야 한다.
+        impl_->ClearRetirementAfterProvenIdle();
+        NotifyShutdownStage("retirement-drained");
         for (auto& [key, pipeline] : impl_->pipelines) {
             (void)key;
             impl_->device->DestroyPipeline(pipeline);
@@ -260,6 +378,7 @@ void Renderer::Shutdown() {
         impl_->device->DestroyTexture(impl_->zeroShadowTexture);
         impl_->device->DestroyTexture(impl_->flatNormalTexture);
         impl_->device->DestroyTexture(impl_->whiteTexture);
+        NotifyShutdownStage("gpu-resources-destroyed");
     }
     impl_->pipelines.clear();
     impl_->vertexCapacity = 0;
@@ -284,8 +403,52 @@ bool Renderer::BeginFrame(molga::FrameContext&& frame, std::string* errorOut) {
     impl_->mainClear = {0.0f, 0.0f, 0.0f, 1.0f};
     currentShader_ = nullptr;
     logicalPass_ = molga::RenderPassState{};
+    // Step 8. 프레임을 연 직후, 새 명령을 모으기 전에 정확히 한 번. 여기서
+    // 돌려야 이번 프레임이 다시 채우려는 page를 앞 프레임의 이미 끝난 제출이
+    // 붙들고 있지 않다. 프레임 경계가 반납의 근거는 아니다 — 반납을 결정하는
+    // 것은 각 제출의 fence이고, 이것은 그 fence를 물어보는 시점일 뿐이다.
+    impl_->retirement.Poll();
+    // Poll이 아무것도 반납하지 못한 채 쌓이기만 하면, 여기서 상한을 걸고
+    // 증명된 idle로 푼다. 정상 장치에서는 상한에 닿지 않는다.
+    impl_->DrainBackloggedRetirements();
     if (errorOut) errorOut->clear();
     return true;
+}
+
+void Renderer::RetainUntilFrameComplete(
+    std::uint64_t pageIdentity, std::shared_ptr<const void> pageLifetime) {
+    // 널 토큰은 붙들 것이 없다. 포화한 atlas가 돌려주는 tofu handle이 정확히
+    // 그 모양(정체성 0, 토큰 없음)이므로, 그리는 쪽이 분기하지 않아도 된다.
+    if (!pageLifetime) return;
+    // 0은 적법한 page 정체성이 아니다. 받아 주면 정체성 없는 여러 자원이 하나의
+    // 가짜 page로 뭉쳐서, 그 자리에 진짜 page 토큰이 들어갈 수 없다.
+    if (pageIdentity == 0U) {
+        throw std::logic_error(
+            "RetainUntilFrameComplete needs a nonzero atlas page identity");
+    }
+    if (!HasFrame()) {
+        throw std::logic_error(
+            "RetainUntilFrameComplete needs an active renderer frame");
+    }
+    auto found = impl_->frameRetainedPages.find(pageIdentity);
+    if (found == impl_->frameRetainedPages.end()) {
+        impl_->frameRetainedPages.emplace(pageIdentity, std::move(pageLifetime));
+        return;
+    }
+    // 같은 page를 가리키는 두 번째 명령은 아무것도 바꾸지 않는다. 다만 소유자가
+    // 다르면 그것은 중복이 아니라 정체성 충돌이다: 하나의 fence에 하나의
+    // 토큰만 매달리므로 나머지 하나는 어떤 fence도 반납해 주지 않는다.
+    const std::shared_ptr<const void>& owner = found->second;
+    const bool sameOwner = !owner.owner_before(pageLifetime) &&
+                           !pageLifetime.owner_before(owner);
+    if (!sameOwner) {
+        throw std::logic_error(
+            "one atlas page identity arrived with two different owners");
+    }
+}
+
+std::size_t Renderer::ActiveFrameRetainedPageCount() const noexcept {
+    return impl_->frameRetainedPages.size();
 }
 
 bool Renderer::HasFrame() const {
@@ -1026,7 +1189,27 @@ bool Renderer::EndMainPassAndSubmit(std::string* errorOut) {
     }
     std::string error;
     impl_->lastTelemetry = impl_->frame->Telemetry();
-    const bool submitted = impl_->frame->Submit(&error);
+    // Step 7. 이 프레임이 붙든 page 토큰 전부를, 이 제출의 fence와 함께
+    // 반납 큐로 넘긴다. page를 하나도 붙들지 않은 프레임은 fence를 만들지
+    // 않는다 — 관찰할 대상이 없는데 프레임마다 fence를 만들 이유가 없다.
+    std::vector<std::shared_ptr<const void>> retained = impl_->TakeRetainedPages();
+    bool submitted = false;
+    if (retained.empty()) {
+        submitted = impl_->frame->Submit(&error);
+    } else {
+        std::unique_ptr<molga::IGpuCompletionFence> fence;
+        submitted = impl_->frame->SubmitAndAcquireFence(fence, &error);
+        if (fence) {
+            impl_->retirement.Enqueue(std::move(fence), std::move(retained));
+        } else {
+            // fence를 얻지 못했어도 명령은 이미 GPU에 갔다. 언제 끝나는지
+            // 모르는 채로 토큰을 놓는 대신, 증명된 idle drain까지 붙든다.
+            // 이것은 프레임 실패가 아니다 — 그 프레임은 실제로 제출되었고,
+            // 실패로 보고하면 화면에 나간 프레임 때문에 애플리케이션이
+            // 종료된다. 진단은 GraphicsDevice가 오류 severity로 남긴다.
+            impl_->HoldWithoutFence(std::move(retained));
+        }
+    }
     impl_->frame.reset();
     if (!submitted) {
         if (errorOut) *errorOut = error;
@@ -1044,3 +1227,14 @@ bool Renderer::SubmitFrame(std::string* errorOut) {
 const molga::FrameTelemetry& Renderer::LastFrameTelemetry() const {
     return impl_->lastTelemetry;
 }
+
+namespace molga {
+namespace detail {
+
+void SetRendererShutdownStageHookForTest(
+    RendererShutdownStageHook hook) noexcept {
+    shutdownStageHook = hook;
+}
+
+} // namespace detail
+} // namespace molga
