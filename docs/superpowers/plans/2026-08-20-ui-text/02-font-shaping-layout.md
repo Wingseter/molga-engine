@@ -3524,7 +3524,7 @@ split disagrees with the UBA paragraph split for U+000B/U+000C/U+2028 and U+001C
 - Consumes: `ParagraphStyle` enums and existing component serialization.
 - Produces: UILabel schema `2`, TextRenderer2D schema `2`, and a runtime-only loaded-format marker preserving legacy representation until explicit Milestone 15 migration.
 
-- [ ] **Step 1: Add failing legacy/current round-trip tests.**
+- [x] **Step 1: Add failing legacy/current round-trip tests.**
 
   ```cpp
   TEST_CASE("legacy UILabel load save does not silently rewrite fontGuid") {
@@ -3540,7 +3540,7 @@ split disagrees with the UBA paragraph split for U+000B/U+000C/U+2028 and U+001C
   }
   ```
 
-- [ ] **Step 1a: Add the failing current world-text contract test.**
+- [x] **Step 1a: Add the failing current world-text contract test.**
 
   ```cpp
   TEST_CASE("current world text preserves unbounded world contract") {
@@ -3552,25 +3552,25 @@ split disagrees with the UBA paragraph split for U+000B/U+000C/U+2028 and U+001C
   }
   ```
 
-- [ ] **Step 2: Run the schema red gate.**
+- [x] **Step 2: Run the schema red gate.**
 
   Run: `cmake --build --preset debug --target test_scene_serializer test_ui -j`
 
   Expected: assertions FAIL because schema-2 fields and loaded-format preservation do not exist.
 
-- [ ] **Step 3: Add UILabel schema 2.** Persist `fontFamilyGuid`, font size, line spacing, color, locale default `und`, base direction, `NoWrap/Word/Grapheme`, `Overflow/Clip/Ellipsis`, max lines, horizontal/vertical alignment, and sorting order. Legacy `fontGuid` produces an implicit one-face family view in memory and retains its loaded-format marker.
+- [x] **Step 3: Add UILabel schema 2.** Persist `fontFamilyGuid`, font size, line spacing, color, locale default `und`, base direction, `NoWrap/Word/Grapheme`, `Overflow/Clip/Ellipsis`, max lines, horizontal/vertical alignment, and sorting order. Legacy `fontGuid` produces an implicit one-face family view in memory and retains its loaded-format marker.
 
-- [ ] **Step 4: Add TextRenderer2D schema 2.** Persist `fontFamilyGuid`, locale and base direction while retaining legacy `fontGuid/fontName`, local logical font size/component scale, explicit-newline `NoWrap/Overflow`, and sorting. Continue consuming position/world scale/rotation from the sibling `Transform` schema; do not duplicate those fields or invent width/height bounds.
+- [x] **Step 4: Add TextRenderer2D schema 2.** Persist `fontFamilyGuid`, locale and base direction while retaining legacy `fontGuid/fontName`, local logical font size/component scale, explicit-newline `NoWrap/Overflow`, and sorting. Continue consuming position/world scale/rotation from the sibling `Transform` schema; do not duplicate those fields or invent width/height bounds.
 
-- [ ] **Step 5: Preserve representation until explicit migration.** Saving an unmigrated legacy payload writes the legacy key/shape byte-for-byte except unrelated canonical serializer formatting. New authoring writes schema 2; runtime-only loaded markers never serialize or mark the scene dirty.
+- [x] **Step 5: Preserve representation until explicit migration.** Saving an unmigrated legacy payload writes the legacy key/shape byte-for-byte except unrelated canonical serializer formatting. New authoring writes schema 2; runtime-only loaded markers never serialize or mark the scene dirty.
 
-- [ ] **Step 6: Run schema/serializer green gates.**
+- [x] **Step 6: Run schema/serializer green gates.**
 
   Run: `cmake --build --preset debug --target test_scene_serializer test_ui -j && ctest --test-dir build/debug -R '^(test_scene_serializer|test_ui)$' --output-on-failure`
 
   Expected: legacy/current round trips, UILabel bounded fields, and unbounded world-text contract pass.
 
-- [ ] **Step 7: Commit schema compatibility.**
+- [x] **Step 7: Commit schema compatibility.**
 
   ```bash
   git add src/ECS/Components/UILabel.* \
@@ -3580,6 +3580,78 @@ split disagrees with the UBA paragraph split for U+000B/U+000C/U+2028 and U+001C
   ```
 
 **Exit:** Both consumers can describe the shared service without changing how either production path renders yet.
+
+**Implementation record (2026-09-07).** Commit `6e6e493`. Audit passed — and the audit did not take
+the landing report on trust: it built and killed **15 mutants of its own** against the committed
+tests, confirming every claimed fix has a witness that actually discriminates. Seven blocking and
+five important findings fixed.
+
+**Constraint 35 honoured:** no consumer migrated. `UISystem.cpp`, `TextRenderer.*`, `RenderSprite`
+and `CollectRender` are untouched; rendering is still the legacy `FontAtlasCache`/`GetTextWidth`
+path, and the new fields are persisted and readable but consumed by nothing.
+
+**Blocking findings — every one a "correct and broken agree" instance:**
+
+- `ResolveFontFamilyView`'s precedence rule (an authored family outranks the legacy `fontGuid`) had
+  no witness; swapping the branches survived, because no fixture set *both*.
+- Both components' loaded-format marker could be derived from **authored state instead of the
+  payload** and nothing noticed, so a family-less schema-2 document silently downgraded to the
+  legacy shape.
+- `TextRenderer2D::SetFontFamilyGuid` could be stubbed to never clear the legacy marker — the
+  migration trigger itself had only a `CHECK_FALSE` negative and no positive witness.
+- **The schema-2 save path could swap `horizontalAlignment` and `verticalAlignment` undetected**,
+  because every schema-2 fixture used the same value for both. Fixed by making the fixture
+  asymmetric (`Right`/`Top`), and the legacy document's existing 2/0 asymmetry is now commented as
+  load-bearing so a later tidy-up cannot erase the discrimination.
+- Locale normalization could be bypassed on the **load** path on both components, so an empty tag
+  from disk reached the pipeline.
+
+**A production fix beyond the schema work:** deserializing a schema-1 document left schema-2-only
+fields at their prior in-memory values, so the legacy marker and `ResolveFontFamilyView()` could
+name different fonts. Reachable through `SceneSnapshots::RestoreComponentSnapshot`. Both components
+now reset those fields on the legacy path; the other two in-place `Deserialize` callers were checked
+and are safe because each captures a full `Serialize()` first.
+
+---
+
+#### AMENDMENT (2026-09-07): UILabel schema 2 persists `fontGuid`
+
+The design's UILabel field list (§7.3, lines 348–353) does not name `fontGuid` in schema 2, and
+Step 3's persist list does not either. It is persisted anyway, and this is a deliberate deviation.
+
+**Why.** `EditorPropertyDescriptor.cpp:634` builds the inspector from `component.Serialize(snapshot)`
+and `AssetTypeFor` maps the `fontGuid` key to `FontImporter`; UILabel has no `OnInspectorGUI`
+override. Without that key in the schema-2 snapshot, a default-constructed label takes the schema-2
+branch and **"Create UI → Label" produces a label that cannot be given a font at all**, while
+`UISystem.cpp:285`, `runtime_main.cpp:414`, `GameBuilder.cpp:205` and
+`AssetDependencyValidator.cpp:78` all lose their only font reference. A task whose purpose is legacy
+*preservation* cannot introduce that regression. The mechanism was verified by inspection, not
+inferred. `TextRenderer2D` schema 2 already retains `fontGuid`, so this also makes the two
+components consistent.
+
+**The ordering question this raises, for the user's attention.** If the plan genuinely intends
+UILabel schema 2 to be family-only, then **Milestone 15 (editor font-family authoring) must land
+before Task 8.2**, because until it does the editor has no other way to point a new label at a font.
+Recorded rather than resolved unilaterally.
+
+---
+
+#### CARRIED FORWARD
+
+1. **`fontFamilyGuid` is invisible to `AssetDependencyValidator` and the GameBuilder font
+   collector.** `AssetDependencyValidator.cpp:78` maps only the `fontGuid` key, and
+   `GameBuilder.cpp:204-236` collects fonts by scanning components for `fontGuid`. A component
+   authored with only a family would have no dependency validated and **no font packaged into a
+   build**. Persisting `fontGuid` on UILabel retires most of this, but Task 8.2 and Milestone 17
+   must close it for family-only authoring. Both files are outside this task's Files list.
+2. **`SetFontFamilyGuid(non-empty)` is the sole migration trigger**, so a plain setter silently
+   changes the on-disk shape, and authoring locale/baseDirection/wrap/overflow/maxLines on a
+   legacy-loaded component is kept in memory but never persisted — silent authoring loss. The design
+   frames explicit migration as a Milestone 15 editor action, so if M15 adds a real migration
+   command this implicit trigger should be retired rather than left as a second path.
+3. **`TextRenderer2D` correctly does not persist wrap/overflow** — adjudicated against the design,
+   which restricts world text to `NoWrap`/`Overflow` and says no implicit width/height unit is
+   created. "Retaining" applies to the contract, not to schema keys.
 
 ---
 
