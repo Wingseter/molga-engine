@@ -317,6 +317,26 @@ molga_add_text_test(test_text_cache test_text_cache.cpp)
 # make a repeat a no-op anyway.
 molga_add_text_test(test_text_cache_header test_text_cache_header.cpp)
 
+# Task 7.2 Step 1i: authoritative paragraph layout. Registered through the same
+# session helper as its neighbours and relying on its owned dependency attach —
+# no case here initializes ICU/HarfBuzz from a fixture-local root or calls the
+# attach helper a second time. It needs the committed qualification tree (real
+# faces are the only way a final line can be shaped at all) and the reviewed
+# canonical expectation beside it.
+molga_add_text_test(test_text_layout test_text_layout.cpp)
+target_compile_definitions(test_text_layout PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"
+    MOLGA_TEXT_EXPECTED_LAYOUT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/expected/layout.json")
+
+# The fresh-process not-ready layout observation. Deliberately generic
+# molga_add_test — no staged Engine/Text root, no session main, no qualification
+# root — so the process begins and stays in NeverInitialized and the layout
+# service's ready gate is the only thing it can be observing. Process exit
+# supplies the isolation; nothing here stops or restores a runtime. It is NOT
+# marked RUN_SERIAL for the same reason test_text_shaping_not_ready is not: the
+# lifecycle state it reads is one-way and private to its own process.
+molga_add_test(test_text_layout_not_ready test_text_layout_not_ready.cpp)
+
 molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
 
 # ── Step 9g.1: normal text attachment happens exactly once ───────────────────

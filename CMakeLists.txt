@@ -211,6 +211,7 @@ set(ENGINE_SOURCES
     src/Text/FontRepository.cpp
     src/Text/TextDiagnostic.cpp
     src/Text/TextLayoutCache.cpp
+    src/Text/TextLayoutService.cpp
     src/Text/TextShapingService.cpp
     src/Text/TextRuntimeDependencies.cpp
     src/Text/UnicodeTextBuffer.cpp
