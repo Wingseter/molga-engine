@@ -903,7 +903,9 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         sceneRuntime.Shutdown();
         PlayerPrefs::Shutdown();
         // Step 10a forward risk: see the note at the final Shutdown() below.
-        TextRenderer::Get().Shutdown();
+        // Task 6.3: 이 실패 경로도 같은 순서를 쓴다. 여기서 아직 제출된
+        // 프레임이 없다는 것은 사실이지만, 그것은 논증이지 구조가 아니다.
+        ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get());
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
         renderer.reset();
@@ -951,6 +953,12 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         host->PollEvents();
         if (host->ShouldClose()) break;
         Time::Update();
+        // Task 6.3: 프레임 번호가 정해진 바로 다음, 어떤 텍스트도 큐에 담기기
+        // 전에 이 프레임의 glyph 수집을 연다. 어휘적 범위가 루프 본문 전체
+        // 이므로 아래의 모든 break가 이 안에서 일어나고, 수집은 명령들이 page
+        // 토큰을 다 복사한 뒤에야 닫힌다.
+        auto glyphCollection = TextRenderer::Get().BeginGlyphCollection(
+            static_cast<std::uint64_t>(Time::GetFrameCount()));
         float dt = Time::GetDeltaTime();
         World& world = sceneRuntime.ActiveWorld();
 
@@ -1451,9 +1459,13 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // u_cleanup. That is a real Step 10a violation the moment this renderer
     // becomes ICU/HarfBuzz-backed; today it is only stb_truetype (no hb_ or
     // unicode/ anywhere in src/Rendering/TextRenderer.*), so the explicit
-    // Shutdown() below is what releases its resources inside this scope.
-    // Task 8.2 must give it a non-static owner declared after the guard.
-    TextRenderer::Get().Shutdown();
+    // Shutdown() inside the call below is what releases its resources inside
+    // this scope. Task 8.2 must give it a non-static owner declared after the
+    // guard.
+    //
+    // Task 6.3: 텍스트/atlas GPU 자원은 renderer가 GPU idle을 증명하고 반납
+    // 큐를 비운 다음에만 파괴된다. 그 순서는 이 함수 한 곳에만 적혀 있다.
+    ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get());
     gameOutputRenderer.reset();
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();

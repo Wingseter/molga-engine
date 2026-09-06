@@ -416,7 +416,11 @@ molga_add_test(test_post_process      test_post_process.cpp)
 molga_add_test(test_lighting_2d       test_lighting_2d.cpp)
 molga_add_test(test_rendering_sdlgpu  test_rendering_sdlgpu.cpp)
 target_compile_definitions(test_rendering_sdlgpu PRIVATE
-    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
+    # Task 6.3: src/main.cpp와 src/runtime_main.cpp는 어떤 테스트 바이너리도
+    # 컴파일하지 않는다. 그 두 진입점의 종료 순서/수집 범위는 소스 텍스트로만
+    # 붙들 수 있으므로, 그 텍스트가 어디 있는지를 여기서 알려 준다.
+    MOLGA_ENGINE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 if(MOLGA_MARROW_SUPPORT)
     target_compile_definitions(test_rendering_sdlgpu PRIVATE
         MOLGA_MARROW_FIXTURE_DIR="${MOLGA_MARROW_DIR}/assets/fixtures")

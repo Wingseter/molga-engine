@@ -1,7 +1,16 @@
+#include "Assets/FontArtifactStore.h"
+#include "Core/AssetDatabase.h"
 #include "FontCollectionTestSupport.h"
 #include "Rendering/FontAtlas.h"
 #include "Rendering/FontFace.h"
+#include "Rendering/TextRenderer.h"
+#include "Text/FontFamilyResolver.h"
+#include "Text/FontRepository.h"
 #include "Text/TextDiagnostic.h"
+#include "Text/TextShapingService.h"
+#include "Text/UnicodeAnalysis.h"
+#include "Text/UnicodeTextBuffer.h"
+#include "TextQualificationAssetTree.h"
 #include "doctest.h"
 
 #include <algorithm>
@@ -10,6 +19,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -202,8 +212,16 @@ struct GlyphAtlasFixture {
     }
 
     molga::GlyphHandle ResolveGlyph(std::size_t ordinal) {
+        return ResolveGlyphInto(cache, ordinal);
+    }
+
+    // 같은 키/face로 다른 캐시를 채운다. Task 6.3의 TextRenderer는 자기 캐시를
+    // 소유하므로, 이 픽스처가 가진 face 목록을 그쪽으로도 흘려보낼 수 있어야
+    // 한다.
+    molga::GlyphHandle ResolveGlyphInto(molga::GlyphAtlasCache& target,
+                                        std::size_t ordinal) {
         const molga::GlyphAtlasKey key = KeyForGlyph(DrawableGlyphId(ordinal));
-        return cache.GetGlyph(key, FaceForKey(key), sink);
+        return target.GetGlyph(key, FaceForKey(key), sink);
     }
 
     void SetNextPageIdentityForTest(std::uint64_t nextPageIdentity) {
@@ -272,6 +290,164 @@ private:
     std::unordered_map<molga::GlyphAtlasKey, std::unique_ptr<molga::FontFace>,
                        molga::GlyphAtlasKeyHash>
         faces_;
+};
+
+// ── Task 6.3 Step 1a: the renderer-owned collection scope ───────────────────
+// renderer가 소유한 바로 그 캐시에, EndCollection 호출 계수기를 덧댄 관찰자.
+//
+// 계수기가 필요한 이유는 GlyphAtlasCache::EndCollection이 멱등이기 때문이다:
+// 두 번 부른 캐시와 한 번 부른 캐시는 상태가 같으므로, "정확히 한 번"이라는
+// scope의 계약은 캐시 상태로는 관찰되지 않는다. 그런데 그 차이가 곧 위험이다
+// — 옮겨진(moved-from) scope가 소유권을 놓지 않으면 두 번째 EndCollection이
+// *다음* 수집의 pin을 지워, 그 프레임이 이미 가리키는 page가 축출 가능해진다.
+//
+// 이 관찰자만으로는 "hook은 부르고 atlas는 안 부르는" 구현을 잡지 못하므로,
+// 아래에 atlas 쪽 증인(수집 종료가 page를 봉인한다)이 따로 있다.
+class ObservedGlyphAtlas {
+public:
+    explicit ObservedGlyphAtlas(molga::GlyphAtlasCache& cache) : cache_(&cache) {
+        REQUIRE(instance_ == nullptr);
+        instance_ = this;
+        molga::detail::SetGlyphCollectionEndHookForTest(&Record);
+    }
+    ~ObservedGlyphAtlas() {
+        molga::detail::SetGlyphCollectionEndHookForTest(nullptr);
+        instance_ = nullptr;
+    }
+    ObservedGlyphAtlas(const ObservedGlyphAtlas&) = delete;
+    ObservedGlyphAtlas& operator=(const ObservedGlyphAtlas&) = delete;
+
+    molga::GlyphAtlasCache& Cache() const noexcept { return *cache_; }
+
+    std::size_t EndCollectionCount(std::uint64_t frameIndex) const {
+        return static_cast<std::size_t>(
+            std::count(ends_.begin(), ends_.end(), frameIndex));
+    }
+    std::size_t TotalEndCollectionCount() const noexcept { return ends_.size(); }
+
+private:
+    static void Record(std::uint64_t frameIndex) {
+        // hook은 ~GlyphCollectionScope 안에서 불린다. 여기서 REQUIRE를 쓰면
+        // 던지는 것이 암묵적 noexcept 소멸자를 통과해 std::terminate가 되어,
+        // 이름 있는 실패 대신 출력 없는 죽음이 된다. 이 관찰자는 등록을 자기
+        // 소멸자에서 되돌리므로 널일 수 없고, 세는 일은 본문의 단언이 한다.
+        if (instance_ == nullptr) return;
+        instance_->ends_.push_back(frameIndex);
+    }
+
+    molga::GlyphAtlasCache* cache_ = nullptr;
+    std::vector<std::uint64_t> ends_;
+    static ObservedGlyphAtlas* instance_;
+};
+
+ObservedGlyphAtlas* ObservedGlyphAtlas::instance_ = nullptr;
+
+// ── Task 6.3 Step 9: 교체된 폰트와 옛 자원 ──────────────────────────────────
+// 자격 트리 사본 하나를 들고, 그 안의 라틴 폰트 원본만 다른 검증된 폰트
+// 바이트로 바꾼다. 커밋된 트리는 건드리지 않고, 교체는 진짜 import 발행
+// 경로를 탄다 — 새 artifact SHA가 어디에서 오는지가 이 케이스의 절반이다.
+class ReplaceableFontCorpus {
+public:
+    ReplaceableFontCorpus()
+        : store_(std::make_shared<const molga::FontArtifactStore>(
+              molga::FontArtifactStore::ForProject(tree_.ProjectRoot()))),
+          repository_(database_),
+          resolver_(database_, repository_) {
+        std::string bindError;
+        REQUIRE_MESSAGE(database_.BindFontArtifactStore(store_, &bindError),
+                        bindError);
+        database_.ScanProject(tree_.AssetsRoot());
+        REQUIRE(database_.Find(std::string(kFixtureFontGuid)) != nullptr);
+    }
+
+    void ReplaceLatinFontWithArabicBytes() {
+        const fs::path source =
+            tree_.AssetsRoot() / "fonts" / "NotoSans-Regular.ttf";
+        const fs::path replacement =
+            tree_.AssetsRoot() / "fonts" / "NotoSansArabic-Regular.ttf";
+        fs::copy_file(replacement, source,
+                      fs::copy_options::overwrite_existing);
+        REQUIRE(database_.TryReimport(std::string(kFixtureFontGuid)));
+        repository_.Invalidate(std::string(kFixtureFontGuid));
+    }
+
+    std::string PublishedArtifactSha() const {
+        const molga::AssetRecord* record =
+            database_.Find(std::string(kFixtureFontGuid));
+        REQUIRE(record != nullptr);
+        REQUIRE(record->fontArtifact.has_value());
+        return record->fontArtifact->artifactSha256;
+    }
+
+    // 그 GUID 하나만 후보로 두고 셰이핑한다. family fallback을 태우면 라틴
+    // 폰트가 교체된 뒤 다른 face가 대신 그려 버려서, "옛 자원"이 관찰되지
+    // 않는다.
+    std::vector<molga::text::ShapedGlyph> ShapeWithLatinFont(
+        const std::string& utf8, molga::text::VectorTextDiagnosticSink& sink) {
+        auto buffer = molga::text::UnicodeTextBuffer::Build(utf8, sink);
+        REQUIRE(buffer);
+        auto analysis = molga::text::UnicodeTextAnalyzer::Analyze(
+            *buffer, {"und", molga::text::BaseDirection::Auto}, sink);
+        REQUIRE(analysis);
+        auto family = resolver_.BuildLegacySingleFace(
+            std::string(kFixtureFontGuid),
+            {400, 100, molga::FontSlant::Upright}, sink);
+        REQUIRE(family);
+        molga::text::ShapeStyle style;
+        molga::text::TextShapingService service;
+        std::vector<molga::text::ShapedGlyph> glyphs;
+        for (const molga::text::AnalysisItem& item : analysis->Items()) {
+            const bool first = item.sourceBytes.begin == 0U;
+            const bool last = item.sourceBytes.end == utf8.size();
+            auto shaped = service.ShapeAnalysisItem(
+                *buffer, *analysis, item, *family, style, {first, last}, sink);
+            REQUIRE(shaped);
+            for (molga::text::ShapedRun& run : *shaped) {
+                for (molga::text::ShapedGlyph& glyph : run.glyphs) {
+                    glyphs.push_back(std::move(glyph));
+                }
+            }
+        }
+        return glyphs;
+    }
+
+private:
+    QualificationAssetTreeFixture tree_;
+    molga::AssetDatabase database_;
+    std::shared_ptr<const molga::FontArtifactStore> store_;
+    molga::text::FontRepository repository_;
+    molga::text::FontFamilyResolver resolver_;
+};
+
+struct TextRendererFixture {
+    // glyphs는 face/glyph-ID 공급원으로만 쓴다. 자기 캐시도 함께 들고 있지만
+    // 이 픽스처의 단언은 전부 renderer가 소유한 캐시를 향한다.
+    TextRendererFixture()
+        : atlas(renderer.GlyphAtlas()) {
+        // Step 6a: 두 접근자가 같은 하나를 돌려준다. 여기서 못 박지 않으면
+        // const 쪽이 두 번째 캐시를 만들어도 아무 단언도 움직이지 않는다.
+        const TextRenderer& constRenderer = renderer;
+        REQUIRE(&constRenderer.GlyphAtlas() == &renderer.GlyphAtlas());
+        REQUIRE(&atlas.Cache() == &renderer.GlyphAtlas());
+    }
+
+    // 한 page에 cell 하나, 예산은 page 두 개. GlyphAtlasFixture::OneGlyphPerPage
+    // 와 같은 이유다: 새 glyph 하나마다 새 page가 필요해야 pin 규칙이 glyph
+    // 크기에 흔들리지 않는다.
+    void UseOneGlyphPerPage(std::uint64_t pageBudget) {
+        molga::detail::SetGlyphAtlasGlyphsPerPageForTest(renderer.GlyphAtlas(),
+                                                         1U);
+        renderer.GlyphAtlas().SetResidentBudget(
+            pageBudget * renderer.GlyphAtlas().PageBytes());
+    }
+
+    molga::GlyphHandle Resolve(std::size_t ordinal) {
+        return glyphs.ResolveGlyphInto(renderer.GlyphAtlas(), ordinal);
+    }
+
+    TextRenderer renderer;
+    GlyphAtlasFixture glyphs;
+    ObservedGlyphAtlas atlas;
 };
 
 } // namespace
@@ -1327,4 +1503,265 @@ TEST_CASE("a rejected placement leaves the sealed page's shelf untouched") {
         REQUIRE(accepted[pass] > 0U);
     }
     CHECK(accepted[0] == accepted[1]);
+}
+
+// ── Task 6.3 Step 1a ────────────────────────────────────────────────────────
+
+TEST_CASE("glyph collection scope is non-nestable and exception safe") {
+    TextRendererFixture f;
+    {
+        auto scope = f.renderer.BeginGlyphCollection(41);
+        CHECK_THROWS_AS(f.renderer.BeginGlyphCollection(41), std::logic_error);
+    }
+    CHECK(f.atlas.EndCollectionCount(41) == 1);
+}
+
+// 위 케이스는 "두 번 열리지 않는다"만 본다. 실패한 두 번째 열기가 *아무것도
+// 바꾸지 않았는가*는 따로 재야 한다 — 거절 전에 atlas_.BeginFrame이 먼저
+// 불리면 그 호출이 이미 열려 있던 수집의 pin 집합을 통째로 지워, 이미 큐에
+// 들어간 명령이 가리키는 page가 그 자리에서 축출 대상이 된다.
+TEST_CASE("a refused nested scope leaves the collection untouched") {
+    TextRendererFixture f;
+    f.UseOneGlyphPerPage(2U);
+    {
+        auto scope = f.renderer.BeginGlyphCollection(41);
+
+        molga::GlyphHandle first = f.Resolve(1U);
+        REQUIRE_FALSE(first.proceduralTofu);
+        const std::uint64_t firstPage = first.pageIdentity;
+        molga::GlyphHandle second = f.Resolve(2U);
+        REQUIRE_FALSE(second.proceduralTofu);
+        // 외부 지분을 놓는다. 이제 이 두 page를 지키는 것은 현재 수집의
+        // pin뿐이다.
+        first.pageLifetime.reset();
+        second.pageLifetime.reset();
+
+        CHECK_THROWS_AS(f.renderer.BeginGlyphCollection(77), std::logic_error);
+
+        // 거절이 pin을 지웠다면 이 요청이 첫 page를 축출하고 성공한다.
+        CHECK(f.Resolve(3U).proceduralTofu);
+        CHECK(f.renderer.GlyphAtlas().IsPageResident(firstPage));
+        // 거절된 열기는 프레임 번호도 바꾸지 않는다: 바꿨다면 아래 종료가
+        // 41이 아니라 77로 기록된다.
+    }
+    CHECK(f.atlas.EndCollectionCount(41) == 1);
+    CHECK(f.atlas.EndCollectionCount(77) == 0);
+
+    // 성공 증인. 거절이 상태를 태워 버렸다면 이 두 번째 수집은 열리지 못한다.
+    {
+        auto scope = f.renderer.BeginGlyphCollection(42);
+    }
+    CHECK(f.atlas.EndCollectionCount(42) == 1);
+    CHECK(f.atlas.TotalEndCollectionCount() == 2U);
+}
+
+TEST_CASE("a scope unwound by an exception still ends its collection once") {
+    TextRendererFixture f;
+    bool threw = false;
+    try {
+        auto scope = f.renderer.BeginGlyphCollection(58);
+        throw std::runtime_error("collection interrupted");
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    REQUIRE(threw);
+    CHECK(f.atlas.EndCollectionCount(58) == 1);
+
+    // 그리고 그 프레임의 수집이 정말 닫혔다: 닫히지 않았다면 다음 열기가
+    // 중첩으로 거절된다.
+    {
+        auto scope = f.renderer.BeginGlyphCollection(59);
+    }
+    CHECK(f.atlas.EndCollectionCount(59) == 1);
+}
+
+// 옮겨진 scope는 소유권을 놓는다. 놓지 않으면 EndCollection이 두 번 불리고,
+// 그 두 번째가 *다음* 수집의 pin을 지운다.
+TEST_CASE("moving a collection scope moves the one end-of-collection call") {
+    TextRendererFixture f;
+    {
+        auto scope = f.renderer.BeginGlyphCollection(64);
+        auto moved = std::move(scope);
+        // 옮겨진 원본이 아직 소유하고 있다면 여기서 이미 한 번 닫혔을 것이고,
+        // 그러면 아래 열기가 중첩이 아니게 된다.
+        CHECK_THROWS_AS(f.renderer.BeginGlyphCollection(64), std::logic_error);
+        CHECK(f.atlas.TotalEndCollectionCount() == 0U);
+    }
+    CHECK(f.atlas.EndCollectionCount(64) == 1);
+    CHECK(f.atlas.TotalEndCollectionCount() == 1U);
+}
+
+// hook 계수기만으로는 "hook은 부르고 atlas는 부르지 않는" 구현을 잡지 못한다.
+// 여기서는 renderer가 소유한 캐시 자신이 증인이다: 수집이 열려 있는 동안
+// page는 쓸 수 있고, 수집이 닫히는 순간 밖으로 나간 page는 봉인된다.
+TEST_CASE("a collection scope drives the renderer's own atlas") {
+    TextRendererFixture f;
+    f.UseOneGlyphPerPage(2U);
+
+    molga::GlyphHandle first;
+    std::uint64_t firstPage = 0U;
+    {
+        auto scope = f.renderer.BeginGlyphCollection(88);
+        first = f.Resolve(1U);
+        REQUIRE_FALSE(first.proceduralTofu);
+        firstPage = first.pageIdentity;
+        REQUIRE(firstPage != 0U);
+        REQUIRE(f.renderer.GlyphAtlas().IsPageResident(firstPage));
+        // 수집 중에는 쓸 수 있다. 봉인 단언의 반대편이다.
+        CHECK(f.renderer.GlyphAtlas().IsPageWritable(firstPage));
+
+        // BeginFrame 증인. 현재 수집의 pin이 기록되지 않았다면 아래 두
+        // 요청 중 하나가 이 page를 축출하고 성공한다.
+        molga::GlyphHandle second = f.Resolve(2U);
+        REQUIRE_FALSE(second.proceduralTofu);
+        first.pageLifetime.reset();
+        second.pageLifetime.reset();
+        CHECK(f.Resolve(3U).proceduralTofu);
+        CHECK(f.renderer.GlyphAtlas().IsPageResident(firstPage));
+        // 다음 단언이 뜻을 가지려면 이 page가 밖으로 나간 상태여야 한다.
+        first = f.Resolve(1U);
+        REQUIRE(first.pageIdentity == firstPage);
+        REQUIRE(first.pageLifetime);
+    }
+    // 수집이 닫혔다. 밖으로 나간 page는 이제 봉인되어 있다.
+    CHECK_FALSE(f.renderer.GlyphAtlas().IsPageWritable(firstPage));
+    CHECK(f.renderer.GlyphAtlas().IsPageResident(firstPage));
+    CHECK(f.atlas.EndCollectionCount(88) == 1);
+}
+
+// EndCollectionCount가 읽는 것은 hook이 받은 번호, 즉 scope 자기 필드다. 그
+// 번호가 실제로 GlyphAtlasCache에 그대로 전달되었는지는 그 계수기가 대답하지
+// 못한다 — BeginFrame(0)이나 EndCollection(frameIndex_ + 1)로 바꿔도 모든
+// 계수 단언이 그대로 통과한다. 캐시가 프레임 번호를 쓰는 곳은 포화 진단의
+// "in frame N" 하나뿐이므로, 그 문장을 증인으로 세운다.
+TEST_CASE("the collection scope hands its own frame index to the atlas") {
+    TextRendererFixture f;
+    f.UseOneGlyphPerPage(1U);
+
+    molga::GlyphHandle held;
+    {
+        auto scope = f.renderer.BeginGlyphCollection(4242);
+        held = f.Resolve(1U);
+        REQUIRE_FALSE(held.proceduralTofu);
+        REQUIRE(held.pageLifetime);
+
+        // 예산이 page 하나뿐이고 그 하나는 현재 수집이 붙들고 있으므로 이
+        // 요청은 거절되고 진단이 나온다. BeginFrame이 받은 번호가 그 문장에
+        // 실린다.
+        REQUIRE(f.Resolve(2U).proceduralTofu);
+        REQUIRE(CountDiagnostics(f.glyphs.sink,
+                                 TextDiagnosticCode::AtlasExhausted) == 1U);
+        CHECK(f.glyphs.sink.Diagnostics().back().message.find(
+                  "in frame 4242") != std::string::npos);
+    }
+
+    // 수집이 닫힌 뒤에도 그 프레임 번호는 그대로여야 한다. 외부 지분이 첫
+    // page를 살려 두므로 이 요청도 거절되고, EndCollection이 받은 번호가
+    // 그 문장에 실린다.
+    REQUIRE(held.pageLifetime);
+    REQUIRE(f.Resolve(3U).proceduralTofu);
+    REQUIRE(CountDiagnostics(f.glyphs.sink,
+                             TextDiagnosticCode::AtlasExhausted) == 2U);
+    CHECK(f.glyphs.sink.Diagnostics().back().message.find("in frame 4242") !=
+          std::string::npos);
+
+    // 반대편. 다른 번호로 연 수집은 다른 번호를 싣는다 — 이것이 없으면
+    // "언제나 4242"로 굳혀도 위 두 단언이 통과한다.
+    held.pageLifetime.reset();
+    {
+        auto scope = f.renderer.BeginGlyphCollection(7U);
+        REQUIRE_FALSE(f.Resolve(4U).proceduralTofu);
+        REQUIRE(f.Resolve(5U).proceduralTofu);
+        REQUIRE(CountDiagnostics(f.glyphs.sink,
+                                 TextDiagnosticCode::AtlasExhausted) == 3U);
+        const std::string& message = f.glyphs.sink.Diagnostics().back().message;
+        CHECK(message.find("in frame 7") != std::string::npos);
+        CHECK(message.find("in frame 4242") == std::string::npos);
+    }
+    CHECK(f.atlas.EndCollectionCount(4242) == 1);
+    CHECK(f.atlas.EndCollectionCount(7) == 1);
+}
+
+// ── Task 6.3 Step 9 ─────────────────────────────────────────────────────────
+// 프로덕션 소비자를 하나도 옮기지 않고 소유권만 시험한다. 셰이핑된 glyph가
+// 붙들고 있는 face 자원은 그 glyph가 살아 있는 동안 자기 바이트를 유지하므로,
+// 폰트가 교체된 뒤에 그 옛 glyph를 atlas에 물어도 래스터는 옛 face에서 나와야
+// 한다. 새로 셰이핑한 glyph 쪽에는 교체된 SHA가 실린다.
+TEST_CASE("a replaced font leaves an old shaped glyph rasterizing from its own face") {
+    ReplaceableFontCorpus corpus;
+    molga::text::VectorTextDiagnosticSink sink;
+
+    const std::string oldArtifactSha = corpus.PublishedArtifactSha();
+    const std::vector<molga::text::ShapedGlyph> before =
+        corpus.ShapeWithLatinFont(u8"A", sink);
+    REQUIRE(before.size() == 1U);
+    const molga::text::ShapedGlyph oldGlyph = before.front();
+    REQUIRE_FALSE(oldGlyph.missing);
+    REQUIRE(oldGlyph.faceResource != nullptr);
+    REQUIRE(oldGlyph.faceResource->rasterFace != nullptr);
+    REQUIRE(oldGlyph.glyphId != 0U);
+    REQUIRE(oldGlyph.faceResource->artifactSha256 == oldArtifactSha);
+
+    corpus.ReplaceLatinFontWithArabicBytes();
+    const std::string newArtifactSha = corpus.PublishedArtifactSha();
+    REQUIRE(newArtifactSha != oldArtifactSha);
+
+    // 새로 셰이핑한 glyph는 교체된 바이트를 쓴다. 라틴 face에는 없는 아랍
+    // 문자가 그 증인이다.
+    const std::vector<molga::text::ShapedGlyph> after =
+        corpus.ShapeWithLatinFont(u8"س", sink);
+    REQUIRE(after.size() == 1U);
+    const molga::text::ShapedGlyph newGlyph = after.front();
+    REQUIRE_FALSE(newGlyph.missing);
+    REQUIRE(newGlyph.faceResource != nullptr);
+    CHECK(newGlyph.faceResource->artifactSha256 == newArtifactSha);
+    CHECK(newGlyph.fontRevision == newArtifactSha + ":0");
+    CHECK(newGlyph.fontRevision != oldGlyph.fontRevision);
+    // 옛 자원은 교체에 흔들리지 않는다.
+    CHECK(oldGlyph.faceResource->artifactSha256 == oldArtifactSha);
+    CHECK(oldGlyph.fontRevision == oldArtifactSha + ":0");
+
+    molga::GlyphAtlasKey key;
+    key.fontGuid = oldGlyph.fontGuid;
+    key.fontRevision = oldGlyph.fontRevision;
+    key.faceIndex = oldGlyph.faceIndex;
+    key.pixelSize = 32U;
+    key.rasterScaleKey = 64U;
+    key.variationKey = 0U;
+    key.renderMode = molga::GlyphRenderMode::Monochrome;
+    key.glyphId = oldGlyph.glyphId;
+
+    TextRenderer textRenderer;
+    molga::GlyphHandle handle;
+    {
+        auto scope = textRenderer.BeginGlyphCollection(93);
+        // 강제된 miss. 이 캐시는 방금 만들어졌으므로 이 키는 항목이 없고,
+        // 아래 두 계수가 래스터가 실제로 일어났다는 것을 못 박는다 — 없으면
+        // 캐시 hit 하나로도 이 케이스가 통과한다.
+        const molga::GlyphAtlasTelemetry beforeLookup =
+            textRenderer.GlyphAtlas().Telemetry();
+        handle = textRenderer.GlyphAtlas().GetGlyph(
+            key, *oldGlyph.faceResource->rasterFace, sink);
+        CHECK(textRenderer.GlyphAtlas().Telemetry().misses ==
+              beforeLookup.misses + 1U);
+        CHECK(textRenderer.GlyphAtlas().Telemetry().uploads ==
+              beforeLookup.uploads + 1U);
+        CHECK(textRenderer.GlyphAtlas().LastUploadedKeyForTest() == key);
+    }
+    // scope는 단언이 끝나기 전에 닫힌다. 닫힌 수집이 내보낸 page는 봉인되고,
+    // 그동안에도 handle이 든 지분은 그대로다.
+    CHECK_FALSE(handle.proceduralTofu);
+    CHECK(handle.pageIdentity != 0U);
+    CHECK(handle.pageLifetime);
+    CHECK(handle.glyph.glyphId == oldGlyph.glyphId);
+    CHECK_FALSE(textRenderer.GlyphAtlas().IsPageWritable(handle.pageIdentity));
+
+    // 옛 face가 그 glyph ID를 받았다. 새 face는 이 조회에 관여하지 않는다.
+    CHECK(oldGlyph.faceResource->rasterFace->LastRasterizedGlyphId() ==
+          oldGlyph.glyphId);
+    CHECK(newGlyph.faceResource->rasterFace->LastRasterizedGlyphId() == 0U);
+    // 그리고 그 두 face는 정말 다른 객체다: 같은 하나였다면 위 두 줄이
+    // 서로를 반증하지 못한다.
+    CHECK(oldGlyph.faceResource->rasterFace !=
+          newGlyph.faceResource->rasterFace);
 }

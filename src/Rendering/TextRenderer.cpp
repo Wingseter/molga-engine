@@ -5,9 +5,12 @@
 #include "Sprite.h"
 #include "Rendering/RenderQueue.h"
 #include "Rendering/Utf8.h"
+#include "Common/Log.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <stdexcept>
+#include <utility>
 
 // Simple 8x8 bitmap font data (ASCII 32-126)
 // Each character is 8 pixels wide and 8 pixels tall
@@ -210,7 +213,79 @@ bool CanCreateBuiltinTexture() {
     return molga::GraphicsDevice::Current() != nullptr;
 }
 
+// Task 6.3: 널이면 아무 일도 하지 않는다. Renderer.h의 종료 단계 hook과 같은
+// 모양이고, 같은 이유로 출하되는 빌드에 남는다.
+molga::detail::GlyphCollectionEndHook g_glyphCollectionEndHook = nullptr;
+
 } // namespace
+
+namespace molga {
+namespace detail {
+
+void SetGlyphCollectionEndHookForTest(
+    GlyphCollectionEndHook hook) noexcept {
+    g_glyphCollectionEndHook = hook;
+}
+
+} // namespace detail
+} // namespace molga
+
+// ── Task 6.3 Step 6a: 수집 scope의 진입/이탈 ────────────────────────────────
+
+TextRenderer::GlyphCollectionScope::GlyphCollectionScope(
+    TextRenderer& owner, std::uint64_t frameIndex)
+    : owner_(&owner), frameIndex_(frameIndex) {
+    if (owner.glyphCollectionActive_) {
+        // 아무것도 바꾸기 전에 던진다. atlas_.BeginFrame을 먼저 부르면 그
+        // 호출이 이미 열려 있던 수집의 pin 집합을 지우므로, 거절된 중첩이
+        // 오히려 첫 수집의 page들을 축출 가능하게 만든다.
+        throw std::logic_error(
+            "TextRenderer::BeginGlyphCollection is not nestable");
+    }
+    owner.glyphCollectionActive_ = true;
+    owner.atlas_.BeginFrame(frameIndex);
+}
+
+TextRenderer::GlyphCollectionScope::GlyphCollectionScope(
+    GlyphCollectionScope&& other) noexcept
+    : owner_(other.owner_), frameIndex_(other.frameIndex_) {
+    other.owner_ = nullptr;
+}
+
+TextRenderer::GlyphCollectionScope::~GlyphCollectionScope() {
+    if (owner_ == nullptr) return;
+    TextRenderer& owner = *owner_;
+    // 소유권을 먼저 놓는다. 두 번 닫히면 두 번째 EndCollection이 다음 수집의
+    // pin을 지운다.
+    owner_ = nullptr;
+    owner.glyphCollectionActive_ = false;
+    owner.atlas_.EndCollection(frameIndex_);
+    if (g_glyphCollectionEndHook != nullptr) {
+        g_glyphCollectionEndHook(frameIndex_);
+    }
+}
+
+TextRenderer::GlyphCollectionScope TextRenderer::BeginGlyphCollection(
+    std::uint64_t frameIndex) {
+    return GlyphCollectionScope(*this, frameIndex);
+}
+
+molga::GlyphAtlasCache& TextRenderer::GlyphAtlas() noexcept { return atlas_; }
+
+const molga::GlyphAtlasCache& TextRenderer::GlyphAtlas() const noexcept {
+    return atlas_;
+}
+
+void ShutdownRendererThenTextGpuResources(Renderer& renderer,
+                                          TextRenderer& textRenderer) {
+    // 먼저 일을 멈추고 GPU idle을 증명하고 반납 큐를 비운다. 이 호출이
+    // 돌아왔다는 것은 제출된 명령이 하나도 남아 있지 않다는 뜻이고, 그때에야
+    // 그 명령들이 읽던 텍스처를 부술 수 있다.
+    renderer.Shutdown();
+    // GraphicsDevice는 아직 살아 있다(EngineShutdown이 마지막이다). 죽은
+    // 장치에 대고 텍스처를 해제하지 않는 것이 이 두 줄의 순서 전부다.
+    textRenderer.Shutdown();
+}
 
 TextRenderer& TextRenderer::Get() {
     static TextRenderer instance;
@@ -233,6 +308,28 @@ bool TextRenderer::Init() {
 }
 
 void TextRenderer::Shutdown() {
+    // ── Task 6.3: 아직 제출 중인 page 위에서는 내려가지 않는다 ──────────────
+    // ReleaseAfterGpuIdle는 수집이 열려 있거나 외부 page 토큰(=아직 반납되지
+    // 않은 제출 지분)이 하나라도 남아 있으면 아무것도 건드리지 않고 false다.
+    // 그 false가 곧 "종료 순서가 뒤집혔다"이다: renderer의 idle 증명/반납
+    // drain보다 먼저 여기 오면 제출된 프레임이 여전히 토큰을 들고 있다.
+    //
+    // 그때는 atlas_의 page 텍스처를 해제하지 않고 그대로 둔다. 살아 있는 명령
+    // 밑에서 page를 부수면 화면이 깨지거나 장치가 죽지만, 붙들고 있으면
+    // 프로세스가 끝날 때 OS가 회수할 뿐이다(Texture::Release는 장치가 이미
+    // 죽었으면 핸들만 비운다). 어느 쪽으로 틀릴지는 선택할 수 있고, 이쪽이
+    // 싸다.
+    //
+    // 이 보류는 atlas_에만 걸린다. 아래 fontAtlas/fontTexture는 Task 8.2가
+    // 지울 레거시 codepoint 어댑터이고 GPU 반납 토큰이라는 개념 자체가 없어서
+    // 거절할 수 있는 상태가 없다. 프로덕션이 오늘 실제로 그리는 것은 그
+    // 레거시 쪽이므로, 진입점의 안전은 이 거절이 아니라
+    // ShutdownRendererThenTextGpuResources의 호출 순서가 지킨다.
+    if (!atlas_.ReleaseAfterGpuIdle()) {
+        Log::Error("TextRenderer",
+                   "Glyph atlas pages are still held by submitted GPU work; "
+                   "text GPU teardown ran before the renderer proved idle.");
+    }
     fontAtlas.Clear();
     fontTexture.reset();
     characters.clear();
