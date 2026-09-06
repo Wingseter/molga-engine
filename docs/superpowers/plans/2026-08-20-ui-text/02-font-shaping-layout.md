@@ -4133,6 +4133,111 @@ Recorded rather than resolved unilaterally.
 
 **Exit:** UILabel and TextRenderer2D reach HarfBuzz, final-line layout, glyph-ID atlas, and fence-backed page ownership through exactly one production pipeline.
 
+#### BLOCKED (2026-09-07): a legacy `fontGuid` has no route to a face through the shared pipeline
+
+Task 8.2 is **not started in the tree** (`levelup` is clean at `b5d8c5d`; all 46 steps unchecked).
+An implementation attempt reached 22 of 46 steps and then stopped on an architectural blocker that
+Global Constraint 2 reserves for a design amendment. This record exists so the blocker is not
+re-derived from scratch: it was found once by the implementer and then confirmed a second time,
+independently, against the source.
+
+**Partial work is preserved as the branch `task-8.2-partial` (commit `ceeb7ff`)**, a real ref that
+survives `git stash drop`. It touches 13 files, **does not compile as a whole**, and should be
+treated as notes rather than a base to resume from without re-planning — two signature changes in it
+(`molga::CollectWorldRender` gaining a required context, `ShutdownRendererThenTextGpuResources`
+becoming `bool(Renderer&, TextRenderer&, TextDiagnosticSink&)`) have nine call sites that were never
+updated.
+
+##### The blocker, as four verified facts
+
+1. `ParagraphStyle` (`src/Text/TextLayoutTypes.h:38-50`) carries exactly one font pointer,
+   `std::string fontFamilyGuid`. Nothing in `TextLayoutRequest` can express an implicit one-face
+   family.
+2. `LayoutRun::ResolveFamilyClosure` (`src/Text/TextLayoutService.cpp:469-472`) calls **only**
+   `resolver_.BuildCandidates(request_.style.fontFamilyGuid, ...)`.
+3. `FontFamilyResolver::BuildLegacySingleFace` — built by Task 5.1 for exactly this case — has
+   **zero production callers**. Every call site is in `tests/test_font_family.cpp`,
+   `tests/test_text_shaping.cpp` or `tests/test_glyph_atlas.cpp`.
+4. `UILabel::ResolveFontFamilyView()` (`src/ECS/Components/UILabel.cpp:89-100`) correctly returns
+   `{familyGuid="", faceFontGuids={fontGuid_}, implicitOneFace=true}` for a schema-1 label, and
+   there is nowhere in a request to put `faceFontGuids`/`implicitOneFace`.
+
+Passing a font GUID through as a family GUID does not work: `VisitFamily` finds a `FontImporter`
+record, `FontFamilyAsset::FromRecord` fails, and it yields `exists=false` with 0 candidates and a
+misleading `FontFamilyInvalid`.
+
+##### Why this is not a cosmetic edge case
+
+`tests/smoke/create_fixture.cmake` contains **zero** `.fontfamily` assets and its startup-scene
+`UILabel` is schema 1 (`fontGuid` only, line 417). Step 7e requires the packaged startup proof to
+succeed "only after a shaped glyph-ID command is collected with a nonzero page identity and retained
+page token", and `tests/smoke/run_end_to_end.cmake:592-595` asserts `koreanGlyphQuads: 8`. As
+written, Step 7e cannot pass on the committed fixture, and **every already-shipped schema-1 scene
+loses its text**. Correct and broken agree on any fixture that authors a family, and disagree only
+on the legacy content nothing currently tests with.
+
+This is Task 8.1's recorded ordering question in its consumption form. 8.1's amendment kept
+`fontGuid` persisted, which retired the **packaging/inspector** half
+(`AssetDependencyValidator.cpp:78`, `GameBuilder.cpp:204-236` scan for that key). It does nothing
+for the **shaping** half, because `TextLayoutService` accepts a family GUID exclusively.
+
+##### Candidate resolutions — a decision is owed before this task can start
+
+| # | Resolution | Cost |
+|---|---|---|
+| A | Accept it: legacy components render tofu plus typed diagnostics until Milestone 15 migrates them. | Needs a `.fontfamily` asset and a schema-2 label in `tests/smoke/create_fixture.cmake` plus rewritten smoke expectations (both outside the Files list). A user-visible regression for every shipped scene, so a product decision. |
+| B | Give `ParagraphStyle` an explicit legacy-single-face expression and route `ResolveFamilyClosure` to `BuildLegacySingleFace`. | Touches `src/Text/TextLayoutTypes.h`, `src/Text/TextLayoutService.cpp`, `src/Text/TextLayoutCache.cpp` (all outside the Files list) and changes **cache identity**, which Global Constraint 2 says needs a design amendment first. |
+| C | Land Milestone 15 (editor font-family authoring) before this task, plus a scene migration. | The ordering Task 8.1 already flagged. |
+
+##### Three further spec/codebase conflicts found, each needing sign-off with the above
+
+1. **Step 4's raster key squares the scale.** Step 4 computes
+   `pixelSize = roundHalfAway(fontSize.Raw() * rasterScaleKey / 4096)` — which already folds the
+   policy scale in — and then says to copy the Q10.6 policy key into the key as well. But the atlas
+   composes the final raster height as `pixelSize * rasterScaleKey / 64`
+   (`src/Rendering/FontAtlas.cpp:493` → `src/Rendering/FontFace.cpp:305-308`), so a 2x policy
+   rasterizes 16.5 px at 66 px rather than 33. The two readings are numerically identical at
+   `rasterScaleKey == 64`, the only value any existing test exercises, which is why nothing has
+   caught it. `FontAtlas.h:24-28` explicitly delegates the notation choice to this task, so one of
+   the two notations must be chosen here. Note that the attempt's Step 1h test and its Step 4
+   implementation encode **opposite** choices, so that test is unsatisfiable in both directions as
+   written.
+2. **Step 1h's cross-scale tolerance is not numerically reachable.** Requiring the 1x and 2x
+   logical quads to agree within one 26.6 raw unit fails for any glyph whose ink box does not scale
+   by an exact integer, because `stbtt_GetGlyphBitmapBox` floors and ceils independently at each
+   scale. Either widen the tolerance to a per-scale quantization bound or assert the
+   `pixelSize`/key relation instead of comparing quads across scales.
+3. **Step 3b says the unbound-artifact-store edge reports `FontInvalid`.** It currently reports
+   `TextDiagnosticCode::DependencyInvalid` (`src/Text/TextLayoutService.cpp:470-482`), per Task
+   5.1's contract. Either the step's wording is wrong or a failure-policy change to
+   `TextLayoutService` (outside the Files list) is owed.
+
+##### Two hazards confirmed still latent at `b5d8c5d`, and still owned by this task
+
+- **`RetainCommandResourceLifetime` is guarded only on a null token** (`RenderQueue.h:158-172`)
+  while `Renderer::RetainUntilFrameComplete` throws `std::logic_error` when `pageIdentity == 0` or
+  `!HasFrame()` (`Renderer.cpp:425-432`). No production producer fills `resourceLifetime` today, so
+  the branch is unreachable; the first wired text producer makes it reachable, and the throw escapes
+  `RenderSystem2D::Render` with the sprite batcher left open. `Renderer::HasFrame()` already exists,
+  so the guard is cheap.
+- **`Utf8Invalid` diagnostics cannot be rate limited**, because `TextDiagnosticRateLimitKey` folds
+  the source byte range into the key. The diagnostic *stream* is already capped by
+  `kMaxLayoutDiagnosticsPerParagraph`; the unbounded quantity is `TextLayout::validationFacts`. An
+  input-side byte cap that refuses rather than truncates is the right shape — truncating mid-UTF-8
+  manufactures ill-formed bytes that were never authored — but it is a failure-policy change for a
+  valid input, so it needs a recorded amendment and a two-sided test at the boundary.
+
+##### Files-list gaps to fold into whichever resolution is chosen
+
+`src/Text/FontRepository.*` (Step 1a's `f.repository.ByteLoadCount()` has no other observer),
+`tests/test_scene_serializer.cpp:540` (calls `TextRenderer2D::SetScale`, which Step 1d renames to
+`SetComponentScale`), `tests/test_render_queue.cpp` (a two-sided case for the hazard-1 guard), and
+`tests/smoke/*.cmake` under resolution A. Separately,
+`examples/scenes_sample/MenuScene.cpp:161-186` resolves `TextRenderer::Get()` and calls
+`GetTextWidth` four times; `examples/` has no `CMakeLists.txt` and is not referenced from the root
+build, so Step 8 will not break it, but it becomes permanently stale sample code that no build will
+catch. Port it or record it as knowingly stale.
+
 ## Subplan Completion Gate
 
 - [ ] Run `git diff --check` and scan this plan without self-matching the pattern: `rg -n 'T[B]D|T[O]DO|F[I]XME|implement l[a]ter|similar t[o]' docs/superpowers/plans/2026-08-20-ui-text/02-font-shaping-layout.md`.
