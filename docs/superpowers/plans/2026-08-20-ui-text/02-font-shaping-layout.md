@@ -3023,7 +3023,7 @@ to no sink and this task has no consumer for a cap.
 - Consumes: `FontFamilyResolver`, `TextShapingService`, `UnicodeTextAnalyzer`, and `TextLayoutCache`.
 - Produces: `TextLayoutService::Layout(const TextLayoutRequest&, TextDiagnosticSink&)` returning `optional<shared_ptr<const TextLayout>>`.
 
-- [ ] **Step 1: Add the failing final-line reshaping test.**
+- [x] **Step 1: Add the failing final-line reshaping test.**
 
   ```cpp
   TEST_CASE("every accepted line is shaped in its real line context") {
@@ -3036,7 +3036,7 @@ to no sink and this task has no consumer for a cap.
   }
   ```
 
-- [ ] **Step 1a: Add the failing overlong-policy test.**
+- [x] **Step 1a: Add the failing overlong-policy test.**
 
   ```cpp
   TEST_CASE("word wrap never splits an overlong unbreakable span") {
@@ -3047,7 +3047,7 @@ to no sink and this task has no consumer for a cap.
   }
   ```
 
-- [ ] **Step 1b: Add the failing empty/trailing-line range test.**
+- [x] **Step 1b: Add the failing empty/trailing-line range test.**
 
   ```cpp
   TEST_CASE("empty paragraphs and trailing newline retain metric-bearing lines") {
@@ -3074,7 +3074,7 @@ to no sink and this task has no consumer for a cap.
   }
   ```
 
-- [ ] **Step 1c: Add the failing no-face procedural-metrics test.**
+- [x] **Step 1c: Add the failing no-face procedural-metrics test.**
 
   ```cpp
   TEST_CASE("procedural em metrics cover empty and missing-family lines") {
@@ -3105,9 +3105,9 @@ to no sink and this task has no consumer for a cap.
   }
   ```
 
-- [ ] **Step 1d: Add the failing imported-design-metrics layout test.** Lay out a line through a fixture face with persisted `{1000,750,-250,125}` design units and size raw `1056`; require line ascent/descent/lineGap equal the three canonical `CheckedMulDiv` results, reset the rasterizer metrics-call counter, repeat from a cold repository/layout, and require that counter remains zero.
+- [x] **Step 1d: Add the failing imported-design-metrics layout test.** Lay out a line through a fixture face with persisted `{1000,750,-250,125}` design units and size raw `1056`; require line ascent/descent/lineGap equal the three canonical `CheckedMulDiv` results, reset the rasterizer metrics-call counter, repeat from a cold repository/layout, and require that counter remains zero.
 
-- [ ] **Step 1e: Add the failing whole-candidate ellipsis test.**
+- [x] **Step 1e: Add the failing whole-candidate ellipsis test.**
 
   ```cpp
   TEST_CASE("ellipsis reshapes retained text and token as one final candidate") {
@@ -3121,7 +3121,7 @@ to no sink and this task has no consumer for a cap.
   }
   ```
 
-- [ ] **Step 1f: Add the failing cold/warm validation-fact test.** Exercise both replacement-decoded input and a completely missing family through the real service:
+- [x] **Step 1f: Add the failing cold/warm validation-fact test.** Exercise both replacement-decoded input and a completely missing family through the real service:
 
   ```cpp
   TEST_CASE("warm recoverable layouts re-emit identical facts without ICU or HB") {
@@ -3150,7 +3150,7 @@ to no sink and this task has no consumer for a cap.
 
   Define both canonical serializers to include every field in stable order; neither may compare only code/message.
 
-- [ ] **Step 1g: Add the failing unsafe-to-break rejection test.**
+- [x] **Step 1g: Add the failing unsafe-to-break rejection test.**
 
   ```cpp
   TEST_CASE("layout never accepts a HarfBuzz unsafe boundary") {
@@ -3166,17 +3166,17 @@ to no sink and this task has no consumer for a cap.
   }
   ```
 
-- [ ] **Step 1h: Implement the unsafe-boundary fixture observer.** Build `unsafe-arabic-boundary` from locked Arabic text `u8"سلامك"`; derive `FirstParagraphUnsafeGraphemeBoundary` only from emitted `HB_GLYPH_FLAG_UNSAFE_TO_BREAK`, choose a width strictly between the advances at that and the preceding legal boundary, and observe the production candidate set without altering flags or break selection.
+- [x] **Step 1h: Implement the unsafe-boundary fixture observer.** Build `unsafe-arabic-boundary` from locked Arabic text `u8"سلامك"`; derive `FirstParagraphUnsafeGraphemeBoundary` only from emitted `HB_GLYPH_FLAG_UNSAFE_TO_BREAK`, choose a width strictly between the advances at that and the preceding legal boundary, and observe the production candidate set without altering flags or break selection.
 
-- [ ] **Step 1i: Register layout tests with the common runtime main.** Call `molga_add_text_test(test_text_layout test_text_layout.cpp)` and rely on its owned dependency attach; no layout case may initialize ICU/HarfBuzz from a fixture-local root or call the attach helper again.
+- [x] **Step 1i: Register layout tests with the common runtime main.** Call `molga_add_text_test(test_text_layout test_text_layout.cpp)` and rely on its owned dependency attach; no layout case may initialize ICU/HarfBuzz from a fixture-local root or call the attach helper again.
 
-- [ ] **Step 2: Run the final-line red gate.**
+- [x] **Step 2: Run the final-line red gate.**
 
   Run: `cmake --build --preset debug --target test_text_layout -j`
 
   Expected: compile FAIL because `TextLayoutService` does not exist.
 
-- [ ] **Step 3: Add the exact service constructor and result API.**
+- [x] **Step 3: Add the exact service constructor and result API.**
 
   ```cpp
   class TextLayoutService {
@@ -3188,59 +3188,59 @@ to no sink and this task has no consumer for a cap.
   };
   ```
 
-- [ ] **Step 4: Resolve the pre-analysis family closure.** Call the resolver with a local collecting sink, retain its exact depth-first nodes/edges/generations/candidates—including `exists=false` nodes—and convert its records to context-free validation facts without reporting to the caller yet.
+- [x] **Step 4: Resolve the pre-analysis family closure.** Call the resolver with a local collecting sink, retain its exact depth-first nodes/edges/generations/candidates—including `exists=false` nodes—and convert its records to context-free validation facts without reporting to the caller yet.
 
-- [ ] **Step 4a: Perform the early request-index lookup.** Build `TextLayoutRequestIndexKey` from the original request, portable/rule versions, and resolved closure, then call `FindByRequest` before constructing `UnicodeTextBuffer`, an ICU object, or a HarfBuzz object.
+- [x] **Step 4a: Perform the early request-index lookup.** Build `TextLayoutRequestIndexKey` from the original request, portable/rule versions, and resolved closure, then call `FindByRequest` before constructing `UnicodeTextBuffer`, an ICU object, or a HarfBuzz object.
 
-- [ ] **Step 4b: Re-emit a warm result's validation facts.** On a request hit, merge current resolution facts with stored facts by `{code,severity,subsystem,message,remediation,sourceBytes,graphemes,recoverable,blocksPackage}`, deduplicate, apply the current diagnostic context, report each once, and return the cached layout.
+- [x] **Step 4b: Re-emit a warm result's validation facts.** On a request hit, merge current resolution facts with stored facts by `{code,severity,subsystem,message,remediation,sourceBytes,graphemes,recoverable,blocksPackage}`, deduplicate, apply the current diagnostic context, report each once, and return the cached layout.
 
-- [ ] **Step 5: Build cold Unicode paragraph analysis.** Construct `UnicodeTextBuffer` and `UnicodeAnalysis` only after a request-index miss; convert every replacement range into one immutable validation fact.
+- [x] **Step 5: Build cold Unicode paragraph analysis.** Construct `UnicodeTextBuffer` and `UnicodeAnalysis` only after a request-index miss; convert every replacement range into one immutable validation fact.
 
-- [ ] **Step 5a: Copy exact resolved analysis identity into shape keys.** For every paragraph/final-line shape key, copy `resolvedGraphemeLocale`, `resolvedLineBreakLocale`, `graphemeRuleIdentity`, `lineBreakRuleIdentity`, and `analysisGeneration` directly from the immutable `UnicodeAnalysis::Identity()`; never reconstruct them from the requested locale or current ICU process state.
+- [x] **Step 5a: Copy exact resolved analysis identity into shape keys.** For every paragraph/final-line shape key, copy `resolvedGraphemeLocale`, `resolvedLineBreakLocale`, `graphemeRuleIdentity`, `lineBreakRuleIdentity`, and `analysisGeneration` directly from the immutable `UnicodeAnalysis::Identity()`; never reconstruct them from the requested locale or current ICU process state.
 
-- [ ] **Step 5b: Shape cold paragraph analysis items once.** Shape each paragraph item to measure candidate breaks, convert every missing grapheme/tofu/fallback condition to a fact, and deduplicate these plus Step 4/5 facts by the same stable tuple.
+- [x] **Step 5b: Shape cold paragraph analysis items once.** Shape each paragraph item to measure candidate breaks, convert every missing grapheme/tofu/fallback condition to a fact, and deduplicate these plus Step 4/5 facts by the same stable tuple.
 
-- [ ] **Step 6: Generate legal break candidates.** `NoWrap` keeps explicit separators only, `Word` keeps extended-grapheme-aligned ICU line opportunities, and `Grapheme` keeps every extended-grapheme boundary; discard candidates crossing HarfBuzz unsafe-to-break output.
+- [x] **Step 6: Generate legal break candidates.** `NoWrap` keeps explicit separators only, `Word` keeps extended-grapheme-aligned ICU line opportunities, and `Grapheme` keeps every extended-grapheme boundary; discard candidates crossing HarfBuzz unsafe-to-break output.
 
-- [ ] **Step 7: Re-shape one proposed final line.** Construct exact line-range analysis items, derive real line/paragraph BOT/EOT flags, call `ShapeAnalysisItem` for every item, and concatenate only these new results—never paragraph glyph slices.
+- [x] **Step 7: Re-shape one proposed final line.** Construct exact line-range analysis items, derive real line/paragraph BOT/EOT flags, call `ShapeAnalysisItem` for every item, and concatenate only these new results—never paragraph glyph slices.
 
-- [ ] **Step 8: Implement width backtracking.** If authoritative line advance exceeds the constraint, move to the preceding legal candidate and repeat Step 7; when no prior candidate exists, defer to the selected overlong policy.
+- [x] **Step 8: Implement width backtracking.** If authoritative line advance exceeds the constraint, move to the preceding legal candidate and repeat Step 7; when no prior candidate exists, defer to the selected overlong policy.
 
-- [ ] **Step 9: Implement Overflow and Clip policies.** Overflow retains an overlong unbreakable line; Clip retains logical glyphs and marks the output clipped. Apply height/max-lines truncation without manufacturing a grapheme break.
+- [x] **Step 9: Implement Overflow and Clip policies.** Overflow retains an overlong unbreakable line; Clip retains logical glyphs and marks the output clipped. Apply height/max-lines truncation without manufacturing a grapheme break.
 
-- [ ] **Step 10: Build one retained-line-plus-ellipsis candidate.** Create an ephemeral Unicode buffer containing the current whole-grapheme retained prefix followed by `ellipsisUtf8`, with source mapping spans that distinguish retained and synthetic bytes.
+- [x] **Step 10: Build one retained-line-plus-ellipsis candidate.** Create an ephemeral Unicode buffer containing the current whole-grapheme retained prefix followed by `ellipsisUtf8`, with source mapping spans that distinguish retained and synthetic bytes.
 
-- [ ] **Step 10a: Shape the complete ellipsis candidate.** Analyze and shape the entire ephemeral candidate with real final BOT/EOT plus original style/run context; never invoke a separate ellipsis-token shape and concatenate it.
+- [x] **Step 10a: Shape the complete ellipsis candidate.** Analyze and shape the entire ephemeral candidate with real final BOT/EOT plus original style/run context; never invoke a separate ellipsis-token shape and concatenate it.
 
-- [ ] **Step 10b: Restore source mappings for ellipsis output.** Map retained clusters through their original ranges and every synthetic cluster to the zero-length truncation byte/grapheme boundary.
+- [x] **Step 10b: Restore source mappings for ellipsis output.** Map retained clusters through their original ranges and every synthetic cluster to the zero-length truncation byte/grapheme boundary.
 
-- [ ] **Step 10c: Repeat only at whole-grapheme boundaries.** If the shaped candidate is over width, remove exactly one retained grapheme and repeat Steps 10–10b until it fits or the candidate is ellipsis-only.
+- [x] **Step 10c: Repeat only at whole-grapheme boundaries.** If the shaped candidate is over width, remove exactly one retained grapheme and repeat Steps 10–10b until it fits or the candidate is ellipsis-only.
 
-- [ ] **Step 11: Compute line visual order.** Run ICU line BiDi for each accepted source range and emit `VisualRun`s in ICU visual order with the exact final glyph records.
+- [x] **Step 11: Compute line visual order.** Run ICU line BiDi for each accepted source range and emit `VisualRun`s in ICU visual order with the exact final glyph records.
 
-- [ ] **Step 12: Materialize exact line ranges and vertical fields.** Every logical line stores exact source-byte/grapheme ranges, baseline, nonnegative ascent/descent/lineGap, and checked `top = baseline - ascent`, `bottom = baseline + descent`; the checked baseline step to the next line includes `lineGap` before applying the authored `lineSpacing` policy.
+- [x] **Step 12: Materialize exact line ranges and vertical fields.** Every logical line stores exact source-byte/grapheme ranges, baseline, nonnegative ascent/descent/lineGap, and checked `top = baseline - ascent`, `bottom = baseline + descent`; the checked baseline step to the next line includes `lineGap` before applying the authored `lineSpacing` policy.
 
-- [ ] **Step 12a: Derive metrics from imported design integers.** For a nonempty line, call `ScaleFontDesignMetrics(resource->designMetrics,fontSize)` for every final glyph resource and take checked maxima of ascent/descent/lineGap. For an empty/trailing line, use the first ordered candidate in its resolved family; only a family with no candidate falls through to Step 12b. No layout code calls `FontFace::Metrics`, stb metric APIs, or converts these values through float.
+- [x] **Step 12a: Derive metrics from imported design integers.** For a nonempty line, call `ScaleFontDesignMetrics(resource->designMetrics,fontSize)` for every final glyph resource and take checked maxima of ascent/descent/lineGap. For an empty/trailing line, use the first ordered candidate in its resolved family; only a family with no candidate falls through to Step 12b. No layout code calls `FontFace::Metrics`, stb metric APIs, or converts these values through float.
 
-- [ ] **Step 12b: Derive exact no-face metrics.** With no face, compute ascent via `CheckedMulDiv(fontSize,3,4)`, descent via `CheckedMulDiv(fontSize,1,4)`, line gap as exact zero, and missing-grapheme advance as exactly `fontSize`, using the shared half-away-from-zero rule.
+- [x] **Step 12b: Derive exact no-face metrics.** With no face, compute ascent via `CheckedMulDiv(fontSize,3,4)`, descent via `CheckedMulDiv(fontSize,1,4)`, line gap as exact zero, and missing-grapheme advance as exactly `fontSize`, using the shared half-away-from-zero rule.
 
-- [ ] **Step 12c: Materialize empty logical lines.** Empty input produces one metric-bearing `{0,0}` byte/grapheme line. Display line ranges exclude the separator grapheme itself: for `"A\n"`, the first range is byte/grapheme `{0,1}` and its empty successor is `{2,2}`. Use selected-family metrics or Step 12b when no face exists.
+- [x] **Step 12c: Materialize empty logical lines.** Empty input produces one metric-bearing `{0,0}` byte/grapheme line. Display line ranges exclude the separator grapheme itself: for `"A\n"`, the first range is byte/grapheme `{0,1}` and its empty successor is `{2,2}`. Use selected-family metrics or Step 12b when no face exists.
 
-- [ ] **Step 13: Position and retain final output.** Compute checked 26.6 advances, horizontal/vertical alignment and intrinsic size from line top/bottom; every positioned glyph retains its existing exact `FontFaceResourcePtr`.
+- [x] **Step 13: Position and retain final output.** Compute checked 26.6 advances, horizontal/vertical alignment and intrinsic size from line top/bottom; every positioned glyph retains its existing exact `FontFaceResourcePtr`.
 
-- [ ] **Step 13a: Validate final adjusted GDEF carets.** For a final glyph covering `N>1` graphemes, accept its `adjustedGdefCaretOffsets` only when there are exactly `N-1` checked positions, strictly ordered in visual progression and strictly inside the glyph's final advance; otherwise select the Step 13c fallback path as a whole.
+- [x] **Step 13a: Validate final adjusted GDEF carets.** For a final glyph covering `N>1` graphemes, accept its `adjustedGdefCaretOffsets` only when there are exactly `N-1` checked positions, strictly ordered in visual progression and strictly inside the glyph's final advance; otherwise select the Step 13c fallback path as a whole.
 
-- [ ] **Step 13b: Store valid GDEF carets in final layout.** Map the accepted `N-1` offsets to logical grapheme boundaries according to run direction, add the final glyph origin with checked arithmetic, and store absolute `GlyphInteriorCaret{boundary,position,true}` values on that `PositionedGlyph`.
+- [x] **Step 13b: Store valid GDEF carets in final layout.** Map the accepted `N-1` offsets to logical grapheme boundaries according to run direction, add the final glyph origin with checked arithmetic, and store absolute `GlyphInteriorCaret{boundary,position,true}` values on that `PositionedGlyph`.
 
-- [ ] **Step 13c: Materialize proportional fallback carets once.** When the final shaped record has no valid complete GDEF set, compute all `N-1` positions during layout with `CheckedMulDiv(finalAdvance.Raw(), i, N)` in visual progression, map them to logical boundaries, and store `{...,false}`. No later hit-test call may recalculate this fallback or inspect a font resource.
+- [x] **Step 13c: Materialize proportional fallback carets once.** When the final shaped record has no valid complete GDEF set, compute all `N-1` positions during layout with `CheckedMulDiv(finalAdvance.Raw(), i, N)` in visual progression, map them to logical boundaries, and store `{...,false}`. No later hit-test call may recalculate this fallback or inspect a font resource.
 
-- [ ] **Step 14: Store every layout-producing result.** Build the final paragraph key, attach immutable deduplicated facts, and cache replacement/tofu/fallback-producing layouts under the linked request/final keys; only a hard failure that produced no layout skips storage.
+- [x] **Step 14: Store every layout-producing result.** Build the final paragraph key, attach immutable deduplicated facts, and cache replacement/tofu/fallback-producing layouts under the linked request/final keys; only a hard failure that produced no layout skips storage.
 
-- [ ] **Step 14a: Emit cold validation facts through current context.** Convert each stored fact to one contextual diagnostic, report it once, and return the same immutable layout that was stored.
+- [x] **Step 14a: Emit cold validation facts through current context.** Convert each stored fact to one contextual diagnostic, report it once, and return the same immutable layout that was stored.
 
-- [ ] **Step 14b: Expose package-grade validation facts.** Keep `TextLayout::validationFacts` public and immutable; the later package validator iterates every fact and rejects any `blocksAuthoredPackage==true`, never inferring validity from cache hit/miss state or the absence of newly executed analysis.
+- [x] **Step 14b: Expose package-grade validation facts.** Keep `TextLayout::validationFacts` public and immutable; the later package validator iterates every fact and rejects any `blocksAuthoredPackage==true`, never inferring validity from cache hit/miss state or the absence of newly executed analysis.
 
-- [ ] **Step 15: Review expected JSON and run final-line green gates.** The canonical fixture serializes every line's exact byte/grapheme ranges, baseline, ascent, descent, lineGap, top and bottom—including empty/trailing lines—before the glyph/run arrays.
+- [x] **Step 15: Review expected JSON and run final-line green gates.** The canonical fixture serializes every line's exact byte/grapheme ranges, baseline, ascent, descent, lineGap, top and bottom—including empty/trailing lines—before the glyph/run arrays.
 
   ```bash
   cmake --build --preset debug --target test_text_layout test_text_cache -j
@@ -3253,7 +3253,7 @@ to no sink and this task has no consumer for a cap.
 
   Expected: explicit separators, all wrap/overflow modes, Arabic/Indic/`fi` contextual changes, ellipsis, max lines, alignment and warm-cache zero-reshape pass.
 
-- [ ] **Step 16: Commit authoritative paragraph layout.**
+- [x] **Step 16: Commit authoritative paragraph layout.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Text/TextLayoutService.* \
@@ -3262,6 +3262,68 @@ to no sink and this task has no consumer for a cap.
   ```
 
 **Exit:** A final line's glyph array is always the result of shaping that line, never a slice of paragraph output.
+
+**Implementation record (2026-09-07).** Commit `e903ac1` (+4754). Audit passed after the heaviest
+review of the program — **8 blocking and 14 important findings** — each fixed and re-killed by the
+mutant that exposed it. Green in Debug, ASan and UBSan.
+
+**The plan's own headline assertion was a tautology.** `LineDraft::shapedRange` was assigned from
+`line.bytes` at all three sites and never from anything the final shaping call produced. So Step 1's
+verbatim `CHECK(FinalLineShapeCount() == lines.size())` reduced to `CHECK(n == n)`, and Step 1g's
+`EveryAcceptedLineWasFinalReshaped()` compared `draft.bytes` against `draft.bytes`. **Replacing the
+authoritative re-shape with a slice of the paragraph array would have passed both** — the exact
+contract this task exists to enforce, unobservable through the spec's own named observables. Three
+lenses found it independently. `ShapedLine::handledBytes`/`shaped` are now written *only* inside
+`ShapeRange`, and deleting that assignment fails three cases.
+
+**A production hazard, not a coverage gap.** `AppendFact` was O(n²) with the worst possible field
+order — string comparisons first — so mis-encoded text hung layout for minutes to hours. `SameFact`
+now compares ranges, code and severity before strings, and dedup runs through a hash-bucketed
+`FactSet`. The improvement was measured rather than asserted, and a 2000-fact scale case is
+committed.
+
+**Seven more blocking coverage holes, all closed:** the ellipsis candidate could be built as
+"ellipsis + retained" instead of "retained + ellipsis"; the `Coverage::Missing` branch could be
+deleted so a paragraph of tofu inside a *resolved* family reported nothing; `OverlongTokenPolicy`
+could return the empty string for every wrap × overflow combination; an off-by-one in
+`GraphemesForBytes` put a wrong grapheme range on every fact derived from a byte range; Step 5a's
+verbatim prohibition on reconstructing locales from the requested locale could be violated; the
+final key could be emptied of every `finalLineShapeKey` or given a cross-field hash typo because
+nothing read it back; and the fail-closed branch for an unbound `FontArtifactStore` could be deleted
+— its mutant does not merely fail, it **crashes (rc=138)**, confirming the guard prevents a real
+dereference of a disengaged optional.
+
+**The Indic gap the dispatch warned about was real.** There was no Devanagari anywhere in the layout
+tests, though `NotoSansDevanagari-Regular.ttf` was already committed and unused. Arabic and Hebrew
+cannot substitute: they reverse whole runs, handled by a direction flag, whereas Devanagari reorders
+glyphs *within* a cluster, so a glyph's visual position can precede its source bytes. That is the
+sharpest test of "never slice the paragraph array" and of interior-caret logic. A `devanagari-reorder`
+fixture now pins a pre-base i-matra glyph drawn before its consonant, verified against the consonant
+laid out alone.
+
+**A real red hit during implementation, worth recording:** HarfBuzz emits RTL glyphs in **visual**
+order, so "the first unsafe boundary" had to be the logical minimum rather than the array-first
+element. An LTR-only fixture would never have exposed it, because in LTR the two definitions
+coincide.
+
+All four items carried from Task 7.1 are closed: the rule-policy identities take real contract
+values, `originalBytesHash`/`shapeInputBytesHash` have a producer and are asserted to differ,
+`TextValidationFact` is populated, and the diagnostic cap is defined.
+
+---
+
+#### CARRIED FORWARD
+
+1. **`BlocksAuthoredPackage(code)` disagrees with `fact.blocksAuthoredPackage`** for a successful
+   fallback: the fact reuses `TextDiagnosticCode::FontFamilyInvalid` but overrides severity to `Info`
+   and `blocksAuthoredPackage` to `false`, while the code table says that code blocks. Step 14b's
+   package validator reads the *field*, which is correct — but any consumer that switches on `code`
+   will treat an `Info` fallback as a blocking family error. Task 8.2 and the package validator must
+   read the field, never the code.
+2. **Direct `ubidi_*` calls hold no `TextRuntimeClientHandle` lease.**
+3. **The display-paragraph split disagrees with the UBA paragraph split** for U+000B/U+000C/U+2028
+   and U+001C–U+001E, and the ellipsis candidate is re-analysed as its own BiDi paragraph, losing the
+   real paragraph base level.
 
 ---
 
