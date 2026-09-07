@@ -45,9 +45,12 @@ void UIImage::Serialize(nlohmann::json& j) const {
 
 void UIImage::Deserialize(const nlohmann::json& j) {
     SetTextureGuid(j.value("textureGuid", textureGuid_));
+    // 세터를 거쳐야 한다. 되돌리기와 prefab override는 살아 있는 컴포넌트에
+    // 다시 Deserialize하므로, 직접 대입하면 값만 바뀌고 Visual 무효화가 일어나지
+    // 않는다. 위의 textureGuid는 이미 세터를 쓰고 있었다.
     if (j.contains("tint") && j["tint"].is_array() && j["tint"].size() >= 4) {
-        tint_ = {j["tint"][0].get<float>(), j["tint"][1].get<float>(),
-                 j["tint"][2].get<float>(), j["tint"][3].get<float>()};
+        SetTint(Color{j["tint"][0].get<float>(), j["tint"][1].get<float>(),
+                      j["tint"][2].get<float>(), j["tint"][3].get<float>()});
     }
-    sortingOrder_ = j.value("sortingOrder", sortingOrder_);
+    SetSortingOrder(j.value("sortingOrder", sortingOrder_));
 }

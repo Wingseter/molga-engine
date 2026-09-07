@@ -2154,6 +2154,47 @@ void CheckNarrowestBit(const char* what, MutateFn mutate,
 
 } // namespace
 
+TEST_CASE("re-deserializing an authored change invalidates like the setter") {
+    // 되돌리기와 prefab override는 살아 있는 컴포넌트에 다시 Deserialize한다.
+    // RectTransform과 UIImage의 Deserialize는 자기 세터를 건너뛰고 필드에 직접
+    // 대입하고 있었으므로, 값은 바뀌는데 무효화가 일어나지 않았다. 같은 헬퍼를
+    // 쓰므로 "같은 페이로드를 다시 넣는 것은 무효화가 아니다"도 함께 고정된다.
+    // 키 하나짜리 페이로드를 쓰는 이유: 나머지 키는 현재 값으로 읽혀 세터가
+    // 조기 반환하므로, revision 증가분이 정확히 1이어야 한다.
+    CheckNarrowestBit<RectTransform>(
+        "RectTransform::Deserialize(anchoredPosition)",
+        [](RectTransform& c) {
+            nlohmann::json payload;
+            payload["anchoredPosition"] = {1.0f, 2.0f};
+            c.Deserialize(payload);
+        },
+        kLayout, 1);
+    CheckNarrowestBit<RectTransform>(
+        "RectTransform::Deserialize(sizeDelta)",
+        [](RectTransform& c) {
+            nlohmann::json payload;
+            payload["sizeDelta"] = {3.0f, 4.0f};
+            c.Deserialize(payload);
+        },
+        kLayout, 1);
+    CheckNarrowestBit<UIImage>(
+        "UIImage::Deserialize(tint)",
+        [](UIImage& c) {
+            nlohmann::json payload;
+            payload["tint"] = {0.25f, 0.5f, 0.75f, 1.0f};
+            c.Deserialize(payload);
+        },
+        kVisual, 1);
+    CheckNarrowestBit<UIImage>(
+        "UIImage::Deserialize(sortingOrder)",
+        [](UIImage& c) {
+            nlohmann::json payload;
+            payload["sortingOrder"] = 7;
+            c.Deserialize(payload);
+        },
+        kVisual, 1);
+}
+
 TEST_CASE("every authored UI setter invalidates with its narrowest bit") {
     CheckNarrowestBit<RectTransform>(
         "RectTransform::SetAnchorMin",

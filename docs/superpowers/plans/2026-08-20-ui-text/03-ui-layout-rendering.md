@@ -617,7 +617,7 @@ code that previously could not throw.
 - Consumes: `SceneObjectRef`, `Component::RemapReferences`, text paragraph enums, and the existing component serialization convention.
 - Produces: non-wrapping aggregate UI runtime generations, `UIComponent` invalidation revisions, and eight explicit current-schema components used by layout, scrolling, focus, text editing, and semantic-tree tasks.
 
-- [ ] **Step 1a: Write a failing exhaustive component round-trip test.**
+- [x] **Step 1a: Write a failing exhaustive component round-trip test.**
 
   Register `test_ui_components`, then create a table that constructs each new component, assigns every authored field to a non-default value, serializes, deserializes, and checks exact equality. Include this concrete runtime omission case:
 
@@ -658,7 +658,7 @@ code that previously could not throw.
 
   `JsonObjectKeys` is a test helper that returns the exact top-level key set. Do not add a runtime-value field, runtime setter, or test-only edit-state storage to `UITextInput`; unknown runtime-looking JSON keys are ignored on load and never echoed on save.
 
-- [ ] **Step 1b: Write a failing non-wrapping authored-revision test.**
+- [x] **Step 1b: Write a failing non-wrapping authored-revision test.**
 
   ```cpp
   TEST_CASE("UI authored revision exhaustion disables snapshot caching") {
@@ -674,7 +674,7 @@ code that previously could not throw.
 
   `SetAuthoredRevisionForTesting` is compiled only into the test target. The snapshot test later verifies that a component with an exhausted revision never hits or populates either geometry or full-snapshot caches and emits one blocker diagnostic.
 
-- [ ] **Step 1c: Write a failing non-wrapping aggregate-dirty test.**
+- [x] **Step 1c: Write a failing non-wrapping aggregate-dirty test.**
 
   ```cpp
   TEST_CASE("aggregate UI dirty generation never wraps or aliases") {
@@ -691,7 +691,7 @@ code that previously could not throw.
 
   The scoped hook is test-only and restores the process-global clock. Repeat for `ScrollDisplacement`, `TextureBinding`, and `Device`; no counter publishes zero or a reused value.
 
-- [ ] **Step 1d: Write failing exact UI policy enum/default/string tests.**
+- [x] **Step 1d: Write failing exact UI policy enum/default/string tests.**
 
   ```cpp
   static_assert(static_cast<std::uint8_t>(UITextInputContentPolicy::Any) == 0);
@@ -712,19 +712,19 @@ code that previously could not throw.
   }
   ```
 
-- [ ] **Step 1e: Write failing unknown-policy and migration tests.**
+- [x] **Step 1e: Write failing unknown-policy and migration tests.**
 
   Deserialize fresh fixtures with `contentPolicy="Decimal"`, `submitPolicy="OnBlur"`, and `role="Unknown"`. Require `UIComponentSchemaError{TextDiagnosticCode::LayoutInvalid}`, caught by `SceneSerializer` as a typed load failure, and no partial component/world publication. `LayoutInvalid` is the already-closed diagnostic category; `UIComponentSchemaError` supplies the typed deserialize boundary, so this task does not invent a fourteenth diagnostic code. This preserves the existing virtual `void Component::Deserialize(...)` signature rather than inventing a bool overload. Load the approved legacy `UITextInput` payload that omits both policy keys and require explicit migration defaults `Any`/`OnEnter`; load legacy `UIAccessibility` without `role` and require `None`. Re-serialization writes canonical PascalCase strings only after the explicit current-schema migration path.
 
-- [ ] **Step 2: Add the failing prefab-remap test.**
+- [x] **Step 2: Add the failing prefab-remap test.**
 
   For `UIScrollView` assign viewport/content IDs; for `UISelectable` assign four navigation IDs; for `UITextInput` assign viewport/rendered-label/placeholder IDs. Clone the subtree and assert every in-subtree `targetId` is remapped while an external ID remains unchanged.
 
-- [ ] **Step 3: Add failing legacy-load tests.**
+- [x] **Step 3: Add failing legacy-load tests.**
 
   Load legacy `UICanvas`, `UILabel`, and `TextRenderer2D` JSON and assert current behavior plus `LoadedSchema::Legacy`; serialize without an explicit migration command and assert the legacy representation remains.
 
-- [ ] **Step 4: Run the component red gate.**
+- [x] **Step 4: Run the component red gate.**
 
   ```bash
   cmake --preset debug
@@ -733,7 +733,7 @@ code that previously could not throw.
 
   Expected: compilation fails because the eight component classes and schema APIs do not exist.
 
-- [ ] **Step 5a: Define the process-global aggregate invalidation clock.**
+- [x] **Step 5a: Define the process-global aggregate invalidation clock.**
 
   ```cpp
   enum class UIRuntimeGenerationKind : std::uint8_t {
@@ -756,7 +756,7 @@ code that previously could not throw.
 
   Each counter uses a compare/exchange loop that checks `0`/`UINT64_MAX` before incrementing, stores and returns the same `candidate + 1` value, and leaves the counter at `UINT64_MAX` on exhaustion. Exhaustion atomically makes `cacheable=false`; it never wraps. A setter calls `Advance(SemanticDirty)` only after canonical old/new values differ. Task 11 texture/device binding code uses the returned values for exact published identities, so concurrent acquisitions cannot both read a later shared value.
 
-- [ ] **Step 5b: Add typed authoring invalidation to `UIComponent`.**
+- [x] **Step 5b: Add typed authoring invalidation to `UIComponent`.**
 
   Use runtime-only counters and the narrowest invalidation bit:
 
@@ -802,7 +802,7 @@ code that previously could not throw.
 
   Revisions, dirty bits, and aggregate generations never enter serialized JSON, prefab overrides, or editor dirty checks. Once either component or aggregate generation is exhausted, it stays at `UINT64_MAX`; it never wraps or reuses an earlier cache identity. `UILayoutSystem::Build` detects `RevisionCacheable()==false` or aggregate `cacheable==false`, emits one rate-limited blocker, rebuilds uncached, and refuses to look up or insert either cache.
 
-- [ ] **Step 6a: Declare the shared layout enums and axis record.**
+- [x] **Step 6a: Declare the shared layout enums and axis record.**
 
   Define and validate these authored records without computed state:
 
@@ -816,55 +816,55 @@ code that previously could not throw.
 
   Reject unknown enum values during load.
 
-- [ ] **Step 6b: Implement `UILayoutElement` canonical setters.**
+- [x] **Step 6b: Implement `UILayoutElement` canonical setters.**
 
   Store horizontal/vertical constraints plus `ignoreLayout`. Each axis setter rejects non-finite input, then stores `minimum=max(0,minimum)`, `preferred=max(minimum,preferred)`, and `flexible=max(0,flexible)`; a changed canonical value calls `Invalidate(Layout)` once.
 
-- [ ] **Step 6c: Serialize and round-trip `UILayoutElement`.**
+- [x] **Step 6c: Serialize and round-trip `UILayoutElement`.**
 
   Write `schemaVersion`, both complete axis records, and `ignoreLayout`; deserialize through the same canonical setters and write no computed size.
 
-- [ ] **Step 6d: Add the `UIContentSizeFitter` schema.**
+- [x] **Step 6d: Add the `UIContentSizeFitter` schema.**
 
   Store horizontal and vertical `UIFitMode` independently, validate enum values on load, and invalidate only layout when either authored mode changes.
 
-- [ ] **Step 7a: Declare all `UILayoutGroup` authored fields.**
+- [x] **Step 7a: Declare all `UILayoutGroup` authored fields.**
 
   Store mode, four-sided padding, X/Y spacing, child alignment, per-axis control/expand, cell size, start corner, fill axis, grid constraint, and constraint count; initialize deterministic documented defaults.
 
-- [ ] **Step 7b: Implement `UILayoutGroup` validation setters.**
+- [x] **Step 7b: Implement `UILayoutGroup` validation setters.**
 
   Reject non-finite values, non-positive grid cells/counts, and negative padding/spacing with `LayoutInvalid`. A canonical value change invalidates layout once; rejection leaves fields/revisions unchanged.
 
-- [ ] **Step 7c: Serialize and round-trip `UILayoutGroup`.**
+- [x] **Step 7c: Serialize and round-trip `UILayoutGroup`.**
 
   Write every field plus `schemaVersion` under fixed key names used by the exhaustive Step 1 table; deserialize only through validated setters.
 
-- [ ] **Step 8a: Add the `UIMask` schema.**
+- [x] **Step 8a: Add the `UIMask` schema.**
 
   Store rectangular descendant clipping enablement only and invalidate layout plus interaction when it changes.
 
-- [ ] **Step 8b: Declare `UIScrollView` values and references.**
+- [x] **Step 8b: Declare `UIScrollView` values and references.**
 
   Store viewport/content refs, horizontal/vertical enable, movement, elasticity, inertia, deceleration, sensitivity, and initial normalized X/Y.
 
-- [ ] **Step 8c: Implement `UIScrollView` validation setters.**
+- [x] **Step 8c: Implement `UIScrollView` validation setters.**
 
   Reject non-finite values, normalized positions outside `[0,1]`, negative sensitivity/deceleration, and non-positive elasticity when movement is `Elastic`; normalize signed zero before storing and invalidate layout only on canonical change.
 
-- [ ] **Step 8d: Serialize/remap `UIScrollView`.**
+- [x] **Step 8d: Serialize/remap `UIScrollView`.**
 
   Write all authored values and `{targetId}` references, remap both refs, and omit runtime offset/velocity.
 
-- [ ] **Step 9a: Add the `UISelectable` value schema.**
+- [x] **Step 9a: Add the `UISelectable` value schema.**
 
   Define `enum class UINavigationMode : std::uint8_t { None, Auto, Explicit };` in `src/UI/UINavigationTypes.h`; store interactable and that mode with interaction invalidation.
 
-- [ ] **Step 9b: Add `UISelectable` navigation refs and remapping.**
+- [x] **Step 9b: Add `UISelectable` navigation refs and remapping.**
 
   Store up/down/left/right `SceneObjectRef`, write each `{targetId}`, and override `RemapReferences` for all four references.
 
-- [ ] **Step 10a: Add `UITextInput` scalar/text policy fields.**
+- [x] **Step 10a: Add `UITextInput` scalar/text policy fields.**
 
   Define the exact Milestone A policy surface and no extra values:
 
@@ -875,15 +875,15 @@ code that previously could not throw.
 
   Defaults are `Any` and `OnEnter`; canonical serialized strings are exactly `"Any"` and `"OnEnter"`. Any other numeric/string value is a typed deserialize failure, not an implicit fallback. Store initial UTF-8, read-only, single/multiline, grapheme max length, these policies, font family GUID, and complete paragraph style with the correct visual/intrinsic/interaction invalidation bits. New content or submit policy values require a later approved design/schema version.
 
-- [ ] **Step 10b: Add `UITextInput` authored references.**
+- [x] **Step 10b: Add `UITextInput` authored references.**
 
   Store viewport/rendered-label/placeholder `SceneObjectRef`, serialize exact `{targetId}` values, and override `RemapReferences` for all three.
 
-- [ ] **Step 10c: Serialize `UITextInput` without runtime edit state.**
+- [x] **Step 10c: Serialize `UITextInput` without runtime edit state.**
 
   Emit exactly the key set asserted in Step 1a; ignore unknown runtime-looking keys on load and never echo them.
 
-- [ ] **Step 11a: Add `UIAccessibility` values and invalidation.**
+- [x] **Step 11a: Add `UIAccessibility` values and invalidation.**
 
   Define the exact role surface:
 
@@ -895,43 +895,43 @@ code that previously could not throw.
 
   Default to `None`; serialize the exact PascalCase enumerator spelling and fail typed deserialization on any unknown numeric/string value. Store role, name, description, and hidden metadata only; changed values invalidate semantic/interaction snapshot content, not geometry.
 
-- [ ] **Step 11b: Serialize and round-trip `UIAccessibility`.**
+- [x] **Step 11b: Serialize and round-trip `UIAccessibility`.**
 
   Write exactly those four values plus `schemaVersion`; omit computed roles/focus state. Migration of an approved role-less legacy payload sets `None`; it never guesses a role from sibling components.
 
   Every class above exposes `static constexpr std::uint32_t CurrentSchemaVersion`; invalid references remain clear/value-only and no pointer is serialized.
 
-- [ ] **Step 12a: Add current `UICanvas` authored fields.**
+- [x] **Step 12a: Add current `UICanvas` authored fields.**
 
   Add `ConstantPixelSize`/`ScaleWithViewport`, reference resolution, width-height match, and sorting with finite/range validation and narrow invalidation.
 
-- [ ] **Step 12b: Preserve legacy Canvas bytes and behavior.**
+- [x] **Step 12b: Preserve legacy Canvas bytes and behavior.**
 
   Keep the loaded-schema marker and legacy scaling results; ordinary load/save does not rewrite legacy JSON into the current schema.
 
-- [ ] **Step 13a: Preserve the legacy label authoring contract.**
+- [x] **Step 13a: Preserve the legacy label authoring contract.**
 
   Preserve `UILabel` legacy `fontGuid` as an implicit one-face family view and its loaded-schema marker.
 
-- [ ] **Step 13b: Preserve the button authoring contract.**
+- [x] **Step 13b: Preserve the button authoring contract.**
 
   Keep `UIButton` authored color/callback data while moving no runtime state into the component in this task.
 
-- [ ] **Step 14a: Register all component sources.**
+- [x] **Step 14a: Register all component sources.**
 
   Add `UIRuntimeInvalidation.cpp` and every new component `.cpp` to `ENGINE_SOURCES`, then add `test_ui_components`; configure once and verify the target reaches the intended red compile failures.
 
   Add every new `.cpp` to `ENGINE_SOURCES` and register the test target.
 
-- [ ] **Step 14b: Register every component factory.**
+- [x] **Step 14b: Register every component factory.**
 
   Add all eight concrete component types to `BuiltinComponents.cpp` and assert each exact serialized type name constructs the expected runtime type.
 
-- [ ] **Step 15: Exclude runtime keys from prefab normalization.**
+- [x] **Step 15: Exclude runtime keys from prefab normalization.**
 
   `PrefabUtil` ignores `schemaVersion` and runtime-only keys while comparing overrides, but still remaps authored `targetId` fields.
 
-- [ ] **Step 16: Run component, serializer, prefab, and legacy regression gates.**
+- [x] **Step 16: Run component, serializer, prefab, and legacy regression gates.**
 
   ```bash
   cmake --build --preset debug --target test_ui_components test_scene_serializer \
@@ -941,7 +941,7 @@ code that previously could not throw.
 
   Expected: all selected tests pass; JSON contains only authored fields and explicit schema versions.
 
-- [ ] **Step 17: Commit the authored schema slice.**
+- [x] **Step 17: Commit the authored schema slice.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/UI/UIRuntimeInvalidation.* \
@@ -958,6 +958,77 @@ code that previously could not throw.
     tests/test_ui_components.cpp
   git commit -m "feat: add versioned UI authoring schemas"
   ```
+
+**Implementation record (2026-09-07).** Commit `0955eab`, plus a controller follow-up for the audit's
+one real defect. Audit passed. **Twelve blocking** findings — the heaviest of the program — all fixed
+and each re-run as its own mutant.
+
+**Three were live production bugs, not coverage gaps:**
+
+- **`ReadUIUInt` rejected valid non-negative integers stored as signed JSON numbers**, so an ordinary
+  Inspector edit of any unsigned field aborted. Fixed by testing the *value* (`is_number_integer`
+  plus a `[0, UINT32_MAX]` range) rather than the storage-type predicate.
+- **`UIComponentSchemaError` escaped three of the four `Component::Deserialize` callers** — the
+  editor Inspector and both `PrefabUtil::ApplyModifications` sites — so a hand-edited or
+  forward-versioned scene threw straight through `DeserializeScene`.
+- **The suite failed under ASan on correct code.** Two assertions compared `const char*` **pointers**
+  rather than strings, which only diverges when the literals are not pooled. Fixed without touching
+  the verbatim Step 1d lines: all sixteen `ToCanonicalString` overloads now return
+  `std::string_view`, pinned by sixteen `static_assert`s.
+
+**The trap this task's dispatch named by name recurred anyway.** `UITextInput`'s `readOnly` and
+`multiline` were `true` in *every* fixture, so swapping them in either direction was undetectable —
+exactly Task 8.1's `horizontalAlignment`/`verticalAlignment` hole, one task later, in a brief that
+quoted it. `UIScrollView`'s `horizontal`/`vertical`/`inertia` were all `false` for the same reason.
+**Naming a defect shape does not prevent it; only mutation testing catches it.** Both are now
+asymmetric in both directions.
+
+Also closed: the paragraph-colour length guard was a silent out-of-bounds read rather than a throw;
+"an absent key restores the documented default" was untested for every key but two; the signed-zero
+test was vacuous because the setter early-returns before the store; the four aggregate generation
+axes were never proven independent, so aliasing two counters passed; and the legacy-Canvas scale-mode
+force was invisible because the only legacy fixture loaded into a fresh canvas whose default already
+matched.
+
+**Controller follow-up — `RectTransform` and `UIImage` bypassed their own invalidating setters.**
+Both were converted to `UIComponent` in this commit and given setters that `Invalidate(Layout)` /
+`Invalidate(Visual)`, but their `Deserialize` still assigned the fields directly — *inconsistently*,
+since the same functions already called `SetAnchorMin`/`SetPivot`/`SetTextureGuid`. Undo and prefab
+override re-deserialize into a **live** component, so an authored change through that path altered
+values without invalidating. Both now route through their setters, with four cases driven through the
+existing `CheckNarrowestBit` helper (which also pins that re-applying the same payload is *not* an
+invalidation), and each fix verified by re-applying the direct assignment and watching the case fail.
+
+---
+
+#### A BUILD HAZARD WORTH KNOWING
+
+**The incremental build silently served stale objects.** Editing
+`src/ECS/Components/RectTransform.cpp` and rebuilding `test_ui_components` reported zero errors and a
+successful link while still running the *previous* object; the change only took effect after
+`touch`ing the source. A test result taken across an edit is therefore not trustworthy on its own —
+`touch` the sources you changed, or confirm the compile line appears in the build output, before
+believing a green run.
+
+---
+
+#### CARRIED FORWARD
+
+1. **Three components emit no `schemaVersion`.** `RectTransform`, `UIImage` and `UIButton` declare no
+   `CurrentSchemaVersion` and write no key, while the other ten UI components all do. Correctly out
+   of this task's scope — Step 11b scopes to the eight new components and Step 13b explicitly asks
+   for no new `UIButton` state — but the subplan's Exit bullet "every authored UI component
+   round-trips with an explicit schema version" is **unmet** until someone owns it. **Owner: Task
+   10.1**, the next task in this subplan to touch authored UI components.
+2. **The typed deserialize boundary is not airtight for the pre-existing components.** `UILabel`,
+   `UICanvas`, `RectTransform` and `UIImage` validate `is_array()` and size but then call bare
+   `get<float>()` on elements, so a wrong-typed element throws `nlohmann::json::type_error`, which the
+   new `catch (const UIComponentSchemaError&)` guards do not catch. Pre-existing and unchanged here;
+   the new `UITextInput` reader deliberately avoids the pattern.
+3. **`build/ubsan`'s target list is stale** and does not know `test_ui_components`, so the subplan's
+   UBSan gate cannot include it without a reconfigure — which risks the known SDL_shadercross/DXC
+   flake. `build/asan` is current and the case is green there, which is the configuration the
+   `string_view` defect actually manifested in.
 
 ### Task 10.1: Define checked UI geometry and immutable semantic snapshots
 

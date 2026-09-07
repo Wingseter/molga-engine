@@ -120,6 +120,9 @@ void RectTransform::Deserialize(const nlohmann::json& j) {
     SetAnchorMin(read("anchorMin", anchorMin_));
     SetAnchorMax(read("anchorMax", anchorMax_));
     SetPivot(read("pivot", pivot_));
-    anchoredPosition_ = read("anchoredPosition", anchoredPosition_);
-    sizeDelta_ = read("sizeDelta", sizeDelta_);
+    // 세터를 거쳐야 한다. 되돌리기와 prefab override는 살아 있는 컴포넌트에
+    // 다시 Deserialize하므로, 직접 대입하면 값만 바뀌고 Layout 무효화가 일어나지
+    // 않는다. 위의 anchor/pivot은 이미 세터를 쓰고 있었다.
+    SetAnchoredPosition(read("anchoredPosition", anchoredPosition_));
+    SetSizeDelta(read("sizeDelta", sizeDelta_));
 }
