@@ -3,11 +3,17 @@
 #include "ECS/Components/UIComponent.h"
 #include "Common/Types.h"
 
+#include <cstdint>
 #include <functional>
 
 class UIButton : public UIComponent {
 public:
     COMPONENT_TYPE(UIButton)
+
+    // RectTransform과 같은 이유로 표식이 없다: 저작 모양이 바뀐 적이 없어
+    // schema 1이 레거시 문서의 모양과 같다. hover/press/click은 런타임 상태라
+    // 저작 스키마에 들어가지 않으므로 이 버전이 덮는 대상도 아니다.
+    static constexpr std::uint32_t CurrentSchemaVersion = 1;
 
     void SetOnClick(std::function<void()> callback) { onClick_ = std::move(callback); }
     bool WasClickedThisFrame() const { return clickedThisFrame_; }

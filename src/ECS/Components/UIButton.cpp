@@ -73,6 +73,7 @@ void UIButton::ApplyPointerState(bool hovered, bool pressed, bool clicked) {
 }
 
 void UIButton::Serialize(nlohmann::json& j) const {
+    j["schemaVersion"] = CurrentSchemaVersion;
     j["interactable"] = interactable_;
     j["normalColor"] = ColorJson(normalColor_);
     j["hoverColor"] = ColorJson(hoverColor_);

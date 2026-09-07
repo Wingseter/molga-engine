@@ -103,6 +103,7 @@ AABB RectTransform::GetScreenRect(const Vector2& viewportSize) const {
 }
 
 void RectTransform::Serialize(nlohmann::json& j) const {
+    j["schemaVersion"] = CurrentSchemaVersion;
     j["anchorMin"] = {anchorMin_.x, anchorMin_.y};
     j["anchorMax"] = {anchorMax_.x, anchorMax_.y};
     j["pivot"] = {pivot_.x, pivot_.y};

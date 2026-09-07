@@ -38,6 +38,7 @@ void UIImage::ResolveAssets() {
 }
 
 void UIImage::Serialize(nlohmann::json& j) const {
+    j["schemaVersion"] = CurrentSchemaVersion;
     j["textureGuid"] = textureGuid_;
     j["tint"] = {tint_.r, tint_.g, tint_.b, tint_.a};
     j["sortingOrder"] = sortingOrder_;

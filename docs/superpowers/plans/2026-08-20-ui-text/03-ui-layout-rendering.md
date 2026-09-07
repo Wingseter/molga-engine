@@ -1014,12 +1014,24 @@ believing a green run.
 
 #### CARRIED FORWARD
 
-1. **Three components emit no `schemaVersion`.** `RectTransform`, `UIImage` and `UIButton` declare no
-   `CurrentSchemaVersion` and write no key, while the other ten UI components all do. Correctly out
-   of this task's scope — Step 11b scopes to the eight new components and Step 13b explicitly asks
-   for no new `UIButton` state — but the subplan's Exit bullet "every authored UI component
-   round-trips with an explicit schema version" is **unmet** until someone owns it. **Owner: Task
-   10.1**, the next task in this subplan to touch authored UI components.
+1. ~~**Three components emit no `schemaVersion`.**~~ **CLOSED (2026-09-07).** `RectTransform`,
+   `UIImage` and `UIButton` declared no `CurrentSchemaVersion` and wrote no key, while the other ten
+   UI components all did. Correctly out of Task 9.2's scope — Step 11b scopes to the eight new
+   components and Step 13b explicitly asks for no new `UIButton` state — and correctly declined by
+   Task 10.1, whose Files list contains no authored UI component. All three now declare
+   `CurrentSchemaVersion = 1` and write the key unconditionally, matching the eight new components
+   rather than the `LoadedSchema` branch of `UILabel`/`UICanvas`: their authored shape has never
+   changed, so schema 1 *is* the legacy shape and the absent-key default already lands on the
+   current schema. A marker would instead pin every document on disk to `Legacy` forever and the key
+   would never be written. `tests/test_ui_components.cpp` adds two cases — literal expected payloads
+   for default and fully-authored state with no two scalars alike, and a legacy load proving an
+   on-disk document with the smoke fixture's exact key set and no version key still loads into both
+   a fresh and an already-authored component, gaining only the marker on save. Eight mutants: the
+   dropped key per component, the constant bumped to 2, `Deserialize` ignoring a version-less
+   document, an `anchorMin`/`anchorMax` swap, a `normalColor`/`hoverColor` swap, and the version
+   echoed from the payload instead of the constant — that last one killed by exactly one assertion.
+   The subplan's Exit bullet "every authored UI component round-trips with an explicit schema
+   version" is now **met** for all thirteen.
 2. **The typed deserialize boundary is not airtight for the pre-existing components.** `UILabel`,
    `UICanvas`, `RectTransform` and `UIImage` validate `is_array()` and size but then call bare
    `get<float>()` on elements, so a wrong-typed element throws `nlohmann::json::type_error`, which the

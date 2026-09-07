@@ -1842,6 +1842,252 @@ TEST_CASE("a legacy UILabel and TextRenderer2D payload keeps its legacy shape") 
     CHECK(savedText == expectedText);
 }
 
+// ── 남은 저작 컴포넌트 세 개의 스키마 버전 ───────────────────────────────────
+
+namespace {
+
+// 기본 UIButton 색은 이진수로 정확히 표현되지 않는 십진값이라(0.30, 0.42 …)
+// JSON 텍스트로 적으면 파싱된 double이 float를 거쳐 온 값과 달라진다. 기대값도
+// 같은 float 리터럴에서 만들어, 비교를 근사가 아니라 동일성으로 둔다.
+nlohmann::json ExpectedDefaultUIButtonJson() {
+    nlohmann::json expected = nlohmann::json::object();
+    expected["schemaVersion"] = 1u;
+    expected["interactable"] = true;
+    expected["normalColor"] = {0.25f, 0.30f, 0.42f, 1.0f};
+    expected["hoverColor"] = {0.35f, 0.42f, 0.58f, 1.0f};
+    expected["pressedColor"] = {0.17f, 0.20f, 0.30f, 1.0f};
+    expected["disabledColor"] = {0.25f, 0.25f, 0.25f, 0.55f};
+    expected["sortingOrder"] = 0;
+    return expected;
+}
+
+// RectTransform/UIImage/UIButton은 저작 모양이 한 번도 바뀐 적이 없어 schema 1이
+// 곧 레거시 문서의 모양이다. 그래서 UILabel/UICanvas가 쓰는 LoadedSchema 분기가
+// 없고, 걸 계약은 "언제나 키를 쓴다"와 "키가 없는 문서도 그대로 읽는다" 둘이다.
+//
+// CheckSchemaContract의 4)/5)(없는 키가 문서화된 기본값으로 돌아간다)는 여기서
+// 걸지 않는다. 이 셋의 Deserialize는 없는 키의 fallback을 현재 값으로 두는
+// 기존 계약이고(UILabel과 UICanvas도 같다), 그것을 바꾸는 일은 스키마 버전과
+// 다른 변경이다.
+template <typename ComponentT, typename AuthorFn>
+void CheckVersionedSchema(const char* name, AuthorFn author,
+                          const nlohmann::json& expectedDefault,
+                          const nlohmann::json& expectedAuthored) {
+    CAPTURE(name);
+    REQUIRE(expectedDefault.at("schemaVersion") == 1);
+    REQUIRE(expectedAuthored.at("schemaVersion") == 1);
+
+    ComponentT fresh;
+    nlohmann::json defaultEncoded;
+    fresh.Serialize(defaultEncoded);
+    CHECK(defaultEncoded == expectedDefault);
+
+    ComponentT authored;
+    author(authored);
+    nlohmann::json encoded;
+    authored.Serialize(encoded);
+    CHECK(encoded == expectedAuthored);
+
+    // 왕복 동등성만 보면 Serialize와 Deserialize가 같은 결함을 공유할 때
+    // 통과한다. 위 두 검사가 기대 payload를 문자 그대로 못박은 뒤에야 이
+    // 검사가 뜻을 갖는다.
+    ComponentT decoded;
+    decoded.Deserialize(expectedAuthored);
+    nlohmann::json reencoded;
+    decoded.Serialize(reencoded);
+    CHECK(reencoded == expectedAuthored);
+}
+
+// 디스크의 옛 문서에는 이 키가 없다. 새 문서를 쓰고 다시 읽기만 하는 시험은
+// 언제나 키가 있는 payload만 지나므로 이 경로를 한 번도 밟지 않는다. 두 모양을
+// 모두 건다 — 키가 없는 문서만 시험하면 새 스키마가, 키가 있는 문서만 시험하면
+// 레거시 기본값이 검사되지 않은 채 남는다.
+template <typename ComponentT>
+void CheckLegacyLoad(const char* name, const nlohmann::json& expectedDefault,
+                     const nlohmann::json& legacy) {
+    CAPTURE(name);
+    REQUIRE_FALSE(legacy.contains("schemaVersion"));
+
+    // 저장에서 달라지는 것은 표식 하나뿐이다. type/enabled는 컴포넌트가 아니라
+    // 씬 봉투가 쓰는 키라 Serialize의 출력에 들어가지 않는다.
+    nlohmann::json expected = legacy;
+    expected.erase("type");
+    expected.erase("enabled");
+    expected["schemaVersion"] = 1u;
+
+    ComponentT fresh;
+    fresh.Deserialize(legacy);
+    nlohmann::json saved;
+    fresh.Serialize(saved);
+    CHECK(saved == expected);
+
+    // 이미 저작된 컴포넌트에 옛 문서를 다시 읽히는 것이 실행 취소와 prefab
+    // override의 경로다. 갓 만든 인스턴스만 쓰면 "문서의 값이 적용됐다"와
+    // "기본값이 우연히 같다"를 가르지 못한다.
+    ComponentT reused;
+    reused.Deserialize(expectedDefault);
+    reused.Deserialize(legacy);
+    nlohmann::json reusedSaved;
+    reused.Serialize(reusedSaved);
+    CHECK(reusedSaved == expected);
+
+    // 키를 명시한 같은 문서도 정확히 같은 결과여야 한다.
+    nlohmann::json versioned = legacy;
+    versioned["schemaVersion"] = 1u;
+    ComponentT reloaded;
+    reloaded.Deserialize(versioned);
+    nlohmann::json reloadedSaved;
+    reloaded.Serialize(reloadedSaved);
+    CHECK(reloadedSaved == expected);
+
+    // 버전은 payload에서 되받아 적는 값이 아니라 컴포넌트가 아는 상수다.
+    // 되받아 적는 구현은 위 세 검사를 모두 통과한다.
+    nlohmann::json foreign = legacy;
+    foreign["schemaVersion"] = 99u;
+    ComponentT echoed;
+    echoed.Deserialize(foreign);
+    nlohmann::json echoedSaved;
+    echoed.Serialize(echoedSaved);
+    CHECK(echoedSaved == expected);
+}
+
+// 스칼라가 하나도 겹치지 않는다. 필드 한 쌍이나 축 한 쌍이 통째로 뒤바뀌어도
+// 값이 달라 반드시 걸린다 — Task 9.2에서 readOnly/multiline이 모든 fixture에서
+// 같은 값이라 서로 바꿔치기해도 아무 시험이 밟지 않았던 그 구멍이다.
+const char* const kAuthoredRectTransform =
+    R"({"schemaVersion":1,"anchorMin":[0.0625,0.125],
+        "anchorMax":[0.1875,0.25],"pivot":[0.3125,0.375],
+        "anchoredPosition":[12.0,-34.0],"sizeDelta":[56.0,78.0]})";
+
+const char* const kAuthoredUIImage =
+    R"({"schemaVersion":1,"textureGuid":"texture-a",
+        "tint":[0.0625,0.125,0.1875,0.25],"sortingOrder":7})";
+
+const char* const kAuthoredUIButton =
+    R"({"schemaVersion":1,"interactable":false,
+        "normalColor":[0.0625,0.125,0.1875,0.25],
+        "hoverColor":[0.3125,0.375,0.4375,0.5],
+        "pressedColor":[0.5625,0.625,0.6875,0.75],
+        "disabledColor":[0.8125,0.875,0.9375,1.0],
+        "sortingOrder":9})";
+
+} // namespace
+
+TEST_CASE("the remaining authored UI components save an explicit schema version") {
+    CheckVersionedSchema<RectTransform>(
+        "RectTransform",
+        [](RectTransform& rect) {
+            rect.SetAnchorMin({0.0625f, 0.125f});
+            rect.SetAnchorMax({0.1875f, 0.25f});
+            rect.SetPivot({0.3125f, 0.375f});
+            rect.SetAnchoredPosition({12.0f, -34.0f});
+            rect.SetSizeDelta({56.0f, 78.0f});
+        },
+        ParseJson(R"({"schemaVersion":1,"anchorMin":[0.5,0.5],
+                      "anchorMax":[0.5,0.5],"pivot":[0.5,0.5],
+                      "anchoredPosition":[0.0,0.0],
+                      "sizeDelta":[100.0,100.0]})"),
+        ParseJson(kAuthoredRectTransform));
+
+    CheckVersionedSchema<UIImage>(
+        "UIImage",
+        [](UIImage& image) {
+            image.SetTextureGuid("texture-a");
+            image.SetTint(Color{0.0625f, 0.125f, 0.1875f, 0.25f});
+            image.SetSortingOrder(7);
+        },
+        ParseJson(R"({"schemaVersion":1,"textureGuid":"",
+                      "tint":[1.0,1.0,1.0,1.0],"sortingOrder":0})"),
+        ParseJson(kAuthoredUIImage));
+
+    CheckVersionedSchema<UIButton>(
+        "UIButton",
+        [](UIButton& button) {
+            button.SetInteractable(false);
+            button.SetNormalColor(Color{0.0625f, 0.125f, 0.1875f, 0.25f});
+            button.SetHoverColor(Color{0.3125f, 0.375f, 0.4375f, 0.5f});
+            button.SetPressedColor(Color{0.5625f, 0.625f, 0.6875f, 0.75f});
+            button.SetDisabledColor(Color{0.8125f, 0.875f, 0.9375f, 1.0f});
+            button.SetSortingOrder(9);
+        },
+        ExpectedDefaultUIButtonJson(), ParseJson(kAuthoredUIButton));
+}
+
+TEST_CASE("a UI document written before the schema version still loads") {
+    // 키 집합은 tests/smoke/create_fixture.cmake가 디스크에 쓰는 문서 그대로다.
+    // 값만 이진수로 정확한 것으로 골라, 저장 결과를 근사가 아니라 문자 그대로
+    // 맞댈 수 있게 했다.
+    CheckLegacyLoad<RectTransform>(
+        "RectTransform",
+        ParseJson(R"({"schemaVersion":1,"anchorMin":[0.5,0.5],
+                      "anchorMax":[0.5,0.5],"pivot":[0.5,0.5],
+                      "anchoredPosition":[0.0,0.0],
+                      "sizeDelta":[100.0,100.0]})"),
+        ParseJson(R"({"type":"RectTransform","enabled":true,
+                      "anchorMin":[0.0625,0.125],"anchorMax":[0.1875,0.25],
+                      "pivot":[0.3125,0.375],"anchoredPosition":[12.0,-34.0],
+                      "sizeDelta":[56.0,78.0]})"));
+
+    CheckLegacyLoad<UIImage>(
+        "UIImage",
+        ParseJson(R"({"schemaVersion":1,"textureGuid":"",
+                      "tint":[1.0,1.0,1.0,1.0],"sortingOrder":0})"),
+        ParseJson(R"({"type":"UIImage","enabled":true,
+                      "textureGuid":"11111111111111111111111111111111",
+                      "tint":[0.0625,0.125,0.1875,0.25],"sortingOrder":7})"));
+
+    CheckLegacyLoad<UIButton>(
+        "UIButton", ExpectedDefaultUIButtonJson(),
+        ParseJson(R"({"type":"UIButton","enabled":true,"interactable":false,
+                      "normalColor":[0.0625,0.125,0.1875,0.25],
+                      "hoverColor":[0.3125,0.375,0.4375,0.5],
+                      "pressedColor":[0.5625,0.625,0.6875,0.75],
+                      "disabledColor":[0.8125,0.875,0.9375,1.0],
+                      "sortingOrder":9})"));
+
+    // 위 표는 저장 payload로만 판정한다. 그 payload를 만드는 Serialize가
+    // 통째로 잘못돼도 세 검사가 함께 틀어지면 통과할 수 있으므로, 옛 문서가
+    // 실제로 컴포넌트 상태가 되었는지는 접근자로도 한 번 확인한다.
+    RectTransform rect;
+    rect.Deserialize(ParseJson(
+        R"({"type":"RectTransform","enabled":true,
+            "anchorMin":[0.0625,0.125],"anchorMax":[0.1875,0.25],
+            "pivot":[0.3125,0.375],"anchoredPosition":[12.0,-34.0],
+            "sizeDelta":[56.0,78.0]})"));
+    CHECK(rect.GetAnchorMin() == Vector2(0.0625f, 0.125f));
+    CHECK(rect.GetAnchorMax() == Vector2(0.1875f, 0.25f));
+    CHECK(rect.GetPivot() == Vector2(0.3125f, 0.375f));
+    CHECK(rect.GetAnchoredPosition() == Vector2(12.0f, -34.0f));
+    CHECK(rect.GetSizeDelta() == Vector2(56.0f, 78.0f));
+
+    UIImage image;
+    image.Deserialize(ParseJson(
+        R"({"type":"UIImage","enabled":true,
+            "textureGuid":"11111111111111111111111111111111",
+            "tint":[0.0625,0.125,0.1875,0.25],"sortingOrder":7})"));
+    CHECK(image.GetTextureGuid() == "11111111111111111111111111111111");
+    CHECK(image.GetTint() == Color{0.0625f, 0.125f, 0.1875f, 0.25f});
+    CHECK(image.GetSortingOrder() == 7);
+
+    UIButton button;
+    button.Deserialize(ParseJson(
+        R"({"type":"UIButton","enabled":true,"interactable":false,
+            "normalColor":[0.0625,0.125,0.1875,0.25],
+            "hoverColor":[0.3125,0.375,0.4375,0.5],
+            "pressedColor":[0.5625,0.625,0.6875,0.75],
+            "disabledColor":[0.8125,0.875,0.9375,1.0],
+            "sortingOrder":9})"));
+    CHECK_FALSE(button.IsInteractable());
+    CHECK(button.GetNormalColor() == Color{0.0625f, 0.125f, 0.1875f, 0.25f});
+    CHECK(button.GetHoverColor() == Color{0.3125f, 0.375f, 0.4375f, 0.5f});
+    CHECK(button.GetPressedColor() == Color{0.5625f, 0.625f, 0.6875f, 0.75f});
+    CHECK(button.GetDisabledColor() == Color{0.8125f, 0.875f, 0.9375f, 1.0f});
+    CHECK(button.GetSortingOrder() == 9);
+    // 상호작용 불가 버튼은 비활성 색을 쓴다. 네 색이 서로 다른 값이므로 이
+    // 검사는 색 한 쌍이 뒤바뀐 구현을 걸러 낸다.
+    CHECK(button.CurrentColor() == Color{0.8125f, 0.875f, 0.9375f, 1.0f});
+}
+
 // ── 정규 토큰 표 전체 ────────────────────────────────────────────────────────
 
 namespace {
