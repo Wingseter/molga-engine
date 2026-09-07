@@ -84,6 +84,17 @@ This subplan is complete only when the focused tests, `editor_smoke`, and full D
 
 ### Task 15.1: Add typed scene references and read-only editor descriptor metadata
 
+**Inherited obligations (recorded by earlier tasks; this task owns closing them):**
+
+- **`overflow_error` at the scene-load boundary.** `World::LoadFromFile` has no diagnostic sink, so
+  a checked-geometry exhaustion propagates out into engine code that previously could not throw.
+  Task 10.2 verified this is a *reporting* gap, not corruption — the throw leaves destination and
+  container unchanged and never publishes zero — and left it because every candidate boundary file
+  was outside its Files list. This task introduces typed scene references and has editor
+  diagnostics available, so it is the first task that can report it.
+  Source: `03-ui-layout-rendering.md:563-573`.
+
+
 **Files:**
 
 - Modify: `src/Editor/Properties/EditorPropertyDescriptor.h`
@@ -1385,6 +1396,24 @@ byte-exactly undoable like every other migration this task owns. Add a step that
 ---
 
 ### Task 15.4: Make legacy UI/text migration explicit and byte-exactly undoable
+
+**Inherited obligations (recorded by earlier tasks; this task owns closing them):**
+
+- **A snapshot missing a key does not undo that field.** `RectTransform`, `UIImage`, `UIButton`,
+  `UILabel` and `UICanvas` use the *current member value* as their `Deserialize` fallback instead of
+  the documented default, so restoring a snapshot that omits a key leaves the field at its post-edit
+  value. This is exactly what `CheckSchemaContract` points 4 and 5 exist to catch, which is why
+  those components could not join that table. It affects undo **today**, not only migration, and
+  changing it is a semantic change to undo/prefab-override behaviour rather than a schema version.
+  Source: `03-ui-layout-rendering.md:1288-1298`.
+- **An unauthored font `.meta` imports as a silent success and ships.** A `.meta` without authored
+  v2 settings publishes no verified artifact, so no face binds through either resolver entry point
+  and a user who drops a `.ttf` gets tofu unless the editor's font inspector authors settings.
+  Milestones 5-8 stay closed only because `FontAsset::FromRecord` refuses the record. Closing the
+  branch is itself a legacy migration, which is why it lands here.
+  Sources: `02-font-shaping-layout.md:520-524` and `:4248-4254`, plus the record at
+  `05-editor-authoring-migration.md:1376-1397`.
+
 
 **Files:**
 

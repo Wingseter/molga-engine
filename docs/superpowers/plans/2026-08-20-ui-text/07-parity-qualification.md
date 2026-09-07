@@ -2190,6 +2190,16 @@ Milestone A may be marked implemented/qualified only after every automated suite
 
 ### Task 18.4: Add GPU golden and reproducible macOS qualification scripts
 
+**Inherited obligations (recorded by earlier tasks; this task owns closing them):**
+
+- **Settle hhea-versus-em rasterization scaling BEFORE baking any GPU golden.** `RasterizeGlyph`
+  scales by hhea `ascent - descent` while layout advances scale by `unitsPerEm`. For Noto Sans KR
+  (hhea span 1.448 em) a nominally 40 px glyph rasterizes at ~27.6 px while being advanced 40 px,
+  so glyphs render visibly small for their spacing. This is Task 6.1's contract and no step asked to
+  change it, but baking goldens first freezes the defect into the reference images.
+  Source: `02-font-shaping-layout.md:4258-4262`.
+
+
 **Files:**
 
 - Create: `tests/fixtures/text/expected/gpu-command-stream.json`

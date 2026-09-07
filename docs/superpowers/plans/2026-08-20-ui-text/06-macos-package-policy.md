@@ -493,6 +493,17 @@ This subplan exits only after Debug correctness/package tests and copied-app smo
 
 ### Task 16.2: Define the portable text manifest and canonical app tree
 
+**Inherited obligations (recorded by earlier tasks; this task owns closing them):**
+
+- **Replace the interim flat development root with `Contents/Resources` staging**, and stage the
+  full packaged-font/ICU/licence closure on the same copied tree.
+  Sources: `01-dependencies-unicode.md:1491`, `:2342`, and `06-macos-package-policy.md:144`, `:409`.
+- **`PackageLayout::Validate` must learn `Engine/Text`**, retiring the legacy adapter that
+  `06-macos-package-policy.md:144` marks as consumed only until this task, and the duplicated
+  startup seam (~100 lines around `ParseTextTestReturnAfterServices`) must collapse to one.
+  Source: `01-dependencies-unicode.md:1507`.
+
+
 **Files:**
 
 - Create: `resources/Info.plist.in`
@@ -2638,6 +2649,15 @@ This subplan exits only after Debug correctness/package tests and copied-app smo
 
 ### Task 17.3: Materialize the complete font and notice closure
 
+**Inherited obligations (recorded by earlier tasks; this task owns closing them):**
+
+- **Supersede `GameBuilder`'s interim font-artifact copy.** It currently copies exactly the
+  artifacts of the records it catalogues and fails the build when one is missing, completing the
+  arrangement `runtime_main.cpp` documents. This task's sealed-manifest store replaces it; the
+  interim copy must not survive alongside it.
+  Source: `02-font-shaping-layout.md:4255-4257`.
+
+
 **Files:**
 
 - Create: `src/Text/TextNoticeGenerator.h`
@@ -3162,6 +3182,18 @@ This subplan exits only after Debug correctness/package tests and copied-app smo
   ```
 
 ### Task 17.4: Seal catalog, coverage, runtime manifest, and game config hashes
+
+**Inherited obligations (recorded by earlier tasks; this task owns closing them):**
+
+- **`contentRevision` is a directory-enumeration ordinal.** `AssetDatabase.cpp` assigns it from
+  `recursive_directory_iterator` order. Task 4.1 fixed the worse half (a process counter that never
+  reset, so an unchanged project emitted a different catalog every build), but the value still
+  depends on filesystem enumeration order, and it is serialised into `asset_catalog.json` — which
+  this task seals by hash and Task 18.2 proves byte-identical. Nothing requires it to be monotonic:
+  identity is carried by `artifactSha256`. **Either make the value content-derived or drop it from
+  the sealed catalog before sealing a hash over an enumeration-order artefact.**
+  Sources: `02-font-shaping-layout.md:845-856` and `:498-508`.
+
 
 **Files:**
 
