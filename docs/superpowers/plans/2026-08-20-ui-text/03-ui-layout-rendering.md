@@ -161,11 +161,11 @@ This subplan is complete only when all of the following are true:
 - Consumes: `World::FindById`, `GameObject::GetID`, `Component::{GetRuntimeTypeID,GetInstanceID}`, and existing scripting `ObjectRef` serialization.
 - Produces: `SceneObjectRef`, source-compatible `using ObjectRef = SceneObjectRef`, checked process-global world/component instance allocators, `World::Generation()`, `molga::ui::UIRuntimeTargetIdentity`, `CaptureTarget`, and both `ResolveTarget` overloads.
 
-- [ ] **Step 1a: Register the identity test target.**
+- [x] **Step 1a: Register the identity test target.**
 
   Add `molga_add_test(test_ui_identity test_ui_identity.cpp)` to `tests/CMakeLists.txt` and add `src/UI/UIRuntimeIdentity.cpp` to `ENGINE_SOURCES`.
 
-- [ ] **Step 1b: Write the failing `SceneObjectRef` compatibility test.**
+- [x] **Step 1b: Write the failing `SceneObjectRef` compatibility test.**
 
   Create `tests/test_ui_identity.cpp` with:
 
@@ -194,7 +194,7 @@ This subplan is complete only when all of the following are true:
 
   ```
 
-- [ ] **Step 1c: Write the failing component-replacement identity test.**
+- [x] **Step 1c: Write the failing component-replacement identity test.**
 
   ```cpp
   TEST_CASE("component replacement never inherits a captured identity") {
@@ -210,7 +210,7 @@ This subplan is complete only when all of the following are true:
 
   ```
 
-- [ ] **Step 1d: Write the failing process-global generation test.**
+- [x] **Step 1d: Write the failing process-global generation test.**
 
   ```cpp
   TEST_CASE("world generations are process-global and replacement-safe") {
@@ -225,7 +225,7 @@ This subplan is complete only when all of the following are true:
   }
   ```
 
-- [ ] **Step 1e: Write the failing `SceneObjectRef::Resolve` link/parity test.**
+- [x] **Step 1e: Write the failing `SceneObjectRef::Resolve` link/parity test.**
 
   ```cpp
   TEST_CASE("SceneObjectRef mutable and const Resolve link and agree") {
@@ -244,7 +244,7 @@ This subplan is complete only when all of the following are true:
 
   This test must link `src/ECS/SceneObjectRef.cpp`; an inline-only declaration or a missing const definition fails the target link.
 
-- [ ] **Step 1f: Write the failing component-instance exhaustion publication test.**
+- [x] **Step 1f: Write the failing component-instance exhaustion publication test.**
 
   ```cpp
   TEST_CASE("component instance allocation never wraps or publishes zero") {
@@ -260,7 +260,7 @@ This subplan is complete only when all of the following are true:
 
   Add copy- and move-construction rows. Each throws before publishing a destination component, leaves the source unchanged, and observes neither zero nor a reused ID.
 
-- [ ] **Step 2: Configure and run the red identity gate.**
+- [x] **Step 2: Configure and run the red identity gate.**
 
   ```bash
   cmake --preset debug
@@ -269,7 +269,7 @@ This subplan is complete only when all of the following are true:
 
   Expected: compilation fails because `SceneObjectRef`, `World::Generation`, and runtime target helpers do not exist.
 
-- [ ] **Step 3a: Add the one-storage `SceneObjectRef` declaration.**
+- [x] **Step 3a: Add the one-storage `SceneObjectRef` declaration.**
 
   Create `src/ECS/SceneObjectRef.h` with this public shape and move the old scripting definition behind the alias:
 
@@ -305,11 +305,11 @@ This subplan is complete only when all of the following are true:
 
   Do not create an `objectId` data member.
 
-- [ ] **Step 3b: Alias scripting `ObjectRef` and preserve its serializer.**
+- [x] **Step 3b: Alias scripting `ObjectRef` and preserve its serializer.**
 
   Include `ECS/SceneObjectRef.h` from `ScriptField.h`, remove the old duplicate struct, and keep `Script.cpp` reading/writing the JSON key `targetId` byte-for-byte.
 
-- [ ] **Step 3c: Define both `SceneObjectRef::Resolve` overloads in one named translation unit.**
+- [x] **Step 3c: Define both `SceneObjectRef::Resolve` overloads in one named translation unit.**
 
   Create `src/ECS/SceneObjectRef.cpp` and implement without `const_cast`:
 
@@ -326,7 +326,7 @@ This subplan is complete only when all of the following are true:
 
   Register this exact `.cpp` in `ENGINE_SOURCES`; do not move either definition back into the header after the link test passes.
 
-- [ ] **Step 4: Add a non-wrapping process-global world generation allocator.**
+- [x] **Step 4: Add a non-wrapping process-global world generation allocator.**
 
   Use one translation-unit atomic and acquire a fresh generation after construction, `Clear`, a successful `LoadFromFile`, and every move construction/assignment that replaces scene content:
 
@@ -355,15 +355,15 @@ This subplan is complete only when all of the following are true:
 
   The compare/exchange loop checks exhaustion before incrementing, so the atomic never wraps to zero. `World` stores `generation_`, exposes `std::uint64_t Generation() const noexcept`, and catches acquisition failure only at an engine boundary that can report a blocker `TextDiagnosticCode::ReferenceInvalid`; it must never publish generation zero or reuse an old generation.
 
-- [ ] **Step 5a: Remove `noexcept` from world move operations.**
+- [x] **Step 5a: Remove `noexcept` from world move operations.**
 
   Change both declarations and definitions to `World(World&&)` and `World& operator=(World&&)`. Add a compile assertion that `std::is_nothrow_move_constructible_v<World>` is false.
 
-- [ ] **Step 5b: Acquire generations before construction/clear/load publication.**
+- [x] **Step 5b: Acquire generations before construction/clear/load publication.**
 
   Construction stores one acquired value. `Clear` acquires first, publishes it before shutdown callbacks, then clears content. `LoadFromFile` loads into a temporary object vector, acquires a generation only after parse success, swaps the vector, then publishes that generation; a failed load preserves both content and generation.
 
-- [ ] **Step 5c: Acquire both move-operation generations before mutation.**
+- [x] **Step 5c: Acquire both move-operation generations before mutation.**
 
   Move construction and move assignment acquire a destination generation and a moved-from generation before transferring content. If either acquisition throws, neither `World` changes. After transfer, publish both values so the moved-from object can be reused without validating old identities.
 
@@ -386,7 +386,7 @@ This subplan is complete only when all of the following are true:
 
   Engine construction/scene-load boundaries catch `std::overflow_error`, emit blocker `ReferenceInvalid`, and abort the attempted replacement. The allocator test hook is test-only and restored after each case.
 
-- [ ] **Step 6a: Add the full runtime identity value type.**
+- [x] **Step 6a: Add the full runtime identity value type.**
 
   Define the runtime identity exactly:
 
@@ -417,7 +417,7 @@ This subplan is complete only when all of the following are true:
   } // namespace molga::ui
   ```
 
-- [ ] **Step 6b: Implement `CaptureTarget`.**
+- [x] **Step 6b: Implement `CaptureTarget`.**
 
   ```cpp
   UIRuntimeTargetIdentity CaptureTarget(const World& world,
@@ -426,7 +426,7 @@ This subplan is complete only when all of the following are true:
 
   Return an empty identity unless the component has an owner, the owner belongs to `world`, and generation/object/instance values are nonzero. Otherwise copy the four exact fields.
 
-- [ ] **Step 6c: Implement mutable `ResolveTarget`.**
+- [x] **Step 6c: Implement mutable `ResolveTarget`.**
 
   ```cpp
   Component* ResolveTarget(World&, const UIRuntimeTargetIdentity&) noexcept;
@@ -434,7 +434,7 @@ This subplan is complete only when all of the following are true:
 
   Check all four fields in order and return no pointer until the final instance-ID check succeeds.
 
-- [ ] **Step 6d: Implement const `ResolveTarget`.**
+- [x] **Step 6d: Implement const `ResolveTarget`.**
 
   ```cpp
   const Component* ResolveTarget(const World&,
@@ -443,19 +443,19 @@ This subplan is complete only when all of the following are true:
 
   Share the same four-field predicate without `const_cast`; add parity assertions for every mutable success/failure row.
 
-- [ ] **Step 7a: Add move and successful-load invalidation cases.**
+- [x] **Step 7a: Add move and successful-load invalidation cases.**
 
   Capture a button, move-assign a replacement world, and successfully load a scene into the same `World`; assert every old identity resolves to `nullptr`.
 
-- [ ] **Step 7b: Add cross-world object-ID reuse rejection.**
+- [x] **Step 7b: Add cross-world object-ID reuse rejection.**
 
   Create the same stable object ID and component type in two independently constructed worlds; assert the first identity never resolves in the second.
 
-- [ ] **Step 7c: Add non-wrapping exhaustion coverage.**
+- [x] **Step 7c: Add non-wrapping exhaustion coverage.**
 
   Use a scoped test-only allocator hook to set `gNextWorldGeneration` to `UINT64_MAX`; assert acquisition throws, the atomic remains `UINT64_MAX`, and no zero generation is observable. Restore the prior value at scope exit.
 
-- [ ] **Step 7d: Replace the existing component `fetch_add` allocator.**
+- [x] **Step 7d: Replace the existing component `fetch_add` allocator.**
 
   In `src/ECS/Component.cpp`, replace `gNextComponentInstanceId.fetch_add` with the same checked CAS shape used for world generations:
 
@@ -479,11 +479,11 @@ This subplan is complete only when all of the following are true:
 
   Default/copy/move construction acquires before modifying either object or publishing into `GameObject::componentMap`. Remove `noexcept` from `Component(Component&&)` in declaration and definition because allocation may fail; assignment preserves the destination instance ID and remains non-allocating. Scene/prefab/component-factory boundaries catch exhaustion, emit blocker `ReferenceInvalid`, and abort the complete component/object publication rather than inserting a null/zero identity.
 
-- [ ] **Step 7e: Add explicit C++17 equality coverage for identity values.**
+- [x] **Step 7e: Add explicit C++17 equality coverage for identity values.**
 
   Add compile/runtime assertions for both `==` and `!=` on `SceneObjectRef` and `UIRuntimeTargetIdentity`, including one-field differences. Do not rely on C++20 defaulted comparison; Task 10.1 and Task 11.1 add the fixed/pixel/stable value types, and subplan 04 adds owner/token values when those types are introduced.
 
-- [ ] **Step 8: Run identity, scripting, world, serializer, and prefab gates.**
+- [x] **Step 8: Run identity, scripting, world, serializer, and prefab gates.**
 
   ```bash
   cmake --build --preset debug --target test_ui_identity test_script_field_snapshot \
@@ -493,7 +493,7 @@ This subplan is complete only when all of the following are true:
 
   Expected: all selected tests pass; existing `ObjectRef.targetId` snapshots remain unchanged.
 
-- [ ] **Step 9: Commit the identity boundary.**
+- [x] **Step 9: Commit the identity boundary.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/ECS/SceneObjectRef.* \
@@ -502,6 +502,74 @@ This subplan is complete only when all of the following are true:
     src/Scripting/Script.cpp tests/test_ui_identity.cpp
   git commit -m "feat: add stable UI runtime identities"
   ```
+
+**Implementation record (2026-09-07).** Commit `48c6f5b`. Audit passed after **seven blocking** and
+nine important findings were fixed, each re-run as its own mutant and confirmed killed.
+
+Blocking findings, all in the identity semantics this task exists to establish: a move-constructed
+`World` inherited the source generation, so old identities silently survived; move *assignment*
+could publish the same generation to both worlds; component copy and move **assignment** could steal
+the destination's instance id; the move constructor's `other.gameObject = nullptr` had no success
+witness; `TransferOwnedStateFrom`'s owner and scheduler rebinding was unasserted; and a successful
+`LoadFromFile` could skip the `SetWorld` rebinding of loaded objects.
+
+`World::Clear` publishing the new generation **after** shutdown callbacks was uncaught even though
+the code comment claims an `OnDestroy` handler observes a dead world. Step 1d's case held no objects,
+so `Shutdown()` invoked no callback and the published value was identical either way — the reviewer
+proved the production ordering correct with a scratch probe, and the assertion is now committed with
+a `destroyCalls == 1` witness so "the callback never ran" cannot pass.
+
+Two `ResolveTarget` improvements beyond the findings: a new `GameObject::FindComponentByTypeId`
+removes a full component-vector copy per resolve, and the `catch (...)` it existed to justify is
+deleted — verified equivalent because every `GetRuntimeTypeID()` returns `ComponentTypeID::Get<Self>`,
+exactly the key both `AddComponent<T>` and `AddComponentRaw` use.
+
+An approved deviation: `tests/test_world_lifecycle.cpp` is outside the Files list but Step 5c's
+verbatim block replaces a silent `return *this` with a throw, so the existing case threw out of
+`World::Update`. Every original state assertion is kept and each row now additionally requires the
+throw — strictly stronger. One assertion was dropped as structurally unobservable, and a two-sided
+success witness was added, which the case previously lacked entirely.
+
+---
+
+#### BLOCKING PRECONDITION FOR TASK 10.2 AND THE MILESTONE 11 SNAPSHOT CACHE
+
+**The editor replaces a whole scene without advancing `World::Generation()`.** `Editor::OpenScene()`
+and `Editor::NewScene()` reach `SceneSerializer::LoadScene` through the **non-const**
+`World::Objects()` reference installed at `main.cpp:378`, bypassing both `World::LoadFromFile` and
+`World::Clear`. So the Global Constraint that "construction, `Clear`, successful scene load, and
+move-based replacement invalidate earlier identities" **does not hold in the running editor**. Every
+`.Objects()` call site was checked; `main.cpp:378/400/410/488/613` are the only non-read uses, so the
+exposure is exactly those two editor commands.
+
+Nothing breaks **today**, because component instance ids are process-monotonic and never reused, so a
+stale identity still fails closed on the fourth field. But this subplan goes on to specify a
+"collision-checked, bounded 256-entry LRU per world" geometry cache and a snapshot cache that
+"retains only the latest entry per world/device pair". Keyed on `Generation()` — the only per-world
+identity this task produces — **those caches will serve the previous scene's entries after the user
+picks Open Scene.** Fix it before either cache lands; the root cause is the non-const `Objects()`
+escape hatch, and the boundary files are outside Task 9.1's Files list.
+
+---
+
+#### ACCEPTED DEVIATION: no engine boundary catches `std::overflow_error`
+
+Steps 5c and 7d mandate that engine construction, scene-load, prefab and component-factory
+boundaries catch identity exhaustion and emit a blocker `TextDiagnosticCode::ReferenceInvalid`.
+Verified absent: `grep` finds **zero** catch sites in the whole tree, and `ReferenceInvalid` appears
+only in `TextRenderer.cpp` and the enum tables.
+
+Accepted, because: the **negative** half is implemented and tested — `World` and `Component` never
+swallow exhaustion, never publish zero, never reuse, and leave the destination and container
+unchanged on throw — so this is a reporting gap, not a corruption risk; `uint64` exhaustion is
+unreachable in practice; every candidate boundary file is outside both the Files list and the
+`git add` list; and `World::LoadFromFile` has no diagnostic sink to report into. Note Step 4's
+wording is arguably a *prohibition* ("catches … only at an engine boundary"), which `World` satisfies
+by never catching.
+
+**Owner: Task 15.1**, which introduces typed scene references and has editor diagnostics available.
+The residual risk until then is an exception propagating out of `World::LoadFromFile` into engine
+code that previously could not throw.
 
 ### Task 9.2: Add versioned authored UI component schemas
 
