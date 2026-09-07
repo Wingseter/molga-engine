@@ -639,6 +639,12 @@ target_include_directories(test_storage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 # target rather than a session-backed one.
 molga_add_test(test_ui_identity test_ui_identity.cpp)
 
+# Task 9.2: authored UI component schemas are plain value/JSON contracts. No
+# ICU or HarfBuzz object is constructed here, so this stays a molga_add_test
+# target rather than a session-backed one.
+molga_add_test(test_ui_components test_ui_components.cpp)
+target_compile_definitions(test_ui_components PRIVATE MOLGA_UI_COMPONENT_TESTING)
+
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -127,6 +127,7 @@ set(ENGINE_SOURCES
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
     src/UI/UIRuntimeIdentity.cpp
+    src/UI/UIRuntimeInvalidation.cpp
     src/UI/UISystem.cpp
     src/Systems/Audio.cpp
     src/Core/Scene.cpp
@@ -145,6 +146,14 @@ set(ENGINE_SOURCES
     src/ECS/Components/UIImage.cpp
     src/ECS/Components/UILabel.cpp
     src/ECS/Components/UIButton.cpp
+    src/ECS/Components/UILayoutElement.cpp
+    src/ECS/Components/UILayoutGroup.cpp
+    src/ECS/Components/UIContentSizeFitter.cpp
+    src/ECS/Components/UIMask.cpp
+    src/ECS/Components/UIScrollView.cpp
+    src/ECS/Components/UISelectable.cpp
+    src/ECS/Components/UITextInput.cpp
+    src/ECS/Components/UIAccessibility.cpp
     src/ECS/Components/ParticleSystem.cpp
     src/ECS/Components/BoxCollider2D.cpp
     src/ECS/Components/CircleCollider2D.cpp

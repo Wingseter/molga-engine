@@ -1,11 +1,11 @@
 #pragma once
 
-#include "ECS/Component.h"
+#include "ECS/Components/UIComponent.h"
 #include "Common/Types.h"
 
 #include <functional>
 
-class UIButton : public Component {
+class UIButton : public UIComponent {
 public:
     COMPONENT_TYPE(UIButton)
 
@@ -14,21 +14,18 @@ public:
     bool IsHovered() const { return hovered_; }
     bool IsPressed() const { return pressed_; }
     bool IsInteractable() const { return interactable_; }
-    void SetInteractable(bool value) {
-        interactable_ = value;
-        if (!interactable_) ClearPointerState();
-    }
+    void SetInteractable(bool value);
 
     const Color& GetNormalColor() const { return normalColor_; }
     const Color& GetHoverColor() const { return hoverColor_; }
     const Color& GetPressedColor() const { return pressedColor_; }
     const Color& GetDisabledColor() const { return disabledColor_; }
-    void SetNormalColor(const Color& value) { normalColor_ = value; }
-    void SetHoverColor(const Color& value) { hoverColor_ = value; }
-    void SetPressedColor(const Color& value) { pressedColor_ = value; }
-    void SetDisabledColor(const Color& value) { disabledColor_ = value; }
+    void SetNormalColor(const Color& value);
+    void SetHoverColor(const Color& value);
+    void SetPressedColor(const Color& value);
+    void SetDisabledColor(const Color& value);
     int GetSortingOrder() const { return sortingOrder_; }
-    void SetSortingOrder(int value) { sortingOrder_ = value; }
+    void SetSortingOrder(int value);
     Color CurrentColor() const;
 
     // Called only by UISystem after topmost/capture arbitration.

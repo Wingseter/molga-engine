@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ECS/Component.h"
+#include "ECS/Components/UIComponent.h"
 #include "Common/Types.h"
 #include "Text/TextLayoutTypes.h"
 #include "Text/UnicodeAnalysis.h"
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-class UILabel : public Component {
+class UILabel : public UIComponent {
 public:
     COMPONENT_TYPE(UILabel)
 
@@ -25,38 +25,46 @@ public:
         bool implicitOneFace = false;
     };
 
+    static constexpr std::uint32_t CurrentSchemaVersion = 2;
+
     const std::string& GetText() const { return text_; }
-    void SetText(std::string value) { text_ = std::move(value); }
+    void SetText(std::string value);
     const std::string& GetFontGuid() const { return fontGuid_; }
-    void SetFontGuid(std::string value) { fontGuid_ = std::move(value); }
+    void SetFontGuid(std::string value);
     const std::string& GetFontFamilyGuid() const { return fontFamilyGuid_; }
     void SetFontFamilyGuid(std::string value);
     FontFamilyView ResolveFontFamilyView() const;
     // 이 컴포넌트가 schema 1(폰트를 fontGuid로 지목하던 형식)에서 읽혔는가.
     // 런타임 전용 표식이라 직렬화되지 않으며, 저장 모양만 결정한다.
     bool LoadedLegacyFontGuid() const { return loadedLegacyFontGuid_; }
+    // 같은 표식을 공용 이름으로도 노출한다. 저작 스키마를 다루는 쪽이
+    // 컴포넌트마다 다른 이름을 외우지 않아도 되게 한다.
+    LoadedSchema GetLoadedSchema() const {
+        return loadedLegacyFontGuid_ ? LoadedSchema::Legacy
+                                     : LoadedSchema::Current;
+    }
     float GetFontSizePx() const { return fontSizePx_; }
     void SetFontSizePx(float value);
     float GetLineSpacing() const { return lineSpacing_; }
     void SetLineSpacing(float value);
     const Color& GetColor() const { return color_; }
-    void SetColor(const Color& value) { color_ = value; }
+    void SetColor(const Color& value);
     const std::string& GetLocale() const { return locale_; }
     void SetLocale(std::string value);
     molga::text::BaseDirection GetBaseDirection() const { return baseDirection_; }
-    void SetBaseDirection(molga::text::BaseDirection value) { baseDirection_ = value; }
+    void SetBaseDirection(molga::text::BaseDirection value);
     molga::text::TextWrapMode GetWrapMode() const { return wrap_; }
-    void SetWrapMode(molga::text::TextWrapMode value) { wrap_ = value; }
+    void SetWrapMode(molga::text::TextWrapMode value);
     molga::text::TextOverflowMode GetOverflowMode() const { return overflow_; }
-    void SetOverflowMode(molga::text::TextOverflowMode value) { overflow_ = value; }
+    void SetOverflowMode(molga::text::TextOverflowMode value);
     std::uint32_t GetMaxLines() const { return maxLines_; }
-    void SetMaxLines(std::uint32_t value) { maxLines_ = value; }
+    void SetMaxLines(std::uint32_t value);
     HorizontalAlignment GetHorizontalAlignment() const { return horizontalAlignment_; }
-    void SetHorizontalAlignment(HorizontalAlignment value) { horizontalAlignment_ = value; }
+    void SetHorizontalAlignment(HorizontalAlignment value);
     VerticalAlignment GetVerticalAlignment() const { return verticalAlignment_; }
-    void SetVerticalAlignment(VerticalAlignment value) { verticalAlignment_ = value; }
+    void SetVerticalAlignment(VerticalAlignment value);
     int GetSortingOrder() const { return sortingOrder_; }
-    void SetSortingOrder(int value) { sortingOrder_ = value; }
+    void SetSortingOrder(int value);
 
     void Serialize(nlohmann::json& j) const override;
     void Deserialize(const nlohmann::json& j) override;

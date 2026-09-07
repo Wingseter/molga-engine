@@ -1,11 +1,11 @@
 #pragma once
 
-#include "ECS/Component.h"
+#include "ECS/Components/UIComponent.h"
 #include "Common/Types.h"
 
 class UICanvas;
 
-class RectTransform : public Component {
+class RectTransform : public UIComponent {
 public:
     COMPONENT_TYPE(RectTransform)
 
@@ -19,8 +19,8 @@ public:
     void SetAnchorMax(const Vector2& value);
     void SetAnchors(const Vector2& minimum, const Vector2& maximum);
     void SetPivot(const Vector2& value);
-    void SetAnchoredPosition(const Vector2& value) { anchoredPosition_ = value; }
-    void SetSizeDelta(const Vector2& value) { sizeDelta_ = value; }
+    void SetAnchoredPosition(const Vector2& value);
+    void SetSizeDelta(const Vector2& value);
 
     // Resolves a logical rectangle from a parent logical rectangle.
     AABB ResolveIn(const AABB& parentRect) const;

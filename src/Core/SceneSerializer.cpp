@@ -13,6 +13,7 @@
 #include "../ECS/Components/AudioListener.h"
 #include "../ECS/Components/Camera.h"
 #include "../ECS/Components/TextRenderer2D.h"
+#include "../ECS/Components/UIComponent.h"
 #include "../Scripting/ScriptManager.h"
 #include "../Scripting/Script.h"
 #include "Core/PrefabRegistry.h"
@@ -173,7 +174,19 @@ bool SceneSerializer::DeserializeScene(
                 root->SetID(rootId);
                 idRemap[localRootId] = rootId;
 
-                PrefabUtil::ApplyModifications(root, modifications, idRemap);
+                // ApplyModifications는 override를 컴포넌트에 Deserialize로
+                // 밀어 넣는다. 손으로 고친 modifications는 계약 밖 값을 담을
+                // 수 있고, 그 예외가 여기서 새면 아래 objects.clear()를 건너뛴
+                // 채 호출부까지 올라간다 — 에디터에서 그 objects는 살아 있는
+                // 월드의 벡터 그 자체라 반쯤 실린 씬이 그대로 남는다.
+                try {
+                    PrefabUtil::ApplyModifications(root, modifications, idRemap);
+                } catch (const UIComponentSchemaError& error) {
+                    std::cerr << "[SceneSerializer] Prefab override rejected ("
+                              << guid << "): " << error.what() << std::endl;
+                    objects.clear();
+                    return false;
+                }
 
                 auto* pi = root->AddComponent<PrefabInstance>();
                 pi->SetPrefabGuid(guid);
@@ -210,7 +223,17 @@ bool SceneSerializer::DeserializeScene(
                         if (script) comp = obj->AddComponentRaw(script.release());
                     }
                     if (comp) {
-                        comp->Deserialize(compJson);
+                        // 저작 스키마 위반은 부분 로드로 이어지면 안 된다.
+                        // 절반만 실린 월드는 저장될 때 나머지 절반을 파일에서
+                        // 지운다 — 실패보다 나쁜 결과다.
+                        try {
+                            comp->Deserialize(compJson);
+                        } catch (const UIComponentSchemaError& error) {
+                            std::cerr << "[SceneSerializer] Component schema rejected ("
+                                      << type << "): " << error.what() << std::endl;
+                            objects.clear();
+                            return false;
+                        }
                         if (compJson.contains("enabled"))
                             comp->SetEnabledFromSerializedState(
                                 compJson["enabled"].get<bool>());
@@ -321,7 +344,13 @@ std::shared_ptr<GameObject> SceneSerializer::DeserializeGameObject(const std::st
                 }
             }
             if (comp) {
-                comp->Deserialize(compJson);
+                try {
+                    comp->Deserialize(compJson);
+                } catch (const UIComponentSchemaError& error) {
+                    std::cerr << "[SceneSerializer] Component schema rejected ("
+                              << type << "): " << error.what() << std::endl;
+                    return nullptr;
+                }
                 if (compJson.contains("enabled")) {
                     comp->SetEnabledFromSerializedState(
                         compJson["enabled"].get<bool>());
@@ -478,7 +507,15 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
                 return nullptr;
             }
             {
-                PrefabUtil::ApplyModifications(nestedRoot, mods, nestedRemap);
+                // committed는 여전히 false이므로 RollbackGuard가 이미 덧붙인
+                // 오브젝트와 idRemap을 되돌린다.
+                try {
+                    PrefabUtil::ApplyModifications(nestedRoot, mods, nestedRemap);
+                } catch (const UIComponentSchemaError& error) {
+                    std::cerr << "[SceneSerializer] Prefab override rejected ("
+                              << nestedGuid << "): " << error.what() << std::endl;
+                    return nullptr;
+                }
 
                 auto* pi = nestedRoot->AddComponent<PrefabInstance>();
                 pi->SetPrefabGuid(nestedGuid);
@@ -531,7 +568,15 @@ GameObject* SceneSerializer::DeserializeSubtreeRemapped(
                     if (script) comp = obj->AddComponentRaw(script.release());
                 }
                 if (comp) {
-                    comp->Deserialize(compJson);
+                    // committed는 여전히 false이므로 RollbackGuard가 이미
+                    // 덧붙인 오브젝트와 idRemap을 되돌린다.
+                    try {
+                        comp->Deserialize(compJson);
+                    } catch (const UIComponentSchemaError& error) {
+                        std::cerr << "[SceneSerializer] Component schema rejected ("
+                                  << type << "): " << error.what() << std::endl;
+                        return nullptr;
+                    }
                     if (compJson.contains("enabled"))
                         comp->SetEnabledFromSerializedState(
                             compJson["enabled"].get<bool>());

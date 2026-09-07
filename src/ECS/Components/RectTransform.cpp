@@ -16,17 +16,38 @@ Vector2 Clamp01(const Vector2& value) {
 } // namespace
 
 void RectTransform::SetAnchorMin(const Vector2& value) {
-    anchorMin_ = Clamp01(value);
+    const Vector2 canonical = Clamp01(value);
+    if (anchorMin_ == canonical) return;
+    anchorMin_ = canonical;
+    Invalidate(UIInvalidation::Layout);
 }
 void RectTransform::SetAnchorMax(const Vector2& value) {
-    anchorMax_ = Clamp01(value);
+    const Vector2 canonical = Clamp01(value);
+    if (anchorMax_ == canonical) return;
+    anchorMax_ = canonical;
+    Invalidate(UIInvalidation::Layout);
 }
 void RectTransform::SetAnchors(const Vector2& minimum, const Vector2& maximum) {
     SetAnchorMin(minimum);
     SetAnchorMax(maximum);
 }
 void RectTransform::SetPivot(const Vector2& value) {
-    pivot_ = Clamp01(value);
+    const Vector2 canonical = Clamp01(value);
+    if (pivot_ == canonical) return;
+    pivot_ = canonical;
+    Invalidate(UIInvalidation::Layout);
+}
+
+void RectTransform::SetAnchoredPosition(const Vector2& value) {
+    if (anchoredPosition_ == value) return;
+    anchoredPosition_ = value;
+    Invalidate(UIInvalidation::Layout);
+}
+
+void RectTransform::SetSizeDelta(const Vector2& value) {
+    if (sizeDelta_ == value) return;
+    sizeDelta_ = value;
+    Invalidate(UIInvalidation::Layout);
 }
 
 AABB RectTransform::ResolveIn(const AABB& parentRect) const {

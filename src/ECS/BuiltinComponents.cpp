@@ -22,6 +22,14 @@
 #include "Components/UIImage.h"
 #include "Components/UILabel.h"
 #include "Components/UIButton.h"
+#include "Components/UILayoutElement.h"
+#include "Components/UILayoutGroup.h"
+#include "Components/UIContentSizeFitter.h"
+#include "Components/UIMask.h"
+#include "Components/UIScrollView.h"
+#include "Components/UISelectable.h"
+#include "Components/UITextInput.h"
+#include "Components/UIAccessibility.h"
 
 #ifdef MOLGA_MARROW_SUPPORT
 #include "Components/MarrowRenderer.h"
@@ -49,6 +57,14 @@ void RegisterBuiltinComponents() {
     factory.Register<UIImage>(UIImage::StaticTypeName());
     factory.Register<UILabel>(UILabel::StaticTypeName());
     factory.Register<UIButton>(UIButton::StaticTypeName());
+    factory.Register<UILayoutElement>(UILayoutElement::StaticTypeName());
+    factory.Register<UILayoutGroup>(UILayoutGroup::StaticTypeName());
+    factory.Register<UIContentSizeFitter>(UIContentSizeFitter::StaticTypeName());
+    factory.Register<UIMask>(UIMask::StaticTypeName());
+    factory.Register<UIScrollView>(UIScrollView::StaticTypeName());
+    factory.Register<UISelectable>(UISelectable::StaticTypeName());
+    factory.Register<UITextInput>(UITextInput::StaticTypeName());
+    factory.Register<UIAccessibility>(UIAccessibility::StaticTypeName());
 #ifdef MOLGA_MARROW_SUPPORT
     factory.Register<MarrowRenderer>(MarrowRenderer::StaticTypeName());
 #endif

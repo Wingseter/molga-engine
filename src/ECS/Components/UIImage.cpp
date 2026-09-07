@@ -12,7 +12,20 @@ void UIImage::SetTextureGuid(std::string value) {
     if (textureGuid_ != value) {
         textureGuid_ = std::move(value);
         texture_ = nullptr;
+        Invalidate(UIInvalidation::Visual);
     }
+}
+
+void UIImage::SetTint(const Color& value) {
+    if (tint_ == value) return;
+    tint_ = value;
+    Invalidate(UIInvalidation::Visual);
+}
+
+void UIImage::SetSortingOrder(int value) {
+    if (sortingOrder_ == value) return;
+    sortingOrder_ = value;
+    Invalidate(UIInvalidation::Visual);
 }
 
 void UIImage::ResolveAssets() {

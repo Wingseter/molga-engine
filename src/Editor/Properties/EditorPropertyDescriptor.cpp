@@ -5,6 +5,7 @@
 #include "ECS/Component.h"
 #include "ECS/GameObject.h"
 #include "ECS/Components/Camera.h"
+#include "ECS/Components/UIComponent.h"
 #include "Scripting/Script.h"
 #include "Scripting/ScriptField.h"
 #include <algorithm>
@@ -293,7 +294,15 @@ bool SetJsonPath(Component& component, const std::string& group,
     } else {
         (*owner)[key] = ValueToJson(value);
     }
-    component.Deserialize(snapshot);
+    // 저작 스키마는 계약 밖 값을 typed 예외로 거절한다(UI 컴포넌트가 처음).
+    // 인스펙터의 열거 필드는 자유 입력 문자열이고 DragFloat은 0 아래로 끌 수
+    // 있으므로, 그 예외가 여기서 새면 오타 한 번이 에디터를 죽인다. 이 함수는
+    // 이미 실패를 bool로 돌려주는 계약이므로 그 자리로 접는다.
+    try {
+        component.Deserialize(snapshot);
+    } catch (const UIComponentSchemaError&) {
+        return false;
+    }
     return true;
 }
 
