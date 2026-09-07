@@ -1061,7 +1061,7 @@ believing a green run.
 - Consumes: the shared `Fixed26_6` primitive and full `UIRuntimeTargetIdentity`.
 - Produces: fixed-point edge helpers, `UIDrawOrderKey`, `UILayoutNodeSnapshot`, semantic `UISnapshot`, `UISnapshotPtr`, and stable diagnostic JSON.
 
-- [ ] **Step 1: Write failing fixed arithmetic and edge conversion tests.**
+- [x] **Step 1: Write failing fixed arithmetic and edge conversion tests.**
 
   ```cpp
   TEST_CASE("fixed conversion rejects invalid input and normalizes zero") {
@@ -1086,7 +1086,7 @@ believing a green run.
   }
   ```
 
-- [ ] **Step 2a: Write the failing semantic snapshot test.**
+- [x] **Step 2a: Write the failing semantic snapshot test.**
 
   ```cpp
   TEST_CASE("UISnapshot is semantic and cacheable") {
@@ -1105,7 +1105,7 @@ believing a green run.
   }
   ```
 
-- [ ] **Step 2b: Write failing C++17 value-comparison coverage.**
+- [x] **Step 2b: Write failing C++17 value-comparison coverage.**
 
   ```cpp
   TEST_CASE("fixed UI values provide symmetric C++17 equality") {
@@ -1122,7 +1122,7 @@ believing a green run.
 
   Add the same one-field-difference matrix for `UIDrawOrderKey`. This target is compiled as C++17, so every used `==` and `!=` must be explicitly declared; no rewritten comparison or C++20 defaulting is available.
 
-- [ ] **Step 3: Run the geometry/snapshot red gate.**
+- [x] **Step 3: Run the geometry/snapshot red gate.**
 
   ```bash
   cmake --preset debug
@@ -1131,7 +1131,7 @@ believing a green run.
 
   Expected: compilation fails on floor/ceil helpers and snapshot types.
 
-- [ ] **Step 4a: Guard checked floor division before `/` or `%`.**
+- [x] **Step 4a: Guard checked floor division before `/` or `%`.**
 
   ```cpp
   std::optional<std::int64_t> CheckedFloorDiv(std::int64_t n,
@@ -1144,7 +1144,7 @@ believing a green run.
 
   ```
 
-- [ ] **Step 4b: Guard checked ceil division before `/` or `%`.**
+- [x] **Step 4b: Guard checked ceil division before `/` or `%`.**
 
   ```cpp
   std::optional<std::int64_t> CheckedCeilDiv(std::int64_t n,
@@ -1156,7 +1156,7 @@ believing a green run.
   }
   ```
 
-- [ ] **Step 4c: Verify the inherited fixed conversion and multiply/divide contract.**
+- [x] **Step 4c: Verify the inherited fixed conversion and multiply/divide contract.**
 
   Task 3.1 already implements `FromFloat` and `CheckedMulDiv` with validated
   intermediates, nearest rounding with exact half ties away from zero, and
@@ -1165,7 +1165,7 @@ believing a green run.
   do not fork or reimplement it in Task 10. This task adds only the explicitly
   named checked floor/ceil helpers above. No operation saturates.
 
-- [ ] **Step 5a: Define `UIDrawOrderKey`.**
+- [x] **Step 5a: Define `UIDrawOrderKey`.**
 
   ```cpp
   namespace molga::ui {
@@ -1184,7 +1184,7 @@ believing a green run.
   } // namespace molga::ui
   ```
 
-- [ ] **Step 5b: Verify the inherited C++17 fixed-value equality contract.**
+- [x] **Step 5b: Verify the inherited C++17 fixed-value equality contract.**
 
   Task 3.1 already owns the exact field-wise `constexpr noexcept` `==`/`!=`
   definitions for `Fixed26_6`, `FixedPoint`, `FixedSize`, and `FixedRect`.
@@ -1193,7 +1193,7 @@ believing a green run.
   explicit C++17 equality is added here. Do not use byte comparison because
   padding is not semantic.
 
-- [ ] **Step 5c: Define semantic layout node and snapshot records.**
+- [x] **Step 5c: Define semantic layout node and snapshot records.**
 
   ```cpp
   namespace molga::ui {
@@ -1220,11 +1220,11 @@ believing a green run.
 
   Do not add `frameIndex`, timestamp, physical pixels, raw pointers, or GPU handles to these core layout/node records. `surfaceWindowId` is runtime routing identity and is also omitted from canonical JSON so editor/runtime window allocation cannot change parity. Task 11's concrete sprite variant adds a retained runtime binding, but `StableLayoutSnapshotJson` always omits it. The serializer emits stable integer raw 26.6 fields and sorted nodes.
 
-- [ ] **Step 6: Add ordering and byte-stability assertions.**
+- [x] **Step 6: Add ordering and byte-stability assertions.**
 
   Construct snapshots through different insertion orders, sort by `UIDrawOrderKey`, and require identical JSON bytes. Add a compile-time member detector in the test only; do not add reflection support to production.
 
-- [ ] **Step 7: Run the focused green gate.**
+- [x] **Step 7: Run the focused green gate.**
 
   ```bash
   cmake --build --preset debug --target test_ui_fixed test_ui_snapshot -j
@@ -1233,7 +1233,7 @@ believing a green run.
 
   Expected: both tests pass and snapshot JSON contains no audit-frame field.
 
-- [ ] **Step 8: Commit geometry and snapshot contracts.**
+- [x] **Step 8: Commit geometry and snapshot contracts.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/Common/Fixed26_6.* \
@@ -1241,6 +1241,60 @@ believing a green run.
     tests/test_ui_fixed.cpp tests/test_ui_snapshot.cpp
   git commit -m "feat: define semantic UI layout snapshots"
   ```
+
+**Implementation record (2026-09-07).** Commit `1ae3613`, plus `c6a7b54` closing this subplan's
+carried item 1. Audit passed. Debug suite **105/105**.
+
+**Two spec ambiguities were settled with authority, not preference:**
+
+- **`layoutRevision` must not enter the canonical JSON.** The spec lens flagged that emitting it would
+  make the subplan's "cold, warm and different-edit-history builds produce byte-identical semantic
+  snapshots" bullet unmeetable, since the name invites a per-recompute counter. The decisive citation
+  is stronger than that reasoning: **subplan 07 line 193 lists `layoutRevision` explicitly among the
+  forbidden canonical keys.** It stays on the runtime record and is excluded from the bytes, with the
+  reason in the code.
+- **`StableLayoutSnapshotJson` correctly does not sort.** `UILayoutNodeSnapshot` carries no
+  `UIDrawOrderKey`, so the serializer physically cannot sort by it, and Step 6 places the sort on the
+  caller. The committed assertions that prove the serializer is order-*sensitive* are the right
+  non-vacuity witness for the sorted-equality check above them.
+
+**A factual correction that mattered.** The implementer reported the missing `schemaVersion` on
+`UIImage` as "unowned in either subplan — someone must add it to a Files list or it falls through the
+program". That was wrong: all three components sit in **Task 9.2's own Files list** (lines 602–607,
+repeated in its `git add` at 955–956). So it was unfinished work inside a completed task, not
+unassigned work — and the distinction is the difference between fixing it and waiting for a future
+task to volunteer. Closed in `c6a7b54`.
+
+**Carried item 1 — CLOSED.** `RectTransform`, `UIImage` and `UIButton` now declare
+`CurrentSchemaVersion = 1` and write the key unconditionally, following Task 9.2's eight new
+components rather than the `LoadedSchema` branch of `UILabel`/`UICanvas`. That branch was correctly
+rejected: their authored shape has never changed, so schema 1 *is* the legacy shape, and a legacy
+marker would pin every document on disk to `Legacy` forever — the key would never actually be
+written, leaving the Exit bullet unmet in a different way.
+
+The legacy proof avoids the traps this program keeps hitting: the version-less payloads use the
+**exact key set** `tests/smoke/create_fixture.cmake` writes to disk, values chosen dyadic so the
+comparison is byte-exact rather than approximate, each loaded into a fresh component **and** into an
+already-authored one (the undo/prefab-override path), with the same document *plus* an explicit
+version asserted to give an identical result — so neither shape is left untested. Eight mutants were
+killed, and notably the `anchorMin`/`anchorMax` and `normalColor`/`hoverColor` swaps **die only under
+the authored payload**, because the defaults are equal — exactly the axis-swap trap that survived
+Tasks 8.1 and 9.2.
+
+---
+
+#### A LATENT UNDO BUG, SURFACED AND DELIBERATELY NOT FIXED HERE
+
+**A snapshot missing a key does not undo that field.** `RectTransform`, `UIImage`, `UIButton`,
+`UILabel` and `UICanvas` all use the **current member value** as the `Deserialize` fallback rather
+than the documented default. So restoring a snapshot that omits a key leaves the field at its
+post-edit value instead of reverting it. This is precisely the defect `CheckSchemaContract`'s points
+4 and 5 were built to catch, which is why those three components could not be added to that table.
+
+Changing it is a semantic change to undo and prefab-override behaviour, not a schema version, so it
+was correctly left alone and asserted through a helper that pins the same literal-payload contract
+without the default-restoration points. **Owner: Task 15.4**, which owns making UI/text migration
+"byte-exactly undoable" — but note this affects undo **today**, not only migration.
 
 ### Task 10.2: Implement deterministic measure, arrangement, caching, and SCC fallback
 
