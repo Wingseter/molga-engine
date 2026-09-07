@@ -122,6 +122,15 @@ public:
     // Get all components (returns vector of raw pointers for iteration)
     std::vector<Component*> GetComponents() const;
 
+    // 런타임 타입 id로 컴포넌트 하나를 찾는다. GetComponents()는 벡터를 값으로
+    // 돌려주므로 타입 하나를 고르자고 부르면 조회마다 힙 할당이 생기고, 그
+    // 할당 가능성 때문에 noexcept인 호출자가 모든 예외를 삼켜야 한다. 한 타입에
+    // 컴포넌트는 최대 하나이므로(중복 추가는 거부된다) 맵 조회로 충분하다.
+    Component* FindComponentByTypeId(size_t typeId) const {
+        auto it = componentMap.find(typeId);
+        return it == componentMap.end() ? nullptr : it->second.get();
+    }
+
     // Hierarchy
     GameObject* GetParent() const { return parent; }
     const std::vector<GameObject*>& GetChildren() const { return children; }

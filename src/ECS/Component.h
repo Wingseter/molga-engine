@@ -8,11 +8,32 @@
 
 class GameObject;
 class Renderer;
+
 namespace molga { class RenderQueue; }
 // Task 8.2 Step 7c: 월드 순회가 텍스트 컴포넌트에 건네는 renderer/서비스/sink
 // 권한. 전역 이름인 것은 TextRenderer와 같은 이유다 — 이 헤더는 그것을 값으로
 // 담지 않으므로 선언만 있으면 된다.
 struct WorldRenderCollectionContext;
+
+// Task 9.1: 인스턴스 id 할당기 테스트 훅. 소진 경로는 프로세스 전역 원자값을
+// 직접 세워 놓고 관찰해야만 재현되는데, 그 원자값은 Component.cpp의 익명
+// 이름공간에 산다. 테스트 전용이며 스코프를 벗어나면 직전 값으로 되돌린다.
+std::uint64_t ComponentInstanceIdForTesting();
+
+class ScopedComponentInstanceIdForTesting {
+public:
+    explicit ScopedComponentInstanceIdForTesting(std::uint64_t next);
+    ~ScopedComponentInstanceIdForTesting();
+
+    ScopedComponentInstanceIdForTesting(
+        const ScopedComponentInstanceIdForTesting&) = delete;
+    ScopedComponentInstanceIdForTesting& operator=(
+        const ScopedComponentInstanceIdForTesting&) = delete;
+
+private:
+    std::uint64_t previous_;
+    std::uint64_t seeded_;
+};
 
 // Compile-time type ID for O(1) component lookup
 class ComponentTypeID {
@@ -30,7 +51,10 @@ class Component {
 public:
     Component();
     Component(const Component& other);
-    Component(Component&& other) noexcept;
+    // Task 9.1: 이동 생성은 새 인스턴스 id를 할당하고 할당은 소진 시 던진다.
+    // noexcept로 두면 소진이 예외가 아니라 std::terminate가 된다. 대입은
+    // 목적지의 id를 그대로 두므로 할당하지 않고 noexcept로 남는다.
+    Component(Component&& other);
     Component& operator=(const Component& other);
     Component& operator=(Component&& other) noexcept;
     virtual ~Component() = default;

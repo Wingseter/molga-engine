@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,14 +12,40 @@ class PhysicsWorld;
 class Scheduler;
 class SceneRuntime;
 
+// Task 9.1: 세대 할당기 테스트 훅. 소진 경로는 프로세스 전역 원자값을 직접
+// 세워 놓고 관찰해야만 재현되는데, 그 원자값은 World.cpp의 익명 이름공간에
+// 산다. 테스트 전용이며 스코프를 벗어나면 직전 값으로 되돌린다.
+std::uint64_t WorldGenerationForTesting();
+
+class ScopedWorldGenerationForTesting {
+public:
+    explicit ScopedWorldGenerationForTesting(std::uint64_t next);
+    ~ScopedWorldGenerationForTesting();
+
+    ScopedWorldGenerationForTesting(const ScopedWorldGenerationForTesting&) = delete;
+    ScopedWorldGenerationForTesting& operator=(
+        const ScopedWorldGenerationForTesting&) = delete;
+
+private:
+    std::uint64_t previous_;
+    std::uint64_t seeded_;
+};
+
 // 편집/플레이/런타임이 공유하는 단일 씬 데이터 모델.
 class World {
 public:
     World();
     ~World();
 
-    World(World&&) noexcept;
-    World& operator=(World&&) noexcept;
+    // Task 9.1: 이동은 세대를 새로 할당해야 하고 할당은 소진 시 던진다.
+    // 그래서 noexcept가 아니다 — noexcept로 두면 소진이 std::terminate가 된다.
+    World(World&&);
+    World& operator=(World&&);
+
+    // 프로세스 전역·단조·0이 아닌·재사용 없는 월드 세대. 생성/Clear/성공한
+    // 씬 로드/이동 교체가 각각 새 값을 발행하므로, 예전 세대를 담은 런타임
+    // 식별자는 오브젝트 id와 컴포넌트 타입이 그대로여도 다시 해석되지 않는다.
+    std::uint64_t Generation() const noexcept { return generation_; }
 
     GameObject* Add(std::shared_ptr<GameObject> obj);
     GameObject* FindById(unsigned int id) const;
@@ -99,6 +126,7 @@ public:
 private:
     std::vector<std::shared_ptr<GameObject>> objects_;
     std::string name_ = "Untitled";
+    std::uint64_t generation_ = 0;
     std::unique_ptr<PhysicsWorld> physicsWorld;
     std::unique_ptr<Scheduler> scheduler;
     bool running_ = false;
@@ -110,6 +138,10 @@ private:
 
     bool OwnsObject(const std::shared_ptr<GameObject>& object) const;
     bool IsLifecycleMutationActive() const;
+
+    // 필드 이전과 소유자/스케줄러 재바인딩만 한다. 세대를 얻지도 발행하지도
+    // 않으므로, 호출자가 두 세대를 먼저 확보한 뒤에야 내용을 옮길 수 있다.
+    void TransferOwnedStateFrom(World&& other);
 
     // 지연 추가/삭제 큐
     std::vector<std::shared_ptr<GameObject>> pendingAdds_;

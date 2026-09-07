@@ -126,11 +126,13 @@ set(ENGINE_SOURCES
     src/Physics/Box2DBackend.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
+    src/UI/UIRuntimeIdentity.cpp
     src/UI/UISystem.cpp
     src/Systems/Audio.cpp
     src/Core/Scene.cpp
     src/Systems/Particle.cpp
     src/ECS/Component.cpp
+    src/ECS/SceneObjectRef.cpp
     src/ECS/BuiltinComponents.cpp
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp

@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 #include "Common/Types.h"
+#include "ECS/SceneObjectRef.h"
 
 // 스크립트 필드 리플렉션
 // ---------------------------------------------------------------------------
@@ -12,14 +13,9 @@
 // 동일한 메타데이터를 공유한다. imgui에 의존하지 않으므로 런타임 빌드에서도
 // 직렬화에 그대로 사용된다.
 
-// 살아있는 씬 GameObject 참조. 안정적인 id로 직렬화되고, 런타임에는
-// 소유 스크립트의 World를 통해 포인터로 해석된다. Instantiate/Prefab 복제
-// 시 같은 서브트리 내부 참조는 자동으로 새 id로 리매핑된다.
-struct ObjectRef {
-    unsigned int targetId = 0;  // 0 = 참조 없음(null)
-    bool IsSet() const { return targetId != 0; }
-    void Clear() { targetId = 0; }
-};
+// 씬 오브젝트 참조는 ECS/SceneObjectRef.h가 유일한 정의를 가진다. 여기에
+// 같은 모양의 struct를 한 벌 더 두면 UI 런타임과 스크립트가 서로 다른 타입을
+// 직렬화하게 되므로, 스크립트 쪽은 그 별칭(::ObjectRef)만 쓴다.
 
 // 프리팹 에셋 참조. GUID 문자열로 직렬화된다(리매핑 불필요).
 struct PrefabRef {

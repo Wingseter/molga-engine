@@ -634,6 +634,11 @@ target_include_directories(test_runtime_script_package_loader PRIVATE "${CMAKE_C
 molga_add_test(test_storage test_storage.cpp)
 target_include_directories(test_storage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# Task 9.1: scene references and runtime UI identities are plain value types —
+# no ICU/HarfBuzz object is constructed here, so this stays a molga_add_test
+# target rather than a session-backed one.
+molga_add_test(test_ui_identity test_ui_identity.cpp)
+
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -180,21 +180,19 @@ void Script::RemapReferences(const std::unordered_map<unsigned int, unsigned int
     for (const auto& f : Fields().Fields()) {
         if (f.type != ScriptFieldType::ObjectRef) continue;
         auto* ref = static_cast<ObjectRef*>(f.ptr);
-        if (ref->targetId == 0) continue;
-        auto it = idRemap.find(ref->targetId);
-        if (it != idRemap.end()) {
-            ref->targetId = it->second;  // 같은 서브트리 내부 참조 -> 새 id
-        }
+        if (!ref->IsSet()) continue;
+        // 리매핑 규칙은 SceneObjectRef 하나가 가진다. 여기서 find/대입을 다시
+        // 적으면 UI 참조와 스크립트 참조가 서로 다른 규칙으로 갈라질 수 있다.
         // 맵에 없으면 외부(씬) 참조이므로 원본 id 유지.
+        ref->Remap(idRemap);
     }
 }
 
 GameObject* Script::Resolve(const ObjectRef& ref) const {
-    if (ref.targetId == 0) return nullptr;
-    if (gameObject && gameObject->GetWorld()) {
-        return gameObject->GetWorld()->FindById(ref.targetId);
-    }
-    return nullptr;
+    if (!gameObject) return nullptr;
+    World* world = gameObject->GetWorld();
+    if (!world) return nullptr;
+    return ref.Resolve(*world);
 }
 
 GameObject* Script::Instantiate(const PrefabRef& ref) {
