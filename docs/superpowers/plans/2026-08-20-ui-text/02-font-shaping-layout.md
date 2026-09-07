@@ -3757,9 +3757,9 @@ which is what the step exists to prove.
 - Consumes: `TextLayoutService`, `TextHitTesting`, `GlyphAtlasCache`, immutable resources, page tokens, and schema-2 authored data.
 - Produces: `TextRasterPolicy`, `TextCollectContext`, `WorldRenderCollectionContext`, `TextRenderer::{Init,ShutdownAfterGpuIdle,LayoutService,Layout,CollectLayout,BeginGlyphCollection,GlyphAtlas}` and the sole production rendered-text path. Initialization/shutdown borrow their sink only for that call; no sink reference is stored.
 
-- [ ] **Step 0: Move every newly production-text-backed regression executable onto the common runtime session.** Replace the existing `molga_add_test` registrations for `test_text`, `test_ui`, and `test_rendering_sdlgpu` with `molga_add_text_test`; `test_font` was already converted in Task 4.1. Do not link `doctest_main` or create another fixture-local ICU lifetime. Preserve every existing source, include, compile definition, `gpu;sdlgpu;pixel` label, working directory, timeout, and SDL/Metal property after target creation. All four executables use only `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT` and the installed `TextRuntimeTestSession`; add a focused test-main audit that exactly one text runtime session is active before any `SharedTextConsumerFixture` constructs `TextLayoutService`.
+- [x] **Step 0: Move every newly production-text-backed regression executable onto the common runtime session.** Replace the existing `molga_add_test` registrations for `test_text`, `test_ui`, and `test_rendering_sdlgpu` with `molga_add_text_test`; `test_font` was already converted in Task 4.1. Do not link `doctest_main` or create another fixture-local ICU lifetime. Preserve every existing source, include, compile definition, `gpu;sdlgpu;pixel` label, working directory, timeout, and SDL/Metal property after target creation. All four executables use only `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT` and the installed `TextRuntimeTestSession`; add a focused test-main audit that exactly one text runtime session is active before any `SharedTextConsumerFixture` constructs `TextLayoutService`.
 
-- [ ] **Step 1: Replace silent-fallback expectations with failing shared-consumer tests.**
+- [x] **Step 1: Replace silent-fallback expectations with failing shared-consumer tests.**
 
   ```cpp
   TEST_CASE("UI and world consumers share one shaping result") {
@@ -3771,7 +3771,7 @@ which is what the step exists to prove.
   }
   ```
 
-- [ ] **Step 1a: Add the failing old/new hot-reload collection test.**
+- [x] **Step 1a: Add the failing old/new hot-reload collection test.**
 
   ```cpp
   TEST_CASE("old cached layout never reopens a font after hot reload") {
@@ -3799,7 +3799,7 @@ which is what the step exists to prove.
   }
   ```
 
-- [ ] **Step 1b: Add the failing zero-budget missing-family tofu test.**
+- [x] **Step 1b: Add the failing zero-budget missing-family tofu test.**
 
   ```cpp
   TEST_CASE("missing family renders deterministic tofu without atlas access") {
@@ -3818,7 +3818,7 @@ which is what the step exists to prove.
   }
   ```
 
-- [ ] **Step 1c: Add the failing legacy-entrypoint removal test.**
+- [x] **Step 1c: Add the failing legacy-entrypoint removal test.**
 
   ```cpp
   TEST_CASE("TextRenderer2D has no immediate RenderSprite text path") {
@@ -3838,7 +3838,7 @@ which is what the step exists to prove.
   hooks are deliberate non-text no-ops and only the explicit two-argument
   traversal path may collect `TextRenderer2D`.
 
-- [ ] **Step 1d: Add the failing world-affine corner/AABB test.**
+- [x] **Step 1d: Add the failing world-affine corner/AABB test.**
 
   ```cpp
   TEST_CASE("world text applies nonuniform negative scale then rotation") {
@@ -3864,7 +3864,7 @@ which is what the step exists to prove.
   }
   ```
 
-- [ ] **Step 1e: Add the failing UI affine parity test.**
+- [x] **Step 1e: Add the failing UI affine parity test.**
 
   ```cpp
   TEST_CASE("UI identity affine plus translation preserves canonical vertices") {
@@ -3876,7 +3876,7 @@ which is what the step exists to prove.
   }
   ```
 
-- [ ] **Step 1f: Add the failing non-finite affine test.**
+- [x] **Step 1f: Add the failing non-finite affine test.**
 
   ```cpp
   TEST_CASE("non-finite text affine produces no render command") {
@@ -3893,9 +3893,9 @@ which is what the step exists to prove.
 
   The fixture canonicalizes exact quarter-turn sine/cosine before constructing the expected cardinal matrix; non-cardinal tests use component-wise `doctest::Approx`.
 
-- [ ] **Step 1g: Register the hot-reload fixture path.** Place the Step 1a test/helper in `tests/test_text.cpp`, then add `target_compile_definitions(test_text PRIVATE MOLGA_TEXT_INTER_FONT="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf")` immediately after that target is created; the test never discovers a host font.
+- [x] **Step 1g: Register the hot-reload fixture path.** Place the Step 1a test/helper in `tests/test_text.cpp`, then add `target_compile_definitions(test_text PRIVATE MOLGA_TEXT_INTER_FONT="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf")` immediately after that target is created; the test never discovers a host font.
 
-- [ ] **Step 1h: Add failing raster-scale authority tests.** Reuse one immutable
+- [x] **Step 1h: Add failing raster-scale authority tests.** Reuse one immutable
   fractional-size layout at raster keys `64` and `128`; require distinct
   atlas keys/pixel heights, the exact quantized formulas below, and logical
   bitmap quads within one 26.6 raw unit after inverse-scale conversion. Add a
@@ -3903,7 +3903,7 @@ which is what the step exists to prove.
   combined with `max(abs(scaleX),abs(scaleY))`, plus zero/NaN/overflow scale
   rows that emit `LayoutInvalid` and no atlas lookup/command.
 
-- [ ] **Step 1i: Add failing world-service authority tests.** A world containing
+- [x] **Step 1i: Add failing world-service authority tests.** A world containing
   `TextRenderer2D` receives one `WorldRenderCollectionContext` and observes the
   exact caller-owned renderer, `renderer.LayoutService()`, diagnostic sink, and
   raster policy. A null text context is allowed only through
@@ -3913,13 +3913,13 @@ which is what the step exists to prove.
   sink and that world collection uses the frame sink rather than a temporary or
   hidden reference.
 
-- [ ] **Step 2: Run the atomic migration red gate.**
+- [x] **Step 2: Run the atomic migration red gate.**
 
   Run: `cmake --build --preset debug --target test_text test_font test_ui test_rendering_sdlgpu -j && ctest --test-dir build/debug -R '^(test_text|test_font|test_ui|test_rendering_sdlgpu)$' --output-on-failure`
 
   Expected: FAIL against the current codepoint/ASCII UILabel and TextRenderer2D paths.
 
-- [ ] **Step 3: Add the exact text affine POD.**
+- [x] **Step 3: Add the exact text affine POD.**
 
   ```cpp
   struct TextAffine2D {
@@ -3930,7 +3930,7 @@ which is what the step exists to prove.
   };
   ```
 
-- [ ] **Step 3a: Add the exact collection context.**
+- [x] **Step 3a: Add the exact collection context.**
 
   ```cpp
   struct TextRasterPolicy {
@@ -3970,7 +3970,7 @@ which is what the step exists to prove.
   maximum absolute component/world scale with the same checked quantization.
   Neither path infers raster scale from glyph advance or the collection affine.
 
-- [ ] **Step 3b: Replace the `TextRenderer` public production API.**
+- [x] **Step 3b: Replace the `TextRenderer` public production API.**
 
   ```cpp
   class TextRenderer {
@@ -4025,9 +4025,9 @@ which is what the step exists to prove.
   that outer branch with the retryable `EngineShutdown` state machine without
   weakening this destruction order.
 
-- [ ] **Step 3c: Implement affine application and validation.** `Apply` means `x'=m00*x+m01*y+tx`, `y'=m10*x+m11*y+ty` after converting the checked fixed point to float. Before creating any command, `CollectLayout` rejects the context with `LayoutInvalid` unless all six floats are finite.
+- [x] **Step 3c: Implement affine application and validation.** `Apply` means `x'=m00*x+m01*y+tx`, `y'=m10*x+m11*y+ty` after converting the checked fixed point to float. Before creating any command, `CollectLayout` rejects the context with `LayoutInvalid` unless all six floats are finite.
 
-- [ ] **Step 3d: Transform exact command geometry.** For a drawable bitmap,
+- [x] **Step 3d: Transform exact command geometry.** For a drawable bitmap,
   convert each signed bearing/unsigned width/height from raster pixels to 26.6
   layout units with `pixel * 4096 / rasterScaleKey`, checked signed arithmetic,
   and half-away-from-zero. Starting from positioned origin + HarfBuzz offsets,
@@ -4037,7 +4037,7 @@ which is what the step exists to prove.
   Task 11 extends this same context with translated UI draw order and optional
   final physical scissor; it does not introduce a sink-less overload.
 
-- [ ] **Step 4: Derive a normal glyph's complete atlas key.** Only when
+- [x] **Step 4: Derive a normal glyph's complete atlas key.** Only when
   `!glyph.missing && glyph.faceResource && glyph.faceResource->rasterFace`, copy
   `fontGuid`, `fontRevision`, `faceIndex`, `glyphId`, and exact positive
   `glyph.fontSize` plus `context.rasterPolicy.rasterScaleKey`. Compute
@@ -4047,27 +4047,27 @@ which is what the step exists to prove.
   Failure emits `LayoutInvalid` and no lookup/partial command. Never query
   `AssetDatabase`, reopen a GUID, or infer size from advance/affine.
 
-- [ ] **Step 4a: Resolve and retain the normal glyph handle.** Call `GetGlyph(key, *glyph.faceResource->rasterFace, sink)`; for a drawable handle, set `command.batchKey.texture = handle.glyph.texture->Handle()` and copy both nonzero `pageIdentity` and `pageLifetime` into the command.
+- [x] **Step 4a: Resolve and retain the normal glyph handle.** Call `GetGlyph(key, *glyph.faceResource->rasterFace, sink)`; for a drawable handle, set `command.batchKey.texture = handle.glyph.texture->Handle()` and copy both nonzero `pageIdentity` and `pageLifetime` into the command.
 
-- [ ] **Step 5: Emit missing/null-face tofu without atlas access.** When `glyph.missing`, `!glyph.faceResource`, or `!glyph.faceResource->rasterFace`, perform no atlas lookup and create one solid-color command with `texture=molga::TextureHandle{}`, `pageIdentity=0`, and no lifetime token.
+- [x] **Step 5: Emit missing/null-face tofu without atlas access.** When `glyph.missing`, `!glyph.faceResource`, or `!glyph.faceResource->rasterFace`, perform no atlas lookup and create one solid-color command with `texture=molga::TextureHandle{}`, `pageIdentity=0`, and no lifetime token.
 
-- [ ] **Step 5a: Compute deterministic tofu geometry.** Use checked logical rect `{origin.x, line.baseline-line.ascent, width, line.ascent+line.descent}`, where `width` is the widened absolute raw `glyph.advanceX` with minimum raw value `1`; reject an impossible fixed-point overflow instead of wrapping.
+- [x] **Step 5a: Compute deterministic tofu geometry.** Use checked logical rect `{origin.x, line.baseline-line.ascent, width, line.ascent+line.descent}`, where `width` is the widened absolute raw `glyph.advanceX` with minimum raw value `1`; reject an impossible fixed-point overflow instead of wrapping.
 
-- [ ] **Step 5b: Route atlas saturation through identical tofu.** When normal `GetGlyph` returns `proceduralTofu`, call the same geometry/command helper as Steps 5–5a and retain no atlas page identity/token.
+- [x] **Step 5b: Route atlas saturation through identical tofu.** When normal `GetGlyph` returns `proceduralTofu`, call the same geometry/command helper as Steps 5–5a and retain no atlas page identity/token.
 
-- [ ] **Step 5c: Bind invalid texture handles to renderer white.** Keep `molga::TextureHandle{}` in `BatchKey`; the sprite path maps that invalid handle to its renderer-owned white fallback, preserving one renderable command per missing grapheme even at zero atlas budget.
+- [x] **Step 5c: Bind invalid texture handles to renderer white.** Keep `molga::TextureHandle{}` in `BatchKey`; the sprite path maps that invalid handle to its renderer-owned white fallback, preserving one renderable command per missing grapheme even at zero atlas budget.
 
-- [ ] **Step 6: Build UILabel's bounded shared request.** `UISystem` maps schema-2 label/style plus exact RectTransform width/height into one `TextLayoutRequest` and obtains its immutable layout from the shared renderer service.
+- [x] **Step 6: Build UILabel's bounded shared request.** `UISystem` maps schema-2 label/style plus exact RectTransform width/height into one `TextLayoutRequest` and obtains its immutable layout from the shared renderer service.
 
-- [ ] **Step 6a: Collect UILabel with UI translation affine.** Set `layoutToOutput` to identity with `tx/ty` from the fixed logical UI origin, preserve UI color/sorting values, and call `CollectLayout(queue, layout, context, sink)`.
+- [x] **Step 6a: Collect UILabel with UI translation affine.** Set `layoutToOutput` to identity with `tx/ty` from the fixed logical UI origin, preserve UI color/sorting values, and call `CollectLayout(queue, layout, context, sink)`.
 
-- [ ] **Step 7: Build TextRenderer2D's unbounded shared request.** Map schema 2 to unbounded `NoWrap/Overflow`, reuse the shared shape/baseline result, and do not synthesize width/height constraints.
+- [x] **Step 7: Build TextRenderer2D's unbounded shared request.** Map schema 2 to unbounded `NoWrap/Overflow`, reuse the shared shape/baseline result, and do not synthesize width/height constraints.
 
-- [ ] **Step 7a: Build the world scale-rotate-translate affine.** Let `sx/sy = componentScale * Transform::GetWorldScale()`, `degrees = Transform::GetWorldRotation()`, `r = degrees * pi / 180`, and `p = Transform::GetWorldPosition()`; set `layoutToOutput = {cos(r)*sx, -sin(r)*sy, sin(r)*sx, cos(r)*sy, p.x, p.y}` to preserve negative/nonuniform scale.
+- [x] **Step 7a: Build the world scale-rotate-translate affine.** Let `sx/sy = componentScale * Transform::GetWorldScale()`, `degrees = Transform::GetWorldRotation()`, `r = degrees * pi / 180`, and `p = Transform::GetWorldPosition()`; set `layoutToOutput = {cos(r)*sx, -sin(r)*sy, sin(r)*sx, cos(r)*sy, p.x, p.y}` to preserve negative/nonuniform scale.
 
-- [ ] **Step 7b: Collect world text through the shared renderer.** Copy the complete current `SortKey` inputs—camera pass, integer sorting layer/order, and `depthOrYSort`—into `TextCollectContext`, then call `worldContext.textRenderer->CollectLayout(queue, layout, context, *worldContext.textDiagnostics)`. Reject either null pointer before layout/atlas work whenever a text component is reachable; never synthesize a temporary sink or consult `TextRenderer::Get()`.
+- [x] **Step 7b: Collect world text through the shared renderer.** Copy the complete current `SortKey` inputs—camera pass, integer sorting layer/order, and `depthOrYSort`—into `TextCollectContext`, then call `worldContext.textRenderer->CollectLayout(queue, layout, context, *worldContext.textDiagnostics)`. Reject either null pointer before layout/atlas work whenever a text component is reachable; never synthesize a temporary sink or consult `TextRenderer::Get()`.
 
-- [ ] **Step 7c: Add the explicit world collection context.** Add the
+- [x] **Step 7c: Add the explicit world collection context.** Add the
   global forward declaration `struct WorldRenderCollectionContext;` beside the
   existing `RenderQueue` declaration in `Component.h`, then add the
   two-argument virtual `Component::CollectRender(RenderQueue&,
@@ -4077,7 +4077,7 @@ which is what the step exists to prove.
   overloads to require the context and make traversal call only that virtual;
   delete every context-less traversal overload after updating all callers.
 
-- [ ] **Step 7d: Pass one renderer/service/sink authority through every world
+- [x] **Step 7d: Pass one renderer/service/sink authority through every world
   output.** `GameOutputRenderer` and Scene View receive the caller-owned
   `TextRenderer&`, its `LayoutService()`, current frame diagnostic sink, and
   camera-derived base raster policy, then pass one context through traversal.
@@ -4086,7 +4086,7 @@ which is what the step exists to prove.
   after a fixture asserts no active `TextRenderer2D`; production code and any
   text-containing fixture fail a compile/audit check if they use it.
 
-- [ ] **Step 7e: Migrate the runtime and GPU text proofs.** Replace
+- [x] **Step 7e: Migrate the runtime and GPU text proofs.** Replace
   `runtime_main.cpp` and the existing font/SDL_GPU fixture calls to
   `CollectText`, `GetAtlasPageCount`, and `GetCachedFontSizeCount` with the
   exact `Layout`/`CollectLayout` path. Tests inspect the exact Task 6
@@ -4096,7 +4096,7 @@ which is what the step exists to prove.
   collected with a nonzero page identity and retained page token; it never uses
   a font-GUID/codepoint atlas counter as evidence.
 
-- [ ] **Step 7f: Preserve startup and shutdown owner order.** In editor/runtime
+- [x] **Step 7f: Preserve startup and shutdown owner order.** In editor/runtime
   mains, create the Task 2 text runtime guard before
   `TextRenderer::Init(assetDatabase, sink)`; the passed database is the same
   process-owned authority that later receives the project/sealed artifact-store
@@ -4110,21 +4110,21 @@ which is what the step exists to prove.
   audit with `atlas_cleared < text_services_destroyed < u_cleanup` and require
   neither clear/destruction marker after the interim failed-idle abort.
 
-- [ ] **Step 8: Remove legacy text measurement/collection APIs.** Delete production `MeasureText`, `GetTextWidth`, `GetTextHeight`, and `CollectText` declarations/definitions, then update their now-shared-pipeline callers.
+- [x] **Step 8: Remove legacy text measurement/collection APIs.** Delete production `MeasureText`, `GetTextWidth`, `GetTextHeight`, and `CollectText` declarations/definitions, then update their now-shared-pipeline callers.
 
-- [ ] **Step 8a: Delete the isolated codepoint atlas.** Remove legacy `FontAtlasCache`, its codepoint lookup, and the temporary `FontAtlasGlyph` alias after both consumers compile against `GlyphAtlasCache`.
+- [x] **Step 8a: Delete the isolated codepoint atlas.** Remove legacy `FontAtlasCache`, its codepoint lookup, and the temporary `FontAtlasGlyph` alias after both consumers compile against `GlyphAtlasCache`.
 
-- [ ] **Step 8a.1: Delete legacy raster measurements.** Remove
+- [x] **Step 8a.1: Delete legacy raster measurements.** Remove
   `FontFace::Advance`, `Kerning`, codepoint rasterization, and float
   measurement compatibility once the last consumer moves. Retain
   `HasCodepoint`/`GlyphId` only for non-fallback inspection and add an `rg`/link
   test proving no shaping, layout, or render consumer calls them.
 
-- [ ] **Step 8b: Delete stb measurement from production.** Remove advance/kerning measurement calls and compatibility methods that no remaining non-production test/API needs; stb remains bitmap rasterization only.
+- [x] **Step 8b: Delete stb measurement from production.** Remove advance/kerning measurement calls and compatibility methods that no remaining non-production test/API needs; stb remains bitmap rasterization only.
 
-- [ ] **Step 8c: Delete orphaned legacy text value types.** Remove `CharInfo`, `TextMetrics`, and `TextDrawParams` once all callers use `TextLayoutRequest` and `TextCollectContext`.
+- [x] **Step 8c: Delete orphaned legacy text value types.** Remove `CharInfo`, `TextMetrics`, and `TextDrawParams` once all callers use `TextLayoutRequest` and `TextCollectContext`.
 
-- [ ] **Step 8d: Remove the core-to-legacy-renderer invalidation seam.** Delete
+- [x] **Step 8d: Remove the core-to-legacy-renderer invalidation seam.** Delete
   every `AssetDatabase` include/call of
   `TextRenderer::{InvalidateFont,InvalidateAllFonts}` and delete those legacy
   renderer methods. A successfully published font/family record advances the
@@ -4135,18 +4135,18 @@ which is what the step exists to prove.
   the old layout/resource unchanged. Bounded caches may age out old-generation
   entries normally; no Core layer reaches into Rendering.
 
-- [ ] **Step 9: Remove the TextRenderer2D immediate-render bypass.** Delete the
+- [x] **Step 9: Remove the TextRenderer2D immediate-render bypass.** Delete the
   `TextRenderer2D::RenderSprite(Renderer*)` and one-argument
   `CollectRender(RenderQueue&)` overrides; its two-argument context-bearing
   collection is the only text submission entrypoint.
 
-- [ ] **Step 10: Remove built-in ASCII asset creation/storage.** Delete `GenerateBuiltinFont`, its built-in texture, and its character map after the shared tofu test is in place.
+- [x] **Step 10: Remove built-in ASCII asset creation/storage.** Delete `GenerateBuiltinFont`, its built-in texture, and its character map after the shared tofu test is in place.
 
-- [ ] **Step 10a: Remove the silent fallback selection branch.** Delete every branch that selected those assets; missing family/glyph now reaches only procedural tofu plus typed diagnostics.
+- [x] **Step 10a: Remove the silent fallback selection branch.** Delete every branch that selected those assets; missing family/glyph now reaches only procedural tofu plus typed diagnostics.
 
-- [ ] **Step 11: Remove production compatibility-decoder calls.** Keep `DecodeUtf8` only if a non-production API/test still consumes it; no renderer, UILabel, or TextRenderer2D path may call it.
+- [x] **Step 11: Remove production compatibility-decoder calls.** Keep `DecodeUtf8` only if a non-production API/test still consumes it; no renderer, UILabel, or TextRenderer2D path may call it.
 
-- [ ] **Step 12: Verify the source-level removal before green tests.**
+- [x] **Step 12: Verify the source-level removal before green tests.**
 
   ```bash
   rg -n 'GenerateBuiltinFont|FontAtlasCache|FontAtlasGlyph|CharInfo|TextMetrics|TextDrawParams|FontFace::Metrics|GetKerning\(|GetTextWidth\(|GetTextHeight\(|GetAtlasPageCount\(|GetCachedFontSizeCount\(|MeasureText\(|DecodeUtf8\(|RenderText\(|CollectText\(|TextRenderer2D::RenderSprite|InvalidateAllFonts\(|InvalidateFont\(' \
@@ -4160,19 +4160,19 @@ which is what the step exists to prove.
 
   Expected: no matches.
 
-- [ ] **Step 13: Run focused consumer/GPU/serialization gates.**
+- [x] **Step 13: Run focused consumer/GPU/serialization gates.**
 
   Run: `cmake --build --preset debug --target test_text test_font test_ui test_scene_serializer test_glyph_atlas test_gpu_retirement test_rendering_sdlgpu test_text_runtime_dependencies test_world_sort test_camera_output_layout molga_engine molga_runtime -j && ctest --test-dir build/debug -R '^(test_text|test_font|test_ui|test_scene_serializer|test_glyph_atlas|test_gpu_retirement|test_rendering_sdlgpu|test_text_runtime_dependencies|test_world_sort|test_camera_output_layout)$' --output-on-failure`
 
   Expected: UI/world canonical glyph records match, bounded/unbounded contracts hold, missing glyphs use tofu, and GPU page lifetimes remain valid.
 
-- [ ] **Step 14: Run the complete Debug regression gate.**
+- [x] **Step 14: Run the complete Debug regression gate.**
 
   Run: `ctest --preset debug`
 
   Expected: the complete suite passes with no remaining silent ASCII fallback.
 
-- [ ] **Step 15: Commit the atomic production migration.**
+- [x] **Step 15: Commit the atomic production migration.**
 
   ```bash
   git add src/Rendering/TextRenderer.* src/Rendering/Utf8.* \
@@ -4189,6 +4189,77 @@ which is what the step exists to prove.
   ```
 
 **Exit:** UILabel and TextRenderer2D reach HarfBuzz, final-line layout, glyph-ID atlas, and fence-backed page ownership through exactly one production pipeline.
+
+**Implementation record (2026-09-07).** Commits `a0f8ddb` (46 steps, 45 files), `74acecd` and
+`7c00a13` (review fixes). Debug suite **101/101**, verified independently. **Subplan 02 is
+complete** — the legacy text path is gone: no `FontAtlasCache`, no `FontAtlasGlyph` adapter, no
+silent ASCII fallback, no codepoint shaping or measurement, and `smoke_end_to_end` still reports
+`koreanGlyphQuads = 8` through real shaping.
+
+**Process note, stated plainly:** this task was committed *before* review, to protect 45 files
+against a session limit that had already killed one attempt. The mutation sweep was therefore a
+retroactive gate. It ran 28 mutations and **12 escaped** — so the commit was not review-clean when
+it landed, and all 12 were resolved afterwards in `74acecd` and `7c00a13`.
+
+**A first attempt stopped at BLOCKED, correctly**, after implementing 22 of 46 steps, and both
+conflicts it raised were confirmed. The rulings are recorded above this task under
+"CONTROLLER DECISIONS (2026-09-07)". The dispatch's premise that Task 8.1 had unblocked this was
+**wrong**: 8.1 retired the *packaging* half of the legacy-font problem, not the *shaping* half.
+
+**The worst escape: nothing asserted where a UI label lands.** Zeroing `layoutToOutput.tx/ty`
+(`UISystem.cpp:358-359`) makes every UI label draw at the canvas origin, and it passed `test_ui`,
+`test_text`, `test_font` **and** `smoke_end_to_end` — the fixture rect sits at (250,250), so glyphs
+moved 250 px in both axes unnoticed. The diagnosis is the transferable part: the *world* twin **was**
+caught, because `test_text`'s affine assertions construct `TextCollectContext` directly in the
+fixture. **A fixture that builds the production input itself cannot prove the production site
+builds it correctly.** Now driven through `UISystem::CollectRender` with an off-origin rect and
+pinned two independent ways — per-vertex equivariance and rect containment — so shifting everything
+by one wrong constant cannot pass.
+
+**`test_game_builder` did not compile `GameBuilder.cpp` at all.** Everything believed covered about
+the packaging path was uncovered. It now compiles it, and both halves of the artifact copy are
+tested — the artifact crossing the boundary, and missing bytes stopping the build with the file
+named.
+
+Also closed: the raster policy was plumbed but never *derived* (every UI fixture passed the default
+`TextRasterPolicy{}` — Task 8.1's interchangeable-values shape again); no `CollectLayout` fixture had
+a missing glyph with a bound face; Decision 1's "authored family wins over legacy `fontGuid`" was
+untested; `DestroyProcessInstance` had no caller; the byte cap's value was spelled as its own symbol;
+and the tofu rectangle's one-raw width floor was unwitnessed.
+
+**Two mutants left alone as genuinely equivalent** (M5, M20), and one reviewer framing corrected with
+evidence: `ItemShaper::EmitMissingSpan` leaves `faceResource` empty and is the only writer of
+`missing`, so a missing glyph with a *bound* face cannot occur today — only a synthetic layout can
+witness it.
+
+---
+
+#### A LANDMINE FOR EVERY FUTURE TASK IN THIS SUITE
+
+**`SUBCASE` plus a process-lifetime singleton is a silent infinite loop, not a failure.**
+`AssetDatabase::Get()` binds its font store once per process. doctest re-enters a test body once per
+subcase; the second entry fails the rebind **before** reaching any `SUBCASE` marker, so doctest never
+records a visited subcase and re-runs the body forever. The symptom is a hung suite with no failing
+assertion. **Singleton-backed cases in this suite must stay linear.**
+
+---
+
+#### CARRIED FORWARD
+
+1. **Every font imported before Milestone 4 is unshapeable until re-imported.** A font `.meta`
+   without authored import settings publishes no verified artifact, so no face binds through either
+   resolver entry point — the legacy codepoint atlas used to bypass this by reading bytes from
+   `AbsoluteSourcePath`, and deleting that bypass exposed it. Nothing auto-authors settings on
+   import, so a user dropping a `.ttf` gets tofu unless the editor's font inspector writes them.
+   Same root cause as the unauthored-`.meta` amendment already owned by **Task 15.4**.
+2. **`GameBuilder`'s font-artifact copy is interim.** It copies exactly the artifacts of the records
+   it catalogues and fails the build if one is missing, completing the arrangement
+   `runtime_main.cpp` already documents. **Task 17.3 supersedes it** with the sealed-manifest store.
+3. **`RasterizeGlyph` scales by hhea `ascent − descent`, layout advances scale by `unitsPerEm`.**
+   For Noto Sans KR (hhea span 1.448 em) a nominally 40 px glyph rasterizes at ~27.6 px while being
+   advanced 40 px, so glyphs render visibly small for their spacing. This is Task 6.1's contract and
+   no step asked to change it, but **it must be settled before Task 18.4 takes GPU goldens**, or the
+   defect is baked into the reference images.
 
 #### BLOCKED (2026-09-07): a legacy `fontGuid` has no route to a face through the shared pipeline
 
@@ -4297,9 +4368,9 @@ catch. Port it or record it as knowingly stale.
 
 ## Subplan Completion Gate
 
-- [ ] Run `git diff --check` and scan this plan without self-matching the pattern: `rg -n 'T[B]D|T[O]DO|F[I]XME|implement l[a]ter|similar t[o]' docs/superpowers/plans/2026-08-20-ui-text/02-font-shaping-layout.md`.
-- [ ] Run all Exit Contract gates from a fresh Debug configure and the listed ASan/UBSan shaping/layout gates; retain actual outputs as review evidence.
-- [ ] Invoke `superpowers:requesting-code-review` for the complete Milestones 4–8 commit range and resolve every blocker/high finding before beginning UI layout Milestone 9.
+- [x] Run `git diff --check` and scan this plan without self-matching the pattern: `rg -n 'T[B]D|T[O]DO|F[I]XME|implement l[a]ter|similar t[o]' docs/superpowers/plans/2026-08-20-ui-text/02-font-shaping-layout.md`.
+- [x] Run all Exit Contract gates from a fresh Debug configure and the listed ASan/UBSan shaping/layout gates; retain actual outputs as review evidence.
+- [x] Invoke `superpowers:requesting-code-review` for the complete Milestones 4–8 commit range and resolve every blocker/high finding before beginning UI layout Milestone 9.
 
 ## Execution Handoff
 
