@@ -126,6 +126,7 @@ set(ENGINE_SOURCES
     src/Physics/Box2DBackend.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
+    src/UI/UILayoutSnapshot.cpp
     src/UI/UIRuntimeIdentity.cpp
     src/UI/UIRuntimeInvalidation.cpp
     src/UI/UISystem.cpp

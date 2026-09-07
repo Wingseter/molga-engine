@@ -645,6 +645,15 @@ molga_add_test(test_ui_identity test_ui_identity.cpp)
 molga_add_test(test_ui_components test_ui_components.cpp)
 target_compile_definitions(test_ui_components PRIVATE MOLGA_UI_COMPONENT_TESTING)
 
+# Task 10.1: checked fixed-point geometry and semantic layout snapshots are
+# plain value/JSON contracts. No ICU or HarfBuzz object is constructed here, so
+# these stay molga_add_test targets rather than session-backed ones.
+# Task 10.2 Step 1 re-registers test_ui_snapshot through molga_add_text_test
+# before its fixture constructs TextLayoutService; leave this line as the one to
+# replace rather than adding a second registration next to it.
+molga_add_test(test_ui_fixed test_ui_fixed.cpp)
+molga_add_test(test_ui_snapshot test_ui_snapshot.cpp)
+
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

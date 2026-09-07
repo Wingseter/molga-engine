@@ -77,6 +77,26 @@ private:
     std::int32_t raw_ = 0;
 };
 
+// 논리 26.6 값을 물리 픽셀 엣지로 바꾸는 마지막 단계는 min을 floor로, max를
+// ceil로 내보내야 한 줄도 잘려 나가지 않는다. C++의 /는 0 방향으로 자르므로
+// 음수에서 floor와 다르고(-65 / 64 == -1, floor는 -2), INT64_MIN / -1과
+// 0으로 나누기는 UB다. 그래서 두 방향을 이름으로 갈라 놓고 나누기와 나머지를
+// 계산하기 "전에" 실패를 보고한다. 포화도 랩어라운드도 하지 않는다.
+std::optional<std::int64_t> CheckedFloorDiv(std::int64_t n, std::int64_t d);
+std::optional<std::int64_t> CheckedCeilDiv(std::int64_t n, std::int64_t d);
+
+// 인자는 raw 26.6 정수 비율이다. 프로젝트가 -Wconversion 없이 빌드되므로
+// 부동소수를 넘기면 경고 없이 잘려(CheckedFloorDiv(1.9, 1.0) -> (1, 1))
+// 반올림 방향 자체가 사라진다. FromRaw/CheckedMulDiv와 같은 이유로 막는다.
+template <class TNumerator, class TDenominator,
+          class = std::enable_if_t<std::is_floating_point_v<TNumerator> ||
+                                   std::is_floating_point_v<TDenominator>>>
+std::optional<std::int64_t> CheckedFloorDiv(TNumerator, TDenominator) = delete;
+template <class TNumerator, class TDenominator,
+          class = std::enable_if_t<std::is_floating_point_v<TNumerator> ||
+                                   std::is_floating_point_v<TDenominator>>>
+std::optional<std::int64_t> CheckedCeilDiv(TNumerator, TDenominator) = delete;
+
 struct FixedPoint {
     Fixed26_6 x = Fixed26_6::FromRaw(0);
     Fixed26_6 y = Fixed26_6::FromRaw(0);

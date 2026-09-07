@@ -109,4 +109,20 @@ std::optional<Fixed26_6> Fixed26_6::CheckedMulDiv(
     return Fixed26_6::FromRaw(-static_cast<std::int32_t>(rounded));
 }
 
+std::optional<std::int64_t> CheckedFloorDiv(std::int64_t n,
+                                             std::int64_t d) {
+    if (d == 0 || (n == INT64_MIN && d == -1)) return std::nullopt;
+    const auto q = n / d;
+    const auto r = n % d;
+    return q - ((r != 0 && ((r < 0) != (d < 0))) ? 1 : 0);
+}
+
+std::optional<std::int64_t> CheckedCeilDiv(std::int64_t n,
+                                            std::int64_t d) {
+    if (d == 0 || (n == INT64_MIN && d == -1)) return std::nullopt;
+    const auto q = n / d;
+    const auto r = n % d;
+    return q + ((r != 0 && ((r < 0) == (d < 0))) ? 1 : 0);
+}
+
 } // namespace molga
