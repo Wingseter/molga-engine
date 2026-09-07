@@ -194,9 +194,16 @@ fs::path MakeFontProject(const fs::path& root, const std::string& name) {
 }  // namespace
 
 TEST_CASE("EmitAssetCatalog packages verified font artifacts and refuses without them") {
-    // 하나의 프로세스에 하나의 폰트 산출물 권한. AssetDatabase 싱글턴은
-    // store를 한 번만 묶으므로 이 케이스는 SUBCASE로 갈라지지 않는다 — 두
-    // 번째 진입이 재바인딩에 걸린다.
+    // ── 경고: 이 케이스를 SUBCASE로 가르지 말 것 ─────────────────────────────
+    // 하나의 프로세스에 하나의 폰트 산출물 권한이다. AssetDatabase 싱글턴은
+    // store를 한 번만 묶고 두 번째 바인딩을 거절하므로, SUBCASE로 가르면
+    // 실패가 아니라 **무한 루프**가 된다: doctest는 SUBCASE 하나마다 본문을
+    // 다시 들어가는데, 두 번째 진입은 어떤 SUBCASE 표식에도 닿기 전에 아래
+    // 재바인딩 REQUIRE에서 던진다. 그러면 방문된 SUBCASE가 하나도 없으므로
+    // doctest는 아직 안 가 본 SUBCASE를 찾아 본문을 영원히 다시 돈다 —
+    // 조용히 매달리고, 어떤 단언도 실패로 보고되지 않는다.
+    //
+    // 싱글턴에 기대는 케이스는 이 스위트에서 언제나 한 줄기로 남는다.
     test_support::TempDirectory temp{"game-builder-font-artifacts"};
 
     // 카탈로그의 권한이 되는 프로젝트: Assets에 폰트 한 쌍, 스캔이 그것을
