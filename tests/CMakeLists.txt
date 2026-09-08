@@ -671,6 +671,20 @@ target_include_directories(test_ui_layout PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_definitions(test_ui_layout PRIVATE
     MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
+# Task 11.1 Step 1: the render/clip fixture builds immutable TextLayouts and a
+# TextLayoutService, so it needs the one process-wide ICU lifetime that only a
+# session-backed executable owns. molga_add_text_test already performs the
+# idempotent molga_attach_text_dependencies, supplies the single
+# MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT resource root, and links text_doctest_main
+# instead of doctest_main; a second explicit attach or a second main would give
+# the process two text runtimes.
+molga_add_text_test(test_ui_render_clip test_ui_render_clip.cpp)
+target_include_directories(test_ui_render_clip PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+# Real font bytes and a real catalog: the sprite/label payloads are only
+# observable through the production publishing entry points.
+target_compile_definitions(test_ui_render_clip PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

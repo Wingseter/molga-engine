@@ -1,6 +1,7 @@
 #include "doctest.h"
 
 #include "Common/Fixed26_6.h"
+#include "Rendering/GraphicsDevice.h"
 #include "UI/UILayoutSnapshot.h"
 #include "UI/UILayoutTypes.h"
 #include "UI/UIRuntimeIdentity.h"
@@ -100,7 +101,7 @@ TEST_CASE("layout records default-construct to the empty, ineligible identity") 
 
 namespace {
 
-molga::FixedRect Rect(std::int32_t x, std::int32_t y, std::int32_t width,
+molga::FixedRect RectRaw(std::int32_t x, std::int32_t y, std::int32_t width,
                       std::int32_t height) {
     return molga::FixedRect{
         molga::Fixed26_6::FromRaw(x), molga::Fixed26_6::FromRaw(y),
@@ -132,15 +133,15 @@ molga::ui::UISnapshot MakeSnapshot() {
 
     molga::ui::UILayoutNodeSnapshot first;
     first.rectTransform = Identity(11);
-    first.logicalRect = Rect(64, 128, 192, 256);
+    first.logicalRect = RectRaw(64, 128, 192, 256);
     first.intrinsicSize = Size(320, 384);
-    first.logicalClip = Rect(448, 512, 576, 640);
+    first.logicalClip = RectRaw(448, 512, 576, 640);
     first.layoutRevision = 7;
     first.interactionEligible = true;
 
     molga::ui::UILayoutNodeSnapshot second;
     second.rectTransform = Identity(22);
-    second.logicalRect = Rect(-64, -128, 704, 768);
+    second.logicalRect = RectRaw(-64, -128, 704, 768);
     second.intrinsicSize = Size(832, 896);
     second.logicalClip = std::nullopt;
     second.layoutRevision = 8;
@@ -159,7 +160,8 @@ constexpr char kExpectedJson[] =
     R"({"objectId":22,"logicalRect":{"x":-64,"y":-128,"width":704,"height":768},)"
     R"("intrinsicSize":{"width":832,"height":896},)"
     R"("logicalClip":null,)"
-    R"("interactionEligible":false}]})";
+    R"("interactionEligible":false}],)"
+    R"("renderItems":[],"hitTargets":[],"textInputLabels":[]})";
 
 } // namespace
 
@@ -240,7 +242,7 @@ TEST_CASE("StableLayoutSnapshotJson reacts to every semantic field") {
               s.nodes[0].logicalClip = std::nullopt;
           }));
     CHECK(base != mutated([](molga::ui::UISnapshot& s) {
-              s.nodes[1].logicalClip = Rect(1, 2, 3, 4);
+              s.nodes[1].logicalClip = RectRaw(1, 2, 3, 4);
           }));
     // 두 노드의 interactionEligible이 서로 다르므로 어느 쪽을 뒤집어도
     // 달라진다 — 상수로 고정한 구현이 양방향에서 죽는다.
@@ -333,7 +335,7 @@ KeyedNode MakeKeyedNode(std::int32_t canvasSortingOrder,
     // 노드마다 내용이 달라야 순열이 JSON에 드러난다. 내용이 같으면 정렬이
     // 틀려도 바이트가 같아 검사가 공허해진다.
     keyed.node.logicalRect =
-        Rect(static_cast<std::int32_t>(objectId) * 64, 128, 192, 256);
+        RectRaw(static_cast<std::int32_t>(objectId) * 64, 128, 192, 256);
     keyed.node.intrinsicSize = Size(320, 384);
     keyed.node.layoutRevision = objectId;
     keyed.node.interactionEligible = (objectId % 2u) == 1u;
@@ -393,4 +395,298 @@ TEST_CASE("draw order sorting makes snapshot bytes insertion-order stable") {
           expected);
     CHECK(molga::ui::StableLayoutSnapshotJson(SnapshotOf(insertionA)) !=
           molga::ui::StableLayoutSnapshotJson(SnapshotOf(insertionB)));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 11.1 Step 7: 정규 JSON은 의미 페이로드 필드만 담는다
+// ─────────────────────────────────────────────────────────────────────────────
+namespace {
+
+molga::ui::UIStableComponentKey StableKey(unsigned int objectId,
+                                          const char* typeName,
+                                          std::uint32_t schemaVersion) {
+    molga::ui::UIStableComponentKey key;
+    key.sceneObjectId = objectId;
+    key.componentTypeName = typeName;
+    key.componentSchemaVersion = schemaVersion;
+    return key;
+}
+
+molga::ui::UIFrozenTarget FrozenTarget(unsigned int objectId,
+                                       const char* typeName,
+                                       std::uint32_t schemaVersion) {
+    molga::ui::UIFrozenTarget target;
+    target.runtimeTarget = Identity(objectId);
+    target.canonicalTarget = StableKey(objectId, typeName, schemaVersion);
+    return target;
+}
+
+molga::ui::UIDrawOrderKey Order(std::int32_t canvasSortingOrder,
+                                std::vector<std::uint32_t> siblingPath,
+                                std::int32_t componentSortingOrder,
+                                std::uint64_t stableSubmissionIndex) {
+    molga::ui::UIDrawOrderKey order;
+    order.canvasSortingOrder = canvasSortingOrder;
+    order.siblingPath = std::move(siblingPath);
+    order.componentSortingOrder = componentSortingOrder;
+    order.stableSubmissionIndex = stableSubmissionIndex;
+    return order;
+}
+
+// 런타임 바인딩을 일부러 전부 0이 아닌 값으로 채운다. 정규 바이트에 하나라도
+// 새어 나오면 아래 금지 키 검사와 "장치를 다시 만들어도 바이트가 같다"는
+// 검사가 함께 죽는다.
+molga::ui::TextureRuntimeBindingIdentity RuntimeBinding(
+    std::uint64_t deviceGeneration, std::uint64_t uploadGeneration,
+    std::uint64_t lifetimeIdentity) {
+    molga::ui::TextureRuntimeBindingIdentity binding;
+    binding.deviceGeneration = deviceGeneration;
+    binding.uploadGeneration = uploadGeneration;
+    binding.texture = molga::detail::MakeTextureHandleForTest(
+        static_cast<std::uint32_t>(deviceGeneration), 1);
+    binding.sampler = molga::detail::MakeSamplerHandleForTest(
+        static_cast<std::uint32_t>(uploadGeneration), 1);
+    binding.lifetimeIdentity = lifetimeIdentity;
+    return binding;
+}
+
+molga::ui::UISnapshot MakePayloadSnapshot() {
+    molga::ui::UISnapshot snapshot;
+    snapshot.surfaceWindowId = 3;
+    snapshot.worldGeneration = 5;
+    snapshot.logicalViewport = Size(800 * 64, 600 * 64);
+
+    molga::ui::UIRenderItemSnapshot sprite;
+    sprite.source = Identity(11);
+    sprite.canonicalSource = StableKey(11, "UIImage", 1);
+    sprite.order = Order(2, {0, 1}, 5, 9);
+    sprite.logicalRect = RectRaw(64, 128, 192, 256);
+    sprite.logicalClip = RectRaw(448, 512, 576, 640);
+    sprite.reservedCommandSpan = 1;
+    molga::ui::UISpriteSnapshot spritePayload;
+    spritePayload.textureGuid = "texture-guid";
+    spritePayload.textureContentSha256 = "abc123";
+    spritePayload.textureContentStableId = 7788;
+    spritePayload.binding = RuntimeBinding(11, 3, 101);
+    spritePayload.tint = Color{0.25f, 0.5f, 0.75f, 1.0f};
+    sprite.payload = spritePayload;
+
+    molga::ui::UIRenderItemSnapshot solid;
+    solid.source = Identity(22);
+    solid.canonicalSource = StableKey(22, "UIButton", 1);
+    solid.order = Order(2, {0, 1}, 6, 10);
+    solid.logicalRect = RectRaw(-64, -128, 704, 768);
+    solid.logicalClip = std::nullopt;
+    solid.reservedCommandSpan = 4;
+    molga::ui::UISolidRectSnapshot solidPayload;
+    solidPayload.color = Color{0.1f, 0.2f, 0.3f, 0.4f};
+    solid.payload = solidPayload;
+
+    snapshot.renderItems = {sprite, solid};
+
+    molga::ui::UIHitTargetSnapshot hit;
+    hit.target = Identity(11);
+    hit.canonicalTarget = StableKey(11, "UIImage", 1);
+    hit.focusTarget = FrozenTarget(11, "UISelectable", 1);
+    hit.textInputTarget = FrozenTarget(11, "UITextInput", 1);
+    hit.scrollTargets = {FrozenTarget(33, "UIScrollView", 1),
+                         FrozenTarget(44, "UIScrollView", 1)};
+    hit.order = Order(2, {0, 1}, 5, 9);
+    hit.logicalRect = RectRaw(64, 128, 192, 256);
+    hit.logicalClip = RectRaw(448, 512, 576, 640);
+    hit.interactable = true;
+    hit.focusable = true;
+    hit.acceptsTextInput = false;
+    hit.navigation.mode = UINavigationMode::Explicit;
+    hit.navigation.explicitTargets[0] = Identity(55);
+    hit.navigation.canonicalTargets[0] = StableKey(55, "UISelectable", 1);
+    snapshot.hitTargets = {hit};
+
+    molga::ui::UITextInputLabelSnapshot owned;
+    owned.input = FrozenTarget(11, "UITextInput", 1);
+    owned.renderedLabel.label = FrozenTarget(66, "UILabel", 2);
+    owned.renderedLabel.color = Color{0.5f, 0.6f, 0.7f, 0.8f};
+    owned.renderedLabel.enabledAndVisible = true;
+    molga::ui::UIFrozenInputLabelVisual placeholder;
+    placeholder.label = FrozenTarget(77, "UILabel", 2);
+    placeholder.color = Color{0.9f, 0.8f, 0.7f, 0.6f};
+    placeholder.enabledAndVisible = false;
+    owned.placeholderLabel = placeholder;
+    owned.logicalViewport = RectRaw(1, 2, 3, 4);
+    owned.logicalClip = std::nullopt;
+    owned.baseOrder = Order(2, {0, 1}, 0, 9);
+    snapshot.textInputLabels = {owned};
+
+    // IME 기하는 런타임 편집 상태(focused)를 싣고 있으므로 정규 바이트에
+    // 들어가지 않는다. 값을 채워 두는 것은 그 배제가 실제로 일어나는지를
+    // 아래에서 확인하기 위해서다.
+    molga::ui::UITextInputImeGeometrySnapshot ime;
+    ime.input = FrozenTarget(11, "UITextInput", 1);
+    ime.logicalInputArea = RectRaw(5, 6, 7, 8);
+    ime.focused = true;
+    snapshot.textInputImeGeometry = {ime};
+    return snapshot;
+}
+
+} // namespace
+
+TEST_CASE("payload JSON carries canonical keys and no runtime binding") {
+    const std::string json =
+        molga::ui::StableLayoutSnapshotJson(MakePayloadSnapshot());
+
+    // 같은 입력은 같은 바이트를 낸다.
+    CHECK(json == molga::ui::StableLayoutSnapshotJson(MakePayloadSnapshot()));
+
+    // 실제로 내보내는 의미 필드들.
+    for (const char* present :
+         {"canonicalSource", "componentTypeName", "componentSchemaVersion",
+          "reservedCommandSpan", "stableSubmissionIndex", "siblingPath",
+          "textureGuid", "textureContentSha256", "textureContentStableId",
+          "focusTarget", "textInputTarget", "scrollTargets", "navigation",
+          "renderedLabel", "placeholderLabel", "Explicit", "sprite", "solid"}) {
+        CAPTURE(present);
+        CHECK(json.find(present) != std::string::npos);
+    }
+
+    // 그리고 절대 나오면 안 되는 것들. 런타임 정체성, 표면 창, 프로세스 지역
+    // 세대, 네이티브 핸들, 수명 토큰, atlas/UV, 물리 픽셀.
+    for (const char* forbidden :
+         {"frameIndex", "worldGeneration", "componentRuntimeTypeId",
+          "componentInstanceId", "layoutRevision", "surfaceWindowId",
+          "deviceGeneration", "uploadGeneration", "lifetimeIdentity",
+          "binding", "resourceLifetime", "runtimeTarget", "atlas", "uv", "gpu",
+          "timestamp", "physical", "focused", "caretVisible", "editRevision",
+          "enabledAndVisible", "textInputImeGeometry"}) {
+        CAPTURE(forbidden);
+        CHECK(json.find(forbidden) == std::string::npos);
+    }
+}
+
+TEST_CASE("payload JSON is byte-identical across binding and edit history") {
+    const std::string base =
+        molga::ui::StableLayoutSnapshotJson(MakePayloadSnapshot());
+
+    // 장치를 다시 만들어 모든 런타임 바인딩 필드가 달라져도 바이트는 같다.
+    molga::ui::UISnapshot rebound = MakePayloadSnapshot();
+    auto& sprite = std::get<molga::ui::UISpriteSnapshot>(
+        rebound.renderItems[0].payload);
+    sprite.binding = RuntimeBinding(99, 77, 555);
+    CHECK(molga::ui::StableLayoutSnapshotJson(rebound) == base);
+
+    // 런타임 라우팅 정체성도 마찬가지다.
+    molga::ui::UISnapshot rerouted = MakePayloadSnapshot();
+    rerouted.surfaceWindowId = 4242;
+    rerouted.renderItems[0].source = Identity(999);
+    rerouted.hitTargets[0].target = Identity(999);
+    rerouted.hitTargets[0].focusTarget->runtimeTarget = Identity(999);
+    rerouted.hitTargets[0].navigation.explicitTargets[0] = Identity(999);
+    rerouted.textInputImeGeometry[0].focused = false;
+    // ── Task 11.1 Q3 ────────────────────────────────────────────────────────
+    // enabledAndVisible은 "비어 있고 포커스가 없는가"를 그대로 담은 런타임
+    // 편집 상태다. IME 기하를 focused 때문에 통째로 뺀 것과 같은 사실이므로
+    // 같은 규칙이어야 한다: 사용자가 입력창을 한 번 누르는 것만으로 같은 저작
+    // 씬의 정규 바이트가 달라지면, "편집 이력이 다른 빌드가 바이트 동일한
+    // 의미 스냅샷을 낸다"는 Exit Contract가 그 자리에서 깨진다.
+    rerouted.textInputLabels[0].renderedLabel.enabledAndVisible = false;
+    rerouted.textInputLabels[0].placeholderLabel->enabledAndVisible = true;
+    CHECK(molga::ui::StableLayoutSnapshotJson(rerouted) == base);
+
+    // 위 등식이 공허하지 않다는 증인: 의미 필드는 전부 바이트를 바꾼다.
+    auto mutated = [](void (*apply)(molga::ui::UISnapshot&)) {
+        molga::ui::UISnapshot snapshot = MakePayloadSnapshot();
+        apply(snapshot);
+        return molga::ui::StableLayoutSnapshotJson(snapshot);
+    };
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].canonicalSource.sceneObjectId = 999;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].canonicalSource.componentTypeName = "UILabel";
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].canonicalSource.componentSchemaVersion = 9;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].order.stableSubmissionIndex = 999;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].order.siblingPath = {9, 9};
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].order.canvasSortingOrder = 99;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].order.componentSortingOrder = 99;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].logicalRect.x = molga::Fixed26_6::FromRaw(1);
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[0].logicalClip = std::nullopt;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems[1].reservedCommandSpan = 5;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              std::get<molga::ui::UISpriteSnapshot>(s.renderItems[0].payload)
+                  .textureGuid = "other";
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              std::get<molga::ui::UISpriteSnapshot>(s.renderItems[0].payload)
+                  .textureContentSha256 = "other";
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              std::get<molga::ui::UISpriteSnapshot>(s.renderItems[0].payload)
+                  .textureContentStableId = 1;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              std::get<molga::ui::UISpriteSnapshot>(s.renderItems[0].payload)
+                  .tint = Color{1.0f, 1.0f, 1.0f, 1.0f};
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              std::get<molga::ui::UISolidRectSnapshot>(s.renderItems[1].payload)
+                  .color = Color{1.0f, 1.0f, 1.0f, 1.0f};
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].focusTarget = std::nullopt;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].textInputTarget = std::nullopt;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              // 안쪽에서 바깥쪽 순서 자체가 계약이다.
+              std::swap(s.hitTargets[0].scrollTargets[0],
+                        s.hitTargets[0].scrollTargets[1]);
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].interactable = false;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].focusable = false;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].acceptsTextInput = true;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].navigation.mode = UINavigationMode::None;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].navigation.canonicalTargets[0] = std::nullopt;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.textInputLabels[0].placeholderLabel = std::nullopt;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.textInputLabels[0].reservedCommandSpan = 5;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.textInputLabels[0].renderedLabel.label.canonicalTarget
+                  .sceneObjectId = 999;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.renderItems.pop_back();
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets.clear();
+          }));
 }

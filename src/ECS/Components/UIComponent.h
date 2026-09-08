@@ -96,6 +96,27 @@ public:
         Invalidate(static_cast<UIInvalidation>(UIAllInvalidationBits));
     }
 
+    // ── Task 11.1: 붙이고 떼는 것도 게시된 스냅샷을 바꾼다 ──────────────────
+    // Invalidate는 세터에서만 닿으므로, 이미 월드에 있는 오브젝트에
+    // AddComponent<UICanvas>()를 해도 어떤 revision도 어떤 epoch도 움직이지
+    // 않았다. 그러면 Build의 빠른 경로 도장이 그대로라 새 Canvas가 무기한
+    // 화면에 나오지 않는다 — 인스펙터의 "Add Component"가 정확히 그 경로다.
+    // 자기 revision은 올리지 않는다: 이 인스턴스는 방금 만들어졌으므로 그
+    // revision에는 비교할 과거가 없고, 캐시가 구분해야 하는 것은 "이 월드의
+    // 컴포넌트 집합이 달라졌다"는 사실이다.
+    void OnAttach() override {
+        Component::OnAttach();
+        molga::ui::NotifyUISemanticMutation();
+    }
+
+    // 떼는 것도 같은 사실이다. OnDestroy가 아니라 OnDetach에 두는 이유는
+    // RemoveComponentById가 OnDestroy를 오브젝트가 파괴 중일 때만 부르기
+    // 때문이다 — 인스펙터의 "Remove Component"는 그 조건을 만족하지 않는다.
+    void OnDetach() override {
+        Component::OnDetach();
+        molga::ui::NotifyUISemanticMutation();
+    }
+
 #ifdef MOLGA_UI_COMPONENT_TESTING
     // 테스트 타깃에서만 컴파일된다. 데이터 멤버도 가상 함수도 늘리지 않으므로
     // 이 헤더를 매크로 없이 본 molga_core의 레이아웃과 동일하다. 소진 경계는

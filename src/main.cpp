@@ -32,6 +32,7 @@
 #include "Scripting/ScriptCompiler.h"
 #include "Editor/SceneDocument.h"
 #include "Rendering/TextRenderer.h"
+#include "UI/UISystem.h"
 #include "Core/PathService.h"
 #include "Core/BuildPlan.h"
 #include "Core/PrefabRegistry.h"
@@ -372,6 +373,16 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
                    "could not be initialized. The editor shell remains "
                    "usable.");
     }
+
+    // ── Task 11.1 Step 3i/A3: 배치의 두 의존물을 진입점이 소유한다 ─────────
+    // Build는 이제 편집 상태 제공자와 정확한 공유 TextLayoutService를 요구한다.
+    // 그 서비스는 TextRenderer가 초기화된 *뒤에야* 존재하므로 설치 지점은 바로
+    // 여기다. 진짜 제공자는 Task 14가 설치하고, 그때까지는 값이 비어 있음을
+    // 명시적으로 말하는 Empty 제공자가 그 자리를 지킨다 — 기본 인자로 숨기면
+    // 한 표면에서 빠뜨려도 컴파일이 통과한다.
+    UISystem::Get().InstallLayoutDependencies(
+        molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+        TextRenderer::Get().LayoutService());
 
     // Initialize Editor
     Editor::Get().Init();

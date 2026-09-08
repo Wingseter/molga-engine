@@ -83,6 +83,38 @@ private:
     std::vector<molga::text::TextDiagnostic> records_;
 };
 
+// ── Task 11.1 Step 3i: Build가 제공자와 텍스트 서비스를 명시적으로 받는다 ──
+// 이 파일의 케이스는 라벨을 배치하지 않으므로 빈 카탈로그 위의 실물 서비스면
+// 충분하다. 널이나 더미를 넘기는 오버로드를 만들지 않는 이유는 하나다 — 그런
+// 오버로드가 하나라도 있으면 프로덕션이 실제로 타는 경로와 다른 프로그램을
+// 재게 된다.
+//
+// 절대 파괴하지 않는다. text_doctest_main이 프로세스가 끝나기 직전에 ICU를
+// 정리하므로, 정적 소멸자에서 살아 있는 캐시는 이미 정리된 런타임을 만진다.
+molga::text::TextLayoutService& SharedLayoutTextService() {
+    struct Holder {
+        molga::AssetDatabase database;
+        molga::text::FontRepository repository{database};
+        molga::text::FontFamilyResolver resolver{database, repository};
+        molga::text::TextShapingService shaper;
+        molga::text::TextLayoutCache cache{
+            molga::text::TextLayoutCacheLimits::Production()};
+        molga::text::TextLayoutService service{resolver, shaper, cache};
+    };
+    static Holder* holder = new Holder();
+    return holder->service;
+}
+
+molga::ui::UISnapshotPtr BuildUILayout(molga::ui::UILayoutSystem& system,
+                                       World& world, molga::WindowId window,
+                                       FixedSize viewport,
+                                       molga::text::TextDiagnosticSink& sink) {
+    return system.Build(
+        world, window, viewport,
+        molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+        SharedLayoutTextService(), sink);
+}
+
 // ── 저작 JSON에서 씬을 만든다 ────────────────────────────────────────────────
 // 컴포넌트 값을 세터로 직접 밀어 넣지 않고 Deserialize를 통과시키는 이유는
 // 두 가지다. 첫째, 케이스가 실제로 디스크에 저장되는 저작 형식을 시험한다.
@@ -254,7 +286,7 @@ public:
     }
 
     molga::ui::UISnapshotPtr Build() {
-        return system_.Build(world_, molga::WindowId{7}, viewport_, sink_);
+        return BuildUILayout(system_, world_, molga::WindowId{7}, viewport_, sink_);
     }
 
     World& GetWorld() noexcept { return world_; }
@@ -502,7 +534,16 @@ const std::vector<LayoutCase>& AllLayoutCases() {
              {{1, 0, 0, 3200, 1600}, {2, 1280, 640, 640, 320}}});
 
         // match=0이면 폭이 기준이다: 1600x1200 픽셀 뷰포트에서 배율은 2이고
-        // 논리 크기는 정확히 800x600이 된다.
+        // 캔버스 논리 크기는 정확히 800x600이 된다.
+        //
+        // ── Task 11.1 F1: 게시되는 사각형은 *표면* 논리 단위다 ──────────────
+        // 확정은 캔버스 논리 단위(800x600) 안에서 일어나지만, 게시 직전에
+        // 배율이 정확히 한 번 적용되어 뿌리는 뷰포트에 겹치고 자식은 2배가
+        // 된다. 저작된 (25,10,100x50)은 화면에서 (50,20,200x100)이고, 그것이
+        // UISystem::CollectRender/HitTest가 쓰는 RectTransform::GetScreenRect가
+        // 내는 값이다. 배율 이전 값을 게시하면 두 경로가 배율만큼 어긋나고,
+        // 배율이 다른 캔버스 둘이 한 표면에 있으면 UISnapshot의 논리 뷰포트
+        // 하나로는 둘 다 옳게 매핑할 수 없다.
         rows.push_back(
             {"scaled-viewport-canvas",
              Node(1,
@@ -512,7 +553,7 @@ const std::vector<LayoutCase>& AllLayoutCases() {
                   {Node(2, {{"RectTransform",
                              OffsetRectJson(25.0f, 10.0f, 100.0f, 50.0f)}})}),
              102400, 76800,
-             {{1, 0, 0, 51200, 38400}, {2, 1600, 640, 6400, 3200}}});
+             {{1, 0, 0, 102400, 76800}, {2, 3200, 1280, 12800, 6400}}});
 
         // 드라이버 우선순위 Canvas > 부모 그룹 > 자기 fitter > 저작 rect.
         // id 2의 폭은 부모 그룹이 정하므로 fitter의 preferred(640)가 아니라
@@ -685,7 +726,7 @@ public:
     }
 
     molga::ui::UISnapshotPtr Build() {
-        return system_.Build(world_, molga::WindowId{7}, viewport_, sink_);
+        return BuildUILayout(system_, world_, molga::WindowId{7}, viewport_, sink_);
     }
 
     // 노드가 없으면 값을 돌려주지 않고 그 자리에서 실패한다. 0을 돌려주면
@@ -962,7 +1003,7 @@ public:
     }
 
     molga::ui::UISnapshotPtr Build() {
-        auto snapshot = system_.Build(world_, window_, viewport_, sink_);
+        auto snapshot = BuildUILayout(system_, world_, window_, viewport_, sink_);
         if (snapshot && !oldestGeometryKey_) {
             oldestGeometryKey_ = system_.LastGeometryKey();
         }
@@ -1045,9 +1086,9 @@ TEST_CASE("an unchanged frame returns the identical snapshot") {
     const auto viewport = fixture.Viewport();
     auto& diagnostics = fixture.Diagnostics();
 
-    const auto first = layout.Build(world, molga::WindowId{7}, viewport,
+    const auto first = BuildUILayout(layout, world, molga::WindowId{7}, viewport,
                                     diagnostics);
-    const auto second = layout.Build(world, molga::WindowId{7}, viewport,
+    const auto second = BuildUILayout(layout, world, molga::WindowId{7}, viewport,
                                      diagnostics);
     REQUIRE(first);
     CHECK(first.get() == second.get());
@@ -1055,7 +1096,7 @@ TEST_CASE("an unchanged frame returns the identical snapshot") {
     // 다른 창에 같은 world/viewport를 그리면 전체 스냅샷은 놓쳐야 하지만
     // 기하는 그대로 재사용된다. 그리고 정규 바이트는 창과 무관해야 한다.
     const auto geometryBuilds = layout.GeometryBuildCount();
-    const auto onWindowEight = layout.Build(world, molga::WindowId{8}, viewport,
+    const auto onWindowEight = BuildUILayout(layout, world, molga::WindowId{8}, viewport,
                                             diagnostics);
     REQUIRE(onWindowEight);
     CHECK(onWindowEight.get() != second.get());
@@ -1064,7 +1105,7 @@ TEST_CASE("an unchanged frame returns the identical snapshot") {
     CHECK(molga::ui::StableLayoutSnapshotJson(*onWindowEight) ==
           molga::ui::StableLayoutSnapshotJson(*first));
 
-    const auto backOnSeven = layout.Build(world, molga::WindowId{7}, viewport,
+    const auto backOnSeven = BuildUILayout(layout, world, molga::WindowId{7}, viewport,
                                           diagnostics);
     REQUIRE(backOnSeven);
     CHECK(backOnSeven.get() != onWindowEight.get());
@@ -1242,16 +1283,16 @@ TEST_CASE("toggling label wrap mode invalidates cached geometry") {
                        {"UILabel", LabelJson("wrap me please", "Word")}})}),
         nullptr);
 
-    REQUIRE(layout.Build(world, molga::WindowId{5}, viewport, sink));
+    REQUIRE(BuildUILayout(layout, world, molga::WindowId{5}, viewport, sink));
     const auto warmBuilds = layout.GeometryBuildCount();
     // 아무것도 바꾸지 않으면 기하는 다시 만들어지지 않는다.
-    REQUIRE(layout.Build(world, molga::WindowId{5}, viewport, sink));
+    REQUIRE(BuildUILayout(layout, world, molga::WindowId{5}, viewport, sink));
     CHECK(layout.GeometryBuildCount() == warmBuilds);
 
     auto* label = world.FindById(2)->GetComponent<UILabel>();
     REQUIRE(label != nullptr);
     label->SetWrapMode(molga::text::TextWrapMode::NoWrap);
-    REQUIRE(layout.Build(world, molga::WindowId{5}, viewport, sink));
+    REQUIRE(BuildUILayout(layout, world, molga::WindowId{5}, viewport, sink));
     // 줄바꿈이 달라졌으니 기하를 다시 만들어야 한다.
     CHECK(layout.GeometryBuildCount() > warmBuilds);
 }
@@ -1284,7 +1325,7 @@ TEST_CASE("a geometry hit keeps clipped-out nodes out of the visual key") {
                               {"sortingOrder", 0}}}})})}),
         nullptr);
 
-    const auto cold = layout.Build(world, molga::WindowId{3}, viewport, sink);
+    const auto cold = BuildUILayout(layout, world, molga::WindowId{3}, viewport, sink);
     REQUIRE(cold);
     const auto coldEntries = layout.LastVisualKeyEntryCount();
     // 안쪽 하나만 세어야 한다. 둘이면 클립이 키에 반영되지 않은 것이다.
@@ -1293,7 +1334,7 @@ TEST_CASE("a geometry hit keeps clipped-out nodes out of the visual key") {
 
     // 기하에 영향이 없는 편집이라야 기하는 적중하고 키는 다시 만들어진다.
     world.FindById(3)->GetComponent<UIImage>()->SetTint({0.5f, 0.5f, 0.5f, 1.0f});
-    const auto warm = layout.Build(world, molga::WindowId{3}, viewport, sink);
+    const auto warm = BuildUILayout(layout, world, molga::WindowId{3}, viewport, sink);
     REQUIRE(warm);
     CHECK(layout.GeometryBuildCount() == coldGeometryBuilds);
     // 적중한 빌드도 차가운 빌드와 같은 키를 만들어야 한다.
@@ -1310,15 +1351,15 @@ TEST_CASE("alternating viewports still hit geometry when one returns") {
     REQUIRE(panelViewport != gameViewport);
 
     // 두 뷰포트를 한 번씩 지나 각자의 기하를 만든다.
-    REQUIRE(layout.Build(world, molga::WindowId{7}, panelViewport, sink));
-    REQUIRE(layout.Build(world, molga::WindowId{7}, gameViewport, sink));
+    REQUIRE(BuildUILayout(layout, world, molga::WindowId{7}, panelViewport, sink));
+    REQUIRE(BuildUILayout(layout, world, molga::WindowId{7}, gameViewport, sink));
     const auto warmedBuilds = layout.GeometryBuildCount();
 
     // 이제 여섯 프레임을 번갈아 그린다. 값마다 이름이 고정돼 있으면 두 항목이
     // 계속 적중하므로 새 기하는 하나도 만들어지지 않는다.
     for (int frame = 0; frame < 3; ++frame) {
-        REQUIRE(layout.Build(world, molga::WindowId{7}, panelViewport, sink));
-        REQUIRE(layout.Build(world, molga::WindowId{7}, gameViewport, sink));
+        REQUIRE(BuildUILayout(layout, world, molga::WindowId{7}, panelViewport, sink));
+        REQUIRE(BuildUILayout(layout, world, molga::WindowId{7}, gameViewport, sink));
     }
     CHECK(layout.GeometryBuildCount() == warmedBuilds);
     // 서로 다른 두 뷰포트는 서로 다른 항목으로 남는다 — 하나로 합쳐지면
@@ -1344,8 +1385,8 @@ TEST_CASE("interleaved worlds and devices keep per-slot cache occupancy") {
     molga::ui::UISnapshotWorldDeviceSlotKey slotB{generationB, device};
 
     for (int i = 0; i < 8; ++i) {
-        REQUIRE(layout.Build(worldA, molga::WindowId{7}, viewport, sink));
-        REQUIRE(layout.Build(worldB, molga::WindowId{8}, viewport, sink));
+        REQUIRE(BuildUILayout(layout, worldA, molga::WindowId{7}, viewport, sink));
+        REQUIRE(BuildUILayout(layout, worldB, molga::WindowId{8}, viewport, sink));
     }
     CHECK(layout.FullSnapshotCacheEntryCountForWorldDevice(slotA) == 1);
     CHECK(layout.FullSnapshotCacheEntryCountForWorldDevice(slotB) == 1);
@@ -1363,7 +1404,7 @@ TEST_CASE("interleaved worlds and devices keep per-slot cache occupancy") {
             molga::ui::UIRuntimeGenerationKind::Device, device + 1);
         molga::ui::UISnapshotWorldDeviceSlotKey nextSlotA{generationA,
                                                           device + 1};
-        REQUIRE(layout.Build(worldA, molga::WindowId{7}, viewport, sink));
+        REQUIRE(BuildUILayout(layout, worldA, molga::WindowId{7}, viewport, sink));
         CHECK(layout.FullSnapshotCacheEntryCountForWorldDevice(slotA) == 0);
         CHECK(layout.FullSnapshotCacheEntryCountForWorldDevice(slotB) == 0);
         CHECK(layout.FullSnapshotCacheEntryCountForWorldDevice(nextSlotA) == 1);
@@ -1374,7 +1415,7 @@ TEST_CASE("interleaved worlds and devices keep per-slot cache occupancy") {
 
     // 월드를 놓으면 그 월드의 LRU와 모든 전체 슬롯이 함께 사라지고, 다른
     // 월드의 항목은 하나도 건드리지 않는다.
-    REQUIRE(layout.Build(worldB, molga::WindowId{8}, viewport, sink));
+    REQUIRE(BuildUILayout(layout, worldB, molga::WindowId{8}, viewport, sink));
     CHECK(layout.FullSnapshotCacheEntryCountForWorldDevice(slotB) == 1);
     layout.OnWorldReleased(generationA);
     CHECK(layout.GeometryCacheEntryCountForWorld(generationA) == 0);
@@ -2168,12 +2209,12 @@ TEST_CASE("Build rejects a zero surface window and an invalid viewport") {
     auto& layout = f.System();
     auto& world = f.GetWorld();
     auto& sink = f.Diagnostics();
-    CHECK_FALSE(layout.Build(world, molga::WindowId{0}, f.Viewport(), sink));
-    CHECK_FALSE(layout.Build(world, molga::WindowId{7}, RawSize(0, 384), sink));
-    CHECK_FALSE(layout.Build(world, molga::WindowId{7}, RawSize(640, -1), sink));
+    CHECK_FALSE(BuildUILayout(layout, world, molga::WindowId{0}, f.Viewport(), sink));
+    CHECK_FALSE(BuildUILayout(layout, world, molga::WindowId{7}, RawSize(0, 384), sink));
+    CHECK_FALSE(BuildUILayout(layout, world, molga::WindowId{7}, RawSize(640, -1), sink));
     CHECK(sink.Count(TextDiagnosticCode::LayoutInvalid) == 3);
     // 증인: 유효한 인자는 스냅샷을 낸다.
-    CHECK(layout.Build(world, molga::WindowId{7}, f.Viewport(), sink));
+    CHECK(BuildUILayout(layout, world, molga::WindowId{7}, f.Viewport(), sink));
 }
 
 // ── 캐시 키의 필드 민감도 ────────────────────────────────────────────────────
@@ -2421,7 +2462,7 @@ TEST_CASE("an external scene replacement invalidates the geometry cache") {
     BuildAuthoredNode(world, ReplacementScene(10.0f), nullptr);
     const auto viewport = RawSize(1280, 640);
 
-    const auto first = layout.Build(world, molga::WindowId{7}, viewport, sink);
+    const auto first = BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
     REQUIRE(first);
     REQUIRE(first->nodes.size() == 2);
     CHECK(first->nodes[1].logicalRect.width.Raw() == 640);
@@ -2434,7 +2475,7 @@ TEST_CASE("an external scene replacement invalidates the geometry cache") {
     world.RepublishGenerationAfterExternalReplacement();
     CHECK(world.Generation() != generationBefore);
 
-    const auto second = layout.Build(world, molga::WindowId{7}, viewport, sink);
+    const auto second = BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
     REQUIRE(second);
     REQUIRE(second->nodes.size() == 2);
     CHECK(second->nodes[1].logicalRect.width.Raw() == 1280);
@@ -2466,21 +2507,63 @@ TEST_CASE("the UISystem facade owns the one production layout system") {
     const auto viewport = RawSize(640, 384);
 
     const auto first =
-        UISystem::Get().BuildLayout(world, molga::WindowId{9}, viewport, sink);
+        UISystem::Get().BuildLayout(
+            world, molga::WindowId{9}, viewport,
+            molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+            SharedLayoutTextService(), sink);
     const auto second =
-        UISystem::Get().BuildLayout(world, molga::WindowId{9}, viewport, sink);
+        UISystem::Get().BuildLayout(
+            world, molga::WindowId{9}, viewport,
+            molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+            SharedLayoutTextService(), sink);
     REQUIRE(first);
     CHECK(first.get() == second.get());
     CHECK(first->surfaceWindowId == 9);
     CHECK(first->worldGeneration == world.Generation());
 
+    // Task 11.1: Build가 이제 구체 페이로드까지 게시하므로 이 씬은 진단이 0이
+    // 아니다. 이 프로세스에는 바인딩된 폰트 산출물 저장소도 게시된 텍스처
+    // 내용도 없으므로, 라벨 하나와 이미지 하나가 각각 사실 하나씩을 낸다.
+    // 총계를 느슨하게 두는 대신 정확히 못 박는다 — 그래야 여기에 새 진단이
+    // 하나 생기면 그것이 무엇이든 이 케이스가 잡는다.
+    //
+    // 그리고 상한이 실제로 있다: 두 번 지었는데 각 사실은 한 번씩만 흘렀다.
+    CHECK(sink.Count(TextDiagnosticCode::ReferenceInvalid) == 1);
+    CHECK(sink.Count(TextDiagnosticCode::DependencyInvalid) == 1);
+    CHECK(sink.Total() == 2);
+    CHECK(sink.Count(TextDiagnosticCode::LayoutInvalid) == 0);
+
+    // ── Task 11.1 A3: 진입점이 설치한 의존물로 짓는 짧은 입구 ──────────────
+    // 에디터/런타임 main이 소유한 제공자와 공유 서비스가 여기 들어 있고,
+    // Task 11.2는 이 입구만 부르면 된다. 설치되지 않았으면 nullptr이다 —
+    // 짐작한 서비스로 그리느니 그리지 않는다.
+    UISystem::Get().InstallLayoutDependencies(
+        molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+        SharedLayoutTextService());
+    CHECK(UISystem::Get().HasLayoutDependencies());
+    const auto installed = UISystem::Get().BuildLayout(
+        world, molga::WindowId{9}, viewport, sink);
+    REQUIRE(installed);
+    // 같은 상태이므로 같은 스냅샷이다. 다른 시설로 지었다면 포인터가 갈린다.
+    CHECK(installed.get() == second.get());
+
     // 월드를 놓으면 그 월드의 캐시와 빠른 경로가 함께 사라진다.
     UISystem::Get().OnWorldReleased(world.Generation());
     const auto third =
-        UISystem::Get().BuildLayout(world, molga::WindowId{9}, viewport, sink);
+        UISystem::Get().BuildLayout(
+            world, molga::WindowId{9}, viewport,
+            molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+            SharedLayoutTextService(), sink);
     REQUIRE(third);
     CHECK(third.get() != second.get());
-    CHECK(sink.Total() == 0);
+    // ── Task 11.1 Q5: rate limiter의 수명은 월드다 ─────────────────────────
+    // 은퇴한 월드가 기억해 둔 사실을 그대로 들고 있으면 256칸 상한이 죽은
+    // 월드들로 영구히 포화되고, 그 뒤로 이 프로세스는 어떤 진단도 다시 내지
+    // 않는다. 세대가 은퇴하면 그 기억도 함께 회수되어야 하고, 그래서 같은
+    // 사실이 새로 한 번 더 흐른다.
+    CHECK(sink.Count(TextDiagnosticCode::ReferenceInvalid) == 2);
+    CHECK(sink.Count(TextDiagnosticCode::DependencyInvalid) == 2);
+    CHECK(sink.Total() == 4);
 }
 
 // 상호작용 자격은 기하가 아니다. 기하 항목을 재사용하면서도 이 플래그는

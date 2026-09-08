@@ -15,7 +15,7 @@ class World;
 class TextRenderer;
 struct TextRasterPolicy;
 namespace molga { class RenderQueue; }
-namespace molga::text { class TextDiagnosticSink; }
+namespace molga::text { class TextDiagnosticSink; class TextLayoutService; }
 
 struct UIPointerState {
     Vector2 position;
@@ -54,10 +54,38 @@ public:
     // surfaceWindowId는 호출자가 건네는 정확한 UI 표면 창이다. 전역 키보드
     // 창을 짐작하는 오버로드는 두지 않는다 — 짐작한 창은 분리된 표면에서
     // 조용히 틀린다.
+    //
+    // Task 11.1 Step 3i: 편집 상태 제공자와 정확한 렌더러 소유 TextLayoutService를
+    // 명시적으로 받는다. 기본 인자를 가진 짧은 오버로드를 남기지 않는 이유는
+    // 하나다 — 그런 오버로드가 있으면 진짜 제공자를 넘기는 것을 한 표면에서
+    // 빠뜨려도 컴파일이 통과하고, 그 표면만 조용히 편집 상태 없이 그려진다.
+    molga::ui::UISnapshotPtr BuildLayout(
+        World& world, molga::WindowId surfaceWindowId,
+        molga::FixedSize logicalViewport,
+        const molga::ui::UITextInputVisualStateProvider& inputVisualStates,
+        molga::text::TextLayoutService& textLayout,
+        molga::text::TextDiagnosticSink& textDiagnostics);
+
+    // ── Task 11.1 A3: 새 서명이 요구하는 두 값의 프로덕션 주인 ──────────────
+    // Step 3i가 Build에 편집 상태 제공자와 공유 TextLayoutService를 넣었다. 그
+    // 둘의 주인은 진입점(에디터 main / 패키징된 런타임)이다: 텍스트 서비스는
+    // TextRenderer가 초기화된 뒤에야 존재하고, 진짜 제공자는 Task 14가 설치한다.
+    //
+    // 지금 이것을 설치해 두는 이유는 하나다 — Task 11.2가 스냅샷으로 그리기
+    // 시작할 때 배선을 새로 만들 필요 없이 소비만 하면 되고, 그때 두 진입점이
+    // 서로 다른 서비스를 집어 드는 일이 생기지 않는다. 설치가 없으면
+    // 아래 짧은 BuildLayout은 nullptr을 돌려주고 조용히 그리지 않는다.
+    void InstallLayoutDependencies(
+        const molga::ui::UITextInputVisualStateProvider& inputVisualStates,
+        molga::text::TextLayoutService& textLayout) noexcept;
+    bool HasLayoutDependencies() const noexcept;
+    // 설치된 의존물로 배치를 짓는다. 설치되지 않았으면 nullptr이다 —
+    // 짐작한 서비스로 그리느니 그리지 않는다.
     molga::ui::UISnapshotPtr BuildLayout(
         World& world, molga::WindowId surfaceWindowId,
         molga::FixedSize logicalViewport,
         molga::text::TextDiagnosticSink& textDiagnostics);
+
     void OnWorldReleased(std::uint64_t worldGeneration);
 
 private:
@@ -68,4 +96,8 @@ private:
     const void* capturedOwner_ = nullptr;
     unsigned int capturedObjectId_ = 0;
     molga::ui::UILayoutSystem layout_;
+    // 값이 아니라 이름이다. 제공자도 서비스도 진입점이 프레임 루프보다 오래
+    // 소유하며, 여기에 사본을 두면 그 사본이 진짜와 갈릴 수 있다.
+    const molga::ui::UITextInputVisualStateProvider* inputVisualStates_ = nullptr;
+    molga::text::TextLayoutService* textLayout_ = nullptr;
 };

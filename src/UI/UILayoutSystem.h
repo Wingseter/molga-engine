@@ -3,10 +3,12 @@
 #include "Common/Fixed26_6.h"
 #include "ECS/SceneObjectRef.h"
 #include "Platform/Window.h"
+#include "Rendering/TextRenderer.h"
 #include "Text/TextDiagnostic.h"
 #include "UI/UILayoutSnapshot.h"
 #include "UI/UINavigationTypes.h"
 #include "UI/UIRuntimeIdentity.h"
+#include "UI/UITextInputVisualState.h"
 
 #include <array>
 #include <cstddef>
@@ -19,6 +21,11 @@
 #include <vector>
 
 class World;
+
+namespace molga::text {
+class TextLayoutService;
+struct TextLayoutRequest;
+} // namespace molga::text
 
 namespace molga::ui {
 
@@ -102,6 +109,46 @@ private:
     std::unordered_map<std::string, UITextureContentIdentity> byGuid_;
 };
 
+// ── Step 5c: GUID 하나가 지금 묶여 있는 런타임 바인딩 ───────────────────────
+// 내용 정체성과 나란히 서지만 성격이 정반대다: 이쪽은 전부 프로세스 지역
+// 값이고 정규 JSON에도 기하 키에도 절대 들어가지 않는다. 수명 토큰을 함께
+// 드는 이유는 하나다 — 스냅샷이 이 값을 복사해 가고, 그 지분이 살아 있는
+// 동안에는 핸들이 파괴될 수 없어야 한다.
+struct UITextureRuntimeBinding {
+    TextureRuntimeBindingIdentity binding;
+    std::shared_ptr<const molga::TextureBindingLifetime> lifetime;
+};
+
+enum class UITextureBindingPublishResult : std::uint8_t {
+    // 같은 값을 다시 게시했다. 변경이 아니므로 세대는 움직이지 않는다 —
+    // 변경으로 세면 매 프레임 재게시하는 소비자가 캐시를 통째로 무력화한다.
+    Unchanged,
+    Published,
+    // 집계 세대가 소진되었다. 옛 바인딩을 그대로 두고 아무것도 게시하지 않는다.
+    // 감아서 재사용하면 옛 세대가 새 바인딩을 가리키게 된다.
+    Exhausted
+};
+
+class UITextureBindingRegistry {
+public:
+    static UITextureBindingRegistry& Get();
+    // 수명 토큰이 담은 정체성이 실제로 달라졌을 때만 세대를 올린다.
+    UITextureBindingPublishResult Publish(
+        const std::string& textureGuid,
+        std::shared_ptr<const molga::TextureBindingLifetime> lifetime);
+    std::optional<UITextureRuntimeBinding> Find(
+        const std::string& textureGuid) const;
+    // GUID 하나의 기록을 놓는다. 텍스처가 언로드되면 반드시 여기를 지나야
+    // 한다: 이 등록부는 수명 토큰의 *강한* 소유자라, 기록이 남아 있는 한
+    // TextureBindingRegistry는 그 핸들을 영원히 반납하지 못한다.
+    // 실제로 무언가를 놓았을 때만 참이다.
+    bool Retire(const std::string& textureGuid);
+    void Clear();
+
+private:
+    std::unordered_map<std::string, UITextureRuntimeBinding> byGuid_;
+};
+
 // ── Step 4b: 할당 없는 빠른 경로 도장 ───────────────────────────────────────
 // 전부 스칼라/값 필드다. 벡터나 문자열이 하나라도 들어오면 변경 없는 프레임이
 // 도장을 만드는 것만으로 할당을 하게 되고, "600 프레임 동안 키 할당 0"이라는
@@ -136,6 +183,13 @@ struct UILayoutGeometryCacheKey {
     std::vector<std::uint64_t> hierarchyAndSiblingRevisions;
     std::vector<std::uint64_t> rectAndLayoutRevisions;
     std::vector<std::uint64_t> intrinsicGenerations;
+    // ── Step 3e: 입력창의 보이는 글과 유효 요청 ─────────────────────────────
+    // 안정된 Canvas DFS 순서다. selection 끝점/caret/affinity/focus/blink/
+    // surface revision은 여기 없다 — 그것들은 전체 키에만 있고, 그래서 caret이
+    // 깜빡이는 프레임은 셰이핑과 배치를 그대로 재사용한다. 반대로 보이는
+    // UTF-8과 유효 요청이 빠지면 편집 이전의 고유/확정 기하가 재사용되어
+    // 화면에 옛 글이 남는다.
+    std::vector<UITextInputGeometryCacheIdentity> inputGeometry;
     bool operator==(const UILayoutGeometryCacheKey&) const;
     bool operator!=(const UILayoutGeometryCacheKey& other) const {
         return !(*this == other);
@@ -192,6 +246,16 @@ struct UISnapshotCacheKey {
     std::uint64_t deviceGeneration = 0;
     std::vector<UIVisualCacheIdentity> visualContent;
     std::vector<UIInteractionCacheIdentity> interaction;
+    // ── Step 3b: 안정된 Canvas DFS 순서의 런타임 바인딩 ─────────────────────
+    // 위의 넓은 textureBindingGeneration/deviceGeneration 스칼라는 할당 없는
+    // 빠른 경로만 무효화한다. 원래의 출처 필드와 바인딩의 모든 필드는 여기
+    // 남아 전체 키에서 충돌 비교된다 — 같은 내용을 다시 올렸을 때 기하는
+    // 재사용하면서도 낡은 GPU 바인딩은 절대 재사용하지 않게 하는 것이 그
+    // 구분의 전부다. 기하 키에도 정규 JSON에도 들어가지 않는다.
+    std::vector<UIRuntimeBindingCacheIdentity> runtimeBindings;
+    // 입력창의 런타임 편집 상태 전부(선택 끝점/caret/포커스/깜빡임/표면
+    // revision 포함). 기하 키에는 그 부분집합만 들어간다.
+    std::vector<UITextInputVisualState> inputVisualStates;
     bool operator==(const UISnapshotCacheKey&) const;
     bool operator!=(const UISnapshotCacheKey& other) const {
         return !(*this == other);
@@ -212,6 +276,64 @@ std::size_t HashUILayoutGeometryCacheKey(
     const UILayoutGeometryCacheKey&) noexcept;
 
 inline constexpr std::size_t kUILayoutGeometryEntriesPerWorld = 256;
+
+// ── Step 4a: 검증된 26.6 사각형 교집합 ──────────────────────────────────────
+// 최소 변끼리는 최댓값, 최대 변끼리는 최솟값을 취한다. 비어 있거나 검증된
+// 산술이 실패하면 nullopt다 — 빈 교집합을 폭 0짜리 사각형으로 돌려주면
+// "빈 교집합은 레코드를 제거한다"는 계약이 호출부마다 다시 구현되고, 언젠가
+// 한 곳이 그것을 잊는다.
+std::optional<molga::FixedRect> IntersectFixedRects(
+    const molga::FixedRect&, const molga::FixedRect&) noexcept;
+
+// ── Step 4e: 하나의 확정된 배치가 실제로 낼 명령 수 ─────────────────────────
+// 배치된 glyph/tofu 기록의 합이다. 줄 수도 grapheme 수도 아니다 — 그 둘로
+// 세면 합자와 대체 glyph에서 예약 구간이 실제 명령 수와 어긋나고, 그 어긋남은
+// 다음 항목의 정렬 키가 이미 쓰인 뒤에야 드러난다.
+std::uint64_t TextRenderCommandSpan(const molga::text::TextLayout&) noexcept;
+
+// ── 고유 크기를 결정하는 입력을 그대로 이어 붙인 정체성 ─────────────────────
+// 해시가 아니라 바이트다 — 이 문자열은 UIVisualCacheIdentity::
+// immutableTextLayoutIdentity로 들어가 스냅샷 캐시의 정체성이 되므로, 두 다른
+// 내용이 같은 값을 가지면 캐시가 남의 기하를 재사용한다. 제약은 일부러 넣지
+// 않는다: 제약이 들어가면 fitter가 rect를 바꿀 때마다 정체성이 달라져 값이
+// 영원히 흔들린다.
+//
+// 규칙이 한 벌인 것이 요점이다. Build와 UISystem::CollectRender가 둘 다 이
+// 고유 크기를 게시하는데, 두 곳이 각자 정체성을 계산하면 같은 라벨에 서로
+// 다른 바이트를 붙이게 되고 그때 두 생산자가 매 프레임 서로를 덮어써 의미
+// 세대가 멈추지 않는다.
+std::string UILabelIntrinsicContentIdentity(const molga::text::TextLayoutRequest&);
+
+// ── Step 6: 논리 -> 물리 변환의 유일한 자리 ─────────────────────────────────
+// 이 변환은 파이프라인 끝의 뷰포트 가장자리에서 정확히 한 번 일어난다.
+// 스냅샷 안에는 물리 픽셀이 하나도 없다: 있으면 backing scale이 바뀌는 순간
+// 의미가 같은 스냅샷이 다른 값을 갖게 되어 캐시가 무너진다.
+//
+// ToPhysicalOutward는 바깥쪽으로 연다 — 최소 변은 floor, 최대 변은 ceil.
+// 반올림이면 1픽셀 폭 클립이 통째로 사라지고, 안쪽으로 닫으면 가장자리 픽셀이
+// 잘려 나간다.
+struct UIPhysicalTransform {
+    molga::FixedRect logicalViewport;
+    molga::PixelRectU32 physicalViewport;
+    // 지금 살아 있는 GraphicsDevice::Generation() 그 값이다. 수집 전에 0이
+    // 아니어야 한다 — 0은 "장치 없음"이고, 그 상태로 만든 물리 사각형은 어느
+    // 장치의 것도 아니다.
+    std::uint64_t deviceGeneration = 0;
+
+    std::optional<molga::PixelRectU32> ToPhysicalOutward(
+        const molga::FixedRect&) const noexcept;
+    // 역방향 점 변환의 유일한 자리. 반열린 물리 뷰포트 안의 유한한 점만
+    // 받는다 — 오른쪽/아래 가장자리는 뷰포트 밖이다.
+    std::optional<molga::FixedPoint> ToLogicalPoint(
+        double outputPixelX, double outputPixelY) const noexcept;
+    std::optional<TextAffine2D> LayoutToOutputAffine(
+        molga::FixedPoint logicalOrigin) const noexcept;
+    // Task 8의 검증된 정수 규칙 그대로다. affine의 float에서 배율을 되짚지
+    // 않는다 — 그 값은 폰트와 배치에 따라 달라져 글자마다 다른 래스터 높이를
+    // 만든다.
+    std::optional<TextRasterPolicy> RasterPolicy(
+        molga::text::TextDiagnosticSink&) const;
+};
 
 struct UISnapshotWorldDeviceSlotKey {
     std::uint64_t worldGeneration = 0;
@@ -234,8 +356,15 @@ public:
     UILayoutSystem(const UILayoutSystem&) = delete;
     UILayoutSystem& operator=(const UILayoutSystem&) = delete;
 
+    // ── Step 3i: 배치의 유일한 입구 ────────────────────────────────────────
+    // 제공자와 텍스트 서비스를 명시적으로 받는다. 기본 인자를 가진 세 인자
+    // 오버로드를 남기지 않는 이유는 하나다 — 그런 오버로드가 있으면 진짜
+    // 제공자를 넘기는 것을 한 곳에서 빠뜨려도 컴파일이 통과하고, 그 표면만
+    // 조용히 편집 상태 없이 그려진다.
     UISnapshotPtr Build(World&, molga::WindowId surfaceWindowId,
                         molga::FixedSize logicalViewport,
+                        const UITextInputVisualStateProvider&,
+                        molga::text::TextLayoutService&,
                         molga::text::TextDiagnosticSink&);
     void OnWorldReleased(std::uint64_t worldGeneration);
 
@@ -262,6 +391,16 @@ public:
     // 같은 다른 키에 대해 여기서 참을 돌려주고 죽는다.
     bool GeometryCacheContains(const UILayoutGeometryCacheKey&) const;
     std::optional<UILayoutGeometryCacheKey> LastGeometryKey() const;
+    // 마지막 빌드가 만든 완전한 충돌 키. LastGeometryKey와 같은 성격의 seam
+    // 이고 같은 이유로 출하되는 빌드에 있다.
+    //
+    // 이것이 없으면 키의 *내용*은 사실상 시험할 수 없다: 넓은
+    // semanticDirty/textureBinding 스칼라가 같은 키 안에서 모든 편집에 대해
+    // 함께 움직이므로, runtimeBindings나 inputVisualStates를 통째로 빼도
+    // 포인터 동일성으로는 아무 차이가 보이지 않는다. 그 상태로 두면 Task 11.2가
+    // 렌더 페이로드를 이 키에 의존하게 만드는 순간, 검증된 적 없는 필드 위에
+    // 서게 된다.
+    std::optional<UISnapshotCacheKey> LastSnapshotKey() const;
 
 private:
     struct Impl;

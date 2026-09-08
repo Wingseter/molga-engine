@@ -9,6 +9,7 @@
 #include "Common/Log.h"
 #include "Core/AssetDatabase.h"
 #include "Core/TextureImportSettings.h"
+#include "UI/UILayoutSystem.h"
 #include <iostream>
 #include <filesystem>
 
@@ -27,6 +28,35 @@ Texture* TextureManager::Load(const std::string& path, const char* caller) {
         settings = molga::DeserializeTextureImportSettings(record->settings, true);
     }
     return LoadWithSettings(path, settings, caller);
+}
+
+std::string TextureManager::GuidForPath(const std::string& absolutePath,
+                                        const std::string& authoredPath) {
+    auto& database = molga::AssetDatabase::Get();
+    std::string guid = database.GuidForAbsolutePath(absolutePath);
+    if (guid.empty()) guid = database.GuidForSource(absolutePath);
+    if (guid.empty()) guid = database.GuidForAbsolutePath(authoredPath);
+    if (guid.empty()) guid = database.GuidForSource(authoredPath);
+    return guid;
+}
+
+bool TextureManager::PublishRuntimeBinding(const std::string& textureGuid,
+                                           const Texture& texture) {
+    if (textureGuid.empty()) return false;
+    const auto& lifetime = texture.BindingLifetime();
+    // 장치가 없으면 바인딩도 없다. 그 상태로 빈 기록을 게시하면 소비자가
+    // "해석되었지만 핸들이 없다"는 절반짜리 페이로드를 보게 된다.
+    if (!lifetime) return false;
+    return molga::ui::UITextureBindingRegistry::Get().Publish(textureGuid,
+                                                              lifetime) ==
+           molga::ui::UITextureBindingPublishResult::Published;
+}
+
+void TextureManager::RetireBinding(const std::string& cacheKey) {
+    const auto found = guidByKey.find(cacheKey);
+    if (found == guidByKey.end()) return;
+    molga::ui::UITextureBindingRegistry::Get().Retire(found->second);
+    guidByKey.erase(found);
 }
 
 std::string TextureManager::CacheKey(const std::string& path) {
@@ -78,6 +108,14 @@ Texture* TextureManager::LoadWithSettings(const std::string& path,
         if (!texture->IsValid()) return nullptr;
         Texture* ptr = texture.get();
         textures[key] = std::move(texture);
+        // 이 GUID가 지금 묶여 있는 런타임 바인딩을 UI에 알린다. 이 한 줄이
+        // 없으면 UILayoutSystem::Build의 sprite 분기는 프로덕션에서 절대
+        // 성립하지 않는다.
+        if (const std::string guid = GuidForPath(absolutePath, path);
+            !guid.empty()) {
+            guidByKey[key] = guid;
+            PublishRuntimeBinding(guid, *ptr);
+        }
 
         double ms = (molga::NowNanos() - t0) / 1.0e6;
         molga::ProfilerService::Get().AssetLoadCounter()++;
@@ -107,7 +145,17 @@ bool TextureManager::Reload(const std::string& path,
     }
     std::string absolutePath = path;
     if (!fs::path(path).is_absolute()) absolutePath = PathService::Get().ResolveAsset(path);
-    return found->second->Reload(absolutePath.c_str(), settings, errorOut);
+    if (!found->second->Reload(absolutePath.c_str(), settings, errorOut)) {
+        return false;
+    }
+    // 재업로드는 새 핸들과 새 수명 객체를 만든다. 다시 게시하지 않으면 UI가
+    // 옛 바인딩을 계속 보게 되고, 그 핸들은 이미 은퇴한 기록의 것이다.
+    if (const std::string guid = GuidForPath(absolutePath, path);
+        !guid.empty()) {
+        guidByKey[key] = guid;
+        PublishRuntimeBinding(guid, *found->second);
+    }
+    return true;
 }
 
 Texture* TextureManager::Get(const std::string& path) {
@@ -123,14 +171,25 @@ bool TextureManager::IsLoaded(const std::string& path) const {
 }
 
 void TextureManager::Unload(const std::string& path) {
-    auto it = textures.find(CacheKey(path));
+    const std::string key = CacheKey(path);
+    auto it = textures.find(key);
     if (it != textures.end()) {
+        // 기록을 먼저 놓는다. UI 등록부가 수명 토큰의 강한 소유자이므로,
+        // 놓기 전에 Texture를 파괴하면 그 토큰이 만료되지 않아 핸들이 영원히
+        // 반납되지 않는다.
+        RetireBinding(key);
         textures.erase(it);
         std::cout << "[TextureManager] Unloaded texture: " << path << std::endl;
     }
 }
 
 void TextureManager::Clear() {
+    // 이 캐시가 guid -> 바인딩의 유일한 게시자이므로, 텍스처를 전부 놓는 것과
+    // 그 등록부를 비우는 것은 같은 사실이다. guidByKey를 훑는 것보다 이쪽이
+    // 안전하다 — 어떤 이유로든 두 표가 어긋나면 남은 기록이 수명 토큰의 강한
+    // 소유자로 남아 그 핸들이 영원히 반납되지 않는다.
+    molga::ui::UITextureBindingRegistry::Get().Clear();
+    guidByKey.clear();
     textures.clear();
     std::cout << "[TextureManager] Cleared all textures" << std::endl;
 }

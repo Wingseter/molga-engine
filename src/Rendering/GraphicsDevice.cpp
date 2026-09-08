@@ -1,5 +1,7 @@
 #include "Rendering/GraphicsDevice.h"
 
+#include "UI/UIRuntimeInvalidation.h"
+
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_gpu.h>
 
@@ -358,6 +360,9 @@ struct GraphicsDevice::Impl {
     GraphicsDeviceInfo info;
     std::unique_ptr<GpuLogMonitor> logMonitor;
     FenceQueryPolarity fenceQueryPolarity = FenceQueryPolarity::Unusable;
+    // Step 5a: 게시 전에 취득한 프로세스 전역 비순환 세대. 0이 될 수 없다 —
+    // 취득이 소진되면 장치가 아예 게시되지 않는다.
+    std::uint64_t generation = 0;
 
     std::vector<ResourceSlot<SDL_GPUBuffer, BufferDescriptor>> buffers;
     std::vector<ResourceSlot<SDL_GPUTexture, TextureDescriptor>> textures;
@@ -1087,6 +1092,21 @@ std::unique_ptr<GraphicsDevice> GraphicsDevice::Create(
                      "device; submitted resources can be retired only by a "
                      "forced GPU idle wait");
     }
+    // ── Step 5a: 세대는 게시 전에 취득한다 ──────────────────────────────────
+    // 실패하면 만들다 만 장치를 파괴하고 옛 활성 장치를 그대로 둔다. 0이나
+    // 재사용된 값을 게시하면 옛 장치에 묶인 스냅샷/바인딩이 새 장치의 것으로
+    // 오인되고, 그때 화면에 나오는 것은 이미 파괴된 핸들이다.
+    const auto generation = ui::UIRuntimeInvalidationClock::Advance(
+        ui::UIRuntimeGenerationKind::Device);
+    if (!generation) {
+        errorOut =
+            "graphics device generation sequence is exhausted; the device was "
+            "not published and UI snapshot caching is disabled";
+        SDL_ReleaseWindowFromGPUDevice(device, window);
+        SDL_DestroyGPUDevice(device);
+        return nullptr;
+    }
+    impl->generation = *generation;
     errorOut.clear();
     return std::unique_ptr<GraphicsDevice>(new GraphicsDevice(std::move(impl)));
 }
@@ -1094,6 +1114,10 @@ std::unique_ptr<GraphicsDevice> GraphicsDevice::Create(
 GraphicsDevice* GraphicsDevice::Current() { return currentDevice; }
 
 const GraphicsDeviceInfo& GraphicsDevice::Info() const { return impl_->info; }
+
+std::uint64_t GraphicsDevice::Generation() const noexcept {
+    return impl_->generation;
+}
 
 BeginFrameResult GraphicsDevice::BeginFrame(WindowId windowId) {
     BeginFrameResult result;
@@ -1613,6 +1637,16 @@ void SetGpuIdleWaitFailureInjectionForTest(bool enabled) noexcept {
 
 void SetGpuFenceAcquisitionFailureInjectionForTest(bool enabled) noexcept {
     injectGpuFenceAcquisitionFailure = enabled;
+}
+
+TextureHandle MakeTextureHandleForTest(std::uint32_t index,
+                                       std::uint32_t generation) noexcept {
+    return ResourceHandleAccess::Make<TextureHandle>(index, generation);
+}
+
+SamplerHandle MakeSamplerHandleForTest(std::uint32_t index,
+                                       std::uint32_t generation) noexcept {
+    return ResourceHandleAccess::Make<SamplerHandle>(index, generation);
 }
 
 CompletionFenceProbe ProbeCompletionFenceForTest(GraphicsDevice& device) {

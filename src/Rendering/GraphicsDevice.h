@@ -103,6 +103,17 @@ struct PixelRectU32 {
     std::uint32_t y = 0;
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+
+    // C++17 타깃이라 rewritten comparison도 defaulted operator<=>도 없다.
+    // 필드별로 쓴다 — 오브젝트 표현 비교(memcmp)는 패딩 바이트를 함께 보므로
+    // 같은 사각형이 다르게 비교될 수 있다.
+    constexpr bool operator==(const PixelRectU32& other) const noexcept {
+        return x == other.x && y == other.y && width == other.width &&
+               height == other.height;
+    }
+    constexpr bool operator!=(const PixelRectU32& other) const noexcept {
+        return !(*this == other);
+    }
 };
 
 template <typename Tag>
@@ -402,6 +413,14 @@ public:
     static GraphicsDevice* Current();
 
     const GraphicsDeviceInfo& Info() const;
+
+    // ── Step 5a: 이 장치의 프로세스 전역 비순환 세대 ────────────────────────
+    // UIRuntimeInvalidationClock::Advance(Device)가 낸 유일한 값이며 0이 아니다.
+    // 장치를 다시 만들면 반드시 다른 값이 나오므로, 옛 장치에 묶인 스냅샷과
+    // 바인딩이 새 장치의 것으로 오인될 수 없다. 취득이 소진되면 장치는 아예
+    // 게시되지 않는다(Create가 실패한다).
+    std::uint64_t Generation() const noexcept;
+
     BeginFrameResult BeginFrame(WindowId windowId);
 
     BufferHandle CreateBuffer(const BufferDescriptor& descriptor,
@@ -469,6 +488,18 @@ namespace detail {
 // 경로를 여는 것이므로 전용 child 프로세스에서만 켠다.
 void SetGpuIdleWaitFailureInjectionForTest(bool enabled) noexcept;
 void SetGpuFenceAcquisitionFailureInjectionForTest(bool enabled) noexcept;
+
+// ── Task 11.1 Step 1e: 정확한 핸들 값을 만드는 유일한 테스트 입구 ───────────
+// 핸들의 두 필드(resource index, handle generation)는 private이고, 그것을 짓는
+// 유일한 길은 살아 있는 장치다. 그런데 "핸들 비교는 index와 generation을 모두
+// 본다"는 계약은 정확히 그 두 필드만 다른 두 값을 만들어야 시험할 수 있고,
+// 헤드리스 프로세스에는 장치가 없다. 그래서 여기 하나만 둔다 — 테스트가
+// molga::ResourceHandleAccess를 자기 쪽에서 다시 정의하면 ODR 위반이고, 그
+// 위반은 링커가 잡아 주지 않는다.
+TextureHandle MakeTextureHandleForTest(std::uint32_t index,
+                                       std::uint32_t generation) noexcept;
+SamplerHandle MakeSamplerHandleForTest(std::uint32_t index,
+                                       std::uint32_t generation) noexcept;
 
 } // namespace detail
 

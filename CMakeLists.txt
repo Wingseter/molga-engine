@@ -92,6 +92,7 @@ set(ENGINE_SOURCES
     src/Rendering/ShaderManager.cpp
     src/Rendering/Material.cpp
     src/Rendering/Texture.cpp
+    src/Rendering/TextureBindingRegistry.cpp
     src/Rendering/Sprite.cpp
     src/Rendering/Renderer.cpp
     src/Rendering/RenderSystem2D.cpp

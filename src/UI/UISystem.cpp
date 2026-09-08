@@ -178,44 +178,15 @@ public:
     void Report(molga::text::TextDiagnostic) override {}
 };
 
-// 고유 크기를 결정하는 입력을 그대로 이어 붙인 정체성. 해시가 아니라 바이트다
-// — 이 문자열은 UIVisualCacheIdentity::immutableTextLayoutIdentity로 들어가
-// 스냅샷 캐시의 정체성이 되므로, 두 다른 내용이 같은 값을 가지면 캐시가 남의
-// 기하를 재사용한다. 제약은 일부러 넣지 않는다(아래 참조).
-std::string IntrinsicContentIdentity(
-    const molga::text::TextLayoutRequest& request) {
-    const auto& style = request.style;
-    std::string id;
-    id.reserve(request.utf8.size() + 96U);
-    const auto field = [&id](std::string_view value) {
-        // 길이를 함께 적는다. 구분자만으로는 ("a|b", "")와 ("a", "b|")가
-        // 같은 바이트를 낸다.
-        id += std::to_string(value.size());
-        id += ':';
-        id.append(value);
-        id += '|';
-    };
-    const auto number = [&id](std::int64_t value) {
-        id += std::to_string(value);
-        id += '|';
-    };
-    field(request.utf8);
-    field(style.fontFamilyGuid);
-    field(style.legacyFontGuid);
-    field(style.analysis.locale);
-    number(style.shape.fontSize.Raw());
-    number(style.lineSpacing.Raw());
-    number(static_cast<std::int64_t>(style.analysis.baseDirection));
-    number(static_cast<std::int64_t>(style.wrap));
-    number(static_cast<std::int64_t>(style.overflow));
-    number(static_cast<std::int64_t>(style.maxLines));
-    number(static_cast<std::int64_t>(style.horizontal));
-    number(static_cast<std::int64_t>(style.vertical));
-    return id;
-}
-
-// Step 5b의 생산자. `UILayoutSystem`은 텍스트 서비스를 스스로 찾지 않으므로
-// (Build의 인자에 없다) 확정된 불변 배치를 가진 이쪽이 게시한다.
+// Step 5b의 생산자. 레거시 즉시 경로가 아직 화면을 그리는 동안에는 이쪽도
+// 계속 게시한다 — 이 경로만이 입력창이 소유한 라벨까지 포함해 확정된 배치를
+// 손에 쥐고, `tests/test_ui.cpp`의 프로덕션 진입점 케이스가 그것을 지킨다.
+//
+// Task 11.1부터 `UILayoutSystem::Build`도 같은 값을 게시한다. 두 생산자가
+// 공존해도 세대가 흔들리지 않는 이유는 하나뿐이다: 정체성 계산이
+// `UILabelIntrinsicContentIdentity` 한 벌이고, 제약을 벗긴 측정은 글과
+// 스타일에만 의존하므로 두 번째 게시가 언제나 "변경 없음"이 된다. 정체성
+// 규칙을 여기 다시 쓰면 그 성질이 조용히 깨진다.
 //
 // 렌더 요청의 결과를 그대로 쓰지 않는 이유: 그 요청은 현재 RectTransform을
 // 제약으로 싣고 있다. content fitter가 고유 크기를 읽어 rect를 바꾸면 다음
@@ -238,7 +209,8 @@ void PublishLabelIntrinsic(const World& world, const UILabel& label,
     const auto measured = textRenderer.Layout(measure, discard);
     if (!measured || *measured == nullptr) return;
     molga::ui::UIIntrinsicLayoutRegistry::Get().Publish(
-        target, IntrinsicContentIdentity(measure), (*measured)->intrinsicSize);
+        target, molga::ui::UILabelIntrinsicContentIdentity(measure),
+        (*measured)->intrinsicSize);
 }
 } // namespace
 
@@ -394,9 +366,31 @@ void UISystem::CollectRender(World& world, const Vector2& viewportSize,
 molga::ui::UISnapshotPtr UISystem::BuildLayout(
     World& world, molga::WindowId surfaceWindowId,
     molga::FixedSize logicalViewport,
+    const molga::ui::UITextInputVisualStateProvider& inputVisualStates,
+    molga::text::TextLayoutService& textLayout,
     molga::text::TextDiagnosticSink& textDiagnostics) {
     return layout_.Build(world, surfaceWindowId, logicalViewport,
-                         textDiagnostics);
+                         inputVisualStates, textLayout, textDiagnostics);
+}
+
+void UISystem::InstallLayoutDependencies(
+    const molga::ui::UITextInputVisualStateProvider& inputVisualStates,
+    molga::text::TextLayoutService& textLayout) noexcept {
+    inputVisualStates_ = &inputVisualStates;
+    textLayout_ = &textLayout;
+}
+
+bool UISystem::HasLayoutDependencies() const noexcept {
+    return inputVisualStates_ != nullptr && textLayout_ != nullptr;
+}
+
+molga::ui::UISnapshotPtr UISystem::BuildLayout(
+    World& world, molga::WindowId surfaceWindowId,
+    molga::FixedSize logicalViewport,
+    molga::text::TextDiagnosticSink& textDiagnostics) {
+    if (!HasLayoutDependencies()) return nullptr;
+    return layout_.Build(world, surfaceWindowId, logicalViewport,
+                         *inputVisualStates_, *textLayout_, textDiagnostics);
 }
 
 void UISystem::OnWorldReleased(std::uint64_t worldGeneration) {

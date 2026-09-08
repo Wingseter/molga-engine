@@ -2133,6 +2133,13 @@ TEST_CASE("the production entry points keep one shutdown order and one collectio
         // 3. 프레임 루프의 수집 범위는 정확히 하나다. 지우면 0이 되고, 둘째를
         //    열면 첫째가 아직 열려 있는 채로 std::logic_error가 난다.
         CHECK(count("BeginGlyphCollection(") == 1U);
+        // 4. Task 11.1 A3: Step 3i가 Build에 넣은 두 의존물(편집 상태 제공자,
+        //    공유 TextLayoutService)의 주인은 진입점이다. 이 배선이 없으면
+        //    UILayoutSystem::Build는 프로덕션에 호출자가 하나도 없는 채로
+        //    남고, Task 11.2가 스냅샷으로 그리기 시작하는 날 두 진입점이
+        //    각자 다른 서비스를 집어 들 수 있다. 두 진입점 모두 정확히 한 번.
+        CHECK(count("UISystem::Get().InstallLayoutDependencies(") == 1U);
+        CHECK(count("TextRenderer::Get().LayoutService()") == 1U);
         // 계수기 자신의 증인. 이 파일들이 확실히 담고 있는 문자열을 세지
         // 못한다면 위의 0들은 계수기 고장으로도 참이 된다.
         CHECK(count("TextRenderer") >= 1U);

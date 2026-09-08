@@ -15,6 +15,8 @@
 #include "ECS/Components/UISelectable.h"
 #include "ECS/Components/UITextInput.h"
 #include "ECS/GameObject.h"
+#include "Rendering/TextureBindingRegistry.h"
+#include "Text/TextLayoutService.h"
 #include "UI/UILayoutTypes.h"
 #include "UI/UIRuntimeInvalidation.h"
 
@@ -23,6 +25,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
+#include <variant>
 
 namespace molga::ui {
 
@@ -52,6 +56,18 @@ Fixed26_6 ToFixed(Raw value) noexcept {
 struct RawRect {
     Raw x = 0, y = 0, width = 0, height = 0;
 };
+
+// 확정된 raw 사각형 하나를 26.6 값으로. 범위를 벗어나면 nullopt다 —
+// static_cast로 잘라 내면 잘못된 사각형이 정상으로 보이고, 그것이 바로
+// "포화도 랩도 없다"는 제약이 금지하는 일이다.
+std::optional<molga::FixedRect> ToFixedRect(const RawRect& rect) noexcept {
+    if (!InRawRange(rect.x) || !InRawRange(rect.y) || !InRawRange(rect.width) ||
+        !InRawRange(rect.height)) {
+        return std::nullopt;
+    }
+    return molga::FixedRect{ToFixed(rect.x), ToFixed(rect.y),
+                            ToFixed(rect.width), ToFixed(rect.height)};
+}
 
 // 저작된 float 하나를 26.6 raw로. 유한하지 않거나 범위를 벗어나면 실패다 —
 // 그런 값을 0으로 대체하면 잘못된 배치가 정상으로 보인다.
@@ -97,8 +113,11 @@ struct LayoutNode {
     bool cyclicHeight = false;
     // 조상 마스크와의 교집합. 비어 있는 교집합은 노드를 통째로 제거한다 —
     // 렌더에서만 사라지고 hit 대상으로 남으면 보이지 않는 버튼이 생긴다.
-    bool hasClip = false;
-    RawRect clip;
+    //
+    // Step 4b가 요구한 그대로 optional<FixedRect>다. bool + RawRect 쌍이었을
+    // 때는 게시되는 클립이 마지막에 bare static_cast<int32_t>로 좁혀졌고, 그
+    // 좁힘이 곧 Global Constraint가 금지하는 조용한 랩이었다.
+    std::optional<molga::FixedRect> logicalClip;
     bool dropped = false;
 };
 
@@ -220,6 +239,71 @@ std::optional<UITextureContentIdentity> UITextureContentRegistry::Find(
     return found->second;
 }
 
+// ── Step 5c: GUID 하나가 지금 묶여 있는 런타임 바인딩 ───────────────────────
+UITextureBindingRegistry& UITextureBindingRegistry::Get() {
+    static UITextureBindingRegistry registry;
+    return registry;
+}
+
+UITextureBindingPublishResult UITextureBindingRegistry::Publish(
+    const std::string& textureGuid,
+    std::shared_ptr<const molga::TextureBindingLifetime> lifetime) {
+    if (textureGuid.empty() || !lifetime) {
+        return UITextureBindingPublishResult::Unchanged;
+    }
+    const auto& identity = lifetime->Identity();
+    auto found = byGuid_.find(textureGuid);
+    if (found != byGuid_.end() && found->second.binding == identity &&
+        found->second.lifetime == lifetime) {
+        // 같은 값을 다시 게시하는 것은 변경이 아니다. 변경으로 세면 매 프레임
+        // 재게시하는 소비자가 캐시를 통째로 무력화한다.
+        return UITextureBindingPublishResult::Unchanged;
+    }
+    // 취득이 먼저다. 소진된 뒤에 슬롯을 갈아 끼우면 옛 세대가 새 바인딩을
+    // 가리키게 되고, 그것이 정확히 스냅샷 캐시가 죽은 핸들을 돌려주는 경로다.
+    if (!UIRuntimeInvalidationClock::Advance(
+            UIRuntimeGenerationKind::TextureBinding)) {
+        return UITextureBindingPublishResult::Exhausted;
+    }
+    UITextureRuntimeBinding record;
+    record.binding = identity;
+    record.lifetime = std::move(lifetime);
+    byGuid_[textureGuid] = std::move(record);
+    return UITextureBindingPublishResult::Published;
+}
+
+std::optional<UITextureRuntimeBinding> UITextureBindingRegistry::Find(
+    const std::string& textureGuid) const {
+    const auto found = byGuid_.find(textureGuid);
+    if (found == byGuid_.end()) return std::nullopt;
+    return found->second;
+}
+
+bool UITextureBindingRegistry::Retire(const std::string& textureGuid) {
+    const auto found = byGuid_.find(textureGuid);
+    if (found == byGuid_.end()) return false;
+    byGuid_.erase(found);
+    // 게시된 기록이 달라졌으므로 축도 움직여야 한다. 소진되었다면 그 시계는
+    // 이미 cacheable을 내렸고 모든 캐시가 우회되므로, 여기서 기록을 붙들고
+    // 있을 이유가 없다 — 붙들면 죽은 텍스처의 핸들이 영원히 반납되지 않는다.
+    UIRuntimeInvalidationClock::Advance(
+        UIRuntimeGenerationKind::TextureBinding);
+    return true;
+}
+
+void UITextureBindingRegistry::Clear() {
+    if (byGuid_.empty()) return;
+    byGuid_.clear();
+    UIRuntimeInvalidationClock::Advance(
+        UIRuntimeGenerationKind::TextureBinding);
+}
+
+const EmptyUITextInputVisualStateProvider&
+EmptyUITextInputVisualStateProvider::Instance() {
+    static const EmptyUITextInputVisualStateProvider provider;
+    return provider;
+}
+
 // ── 키 비교 ─────────────────────────────────────────────────────────────────
 bool UILayoutFastPathStamp::operator==(
     const UILayoutFastPathStamp& other) const noexcept {
@@ -233,15 +317,89 @@ bool UILayoutFastPathStamp::operator==(
            deviceGeneration == other.deviceGeneration;
 }
 
+// ── 요청 하나의 필드별 비교 ─────────────────────────────────────────────────
+// TextLayoutRequest에는 ==가 없다. 해시만 맞춰 보고 넘어가면 서로 다른 두
+// 편집 상태가 한 기하 항목을 공유하고, 그때 화면에 나오는 것은 편집 이전의
+// 줄이다. 그래서 중첩 구조까지 전부 편다.
+bool EqualLayoutRequests(const molga::text::TextLayoutRequest& a,
+                         const molga::text::TextLayoutRequest& b) {
+    if (a.utf8 != b.utf8) return false;
+    if (a.visualRevision != b.visualRevision) return false;
+    if (a.diagnosticContext.assetGuid != b.diagnosticContext.assetGuid ||
+        a.diagnosticContext.sceneObjectId !=
+            b.diagnosticContext.sceneObjectId ||
+        a.diagnosticContext.componentType !=
+            b.diagnosticContext.componentType) {
+        return false;
+    }
+    const auto& x = a.style;
+    const auto& y = b.style;
+    if (x.fontFamilyGuid != y.fontFamilyGuid ||
+        x.legacyFontGuid != y.legacyFontGuid) {
+        return false;
+    }
+    if (x.fontRequest.weight != y.fontRequest.weight ||
+        x.fontRequest.stretchPercent != y.fontRequest.stretchPercent ||
+        x.fontRequest.slant != y.fontRequest.slant) {
+        return false;
+    }
+    if (x.shape.fontSize.Raw() != y.shape.fontSize.Raw() ||
+        x.shape.language != y.shape.language ||
+        x.shape.clusterPolicy != y.shape.clusterPolicy ||
+        x.shape.orderedFeatures.size() != y.shape.orderedFeatures.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < x.shape.orderedFeatures.size(); ++i) {
+        const auto& fa = x.shape.orderedFeatures[i];
+        const auto& fb = y.shape.orderedFeatures[i];
+        if (fa.tag != fb.tag || fa.value != fb.value ||
+            fa.sourceBytes.begin != fb.sourceBytes.begin ||
+            fa.sourceBytes.end != fb.sourceBytes.end) {
+            return false;
+        }
+    }
+    if (x.analysis.locale != y.analysis.locale ||
+        x.analysis.baseDirection != y.analysis.baseDirection) {
+        return false;
+    }
+    if (x.wrap != y.wrap || x.overflow != y.overflow ||
+        x.maxLines != y.maxLines ||
+        x.lineSpacing.Raw() != y.lineSpacing.Raw() ||
+        x.horizontal != y.horizontal || x.vertical != y.vertical ||
+        x.ellipsisUtf8 != y.ellipsisUtf8) {
+        return false;
+    }
+    const auto sameConstraint = [](const std::optional<molga::Fixed26_6>& p,
+                                   const std::optional<molga::Fixed26_6>& q) {
+        if (p.has_value() != q.has_value()) return false;
+        return !p || p->Raw() == q->Raw();
+    };
+    return sameConstraint(a.constraints.width, b.constraints.width) &&
+           sameConstraint(a.constraints.height, b.constraints.height);
+}
+
+bool UITextInputGeometryCacheIdentity::operator==(
+    const UITextInputGeometryCacheIdentity& other) const {
+    return input == other.input &&
+           EqualLayoutRequests(effectiveRequest, other.effectiveRequest);
+}
+
 bool UILayoutGeometryCacheKey::operator==(
     const UILayoutGeometryCacheKey& other) const {
-    return worldGeneration == other.worldGeneration &&
-           viewport == other.viewport &&
-           viewportGeneration == other.viewportGeneration &&
-           canvasScaleRevisions == other.canvasScaleRevisions &&
-           hierarchyAndSiblingRevisions == other.hierarchyAndSiblingRevisions &&
-           rectAndLayoutRevisions == other.rectAndLayoutRevisions &&
-           intrinsicGenerations == other.intrinsicGenerations;
+    if (!(worldGeneration == other.worldGeneration &&
+          viewport == other.viewport &&
+          viewportGeneration == other.viewportGeneration &&
+          canvasScaleRevisions == other.canvasScaleRevisions &&
+          hierarchyAndSiblingRevisions == other.hierarchyAndSiblingRevisions &&
+          rectAndLayoutRevisions == other.rectAndLayoutRevisions &&
+          intrinsicGenerations == other.intrinsicGenerations)) {
+        return false;
+    }
+    if (inputGeometry.size() != other.inputGeometry.size()) return false;
+    for (std::size_t i = 0; i < inputGeometry.size(); ++i) {
+        if (!(inputGeometry[i] == other.inputGeometry[i])) return false;
+    }
+    return true;
 }
 
 bool UIVisualCacheIdentity::operator==(
@@ -286,7 +444,9 @@ bool UISnapshotCacheKey::operator==(const UISnapshotCacheKey& other) const {
            textureBindingGeneration == other.textureBindingGeneration &&
            deviceGeneration == other.deviceGeneration &&
            visualContent == other.visualContent &&
-           interaction == other.interaction;
+           interaction == other.interaction &&
+           runtimeBindings == other.runtimeBindings &&
+           inputVisualStates == other.inputVisualStates;
 }
 
 bool UISnapshotWorldDeviceSlotKey::operator==(
@@ -317,7 +477,301 @@ std::size_t HashUILayoutGeometryCacheKey(
         mix(vector->size());
         for (const auto value : *vector) mix(value);
     }
+    // 입력 편집 기하도 후보를 좁히는 데 참여한다. 넣지 않으면 편집 전후가
+    // 같은 bucket에 쌓여 조회가 선형 탐색이 되고, 그것은 진단 없이 성능으로만
+    // 드러난다. 값 비교는 언제나 operator==가 다시 한다.
+    mix(key.inputGeometry.size());
+    // 접는 순서는 계약이다. "해시가 같아도 원래 필드를 전부 다시 본다"는 주장은
+    // 실제로 충돌하는 두 키를 만들어 보이지 않으면 시험할 수 없고, 서로 다른
+    // 키만 넣어 본 시험은 해시만 믿는 구현에서도 전부 통과한다. FNV-1a의 한
+    // 걸음이 가역이므로, 자유롭게 값을 정할 수 있는 필드가 갈라지는 필드
+    // 바로 뒤에 오면 충돌 쌍을 만들 수 있다: 정체성 쪽은 objectId 뒤의
+    // componentInstanceId가, 요청 쪽은 utf8 해시 뒤의 visualRevision이 그 자리다.
+    for (const auto& entry : key.inputGeometry) {
+        mix(entry.input.objectId);
+        mix(entry.input.componentInstanceId);
+        mix(molga::text::CacheBytesHash(
+            entry.effectiveRequest.style.fontFamilyGuid));
+        mix(static_cast<std::uint64_t>(
+            entry.effectiveRequest.style.shape.fontSize.Raw()));
+        mix(molga::text::CacheBytesHash(entry.effectiveRequest.utf8));
+        mix(entry.effectiveRequest.visualRevision);
+    }
     return hash;
+}
+
+// ── Step 4a: 검증된 26.6 사각형 교집합 ──────────────────────────────────────
+std::optional<molga::FixedRect> IntersectFixedRects(
+    const molga::FixedRect& a, const molga::FixedRect& b) noexcept {
+    const auto maxEdge = [](const molga::FixedRect& r, bool horizontal)
+        -> std::optional<std::int64_t> {
+        const std::int64_t origin = horizontal ? r.x.Raw() : r.y.Raw();
+        const std::int64_t extent = horizontal ? r.width.Raw() : r.height.Raw();
+        const std::int64_t sum = origin + extent;
+        // 두 int32의 합은 int64에 언제나 들어가지만, 결과는 다시 26.6이어야
+        // 한다. 범위를 벗어나면 실패다 — 포화시키면 잘리지 않아야 할 것이
+        // 조용히 잘린다.
+        if (sum < kRawMin || sum > kRawMax) return std::nullopt;
+        return sum;
+    };
+    const auto ax1 = maxEdge(a, true);
+    const auto ay1 = maxEdge(a, false);
+    const auto bx1 = maxEdge(b, true);
+    const auto by1 = maxEdge(b, false);
+    if (!ax1 || !ay1 || !bx1 || !by1) return std::nullopt;
+    const std::int64_t x0 = std::max<std::int64_t>(a.x.Raw(), b.x.Raw());
+    const std::int64_t y0 = std::max<std::int64_t>(a.y.Raw(), b.y.Raw());
+    const std::int64_t x1 = std::min(*ax1, *bx1);
+    const std::int64_t y1 = std::min(*ay1, *by1);
+    // 반열린 사각형이라 오른쪽/아래 변은 바깥이다. x1 == x0은 빈 교집합이다.
+    if (x1 <= x0 || y1 <= y0) return std::nullopt;
+    const std::int64_t width = x1 - x0;
+    const std::int64_t height = y1 - y0;
+    if (!InRawRange(x0) || !InRawRange(y0) || !InRawRange(width) ||
+        !InRawRange(height)) {
+        return std::nullopt;
+    }
+    return molga::FixedRect{ToFixed(x0), ToFixed(y0), ToFixed(width),
+                            ToFixed(height)};
+}
+
+std::string UILabelIntrinsicContentIdentity(
+    const molga::text::TextLayoutRequest& request) {
+    const auto& style = request.style;
+    std::string id;
+    id.reserve(request.utf8.size() + 96U);
+    const auto field = [&id](std::string_view value) {
+        // 길이를 함께 적는다. 구분자만으로는 ("a|b", "")와 ("a", "b|")가
+        // 같은 바이트를 낸다.
+        id += std::to_string(value.size());
+        id += ':';
+        id.append(value);
+        id += '|';
+    };
+    const auto number = [&id](std::int64_t value) {
+        id += std::to_string(value);
+        id += '|';
+    };
+    field(request.utf8);
+    field(style.fontFamilyGuid);
+    field(style.legacyFontGuid);
+    field(style.analysis.locale);
+    number(style.shape.fontSize.Raw());
+    number(style.lineSpacing.Raw());
+    number(static_cast<std::int64_t>(style.analysis.baseDirection));
+    number(static_cast<std::int64_t>(style.wrap));
+    number(static_cast<std::int64_t>(style.overflow));
+    number(static_cast<std::int64_t>(style.maxLines));
+    number(static_cast<std::int64_t>(style.horizontal));
+    number(static_cast<std::int64_t>(style.vertical));
+    return id;
+}
+
+// ── Step 4e: 확정된 배치가 실제로 낼 명령 수 ────────────────────────────────
+std::uint64_t TextRenderCommandSpan(
+    const molga::text::TextLayout& layout) noexcept {
+    std::uint64_t span = 0;
+    for (const auto& line : layout.lines) {
+        for (const auto& run : line.visualRuns) {
+            span += run.glyphs.size();
+        }
+    }
+    return span;
+}
+
+namespace {
+
+// 부호 있는 내림/올림 나눗셈. C++의 정수 나눗셈은 0 쪽으로 자르므로 음수에서
+// floor/ceil과 갈린다 — 음의 논리 원점을 가진 뷰포트가 정확히 그 경우다.
+std::int64_t FloorDiv(std::int64_t n, std::int64_t d) noexcept {
+    std::int64_t q = n / d;
+    if ((n % d != 0) && ((n < 0) != (d < 0))) --q;
+    return q;
+}
+
+std::int64_t CeilDiv(std::int64_t n, std::int64_t d) noexcept {
+    std::int64_t q = n / d;
+    if ((n % d != 0) && ((n < 0) == (d < 0))) ++q;
+    return q;
+}
+
+bool SafeMul(std::int64_t a, std::int64_t b, std::int64_t& out) noexcept {
+    if (a == 0 || b == 0) {
+        out = 0;
+        return true;
+    }
+    const std::int64_t limit = std::numeric_limits<std::int64_t>::max();
+    if (a > 0 ? (b > 0 ? a > limit / b : b < -limit / a)
+              : (b > 0 ? a < -limit / b : a < -limit / -b)) {
+        return false;
+    }
+    out = a * b;
+    return true;
+}
+
+} // namespace
+
+// ── Step 6: 논리 -> 물리 변환의 유일한 자리 ─────────────────────────────────
+std::optional<molga::PixelRectU32> UIPhysicalTransform::ToPhysicalOutward(
+    const molga::FixedRect& rect) const noexcept {
+    const std::int64_t logicalW = logicalViewport.width.Raw();
+    const std::int64_t logicalH = logicalViewport.height.Raw();
+    if (logicalW <= 0 || logicalH <= 0) return std::nullopt;
+    if (physicalViewport.width == 0 || physicalViewport.height == 0) {
+        return std::nullopt;
+    }
+    if (rect.width.Raw() <= 0 || rect.height.Raw() <= 0) return std::nullopt;
+
+    const auto axis = [](std::int64_t origin, std::int64_t extent,
+                         std::int64_t viewportOrigin, std::int64_t logicalExtent,
+                         std::uint32_t physicalExtent, std::uint32_t& outMin,
+                         std::uint32_t& outSize) -> bool {
+        const std::int64_t relMin = origin - viewportOrigin;
+        const std::int64_t relMax = relMin + extent;
+        const std::int64_t physical = static_cast<std::int64_t>(physicalExtent);
+        std::int64_t minProduct = 0;
+        std::int64_t maxProduct = 0;
+        if (!SafeMul(relMin, physical, minProduct) ||
+            !SafeMul(relMax, physical, maxProduct)) {
+            return false;
+        }
+        // 바깥쪽으로 연다: 최소 변은 floor, 최대 변은 ceil. 반올림이면 1픽셀
+        // 폭 클립이 통째로 사라진다.
+        std::int64_t low = FloorDiv(minProduct, logicalExtent);
+        std::int64_t high = CeilDiv(maxProduct, logicalExtent);
+        low = std::max<std::int64_t>(low, 0);
+        high = std::min<std::int64_t>(high, physical);
+        if (high <= low) return false;
+        outMin = static_cast<std::uint32_t>(low);
+        outSize = static_cast<std::uint32_t>(high - low);
+        return true;
+    };
+
+    molga::PixelRectU32 out;
+    std::uint32_t offsetX = 0;
+    std::uint32_t offsetY = 0;
+    if (!axis(rect.x.Raw(), rect.width.Raw(), logicalViewport.x.Raw(), logicalW,
+              physicalViewport.width, offsetX, out.width)) {
+        return std::nullopt;
+    }
+    if (!axis(rect.y.Raw(), rect.height.Raw(), logicalViewport.y.Raw(), logicalH,
+              physicalViewport.height, offsetY, out.height)) {
+        return std::nullopt;
+    }
+    // 물리 뷰포트 원점은 마지막에 한 번만 더한다.
+    const std::uint64_t absoluteX =
+        static_cast<std::uint64_t>(physicalViewport.x) + offsetX;
+    const std::uint64_t absoluteY =
+        static_cast<std::uint64_t>(physicalViewport.y) + offsetY;
+    if (absoluteX > std::numeric_limits<std::uint32_t>::max() ||
+        absoluteY > std::numeric_limits<std::uint32_t>::max()) {
+        return std::nullopt;
+    }
+    out.x = static_cast<std::uint32_t>(absoluteX);
+    out.y = static_cast<std::uint32_t>(absoluteY);
+    return out;
+}
+
+std::optional<molga::FixedPoint> UIPhysicalTransform::ToLogicalPoint(
+    double outputPixelX, double outputPixelY) const noexcept {
+    if (!std::isfinite(outputPixelX) || !std::isfinite(outputPixelY)) {
+        return std::nullopt;
+    }
+    const std::int64_t logicalW = logicalViewport.width.Raw();
+    const std::int64_t logicalH = logicalViewport.height.Raw();
+    if (logicalW <= 0 || logicalH <= 0) return std::nullopt;
+    if (physicalViewport.width == 0 || physicalViewport.height == 0) {
+        return std::nullopt;
+    }
+    const double minX = static_cast<double>(physicalViewport.x);
+    const double minY = static_cast<double>(physicalViewport.y);
+    const double maxX = minX + static_cast<double>(physicalViewport.width);
+    const double maxY = minY + static_cast<double>(physicalViewport.height);
+    // 반열린 구간이다. 오른쪽/아래 가장자리 픽셀은 이 뷰포트 밖이다.
+    if (outputPixelX < minX || outputPixelX >= maxX) return std::nullopt;
+    if (outputPixelY < minY || outputPixelY >= maxY) return std::nullopt;
+
+    const auto axis = [](double pixel, double viewportMin,
+                         std::uint32_t physicalExtent, std::int64_t logicalExtent,
+                         std::int64_t logicalOrigin,
+                         std::int64_t& out) -> bool {
+        const double relative = pixel - viewportMin;
+        const double scaled = relative * static_cast<double>(logicalExtent) /
+                              static_cast<double>(physicalExtent);
+        if (!std::isfinite(scaled)) return false;
+        // 26.6으로 딱 한 번 반올림한다. 0에서 먼 쪽 규칙은 Fixed26_6과 같다 —
+        // 축마다 다른 규칙이면 정사각 입력이 축에 따라 갈린다.
+        const double rounded = scaled >= 0.0 ? std::floor(scaled + 0.5)
+                                             : std::ceil(scaled - 0.5);
+        if (rounded < -9.0e18 || rounded > 9.0e18) return false;
+        const std::int64_t value =
+            logicalOrigin + static_cast<std::int64_t>(rounded);
+        if (!InRawRange(value)) return false;
+        out = value;
+        return true;
+    };
+
+    std::int64_t x = 0;
+    std::int64_t y = 0;
+    if (!axis(outputPixelX, minX, physicalViewport.width, logicalW,
+              logicalViewport.x.Raw(), x) ||
+        !axis(outputPixelY, minY, physicalViewport.height, logicalH,
+              logicalViewport.y.Raw(), y)) {
+        return std::nullopt;
+    }
+    return molga::FixedPoint{ToFixed(x), ToFixed(y)};
+}
+
+std::optional<TextAffine2D> UIPhysicalTransform::LayoutToOutputAffine(
+    molga::FixedPoint logicalOrigin) const noexcept {
+    const std::int64_t logicalW = logicalViewport.width.Raw();
+    const std::int64_t logicalH = logicalViewport.height.Raw();
+    if (logicalW <= 0 || logicalH <= 0) return std::nullopt;
+    if (physicalViewport.width == 0 || physicalViewport.height == 0) {
+        return std::nullopt;
+    }
+    // 논리 단위는 raw/64다. 배율은 물리 픽셀 / 논리 단위이므로 64를 곱한다.
+    const double scaleX = static_cast<double>(physicalViewport.width) * 64.0 /
+                          static_cast<double>(logicalW);
+    const double scaleY = static_cast<double>(physicalViewport.height) * 64.0 /
+                          static_cast<double>(logicalH);
+    const double originX =
+        (static_cast<double>(logicalOrigin.x.Raw() - logicalViewport.x.Raw())) /
+        64.0;
+    const double originY =
+        (static_cast<double>(logicalOrigin.y.Raw() - logicalViewport.y.Raw())) /
+        64.0;
+    const double tx = static_cast<double>(physicalViewport.x) + originX * scaleX;
+    const double ty = static_cast<double>(physicalViewport.y) + originY * scaleY;
+    if (!std::isfinite(scaleX) || !std::isfinite(scaleY) ||
+        !std::isfinite(tx) || !std::isfinite(ty)) {
+        return std::nullopt;
+    }
+    const double floatLimit =
+        static_cast<double>(std::numeric_limits<float>::max());
+    if (std::abs(scaleX) > floatLimit || std::abs(scaleY) > floatLimit ||
+        std::abs(tx) > floatLimit || std::abs(ty) > floatLimit) {
+        return std::nullopt;
+    }
+    TextAffine2D affine;
+    affine.m00 = static_cast<float>(scaleX);
+    affine.m11 = static_cast<float>(scaleY);
+    affine.m01 = 0.0f;
+    affine.m10 = 0.0f;
+    affine.tx = static_cast<float>(tx);
+    affine.ty = static_cast<float>(ty);
+    return affine;
+}
+
+std::optional<TextRasterPolicy> UIPhysicalTransform::RasterPolicy(
+    molga::text::TextDiagnosticSink& sink) const {
+    // Task 8의 검증된 정수 규칙 하나를 그대로 쓴다. affine의 float에서
+    // 되짚으면 같은 화면에서 항목마다 다른 래스터 높이가 나온다.
+    return TextRasterPolicy::FromUiScale(
+        molga::FixedSize{logicalViewport.width, logicalViewport.height},
+        molga::PixelSize{static_cast<int>(physicalViewport.width),
+                         static_cast<int>(physicalViewport.height)},
+        sink);
 }
 
 namespace {
@@ -1131,45 +1585,84 @@ void MarkLayoutCycles(LayoutBuilder& builder) {
 
 namespace {
 
-bool IntersectRects(const RawRect& a, const RawRect& b, RawRect& out) {
-    const Raw x0 = std::max(a.x, b.x);
-    const Raw y0 = std::max(a.y, b.y);
-    const Raw x1 = std::min(a.x + a.width, b.x + b.width);
-    const Raw y1 = std::min(a.y + a.height, b.y + b.height);
-    if (x1 <= x0 || y1 <= y0) return false;
-    out = RawRect{x0, y0, x1 - x0, y1 - y0};
-    return true;
+// ── 캔버스 배율을 확정된 서브트리에 정확히 한 번 적용한다 ───────────────────
+// 스냅샷의 모든 사각형은 *표면 논리 단위*다 — Build가 받은 logicalViewport와
+// 같은 공간이고, UISystem::CollectRender/HitTest가 쓰는
+// RectTransform::GetScreenRect가 내는 그 공간이다.
+//
+// ScaleWithViewport 캔버스(그리고 그것이 기본값이다)는 자기 서브트리를
+// viewport/scale 크기의 *캔버스* 논리 단위로 확정한다. 그 값을 그대로 게시하면
+// 스냅샷 경로와 레거시 경로가 배율만큼 어긋나고, 배율이 다른 캔버스가 한
+// 표면에 둘 있으면 UISnapshot::logicalViewport 하나로는 둘 다 옳게 매핑할 수
+// 없다(Task 11.2의 UIPhysicalTransform은 표면마다 논리 뷰포트 하나만 받는다).
+//
+// float 배율을 다시 곱하지 않는다. 캔버스 논리 크기 자체가 이미
+// viewport/scale을 26.6으로 확정한 값이므로 viewportRaw/logicalRaw가 그 배율의
+// 정확한 유리수 표현이고, 검증된 정수 산술로 적용된다. 그래서 캔버스 뿌리는
+// 뷰포트에 정확히 겹치고, ConstantPixelSize에서는 두 값이 같아 아무 일도
+// 일어나지 않는다.
+void ScaleSubtree(LayoutBuilder& builder, std::size_t index, Raw numeratorX,
+                  Raw denominatorX, Raw numeratorY, Raw denominatorY) {
+    LayoutNode& node = builder.nodes[index];
+    const auto axis = [&builder](Raw value, Raw numerator,
+                                 Raw denominator) -> Raw {
+        Raw out = 0;
+        if (!MulDiv(value, numerator, denominator, out)) {
+            builder.Fail("UI canvas scale left the 26.6 range");
+            return 0;
+        }
+        return out;
+    };
+    node.resolved.x = axis(node.resolved.x, numeratorX, denominatorX);
+    node.resolved.width = axis(node.resolved.width, numeratorX, denominatorX);
+    node.resolved.y = axis(node.resolved.y, numeratorY, denominatorY);
+    node.resolved.height = axis(node.resolved.height, numeratorY, denominatorY);
+    // 고유 크기도 같은 공간으로 옮긴다. 한 스냅샷 안에서 사각형과 고유 크기가
+    // 다른 단위를 쓰면 그 둘을 비교하는 소비자가 조용히 틀린다.
+    node.prefWidth = axis(node.prefWidth, numeratorX, denominatorX);
+    node.prefHeight = axis(node.prefHeight, numeratorY, denominatorY);
+    for (const auto child : node.children) {
+        ScaleSubtree(builder, child, numeratorX, denominatorX, numeratorY,
+                     denominatorY);
+    }
 }
 
-void ComputeClips(LayoutBuilder& builder, std::size_t index, bool hasInherited,
-                  const RawRect& inherited, bool droppedAncestor) {
+// ── Step 4a/4b: 게시되는 클립은 검증된 교집합 하나에서만 나온다 ─────────────
+// 예전에는 검증되지 않은 두 번째 사본(IntersectRects)이 실제 경로에 있었고,
+// Step 4a가 요구한 IntersectFixedRects는 단위 시험만 붙들고 있었다. 규칙의
+// 사본이 둘이면 시험이 가리키는 쪽과 화면에 나오는 쪽이 갈리고, 그 어긋남은
+// 관찰되지 않는다. 사본은 하나다.
+void ComputeClips(LayoutBuilder& builder, std::size_t index,
+                  const std::optional<molga::FixedRect>& inheritedClip,
+                  bool droppedAncestor) {
     LayoutNode& node = builder.nodes[index];
-    node.hasClip = hasInherited;
-    node.clip = inherited;
+    node.logicalClip = inheritedClip;
     node.dropped = droppedAncestor;
-    if (hasInherited && !droppedAncestor) {
-        RawRect ignored;
-        if (!IntersectRects(inherited, node.resolved, ignored)) node.dropped = true;
+    const auto resolved = ToFixedRect(node.resolved);
+    if (!resolved) {
+        builder.Fail("UI layout value left the 26.6 range");
+        return;
+    }
+    if (inheritedClip && !droppedAncestor) {
+        if (!IntersectFixedRects(*inheritedClip, *resolved)) node.dropped = true;
     }
 
-    bool childHasClip = hasInherited;
-    RawRect childClip = inherited;
+    std::optional<molga::FixedRect> childClip = inheritedClip;
     if (node.mask && node.mask->ClipsDescendants()) {
-        if (!childHasClip) {
-            childClip = node.resolved;
-            childHasClip = true;
-        } else if (!IntersectRects(childClip, node.resolved, childClip)) {
+        childClip = childClip ? IntersectFixedRects(*childClip, *resolved)
+                              : resolved;
+        if (!childClip) {
             // 빈 교집합은 자손 전체를 제거한다. 여기서 clip을 유지하면 자손이
             // 자기 조상보다 넓은 영역에 그려진다.
-            childClip = RawRect{};
+            const std::optional<molga::FixedRect> empty = molga::FixedRect{};
             for (const auto child : node.children) {
-                ComputeClips(builder, child, true, childClip, true);
+                ComputeClips(builder, child, empty, true);
             }
             return;
         }
     }
     for (const auto child : node.children) {
-        ComputeClips(builder, child, childHasClip, childClip, node.dropped);
+        ComputeClips(builder, child, childClip, node.dropped);
     }
 }
 
@@ -1182,6 +1675,218 @@ bool ObjectIsInteractionEligible(GameObject& object) {
         eligible = eligible || button->IsInteractable();
     }
     return eligible;
+}
+
+} // namespace
+
+namespace {
+
+// 이 표면이 기억하는 페이로드 사실의 상한. 넘으면 더 기억하지 않으므로 그
+// 뒤의 같은 사실은 다시 흐른다 — 상한이 진단을 영구히 삼키는 것보다 낫다.
+constexpr std::size_t kMaxRememberedPayloadFacts = 256;
+
+// ── Step 3a: 정규 키 조립 ───────────────────────────────────────────────────
+UIStableComponentKey MakeStableKey(unsigned int objectId,
+                                   const Component& component,
+                                   std::uint32_t schemaVersion) {
+    UIStableComponentKey key;
+    key.sceneObjectId = objectId;
+    key.componentTypeName = component.GetTypeName();
+    key.componentSchemaVersion = schemaVersion;
+    return key;
+}
+
+UIFrozenTarget MakeFrozenTarget(const World& world, unsigned int objectId,
+                                const Component& component,
+                                std::uint32_t schemaVersion) {
+    UIFrozenTarget target;
+    target.runtimeTarget = CaptureTarget(world, component);
+    target.canonicalTarget = MakeStableKey(objectId, component, schemaVersion);
+    return target;
+}
+
+molga::text::TextHorizontalAlignment ToLayoutAlignment(
+    UILabel::HorizontalAlignment value) {
+    switch (value) {
+        case UILabel::HorizontalAlignment::Center:
+            return molga::text::TextHorizontalAlignment::Center;
+        case UILabel::HorizontalAlignment::Right:
+            return molga::text::TextHorizontalAlignment::Right;
+        case UILabel::HorizontalAlignment::Left:
+            break;
+    }
+    return molga::text::TextHorizontalAlignment::Left;
+}
+
+molga::text::TextVerticalAlignment ToLayoutAlignment(
+    UILabel::VerticalAlignment value) {
+    switch (value) {
+        case UILabel::VerticalAlignment::Middle:
+            return molga::text::TextVerticalAlignment::Middle;
+        case UILabel::VerticalAlignment::Bottom:
+            return molga::text::TextVerticalAlignment::Bottom;
+        case UILabel::VerticalAlignment::Top:
+            break;
+    }
+    return molga::text::TextVerticalAlignment::Top;
+}
+
+// 확정된 26.6 사각형을 그대로 제약으로 싣는다. float 화면 사각형을 다시
+// 만들지 않는 것이 요점이다 — 두 경로가 각자 반올림하면 같은 라벨이 배치와
+// 렌더에서 서로 다른 줄로 접힌다. 음수 크기는 제약이 아니라 오류이므로
+// 제약 없음으로 남긴다("폭 0으로 접어라"와 구분되어야 한다).
+molga::text::TextLayoutRequest BuildLabelRequestFixed(
+    const UILabel& label, unsigned int objectId, const molga::FixedRect& rect) {
+    molga::text::TextLayoutRequest request;
+    request.utf8 = label.GetText();
+    const UILabel::FontFamilyView family = label.ResolveFontFamilyView();
+    if (!family.familyGuid.empty()) {
+        request.style.fontFamilyGuid = family.familyGuid;
+    } else if (!family.faceFontGuids.empty()) {
+        request.style.legacyFontGuid = family.faceFontGuids.front();
+    }
+    if (const auto fontSize = Fixed26_6::FromFloat(label.GetFontSizePx())) {
+        request.style.shape.fontSize = *fontSize;
+    }
+    request.style.analysis.locale = label.GetLocale();
+    request.style.analysis.baseDirection = label.GetBaseDirection();
+    request.style.wrap = label.GetWrapMode();
+    request.style.overflow = label.GetOverflowMode();
+    request.style.maxLines = label.GetMaxLines();
+    request.style.horizontal = ToLayoutAlignment(label.GetHorizontalAlignment());
+    request.style.vertical = ToLayoutAlignment(label.GetVerticalAlignment());
+    if (const auto spacing = Fixed26_6::FromFloat(label.GetLineSpacing())) {
+        request.style.lineSpacing = *spacing;
+    }
+    if (rect.width.Raw() >= 0) request.constraints.width = rect.width;
+    if (rect.height.Raw() >= 0) request.constraints.height = rect.height;
+    request.diagnosticContext.componentType = "UILabel";
+    request.diagnosticContext.sceneObjectId = objectId;
+    return request;
+}
+
+// ── Step 1h/3f: 유효 입력 요청 ──────────────────────────────────────────────
+// 최상위 UITextInput::fontFamilyGuid 하나가 family 권한이다. 문단 스타일을
+// 복사한 뒤 그 필드를 덮어쓴다 — 중첩된 두 번째 family 값을 소비하거나
+// 직렬화하면 저작자가 두 곳을 고쳐야 하고, 그중 하나는 반드시 잊힌다.
+molga::text::ParagraphStyle EffectiveInputParagraphStyle(
+    const UITextInput& input) {
+    molga::text::ParagraphStyle style;
+    const UIAuthoredParagraphStyle& authored = input.ParagraphStyle();
+    if (const auto fontSize = Fixed26_6::FromFloat(authored.fontSizePx)) {
+        style.shape.fontSize = *fontSize;
+    }
+    if (const auto spacing = Fixed26_6::FromFloat(authored.lineSpacing)) {
+        style.lineSpacing = *spacing;
+    }
+    style.analysis.locale = authored.locale;
+    style.analysis.baseDirection = authored.baseDirection;
+    style.wrap = authored.wrap;
+    style.overflow = authored.overflow;
+    style.maxLines = authored.maxLines;
+    style.horizontal = authored.horizontal;
+    style.vertical = authored.vertical;
+    style.fontFamilyGuid = input.FontFamilyGuid();
+    return style;
+}
+
+// ── Step 3f: 입력창의 유효 요청 한 벌 ───────────────────────────────────────
+// 예약 구간을 세는 쪽과 게시하는 쪽이 같은 요청을 봐야 한다. 두 벌이면 예약된
+// 칸 수와 실제로 그려질 기록 수가 어긋나고, 그 어긋남은 다음 항목의 정렬 키가
+// 이미 쓰인 뒤에야 드러난다.
+molga::text::TextLayoutRequest BuildEffectiveInputRequest(
+    const UITextInput& input, const std::string& visibleUtf8,
+    const molga::FixedSize& logicalViewport,
+    unsigned int renderedLabelObjectId) {
+    molga::text::TextLayoutRequest request;
+    request.utf8 = visibleUtf8;
+    request.style = EffectiveInputParagraphStyle(input);
+    request.constraints.width = logicalViewport.width;
+    request.constraints.height = logicalViewport.height;
+    request.diagnosticContext.componentType = "UILabel";
+    request.diagnosticContext.sceneObjectId = renderedLabelObjectId;
+    return request;
+}
+
+// ── Step 4d: 입력창이 소유한 라벨 ───────────────────────────────────────────
+// 한 입력창이 요구한 두 참조의 해석 결과. 0은 "그 역할은 유효하지 않다"이며,
+// 유효하지 않은 rendered는 입력창의 시각/텍스트 대상을 통째로 끄고, 유효하지
+// 않은 placeholder는 placeholder 출력만 끈다.
+struct InputLabelClaim {
+    GameObject* object = nullptr;
+    UITextInput* input = nullptr;
+    UILabel* rendered = nullptr;
+    UILabel* placeholder = nullptr;
+    bool renderedRefAuthored = false;
+    bool placeholderRefAuthored = false;
+    bool conflicted = false;
+};
+
+// Build는 프레임마다 돈다. 배치할 수 없는 라벨은 고쳐질 때까지 계속 그러하므로,
+// 상한 없이 흘리면 로그가 그 하나로 가득 차고 진짜 새 진단이 그 안에 묻힌다.
+// 같은 사실을 이 표면에서 한 번만 통과시킨다 — 억제된 진단이 정보를 잃지는
+// 않는다. 권한 있는 완전한 기록은 진단 스트림이 아니라
+// TextLayout::validationFacts이고 그쪽에는 상한이 없다.
+class RateLimitedPayloadSink final : public molga::text::TextDiagnosticSink {
+public:
+    RateLimitedPayloadSink(molga::text::TextDiagnosticSink& target,
+                           std::vector<std::string>& seen,
+                           std::uint64_t worldGeneration,
+                           unsigned int objectId)
+        : target_(target),
+          seen_(seen),
+          worldGeneration_(worldGeneration),
+          objectId_(objectId) {}
+
+    void Report(molga::text::TextDiagnostic diagnostic) override {
+        // 월드 세대가 키에 들어간다. 씬을 다시 열면 오브젝트 id는 낮은 값부터
+        // 다시 쓰이므로, 세대가 없으면 *죽은* 월드의 7번이 이미 보고한 사실
+        // 때문에 새 월드 7번의 진짜 첫 진단이 조용히 사라진다.
+        std::string key = "label:";
+        key += std::to_string(worldGeneration_);
+        key += ':';
+        key += std::to_string(objectId_);
+        key += ':';
+        key += std::to_string(static_cast<int>(diagnostic.code));
+        key += ':';
+        key += diagnostic.message;
+        if (std::find(seen_.begin(), seen_.end(), key) != seen_.end()) return;
+        if (seen_.size() < kMaxRememberedPayloadFacts) {
+            seen_.push_back(std::move(key));
+        }
+        target_.Report(std::move(diagnostic));
+    }
+
+private:
+    molga::text::TextDiagnosticSink& target_;
+    std::vector<std::string>& seen_;
+    std::uint64_t worldGeneration_;
+    unsigned int objectId_;
+};
+
+// 측정 전용 pass의 진단을 버린다. 같은 내용을 렌더 요청이 이미 제 문맥으로
+// 보고하므로, 여기서 한 번 더 흘리면 잘못된 문자열 하나가 프레임마다 두 줄씩
+// 찍힌다. 상태가 없으므로 프레임마다 만들어도 할당이 없다.
+class DiscardingPayloadSink final : public molga::text::TextDiagnosticSink {
+public:
+    void Report(molga::text::TextDiagnostic) override {}
+};
+
+UILabel* ResolveClaimedLabel(World& world, SceneObjectRef ref,
+                             const std::vector<unsigned int>& reachable) {
+    if (!ref.IsSet()) return nullptr;
+    GameObject* object = world.FindById(ref.ObjectId());
+    if (!object) return nullptr;
+    // 같은 Canvas 트리 안에서 실제로 배치된 오브젝트여야 한다. 비활성 조상
+    // 아래의 라벨이나 다른 트리의 라벨을 붙들면, 화면에 없는 라벨이 입력창의
+    // 글을 소유했다고 주장하게 된다.
+    if (std::find(reachable.begin(), reachable.end(), object->GetID()) ==
+        reachable.end()) {
+        return nullptr;
+    }
+    UILabel* label = object->GetComponent<UILabel>();
+    if (!label || !label->IsEnabled()) return nullptr;
+    return label;
 }
 
 } // namespace
@@ -1204,6 +1909,22 @@ struct UILayoutSystem::Impl {
         UISnapshotCacheKey key;
         UISnapshotPtr snapshot;
     };
+
+    // ── 기하 조회 규칙은 한 벌뿐이다 ────────────────────────────────────────
+    // 해시는 후보를 좁히기만 하고, 적중은 언제나 원래의 순서 있는 필드를 전부
+    // 다시 비교한 뒤에만 난다. 이 규칙이 두 곳에 복사되어 있으면 관찰용
+    // 접근자가 프로덕션과 다른 프로그램을 재게 되고, 프로덕션 쪽만 해시를
+    // 믿도록 망가져도 접근자를 쓰는 시험은 전부 통과한다.
+    template <class List>
+    static auto MatchGeometry(List& lru, std::size_t hash,
+                              const UILayoutGeometryCacheKey& key) {
+        auto it = lru.begin();
+        for (; it != lru.end(); ++it) {
+            if (it->hash != hash) continue;
+            if (it->key == key) break;
+        }
+        return it;
+    }
 
     // 월드마다 최대 256개. front가 MRU다.
     std::unordered_map<std::uint64_t, std::list<GeometryEntry>> geometry;
@@ -1270,6 +1991,24 @@ struct UILayoutSystem::Impl {
     std::vector<std::string> reportedCycles;
     std::string lastUncacheableKey;
     std::optional<UILayoutGeometryCacheKey> lastGeometryKey;
+    std::optional<UISnapshotCacheKey> lastSnapshotKey;
+
+    // ── 페이로드 진단의 상한 ────────────────────────────────────────────────
+    // Build는 프레임마다 돈다. 없는 텍스처나 배치할 수 없는 라벨은 고쳐질
+    // 때까지 계속 없으므로, 상한이 없으면 로그가 그 하나로 가득 차고 진짜
+    // 새 진단이 그 안에 묻힌다. 같은 사실을 이 표면에서 한 번만 낸다.
+    // reportedCycles와 같은 규약이다.
+    std::vector<std::string> reportedPayloadFacts;
+    bool NotePayloadFact(const std::string& key) {
+        if (std::find(reportedPayloadFacts.begin(), reportedPayloadFacts.end(),
+                      key) != reportedPayloadFacts.end()) {
+            return false;
+        }
+        if (reportedPayloadFacts.size() < kMaxRememberedPayloadFacts) {
+            reportedPayloadFacts.push_back(key);
+        }
+        return true;
+    }
 
     // Step 4f: 용량을 유지하는 스크래치. 변경된 프레임에서만 resize/덮어쓰기를
     // 하고, 완성된 키는 미스일 때만 캐시 소유로 복사한다.
@@ -1326,13 +2065,16 @@ bool UILayoutSystem::GeometryCacheContains(
     const UILayoutGeometryCacheKey& key) const {
     const auto found = impl_->geometry.find(key.worldGeneration);
     if (found == impl_->geometry.end()) return false;
-    const std::size_t hash = HashUILayoutGeometryCacheKey(key);
-    for (const auto& entry : found->second) {
-        if (entry.hash != hash) continue;
-        if (entry.key == key) return true;
-    }
-    return false;
+    // 프로덕션 조회와 정확히 같은 함수다. 규칙을 여기 다시 쓰면 프로덕션 쪽만
+    // 해시를 믿도록 망가져도 이 접근자를 쓰는 시험은 전부 통과한다.
+    return Impl::MatchGeometry(found->second,
+                               HashUILayoutGeometryCacheKey(key),
+                               key) != found->second.end();
 }
+std::optional<UISnapshotCacheKey> UILayoutSystem::LastSnapshotKey() const {
+    return impl_->lastSnapshotKey;
+}
+
 std::optional<UILayoutGeometryCacheKey> UILayoutSystem::LastGeometryKey() const {
     return impl_->lastGeometryKey;
 }
@@ -1353,13 +2095,29 @@ void UILayoutSystem::OnWorldReleased(std::uint64_t worldGeneration) {
         impl_->lastGeometryKey->worldGeneration == worldGeneration) {
         impl_->lastGeometryKey.reset();
     }
+    if (impl_->lastSnapshotKey &&
+        impl_->lastSnapshotKey->geometry.worldGeneration == worldGeneration) {
+        // lastGeometryKey의 형제다. 은퇴한 월드의 키를 계속 돌려주면 그 안의
+        // runtimeBindings(텍스처/샘플러 핸들)와 inputVisualStates가 죽은 월드의
+        // 것인 채로 관찰된다.
+        impl_->lastSnapshotKey.reset();
+    }
+    // ── M35 rate limiter의 수명 ────────────────────────────────────────────
+    // 기억된 사실은 그 월드의 것이다. 은퇴한 월드의 사실을 계속 들고 있으면
+    // 256칸 상한이 죽은 월드들로 영구히 포화되고, 그 뒤로는 어떤 진단도 이
+    // 프로세스에서 다시 나오지 않는다.
+    impl_->reportedPayloadFacts.clear();
+    impl_->reportedCycles.clear();
     UIIntrinsicLayoutRegistry::Get().ReleaseWorld(worldGeneration);
 }
 
-UISnapshotPtr UILayoutSystem::Build(World& world,
-                                    molga::WindowId surfaceWindowId,
-                                    molga::FixedSize logicalViewport,
-                                    molga::text::TextDiagnosticSink& sink) {
+
+UISnapshotPtr UILayoutSystem::Build(
+    World& world, molga::WindowId surfaceWindowId,
+    molga::FixedSize logicalViewport,
+    const UITextInputVisualStateProvider& inputVisualStates,
+    molga::text::TextLayoutService& textLayout,
+    molga::text::TextDiagnosticSink& sink) {
     Impl& impl = *impl_;
     // Step 4a: 표면과 뷰포트를 키 구성 전에 거절한다. 0인 창이나 비어 있는
     // 뷰포트로 만든 빈 스냅샷은 "UI가 하나도 없는 프레임"과 구분되지 않는다.
@@ -1377,7 +2135,9 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
     const std::uint64_t viewportGeneration =
         impl.GenerationForViewport(logicalViewport);
 
-    const auto clock = UIRuntimeInvalidationClock::Current();
+    // const가 아니다: 아래에서 라벨 고유 크기를 게시한 뒤 그 결과를 이 프레임이
+    // 그대로 소비해야 하므로 한 번 다시 읽는다.
+    auto clock = UIRuntimeInvalidationClock::Current();
     if (impl.lastDeviceGeneration != 0 &&
         impl.lastDeviceGeneration != clock.deviceGeneration) {
         // 장치가 새로 만들어지면 옛 장치에 묶인 전체 스냅샷은 더 이상 쓸 수
@@ -1404,7 +2164,7 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
     stamp.textureBindingGeneration = clock.textureBindingGeneration;
     stamp.deviceGeneration = clock.deviceGeneration;
 
-    const bool clocksCacheable = clock.cacheable && impl.viewportGenerationCacheable;
+    bool clocksCacheable = clock.cacheable && impl.viewportGenerationCacheable;
     if (clocksCacheable && impl.hasStamp && impl.lastSnapshot &&
         stamp == impl.lastStamp) {
         return impl.lastSnapshot;
@@ -1418,6 +2178,9 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
 
     std::vector<std::size_t> canvasRoots;
     std::vector<RawRect> canvasRects;
+    // 캔버스 뿌리마다 그 서브트리를 표면 논리 단위로 되돌리는 정확한 유리수.
+    // {numeratorX, denominatorX, numeratorY, denominatorY}.
+    std::vector<std::array<Raw, 4>> canvasScales;
     std::uint32_t rootOrdinal = 0;
     for (const auto& object : world.Objects()) {
         if (!object || !IsCanvasRoot(*object) || !IsHierarchyActive(object.get())) {
@@ -1445,6 +2208,9 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
         if (builder.nodes.size() > first) {
             canvasRoots.push_back(first);
             canvasRects.push_back(RawRect{0, 0, logicalWidth, logicalHeight});
+            canvasScales.push_back(
+                {static_cast<Raw>(logicalViewport.width.Raw()), logicalWidth,
+                 static_cast<Raw>(logicalViewport.height.Raw()), logicalHeight});
         }
     }
     if (builder.failed) return nullptr;
@@ -1452,6 +2218,10 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
     // ── 고유 크기와 취소 불가능한 revision ──────────────────────────────────
     bool uncacheable = !clocksCacheable;
     std::string uncacheableKey;
+    // 소진된 시계도 이름이 있어야 한다. 빈 이름을 쓰면 lastUncacheableKey의
+    // 초기값과 같아 첫 소진 프레임이 진단 하나 없이 지나가고, 캐시가 통째로
+    // 꺼진 사실이 성능으로만 드러난다.
+    if (!clocksCacheable) uncacheableKey = "clock;";
     auto noteComponent = [&](const UIComponent* component, unsigned int objectId,
                              const char* typeName) {
         if (!component || component->RevisionCacheable()) return;
@@ -1481,8 +2251,189 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
                       "UIScrollView");
         noteComponent(object.GetComponent<UIAccessibility>(), objectId,
                       "UIAccessibility");
+    }
 
-        // 고유 크기는 확정된 불변 배치를 가진 쪽이 게시한 것을 읽기만 한다.
+    // ── Step 4d: 입력창의 라벨 소유권을 게시 전에 원자적으로 확정한다 ───────
+    // 순서가 계약이다: 먼저 모든 주장을 안정된 Canvas DFS 순서로 모으고, 모든
+    // 충돌을 찾은 다음에야 표를 만든다. 발견하는 대로 적용하면 두 입력창이
+    // 같은 라벨을 요구할 때 먼저 온 쪽이 조용히 이기고, 그 승부는 형제 순서를
+    // 바꾸기만 해도 뒤집힌다.
+    std::vector<unsigned int> reachableObjectIds;
+    reachableObjectIds.reserve(builder.nodes.size());
+    for (const auto& node : builder.nodes) {
+        reachableObjectIds.push_back(node.object->GetID());
+    }
+
+    std::vector<InputLabelClaim> inputClaims;
+    for (const auto& node : builder.nodes) {
+        GameObject& object = *node.object;
+        UITextInput* input = EnabledComponent<UITextInput>(object);
+        // 비활성/비활성화된 입력창은 아무 주장도 하지 않는다. 그래서 그 라벨은
+        // 평범한 UILabel 가시성을 따른다.
+        if (!input) continue;
+        InputLabelClaim claim;
+        claim.object = &object;
+        claim.input = input;
+        claim.renderedRefAuthored = input->RenderedLabel().IsSet();
+        claim.placeholderRefAuthored = input->PlaceholderLabel().IsSet();
+        claim.rendered = ResolveClaimedLabel(world, input->RenderedLabel(),
+                                             reachableObjectIds);
+        claim.placeholder = ResolveClaimedLabel(
+            world, input->PlaceholderLabel(), reachableObjectIds);
+        // 한 라벨을 두 역할로 쓰는 것은 충돌이다. 같은 글자 위에 본문과
+        // placeholder가 동시에 그려지고, 어느 쪽이 이기는지는 정의되지 않는다.
+        if (claim.rendered && claim.rendered == claim.placeholder) {
+            claim.conflicted = true;
+        }
+        inputClaims.push_back(claim);
+    }
+    // 다중 소유자 검출. 역할과 무관하게 같은 라벨을 두 번 이상 요구하면 관련된
+    // 입력창이 전부 실패한다 — 하나를 살려 두면 어느 쪽이 사는지가 순회 순서에
+    // 달린다.
+    for (std::size_t i = 0; i < inputClaims.size(); ++i) {
+        for (std::size_t j = i + 1; j < inputClaims.size(); ++j) {
+            const auto shares = [](UILabel* a, UILabel* b) {
+                return a != nullptr && a == b;
+            };
+            if (shares(inputClaims[i].rendered, inputClaims[j].rendered) ||
+                shares(inputClaims[i].rendered, inputClaims[j].placeholder) ||
+                shares(inputClaims[i].placeholder, inputClaims[j].rendered) ||
+                shares(inputClaims[i].placeholder,
+                       inputClaims[j].placeholder)) {
+                inputClaims[i].conflicted = true;
+                inputClaims[j].conflicted = true;
+            }
+        }
+    }
+    // 충돌한 라벨도 평범한 출력에서 사라진다(fail-closed). 남겨 두면 소유권을
+    // 잃은 라벨이 자기 저작 내용을 그대로 그려, 입력창이 비어 있는데 화면에는
+    // 옛 글이 남는다.
+    std::vector<unsigned int> suppressedLabelObjectIds;
+    std::vector<std::string> ownershipFailures;
+    for (const auto& claim : inputClaims) {
+        const unsigned int objectId = claim.object->GetID();
+        if (claim.conflicted) {
+            if (claim.rendered) {
+                suppressedLabelObjectIds.push_back(
+                    claim.rendered->GetGameObject()->GetID());
+            }
+            if (claim.placeholder) {
+                suppressedLabelObjectIds.push_back(
+                    claim.placeholder->GetGameObject()->GetID());
+            }
+            ownershipFailures.push_back(
+                "UITextInput on scene object " + std::to_string(objectId) +
+                " shares a UILabel with another owner or role");
+            continue;
+        }
+        if (!claim.rendered) {
+            // 본문 역할이 무너져도 placeholder에 대한 소유 주장은 그대로다.
+            // 여기서 놓아 주면(fail-open) 그 라벨이 자기 저작 문구를 평범한
+            // UILabel로 영원히 그린다 — 참조 하나를 잘못 적은 저작자에게
+            // 남는 것은 죽은 입력창 껍데기와 지워지지 않는 유령 문구다. 이
+            // 표의 나머지 행은 전부 fail-closed이고 이 행만 예외일 이유가 없다.
+            const bool suppressedPlaceholder = claim.placeholder != nullptr;
+            if (suppressedPlaceholder) {
+                suppressedLabelObjectIds.push_back(
+                    claim.placeholder->GetGameObject()->GetID());
+            }
+            // 진단은 저작된 참조가 실제로 어긋났을 때만 낸다. 참조를 아예 적지
+            // 않은 것은 오류가 아니라 미완성이고, 그것까지 보고하면 만드는
+            // 중인 씬이 매 프레임 로그를 채운다. 억제 사실은 같은 진단 하나에
+            // 함께 적는다 — 두 번째 진단을 추가하면 같은 오작성 하나가 두 줄이
+            // 된다.
+            if (claim.renderedRefAuthored) {
+                ownershipFailures.push_back(
+                    "UITextInput on scene object " + std::to_string(objectId) +
+                    " references a rendered UILabel that is missing, of the "
+                    "wrong type, out of this Canvas tree, or disabled" +
+                    (suppressedPlaceholder
+                         ? "; its placeholder UILabel is suppressed with it"
+                         : ""));
+            }
+            continue;
+        }
+        suppressedLabelObjectIds.push_back(
+            claim.rendered->GetGameObject()->GetID());
+        if (claim.placeholder) {
+            suppressedLabelObjectIds.push_back(
+                claim.placeholder->GetGameObject()->GetID());
+        } else if (claim.placeholderRefAuthored) {
+            ownershipFailures.push_back(
+                "UITextInput on scene object " + std::to_string(objectId) +
+                " references a placeholder UILabel that is missing, of the "
+                "wrong type, out of this Canvas tree, or disabled");
+        }
+    }
+    for (const auto& message : ownershipFailures) {
+        molga::text::TextDiagnostic diagnostic;
+        diagnostic.code = molga::text::TextDiagnosticCode::ReferenceInvalid;
+        diagnostic.severity = molga::text::TextSeverity::Error;
+        diagnostic.subsystem = "ui.layout";
+        diagnostic.message = message;
+        diagnostic.remediation =
+            "give each UITextInput its own enabled rendered and placeholder "
+            "UILabel inside the same active Canvas tree";
+        diagnostic.componentType = "UITextInput";
+        sink.Report(std::move(diagnostic));
+    }
+
+    // ── Step 5b의 고유 크기 생산자 ──────────────────────────────────────────
+    // Task 10.2는 이것을 UISystem::CollectRender에 두었고, 그 근거는 하나였다:
+    // 그때 Build에는 TextLayoutService가 없었다(헤더가 계약을 그렇게 적어
+    // 두었다). Step 3i가 서비스를 인자로 넣었으므로 그 근거는 사라졌다.
+    // 스냅샷만으로 그리는 표면 — Task 11.2가 만드는 바로 그것 — 은
+    // CollectRender를 돌지 않으므로, 생산자가 거기에만 있으면 모든 UILabel이
+    // 다시 0으로 측정되고 fitter/그룹/SCC가 전부 0 위에서 돈다.
+    //
+    // 제약을 벗긴 요청으로 측정한다. 렌더 요청의 intrinsicSize를 그대로
+    // 게시하면 fitter가 rect를 바꾸고 그 rect가 다음 프레임의 제약이 되어 값이
+    // 영원히 흔들린다(Task 10.2가 비싸게 배운 규칙이다). 벗긴 측정은 글과
+    // 스타일에만 의존하므로 첫 게시 뒤로 Publish가 거짓을 돌려준다.
+    //
+    // 이 자리가 기하 키보다 *앞*인 것도 계약이다. 뒤에 두면 이 프레임이 자기
+    // 게시를 읽지 못해 다음 프레임이 반드시 미스가 되고, "변경 없는 프레임은
+    // 같은 스냅샷"이 프레임마다 한 번씩 깨진다.
+    {
+        DiscardingPayloadSink discard;
+        for (const auto& node : builder.nodes) {
+            GameObject& object = *node.object;
+            UILabel* label = EnabledComponent<UILabel>(object);
+            if (!label || label->GetText().empty()) continue;
+            const unsigned int labelObjectId = object.GetID();
+            // 입력창이 소유한 라벨은 평범한 라벨이 아니다. 그 글의 권한은
+            // 입력창의 유효 요청이고, 그 측정은 Task 14가 소유한다.
+            if (std::find(suppressedLabelObjectIds.begin(),
+                          suppressedLabelObjectIds.end(),
+                          labelObjectId) != suppressedLabelObjectIds.end()) {
+                continue;
+            }
+            const UIRuntimeTargetIdentity target = CaptureTarget(world, *label);
+            if (!target) continue;
+            molga::text::TextLayoutRequest measure =
+                BuildLabelRequestFixed(*label, labelObjectId, molga::FixedRect{});
+            measure.constraints = molga::text::LayoutConstraints{};
+            const auto measured = textLayout.Layout(measure, discard);
+            if (!measured || *measured == nullptr) continue;
+            UIIntrinsicLayoutRegistry::Get().Publish(
+                target, UILabelIntrinsicContentIdentity(measure),
+                (*measured)->intrinsicSize);
+        }
+    }
+
+    // 게시가 의미 세대를 움직였을 수 있다. 그 값을 여기서 다시 읽어야 이
+    // 프레임이 자기 게시를 그대로 소비하고, 다음 프레임이 같은 도장으로 빠른
+    // 경로에 든다 — 낡은 값을 도장에 남기면 매 프레임 한 번씩 헛도는 빌드가
+    // 생긴다.
+    clock = UIRuntimeInvalidationClock::Current();
+    stamp.semanticDirtyGeneration = clock.semanticDirtyGeneration;
+    clocksCacheable = clock.cacheable && impl.viewportGenerationCacheable;
+    if (!clocksCacheable && uncacheableKey.empty()) uncacheableKey = "clock;";
+    uncacheable = uncacheable || !clocksCacheable;
+
+    // 고유 크기는 확정된 불변 배치를 가진 쪽이 게시한 것을 읽기만 한다.
+    for (auto& node : builder.nodes) {
+        GameObject& object = *node.object;
         std::optional<UIIntrinsicLayoutRecord> record;
         if (auto* label = EnabledComponent<UILabel>(object)) {
             record = UIIntrinsicLayoutRegistry::Get().Find(
@@ -1508,6 +2459,47 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
         }
     }
 
+    // ── Step 1i: 제공자 조회는 스칼라 빠른 경로가 빗나간 뒤에 한 번씩 ───────
+    // 유효한 활성 입력창마다 정확히 한 번, (surfaceWindowId, inputIdentity)
+    // 쌍으로 묻는다. 돌려받은 값은 복사되며, 제공자가 나중에 자기 저장소를
+    // 고쳐도 게시된 스냅샷은 달라지지 않는다.
+    std::vector<UITextInputVisualState> gatheredInputStates;
+    std::vector<UITextInputGeometryCacheIdentity> gatheredInputGeometry;
+    for (const auto& claim : inputClaims) {
+        if (claim.conflicted || !claim.rendered) continue;
+        const UIRuntimeTargetIdentity identity =
+            CaptureTarget(world, *claim.input);
+        if (!identity) continue;
+        UITextInputVisualState state;
+        state.surfaceWindowId = surfaceWindowId;
+        state.input = identity;
+        // 제공자가 아직 이 입력창을 모르면 저작된 초기값이 보이는 글이다.
+        state.committedUtf8 = claim.input->InitialText();
+        if (const auto published =
+                inputVisualStates.GetVisualState(surfaceWindowId, identity)) {
+            state = *published;
+        }
+        UITextInputGeometryCacheIdentity geometryIdentity;
+        geometryIdentity.input = identity;
+        geometryIdentity.effectiveRequest.utf8 =
+            state.committedUtf8 + state.compositionUtf8;
+        geometryIdentity.effectiveRequest.style =
+            EffectiveInputParagraphStyle(*claim.input);
+        // 얼어붙은 뷰포트 제약. 확정된 라벨 사각형이 아니라 논리 뷰포트를 쓰는
+        // 이유는 순환 때문이다: 기하 키는 배치 앞에 있고 라벨 사각형은 배치의
+        // 결과다. 라벨 사각형의 변화는 rectAndLayoutRevisions가 이미 덮는다.
+        geometryIdentity.effectiveRequest.constraints.width =
+            logicalViewport.width;
+        geometryIdentity.effectiveRequest.constraints.height =
+            logicalViewport.height;
+        geometryIdentity.effectiveRequest.diagnosticContext.componentType =
+            "UILabel";
+        geometryIdentity.effectiveRequest.diagnosticContext.sceneObjectId =
+            claim.rendered->GetGameObject()->GetID();
+        gatheredInputStates.push_back(std::move(state));
+        gatheredInputGeometry.push_back(std::move(geometryIdentity));
+    }
+
     if (uncacheable) {
         // Step 8b: 소진된 revision은 캐시 정체성이 상태를 구분하지 못한다는
         // 뜻이다. 조회도 삽입도 하지 않고 매번 새로 만든다. 진단은 같은 집합이
@@ -1515,11 +2507,30 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
         // 하나로 가득 찬다.
         if (impl.lastUncacheableKey != uncacheableKey) {
             impl.lastUncacheableKey = uncacheableKey;
-            impl.ReportInvalid(
-                sink,
-                "a reachable UI component exhausted its authored revision; "
-                "this surface rebuilds without caching",
-                "restart the editor session to reset runtime revisions");
+            if (clocksCacheable) {
+                impl.ReportInvalid(
+                    sink,
+                    "a reachable UI component exhausted its authored revision; "
+                    "this surface rebuilds without caching",
+                    "restart the editor session to reset runtime revisions");
+            } else {
+                // 집계 세대가 소진되면 옛 세대가 새 상태를 가리키지 않도록
+                // 조회도 삽입도 하지 않는다. 이것은 성능 문제가 아니라
+                // 차단 사유다.
+                molga::text::TextDiagnostic diagnostic;
+                diagnostic.code =
+                    molga::text::TextDiagnosticCode::LayoutInvalid;
+                diagnostic.severity = molga::text::TextSeverity::Blocker;
+                diagnostic.subsystem = "ui.layout";
+                diagnostic.message =
+                    "a UI aggregate generation is exhausted; this surface "
+                    "rebuilds with both snapshot caches bypassed and publishes "
+                    "no new runtime binding";
+                diagnostic.remediation =
+                    "restart the process to reset the runtime generation "
+                    "clocks";
+                sink.Report(std::move(diagnostic));
+            }
         }
         impl.hasStamp = false;
         impl.lastSnapshot.reset();
@@ -1575,6 +2586,7 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
     geometryKey.hierarchyAndSiblingRevisions = impl.hierarchyScratch;
     geometryKey.rectAndLayoutRevisions = impl.rectScratch;
     geometryKey.intrinsicGenerations = impl.intrinsicScratch;
+    geometryKey.inputGeometry = gatheredInputGeometry;
     const std::size_t geometryHash = HashUILayoutGeometryCacheKey(geometryKey);
 
     std::vector<UIDrawOrderKey> orderedKeys;
@@ -1582,10 +2594,10 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
     auto& lru = impl.geometry[geometryKey.worldGeneration];
     bool geometryHit = false;
     if (!uncacheable) {
-        for (auto it = lru.begin(); it != lru.end(); ++it) {
-            // 해시는 후보를 좁히기만 한다. 값 비교를 건너뛰면 서로 다른 두
-            // 씬이 한 항목을 공유할 수 있다.
-            if (it->hash != geometryHash || !(it->key == geometryKey)) continue;
+        // 조회 규칙은 Impl::MatchGeometry 한 벌뿐이다. 여기서 다시 쓰면
+        // GeometryCacheContains와 갈릴 수 있고, 그 어긋남은 관찰되지 않는다.
+        const auto it = Impl::MatchGeometry(lru, geometryHash, geometryKey);
+        if (it != lru.end()) {
             lru.splice(lru.begin(), lru, it);
             orderedKeys = lru.front().order;
             orderedNodes = lru.front().nodes;
@@ -1595,11 +2607,9 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
                     builder.nodes[n].dropped = cachedDropped[n] != 0;
                 }
                 geometryHit = true;
-                break;
             }
             // 크기가 어긋나면 이 항목은 지금 트리를 말하지 못한다. 조용히
             // 절반만 복원하느니 다시 짓는다.
-            break;
         }
     }
 
@@ -1616,9 +2626,20 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
             ArrangeSubtree(builder, canvasRoots[i]);
         }
         if (builder.failed) return nullptr;
-        for (const auto root : canvasRoots) {
-            ComputeClips(builder, root, false, RawRect{}, false);
+        // 확정이 끝난 뒤에 정확히 한 번. 확정 *전에* 캔버스 뿌리를 뷰포트
+        // 크기로 두면 저작된 sizeDelta(절대 픽셀)가 배율을 받지 못해 배율이
+        // 앵커에만 걸린다.
+        for (std::size_t i = 0; i < canvasRoots.size(); ++i) {
+            const auto& scale = canvasScales[i];
+            if (scale[0] == scale[1] && scale[2] == scale[3]) continue;
+            ScaleSubtree(builder, canvasRoots[i], scale[0], scale[1], scale[2],
+                         scale[3]);
         }
+        if (builder.failed) return nullptr;
+        for (const auto root : canvasRoots) {
+            ComputeClips(builder, root, std::nullopt, false);
+        }
+        if (builder.failed) return nullptr;
 
         std::vector<std::pair<UIDrawOrderKey, UILayoutNodeSnapshot>> emitted;
         emitted.reserve(builder.nodes.size());
@@ -1626,17 +2647,19 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
             if (node.dropped) continue;
             UILayoutNodeSnapshot record;
             record.rectTransform = CaptureTarget(world, *node.rect);
-            record.logicalRect =
-                FixedRect{ToFixed(node.resolved.x), ToFixed(node.resolved.y),
-                          ToFixed(node.resolved.width),
-                          ToFixed(node.resolved.height)};
+            // 게시되는 값은 전부 검증된 26.6이다. 여기서 bare
+            // static_cast<int32_t>로 좁히면 범위를 벗어난 사각형이 잘린 채로
+            // 정상처럼 나온다.
+            const auto rectFixed = ToFixedRect(node.resolved);
+            if (!rectFixed || !InRawRange(node.prefWidth) ||
+                !InRawRange(node.prefHeight)) {
+                builder.Fail("UI layout value left the 26.6 range");
+                return nullptr;
+            }
+            record.logicalRect = *rectFixed;
             record.intrinsicSize =
                 FixedSize{ToFixed(node.prefWidth), ToFixed(node.prefHeight)};
-            if (node.hasClip) {
-                record.logicalClip =
-                    FixedRect{ToFixed(node.clip.x), ToFixed(node.clip.y),
-                              ToFixed(node.clip.width), ToFixed(node.clip.height)};
-            }
+            record.logicalClip = node.logicalClip;
             record.layoutRevision = impl.layoutRevision;
             emitted.emplace_back(node.drawOrder, std::move(record));
         }
@@ -1785,6 +2808,28 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
     impl.lastVisualKeyEntryCount =
         impl.visualScratch.size() - visualEntriesBefore;
 
+    // ── Step 3b/5d: 런타임 바인딩은 전체 키에서만 충돌 비교된다 ─────────────
+    // 넓은 textureBindingGeneration 스칼라는 할당 없는 빠른 경로만 끈다. 같은
+    // 내용을 다시 올렸을 때 기하는 재사용하면서 낡은 GPU 바인딩은 절대
+    // 재사용하지 않게 하는 구분이 이 벡터에 있다.
+    std::vector<UIRuntimeBindingCacheIdentity> runtimeBindings;
+    for (const auto& node : builder.nodes) {
+        if (node.dropped) continue;
+        GameObject& object = *node.object;
+        auto* image = EnabledComponent<UIImage>(object);
+        if (!image || image->GetTextureGuid().empty()) continue;
+        const auto bound =
+            UITextureBindingRegistry::Get().Find(image->GetTextureGuid());
+        if (!bound) continue;
+        UIRuntimeBindingCacheIdentity identity;
+        identity.sceneObjectId = object.GetID();
+        identity.componentTypeName = image->GetTypeName();
+        identity.componentSchemaVersion = UIImage::CurrentSchemaVersion;
+        identity.binding = bound->binding;
+        runtimeBindings.push_back(std::move(identity));
+    }
+
+
     UISnapshotCacheKey completeKey;
     completeKey.surfaceWindowId = surfaceWindowId;
     completeKey.geometry = geometryKey;
@@ -1794,6 +2839,11 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
     completeKey.deviceGeneration = clock.deviceGeneration;
     completeKey.visualContent = impl.visualScratch;
     completeKey.interaction = impl.interactionScratch;
+    completeKey.runtimeBindings = runtimeBindings;
+    completeKey.inputVisualStates = gatheredInputStates;
+    // 관찰 seam. 슬롯으로 옮겨지기 전에 한 벌 남긴다 — 옮긴 뒤에 읽으면
+    // 미스로 새로 만든 키와 적중으로 재사용된 키를 구분할 수 없다.
+    impl.lastSnapshotKey = completeKey;
 
     UISnapshotWorldDeviceSlotKey slotKey;
     slotKey.worldGeneration = world.Generation();
@@ -1812,11 +2862,464 @@ UISnapshotPtr UILayoutSystem::Build(World& world,
         }
     }
 
+    // ── Step 4c/4e/5d/5e/5f: 구체 렌더/hit 페이로드 ─────────────────────────
+    // 여기서 나오는 값은 전부 자기 완결적이다. 소비자가 이 레코드를 그리거나
+    // 라우팅하기 위해 살아 있는 컴포넌트를 다시 들여다볼 일이 없어야 한다 —
+    // 그 순간 게시된 스냅샷과 화면이 갈린다.
+    std::vector<UIRenderItemSnapshot> renderItems;
+    std::vector<UIHitTargetSnapshot> hitTargets;
+    std::vector<UITextInputLabelSnapshot> textInputLabels;
+    std::vector<UITextInputImeGeometrySnapshot> textInputImeGeometry;
+    std::uint64_t nextSubmission = 0;
+    bool submissionOverflowed = false;
+
+    const auto isSuppressedLabelObject = [&suppressedLabelObjectIds](
+                                             unsigned int objectId) {
+        return std::find(suppressedLabelObjectIds.begin(),
+                         suppressedLabelObjectIds.end(),
+                         objectId) != suppressedLabelObjectIds.end();
+    };
+
+    for (std::size_t i = 0; i < orderedNodes.size(); ++i) {
+        const UILayoutNodeSnapshot& node = orderedNodes[i];
+        const UIDrawOrderKey& nodeKey = orderedKeys[i];
+        GameObject* object = world.FindById(node.rectTransform.objectId);
+        if (!object) continue;
+        const unsigned int objectId = object->GetID();
+        const molga::FixedRect rect = node.logicalRect;
+        const std::optional<molga::FixedRect> clip = node.logicalClip;
+        const std::uint64_t groupBaseSubmission = nextSubmission;
+
+        auto makeOrder = [&nodeKey](std::int32_t componentSortingOrder) {
+            UIDrawOrderKey order;
+            order.canvasSortingOrder = nodeKey.canvasSortingOrder;
+            order.siblingPath = nodeKey.siblingPath;
+            order.componentSortingOrder = componentSortingOrder;
+            return order;
+        };
+
+        // 이 오브젝트가 낼 레코드를 먼저 모은다. 정렬 키의 처음 두 항이 이
+        // 오브젝트 안에서 전부 같으므로, 여기서 componentSortingOrder로
+        // 안정 정렬한 뒤 순서대로 번호를 매기면 전체 벡터가 이미 정렬되어
+        // 있다(형제 경로가 컴포넌트 정렬 순서보다 앞선다).
+        std::vector<UIRenderItemSnapshot> local;
+        const Component* actionComponent = nullptr;
+        std::int32_t actionSortingOrder = 0;
+        bool actionEmitsRender = false;
+
+        if (auto* image = EnabledComponent<UIImage>(*object)) {
+            UISpriteSnapshot sprite;
+            sprite.tint = image->GetTint();
+            sprite.textureGuid = image->GetTextureGuid();
+            if (!sprite.textureGuid.empty()) {
+                const auto content =
+                    UITextureContentRegistry::Get().Find(sprite.textureGuid);
+                const auto bound =
+                    UITextureBindingRegistry::Get().Find(sprite.textureGuid);
+                // 해석은 전부 성립하거나 전부 실패한다. 절반만 채운 변형은
+                // 소비자가 "GUID는 있는데 SHA가 없다"를 각자 다르게 해석하게
+                // 만든다.
+                if (content && bound && bound->lifetime &&
+                    bound->lifetime->Identity() == bound->binding) {
+                    sprite.textureContentSha256 = content->contentSha256;
+                    sprite.textureContentStableId = content->contentStableId;
+                    sprite.binding = bound->binding;
+                    sprite.resourceLifetime = bound->lifetime;
+                } else if (impl.NotePayloadFact(
+                               "texture:" + std::to_string(world.Generation()) +
+                               ":" + sprite.textureGuid + ":" +
+                               std::to_string(objectId))) {
+                    molga::text::TextDiagnostic diagnostic;
+                    diagnostic.code =
+                        molga::text::TextDiagnosticCode::ReferenceInvalid;
+                    diagnostic.severity = molga::text::TextSeverity::Warning;
+                    diagnostic.subsystem = "ui.layout";
+                    diagnostic.message =
+                        "UIImage texture '" + sprite.textureGuid +
+                        "' has no validated content identity or runtime "
+                        "binding; the approved missing-texture payload is "
+                        "published instead";
+                    diagnostic.remediation =
+                        "import the texture and let it publish its content "
+                        "SHA and runtime binding before rendering";
+                    diagnostic.assetGuid = sprite.textureGuid;
+                    diagnostic.sceneObjectId = objectId;
+                    diagnostic.componentType = "UIImage";
+                    sink.Report(std::move(diagnostic));
+                    sprite.textureGuid.clear();
+                } else {
+                    sprite.textureGuid.clear();
+                }
+            }
+            UIRenderItemSnapshot item;
+            item.source = CaptureTarget(world, *image);
+            item.canonicalSource =
+                MakeStableKey(objectId, *image, UIImage::CurrentSchemaVersion);
+            item.order = makeOrder(image->GetSortingOrder());
+            item.logicalRect = rect;
+            item.logicalClip = clip;
+            item.reservedCommandSpan = 1;
+            item.payload = std::move(sprite);
+            local.push_back(std::move(item));
+        }
+        if (auto* button = EnabledComponent<UIButton>(*object)) {
+            UISolidRectSnapshot solid;
+            solid.color = button->CurrentColor();
+            UIRenderItemSnapshot item;
+            item.source = CaptureTarget(world, *button);
+            item.canonicalSource = MakeStableKey(objectId, *button,
+                                                 UIButton::CurrentSchemaVersion);
+            item.order = makeOrder(button->GetSortingOrder());
+            item.logicalRect = rect;
+            item.logicalClip = clip;
+            item.reservedCommandSpan = 1;
+            item.payload = std::move(solid);
+            local.push_back(std::move(item));
+        }
+        UILabel* label = EnabledComponent<UILabel>(*object);
+        if (label && !isSuppressedLabelObject(objectId) &&
+            !label->GetText().empty()) {
+            const molga::text::TextLayoutRequest request =
+                BuildLabelRequestFixed(*label, objectId, rect);
+            // Step 5e: 확정된 불변 배치 하나를 그대로 든다. 없는 glyph는 그
+            // 유효한 배치 안의 절차적 tofu로 남는다 — 실패가 아니다.
+            RateLimitedPayloadSink labelSink(sink, impl.reportedPayloadFacts,
+                                             world.Generation(), objectId);
+            const auto layout = textLayout.Layout(request, labelSink);
+            if (layout && *layout) {
+                UITextSnapshot text;
+                text.layout = *layout;
+                text.origin = molga::FixedPoint{rect.x, rect.y};
+                text.color = label->GetColor();
+                UIRenderItemSnapshot item;
+                item.source = CaptureTarget(world, *label);
+                item.canonicalSource = MakeStableKey(
+                    objectId, *label, UILabel::CurrentSchemaVersion);
+                item.order = makeOrder(label->GetSortingOrder());
+                item.logicalRect = rect;
+                item.logicalClip = clip;
+                item.reservedCommandSpan = TextRenderCommandSpan(**layout);
+                item.payload = std::move(text);
+                local.push_back(std::move(item));
+            }
+        }
+
+        // ── Step 3h: 동작 대상 우선순위 ─────────────────────────────────────
+        // 앞의 셋은 원래의 시각 동작 경로를 그대로 지키고, 뒤의 둘이 장식 없는
+        // selectable/input 껍데기를 상호작용 가능하게 만든다.
+        UISelectable* selectable = EnabledComponent<UISelectable>(*object);
+        UITextInput* input = EnabledComponent<UITextInput>(*object);
+        UIButton* button = EnabledComponent<UIButton>(*object);
+        UIImage* image = EnabledComponent<UIImage>(*object);
+        std::uint32_t actionSchema = 0;
+        if (button && button->IsInteractable()) {
+            actionComponent = button;
+            actionSortingOrder = button->GetSortingOrder();
+            actionSchema = UIButton::CurrentSchemaVersion;
+            actionEmitsRender = true;
+        } else if (image) {
+            actionComponent = image;
+            actionSortingOrder = image->GetSortingOrder();
+            actionSchema = UIImage::CurrentSchemaVersion;
+            actionEmitsRender = true;
+        } else if (label && !isSuppressedLabelObject(objectId)) {
+            // 입력창이 소유한 라벨은 동작 대상이 아니다. 남겨 두면 그 라벨이
+            // 입력창보다 위에 있으므로 텍스트를 누를 때 hit-test가 입력창이
+            // 아니라 라벨을 고르고, 포커스와 IME가 그 자리에서 사라진다.
+            actionComponent = label;
+            actionSortingOrder = label->GetSortingOrder();
+            actionSchema = UILabel::CurrentSchemaVersion;
+            actionEmitsRender = !label->GetText().empty();
+        } else if (selectable && selectable->Interactable()) {
+            actionComponent = selectable;
+            actionSortingOrder = 0;
+            actionSchema = UISelectable::CurrentSchemaVersion;
+            actionEmitsRender = false;
+        } else if (input && !input->ReadOnly()) {
+            actionComponent = input;
+            actionSortingOrder = 0;
+            actionSchema = UITextInput::CurrentSchemaVersion;
+            actionEmitsRender = false;
+        }
+
+        // Step 4e: 앞선 레코드의 예약 구간을 검증된 덧셈으로 더한 뒤에만 다음
+        // 번호가 배정된다. 넘치면 이 소스 묶음을 통째로 빼고 진단을 낸다 —
+        // 일부만 정렬된 묶음은 화면에서 순서가 섞인 채로 나온다.
+        std::stable_sort(local.begin(), local.end(),
+                         [](const UIRenderItemSnapshot& a,
+                            const UIRenderItemSnapshot& b) {
+                             return a.order.componentSortingOrder <
+                                    b.order.componentSortingOrder;
+                         });
+        std::uint64_t cursor = nextSubmission;
+        bool groupOverflowed = false;
+        for (auto& item : local) {
+            item.order.stableSubmissionIndex = cursor;
+            const std::uint64_t span = item.reservedCommandSpan;
+            if (span > std::numeric_limits<std::uint64_t>::max() - cursor) {
+                groupOverflowed = true;
+                break;
+            }
+            cursor += span;
+        }
+
+        // ── 입력창 시각 묶음의 예약 구간 ────────────────────────────────────
+        // 이 오브젝트의 평범한 레코드가 번호를 받은 다음, 입력창의 텍스트
+        // 단계가 자기 위치 기록 전부를 예약한 뒤에야 다음 항목이 번호를 받는다
+        // (Global Constraint의 두 반쪽 중 나머지 하나).
+        //
+        // 예약하지 않으면 baseOrder가 이 오브젝트의 배경 스프라이트 키와
+        // 네 필드 전부 같아진다 — 같은 캔버스 순서, 같은 형제 경로, 같은
+        // componentSortingOrder 0, 같은 stableSubmissionIndex. UIDrawOrderKey는
+        // 그 둘을 구분하지 못하고, Task 14의 선택 사각형/글자/캐럿은 자기가
+        // 올라앉아야 할 배경과 같은 자리에서 시작한다.
+        std::uint64_t inputGroupBase = cursor;
+        std::uint64_t inputGroupSpan = 0;
+        std::optional<molga::text::TextLayoutRequest> effectiveInputRequest;
+        const UITextInputVisualState* inputState = nullptr;
+        if (input && !groupOverflowed) {
+            for (const auto& claim : inputClaims) {
+                if (claim.input != input) continue;
+                if (claim.conflicted || !claim.rendered) break;
+                const UIRuntimeTargetIdentity inputIdentity =
+                    CaptureTarget(world, *input);
+                if (!inputIdentity) break;
+                for (const auto& gathered : gatheredInputStates) {
+                    if (gathered.input == inputIdentity) {
+                        inputState = &gathered;
+                        break;
+                    }
+                }
+                effectiveInputRequest = BuildEffectiveInputRequest(
+                    *input,
+                    inputState ? inputState->committedUtf8 +
+                                     inputState->compositionUtf8
+                               : input->InitialText(),
+                    logicalViewport, claim.rendered->GetGameObject()->GetID());
+                if (!effectiveInputRequest->utf8.empty()) {
+                    DiscardingPayloadSink discard;
+                    const auto inputLayout =
+                        textLayout.Layout(*effectiveInputRequest, discard);
+                    if (inputLayout && *inputLayout) {
+                        inputGroupSpan = TextRenderCommandSpan(**inputLayout);
+                    }
+                }
+                break;
+            }
+        }
+        if (!groupOverflowed) {
+            if (inputGroupSpan >
+                std::numeric_limits<std::uint64_t>::max() - cursor) {
+                groupOverflowed = true;
+            } else {
+                cursor += inputGroupSpan;
+            }
+        }
+        if (groupOverflowed) {
+            submissionOverflowed = true;
+            continue;
+        }
+        std::uint64_t actionSubmission = groupBaseSubmission;
+        for (const auto& item : local) {
+            if (actionComponent && actionEmitsRender &&
+                item.source == CaptureTarget(world, *actionComponent)) {
+                actionSubmission = item.order.stableSubmissionIndex;
+            }
+            renderItems.push_back(item);
+        }
+        nextSubmission = cursor;
+
+        if (actionComponent) {
+            UIHitTargetSnapshot hit;
+            hit.target = CaptureTarget(world, *actionComponent);
+            hit.canonicalTarget =
+                MakeStableKey(objectId, *actionComponent, actionSchema);
+            hit.order = makeOrder(actionEmitsRender ? actionSortingOrder : 0);
+            hit.order.stableSubmissionIndex = actionSubmission;
+            hit.logicalRect = rect;
+            // 렌더와 hit이 같은 클립을 든다. 두 번 계산하면 언젠가 갈리고,
+            // 그때 보이지 않는 버튼이 생긴다.
+            hit.logicalClip = clip;
+            hit.interactable = true;
+            if (selectable && selectable->Interactable()) {
+                hit.focusTarget = MakeFrozenTarget(
+                    world, objectId, *selectable,
+                    UISelectable::CurrentSchemaVersion);
+            }
+            // Step 1h 표만이 텍스트 대상을 끄는 자리다. 유효한 라벨 주장이
+            // 라벨 렌더를 억누르는 것과 이 껍데기의 동작 레코드를 지우는 것은
+            // 다른 일이다.
+            if (input && !input->ReadOnly()) {
+                bool inputUsable = false;
+                for (const auto& claim : inputClaims) {
+                    if (claim.input != input) continue;
+                    inputUsable = !claim.conflicted && claim.rendered != nullptr;
+                    break;
+                }
+                if (inputUsable) {
+                    hit.textInputTarget = MakeFrozenTarget(
+                        world, objectId, *input,
+                        UITextInput::CurrentSchemaVersion);
+                }
+            }
+            hit.focusable = hit.focusTarget.has_value();
+            hit.acceptsTextInput = hit.textInputTarget.has_value();
+            // 안쪽에서 바깥쪽으로. 순서 자체가 계약이다 — 스크롤 입력은
+            // 가장 안쪽부터 변위를 소비한다.
+            for (GameObject* ancestor = object->GetParent(); ancestor;
+                 ancestor = ancestor->GetParent()) {
+                auto* scroll = EnabledComponent<UIScrollView>(*ancestor);
+                if (!scroll) continue;
+                UIFrozenTarget frozen =
+                    MakeFrozenTarget(world, ancestor->GetID(), *scroll,
+                                     UIScrollView::CurrentSchemaVersion);
+                // 붙들 수 없는 대상은 뺀다. 같은 objectId를 가진 다른
+                // 컴포넌트로 대체하지 않는다.
+                if (!frozen) continue;
+                hit.scrollTargets.push_back(std::move(frozen));
+            }
+            // Step 5f: 저작된 방향 정책을 얼린다. 명시 참조는 여기서 한 번만
+            // 해석되고, 나중 포커스 투사는 이 필드만 소비한다.
+            if (selectable) {
+                hit.navigation.mode = selectable->NavigationMode();
+                const std::array<SceneObjectRef, 4> refs = {
+                    selectable->NavigateUp(), selectable->NavigateDown(),
+                    selectable->NavigateLeft(), selectable->NavigateRight()};
+                for (std::size_t axis = 0; axis < refs.size(); ++axis) {
+                    if (!refs[axis].IsSet()) continue;
+                    GameObject* target = world.FindById(refs[axis].ObjectId());
+                    UISelectable* targetSelectable =
+                        target ? target->GetComponent<UISelectable>() : nullptr;
+                    if (!targetSelectable || !targetSelectable->IsEnabled()) {
+                        molga::text::TextDiagnostic diagnostic;
+                        diagnostic.code =
+                            molga::text::TextDiagnosticCode::ReferenceInvalid;
+                        diagnostic.severity = molga::text::TextSeverity::Warning;
+                        diagnostic.subsystem = "ui.layout";
+                        diagnostic.message =
+                            "UISelectable explicit navigation reference does "
+                            "not resolve to an enabled UISelectable";
+                        diagnostic.remediation =
+                            "point explicit navigation at an enabled "
+                            "UISelectable in this scene";
+                        diagnostic.sceneObjectId = objectId;
+                        diagnostic.componentType = "UISelectable";
+                        sink.Report(std::move(diagnostic));
+                        continue;
+                    }
+                    hit.navigation.explicitTargets[axis] =
+                        CaptureTarget(world, *targetSelectable);
+                    hit.navigation.canonicalTargets[axis] = MakeStableKey(
+                        target->GetID(), *targetSelectable,
+                        UISelectable::CurrentSchemaVersion);
+                }
+            }
+            hitTargets.push_back(std::move(hit));
+        }
+
+        // ── Step 3f: 입력창이 소유한 라벨과 IME 기하 ────────────────────────
+        if (input) {
+            for (const auto& claim : inputClaims) {
+                if (claim.input != input) continue;
+                if (claim.conflicted || !claim.rendered) break;
+                const auto frozenInput = MakeFrozenTarget(
+                    world, objectId, *input, UITextInput::CurrentSchemaVersion);
+                if (!frozenInput) break;
+                const unsigned int renderedId =
+                    claim.rendered->GetGameObject()->GetID();
+
+                UITextInputLabelSnapshot owned;
+                owned.input = frozenInput;
+                owned.renderedLabel.label =
+                    MakeFrozenTarget(world, renderedId, *claim.rendered,
+                                     UILabel::CurrentSchemaVersion);
+                owned.renderedLabel.requestTemplate = BuildLabelRequestFixed(
+                    *claim.rendered, renderedId, rect);
+                // 렌더 라벨의 폰트/스타일은 출처일 뿐 입력 텍스트의 권한이
+                // 아니다. 색만 그대로 입력 텍스트 색으로 쓴다.
+                owned.renderedLabel.color = claim.rendered->GetColor();
+                owned.renderedLabel.enabledAndVisible = true;
+
+                const UITextInputVisualState* state = inputState;
+                const bool focused = state && state->focused;
+                const bool emptyText = !state || state->committedUtf8.empty();
+                if (claim.placeholder) {
+                    const unsigned int placeholderId =
+                        claim.placeholder->GetGameObject()->GetID();
+                    UIFrozenInputLabelVisual visual;
+                    visual.label = MakeFrozenTarget(
+                        world, placeholderId, *claim.placeholder,
+                        UILabel::CurrentSchemaVersion);
+                    visual.requestTemplate = BuildLabelRequestFixed(
+                        *claim.placeholder, placeholderId, rect);
+                    visual.color = claim.placeholder->GetColor();
+                    // 비어 있고 포커스가 없을 때만 보인다. 포커스만으로
+                    // 감추면 빈 입력창이 포커스를 잃은 뒤에도 안내 문구가
+                    // 돌아오지 않는다.
+                    visual.enabledAndVisible = emptyText && !focused;
+                    owned.placeholderLabel = std::move(visual);
+                }
+
+                // 예약을 셀 때 쓴 그 요청 그대로다. 여기서 다시 만들면 예약된
+                // 칸 수와 게시된 요청이 조용히 갈릴 수 있다.
+                owned.effectiveInputRequestTemplate =
+                    effectiveInputRequest
+                        ? *effectiveInputRequest
+                        : BuildEffectiveInputRequest(
+                              *input,
+                              state ? state->committedUtf8 +
+                                          state->compositionUtf8
+                                    : input->InitialText(),
+                              logicalViewport, renderedId);
+                owned.logicalViewport = rect;
+                owned.logicalClip = clip;
+                owned.baseOrder = makeOrder(0);
+                // 이 오브젝트가 낸 평범한 레코드 *뒤*에서 시작한다. 배경
+                // 스프라이트의 키와 같은 값을 게시하면 그 둘의 순서가 정의되지
+                // 않는다.
+                owned.baseOrder.stableSubmissionIndex = inputGroupBase;
+                owned.reservedCommandSpan = inputGroupSpan;
+                textInputLabels.push_back(std::move(owned));
+
+                UITextInputImeGeometrySnapshot ime;
+                ime.input = frozenInput;
+                ime.logicalInputArea = rect;
+                ime.logicalCursor = molga::FixedPoint{rect.x, rect.y};
+                ime.logicalClip = clip;
+                // caret이 지금 그려지는가와 무관하다. caretVisible에 묶으면
+                // 깜빡임이 꺼진 프레임에 OS 후보창이 화면 구석으로 튄다.
+                ime.focused = focused;
+                textInputImeGeometry.push_back(std::move(ime));
+                break;
+            }
+        }
+    }
+    if (submissionOverflowed) {
+        impl.ReportInvalid(
+            sink,
+            "a UI render group exhausted the stable submission index; that "
+            "complete source group was omitted",
+            "reduce the number of glyphs drawn on this UI surface");
+    }
+    // Step 4c: 두 벡터를 같은 키로 한 번씩 정렬한다.
+    std::sort(renderItems.begin(), renderItems.end(),
+              [](const UIRenderItemSnapshot& a, const UIRenderItemSnapshot& b) {
+                  return a.order < b.order;
+              });
+    std::sort(hitTargets.begin(), hitTargets.end(),
+              [](const UIHitTargetSnapshot& a, const UIHitTargetSnapshot& b) {
+                  return a.order < b.order;
+              });
+
     auto snapshot = std::make_shared<UISnapshot>();
     snapshot->surfaceWindowId = surfaceWindowId;
     snapshot->worldGeneration = world.Generation();
     snapshot->logicalViewport = logicalViewport;
     snapshot->nodes = std::move(orderedNodes);
+    snapshot->renderItems = std::move(renderItems);
+    snapshot->hitTargets = std::move(hitTargets);
+    snapshot->textInputLabels = std::move(textInputLabels);
+    snapshot->textInputImeGeometry = std::move(textInputImeGeometry);
     UISnapshotPtr published = snapshot;
 
     if (!uncacheable) {

@@ -2002,9 +2002,9 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 - Consumes: semantic layout nodes, authored `UIMask`/`UITextInput`, immutable `TextLayout`, value-only `UITextInputVisualState`, validated texture GUID/content SHA/content-derived stable ID plus generation-safe runtime bindings/lifetimes, and `UIDrawOrderKey`.
 - Produces: `TextureRuntimeBindingIdentity`, `UIRuntimeBindingCacheIdentity`, `UIStableComponentKey`, `UIFrozenTarget`, frozen input-label ownership, concrete sprite/text/solid render variants with reserved command spans, multi-stage `UIHitTargetSnapshot`, immutable input IME geometry, and `UIPhysicalTransform`.
 
-- [ ] **Step 1: Register the render/clip fixture with the common text runtime session.** Create `test_ui_render_clip` through `molga_add_text_test`, never `molga_add_test`/`doctest_main`, before its first immutable `TextLayout` or `TextLayoutService` fixture is constructed. The helper performs the idempotent dependency attach; do not add a separate attach call. Preserve its renderer/SDL labels and any target-specific properties after creation; reuse only the installed `TextRuntimeTestSession` and `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT`.
+- [x] **Step 1: Register the render/clip fixture with the common text runtime session.** Create `test_ui_render_clip` through `molga_add_text_test`, never `molga_add_test`/`doctest_main`, before its first immutable `TextLayout` or `TextLayoutService` fixture is constructed. The helper performs the idempotent dependency attach; do not add a separate attach call. Preserve its renderer/SDL labels and any target-specific properties after creation; reuse only the installed `TextRuntimeTestSession` and `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT`.
 
-- [ ] **Step 1a: Write failing nested clip parity tests.**
+- [x] **Step 1a: Write failing nested clip parity tests.**
 
   ```cpp
   TEST_CASE("empty nested clip removes render and hit records together") {
@@ -2027,7 +2027,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   }
   ```
 
-- [ ] **Step 1b: Write the failing clip edge-policy table.**
+- [x] **Step 1b: Write the failing clip edge-policy table.**
 
   Add this explicit edge-policy table:
 
@@ -2046,7 +2046,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   }
   ```
 
-- [ ] **Step 1c: Write a failing content-identity cache regression.**
+- [x] **Step 1c: Write a failing content-identity cache regression.**
 
   ```cpp
   TEST_CASE("same texture GUID with new content SHA republishes sprite payload") {
@@ -2069,7 +2069,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Add table rows for label text/color/layout identity, image tint, interactability, explicit navigation, and mask enablement; assert the second snapshot's concrete render/hit value, not only pointer inequality.
 
-- [ ] **Step 1d: Write a failing same-content device-recreate binding test.**
+- [x] **Step 1d: Write a failing same-content device-recreate binding test.**
 
   ```cpp
   TEST_CASE("same texture content republishes bindings after device recreation") {
@@ -2096,15 +2096,15 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   }
   ```
 
-- [ ] **Step 1e: Write the failing runtime-binding field matrix.**
+- [x] **Step 1e: Write the failing runtime-binding field matrix.**
 
   Starting from one warm fixture with unchanged GUID/SHA/tint, change exactly one of `deviceGeneration`, `uploadGeneration`, `texture`, `sampler`, and `lifetimeIdentity` per fresh row. The device row strictly advances `UIRuntimeGenerationSnapshot::deviceGeneration`; every other row strictly advances `textureBindingGeneration`. Each row reuses geometry, misses the full-snapshot cache, publishes the changed binding field, and keeps canonical JSON byte-identical. Exact `TextureHandle`/`SamplerHandle` equality includes resource index and handle generation; no hash-only comparison is allowed.
 
-- [ ] **Step 1f: Write a failing binding-generation exhaustion test.**
+- [x] **Step 1f: Write a failing binding-generation exhaustion test.**
 
   Set the process-global texture-binding or device clock to `UINT64_MAX`, request reupload/device replacement, and require no new binding publication, no zero/reused generation, one blocker diagnostic, full-snapshot cache lookup/insertion disabled, and the prior snapshot/lifetime unchanged.
 
-- [ ] **Step 1g: Write a failing multi-stage frozen-hit target test.**
+- [x] **Step 1g: Write a failing multi-stage frozen-hit target test.**
 
   ```cpp
   TEST_CASE("one hit freezes action focus text and inner-to-outer scroll targets") {
@@ -2132,7 +2132,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   `UISelectable` and whose text target is the `UITextInput`; pointer-down must
   therefore reach focus/text-owner acquisition without a decorative visual.
 
-- [ ] **Step 1h: Write failing input-controlled label ownership tests.**
+- [x] **Step 1h: Write failing input-controlled label ownership tests.**
 
   ```cpp
   TEST_CASE("UITextInput-owned labels never also render as ordinary labels") {
@@ -2157,11 +2157,11 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   and then set `ParagraphStyle::fontFamilyGuid` from the top-level field; never
   consume or serialize a second nested family value.
 
-- [ ] **Step 1i: Write failing value-provider and blink-off IME-geometry shape tests.**
+- [x] **Step 1i: Write failing value-provider and blink-off IME-geometry shape tests.**
 
   Compile a `RecordingUITextInputVisualStateProvider`, pass it plus an exact nonzero surface window explicitly to `UILayoutSystem::Build`, and require one `(surfaceWindowId,inputIdentity)` lookup for each valid active input only after the scalar fast path misses. A provider result is copied into the immutable snapshot; mutating the provider afterward does not change the published value. Task 14.2 adds the concrete layout assertions that focused state publishes `UITextInputImeGeometrySnapshot` even when `caretVisible=false`.
 
-- [ ] **Step 1j: Write failing command-span and C++17 value-equality tests.**
+- [x] **Step 1j: Write failing command-span and C++17 value-equality tests.**
 
   Construct a text layout with three drawable positioned glyphs followed by a
   solid item. Require `reservedCommandSpan==3`, require the next item's
@@ -2173,7 +2173,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   `UIFrozenTarget`, `TextureRuntimeBindingIdentity`,
   `UIRuntimeBindingCacheIdentity`, and `PixelRectU32`.
 
-- [ ] **Step 2: Run the render/hit payload red gate.**
+- [x] **Step 2: Run the render/hit payload red gate.**
 
   ```bash
   cmake --preset debug
@@ -2182,7 +2182,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Expected: compilation fails because `UISnapshot` has no concrete render/hit vectors.
 
-- [ ] **Step 3a: Define the stable canonical source key.**
+- [x] **Step 3a: Define the stable canonical source key.**
 
   ```cpp
   namespace molga::ui {
@@ -2210,7 +2210,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   } // namespace molga::ui
   ```
 
-- [ ] **Step 3b: Define exact runtime binding and cache identities.**
+- [x] **Step 3b: Define exact runtime binding and cache identities.**
 
   ```cpp
   namespace molga::ui {
@@ -2241,7 +2241,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Extend `UISnapshotCacheKey` with `std::vector<UIRuntimeBindingCacheIdentity> runtimeBindings` in the same stable Canvas DFS order. The broad `textureBindingGeneration`/`deviceGeneration` scalars invalidate the allocation-free fast path; the original source fields and every binding field above are retained and collision-compared in the full key. None enters the geometry key or canonical JSON.
 
-- [ ] **Step 3c: Define the weak-record binding registry contract.**
+- [x] **Step 3c: Define the weak-record binding registry contract.**
 
   ```cpp
   namespace molga {
@@ -2267,7 +2267,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Registry records retain the handles/identity needed for deferred destruction but only a `weak_ptr` to each lifetime token. After GPU drain and explicit release of cache/latest-frame/texture-manager strong owners, a non-expired weak token is therefore a real external retained snapshot/command owner—not an inferred `shared_ptr::use_count()` threshold. `DestroyRetiredBindings` refuses while any such token remains.
 
-- [ ] **Step 3d: Define retained binding lifetime and concrete sprite/text payloads.**
+- [x] **Step 3d: Define retained binding lifetime and concrete sprite/text payloads.**
 
   ```cpp
   namespace molga::ui {
@@ -2291,7 +2291,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   `textureContentStableId` is derived deterministically from the validated GUID/SHA tuple and is collision-checked against both original strings in snapshot/cache equality. `binding` is runtime-only and must agree field-for-field with the retained lifetime object. Do not copy a process-local asset revision, binding field, pointer, or GPU-handle value into canonical identity.
 
-- [ ] **Step 3e: Define the value-only runtime input visual-provider boundary.**
+- [x] **Step 3e: Define the value-only runtime input visual-provider boundary.**
 
   Create `src/UI/UITextInputVisualState.h` with no pointer to edit-system storage:
 
@@ -2356,7 +2356,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Extend `UISnapshotCacheKey` with stable-DFS-ordered `std::vector<UITextInputVisualState> inputVisualStates` and extend `UILayoutGeometryCacheKey` with stable-DFS-ordered `std::vector<UITextInputGeometryCacheIdentity> inputGeometry`. Build each geometry identity from the current committed-plus-composition visible UTF-8 and the complete effective input request. Collision-compare every original field after a hash match and keep capacity-retaining scratch for the strings/requests. Selection endpoints, caret/affinity, focus, blink, and surface revision remain full-key-only, so their changes reuse geometry; a visible text/composition or effective-request change cannot hit pre-edit intrinsic/arranged geometry. The aggregate semantic generation invalidates the allocation-free fast path, and runtime values remain absent from scene/prefab JSON.
 
-- [ ] **Step 3f: Freeze input label templates and immutable IME geometry.**
+- [x] **Step 3f: Freeze input label templates and immutable IME geometry.**
 
   ```cpp
   namespace molga::ui {
@@ -2391,7 +2391,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Add stable-order `textInputLabels` and `textInputImeGeometry` vectors to `UISnapshot`. Build `effectiveInputRequestTemplate` by copying the input's paragraph style, overwriting its embedded family with the top-level `UITextInput::fontFamilyGuid`, and taking only width/height constraints and diagnostic provenance from the rendered label/viewport. The rendered label's own font/style is provenance, not runtime input-text authority; its color remains the input text color. Task 14 replaces only the effective template's UTF-8 with current visible text. Runtime caret/selection/focus/blink revisions live in the full snapshot key, while the exact effective visible request lives in `inputGeometry`, so caret/blink-only changes reuse shaping/layout and visible edits cannot reuse stale intrinsic geometry. IME geometry is a value in the published snapshot and does not depend on caret draw visibility.
 
-- [ ] **Step 3g: Define solid payload and concrete render item.**
+- [x] **Step 3g: Define solid payload and concrete render item.**
 
   ```cpp
   namespace molga::ui {
@@ -2412,7 +2412,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   } // namespace molga::ui
   ```
 
-- [ ] **Step 3h: Define concrete hit item and snapshot vectors.**
+- [x] **Step 3h: Define concrete hit item and snapshot vectors.**
 
   ```cpp
   namespace molga::ui {
@@ -2454,7 +2454,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   `textInputLabels`, and `textInputImeGeometry`. A consumer may not consult
   authored components to complete any payload.
 
-- [ ] **Step 3i: Change `UILayoutSystem::Build` and all current call sites atomically.**
+- [x] **Step 3i: Change `UILayoutSystem::Build` and all current call sites atomically.**
 
   ```cpp
   UISnapshotPtr UILayoutSystem::Build(
@@ -2466,7 +2466,7 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Update `UISystem`, editor/runtime main paths, and every Task 10/11 fixture in this commit. Delete the old three-argument overload; tests that do not yet exercise runtime editing pass `EmptyUITextInputVisualStateProvider::Instance()` and the same production `TextLayoutService` reference.
 
-- [ ] **Step 4a: Add checked fixed-rect intersection.**
+- [x] **Step 4a: Add checked fixed-rect intersection.**
 
   ```cpp
   std::optional<molga::FixedRect> IntersectFixedRects(
@@ -2475,19 +2475,19 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Compute max(min edges), min(max edges), and return `nullopt` for empty or checked-arithmetic failure.
 
-- [ ] **Step 4b: Carry one inherited clip through snapshot DFS.**
+- [x] **Step 4b: Carry one inherited clip through snapshot DFS.**
 
   Carry `optional<FixedRect> inheritedClip` through Canvas DFS. An enabled `UIMask` intersects its logical rect with the inherited clip; an empty result prunes both visual and interactive descendants. A disabled/no mask carries the parent clip unchanged.
 
-- [ ] **Step 4c: Copy the identical clip/order into render and hit records.**
+- [x] **Step 4c: Copy the identical clip/order into render and hit records.**
 
   Store one calculated clip and `UIDrawOrderKey` into every render and hit item created for a source, then sort both vectors by that key.
 
-- [ ] **Step 4d: Pre-resolve and suppress input-controlled labels.**
+- [x] **Step 4d: Pre-resolve and suppress input-controlled labels.**
 
   Before ordinary label emission, gather active/enabled input claims in stable Canvas DFS order and resolve each ref to an enabled `UILabel` in the same world/Canvas. Build a label-identity ownership map, detect every multi-owner/multi-role conflict before publication, and apply the Step 1h table atomically. Valid claimed rendered/placeholder labels populate `UITextInputLabelSnapshot` and are omitted from ordinary `UILabel` render items. Do not mutate either `UILabel`, and do not infer ownership later in Task 14.
 
-- [ ] **Step 4e: Freeze multi-stage hit targets and command spans.**
+- [x] **Step 4e: Freeze multi-stage hit targets and command spans.**
 
   For each object, apply Step 3h's exact action precedence once, then copy that
   pair plus its sibling focus/text-input pairs and all resolved scroll
@@ -2498,31 +2498,31 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
   addition of the prior span; overflow emits `LayoutInvalid` and omits the
   complete source group, never a partially ordered group.
 
-- [ ] **Step 5a: Publish non-wrapping device generations.**
+- [x] **Step 5a: Publish non-wrapping device generations.**
 
   Every successfully created graphics device uses the unique value returned by `UIRuntimeInvalidationClock::Advance(Device)` as its process-global nonzero `deviceGeneration` before publication and exposes it through `std::uint64_t GraphicsDevice::Generation() const noexcept`. If acquisition is exhausted, destroy the unpublished device, retain the old active device, disable affected snapshot caching, and emit a blocker.
 
-- [ ] **Step 5b: Publish non-wrapping texture binding values.**
+- [x] **Step 5b: Publish non-wrapping texture binding values.**
 
   Every successful texture creation/reupload acquires a checked per-texture `uploadGeneration`, a process-global nonzero `lifetimeIdentity`, and the unique value from `Advance(TextureBinding)` before swapping the current binding. If any acquisition is exhausted, destroy the unpublished resource after the required GPU fence, retain the old binding, disable affected snapshot caching, and emit a blocker; never publish zero or reuse a tuple.
 
-- [ ] **Step 5c: Retain immutable runtime bindings across snapshot lifetimes.**
+- [x] **Step 5c: Retain immutable runtime bindings across snapshot lifetimes.**
 
   `Texture` exposes one `shared_ptr<const TextureBindingLifetime>` whose value contains the exact `TextureRuntimeBindingIdentity`. Create a new lifetime object and new handles before atomically replacing a binding; do not update/destroy a handle retained by an existing snapshot. Dropping the texture manager's old pointer merely retires it—the binding registry releases its handles only after the final snapshot/command owner and GPU fence are complete.
 
-- [ ] **Step 5d: Pin sprite content identity, runtime binding, and lifetime.**
+- [x] **Step 5d: Pin sprite content identity, runtime binding, and lifetime.**
 
   Resolve and validate the texture's authored GUID, full content SHA-256, content-derived stable ID, complete runtime binding, and lifetime while building the snapshot. Require `resourceLifetime->Identity() == binding` and append the matching `UIRuntimeBindingCacheIdentity`. Compare GUID/full SHA and every runtime-binding field after any hash match. If resolution fails, emit the typed diagnostic and publish the approved missing-texture payload, never a half-populated variant. Content change or same-content binding change misses the full-snapshot cache while permitting geometry reuse.
 
-- [ ] **Step 5e: Pin immutable label layout.**
+- [x] **Step 5e: Pin immutable label layout.**
 
   Resolve `UILabel` to one immutable `TextLayout` and store its shared pointer plus origin/color in `UITextSnapshot`. Missing glyphs remain procedural tofu within the valid layout.
 
-- [ ] **Step 5f: Freeze navigation policy into hit records.**
+- [x] **Step 5f: Freeze navigation policy into hit records.**
 
   Copy authored `UINavigationMode` into `UINavigationSnapshot`. Resolve each explicit ref once while building N and store both its complete runtime identity and canonical stable key; invalid refs remain `nullopt` with `ReferenceInvalid`. Same-batch focus projection later consumes only these frozen fields.
 
-- [ ] **Step 6: Add the sole physical rectangle conversion.**
+- [x] **Step 6: Add the sole physical rectangle conversion.**
 
   ```cpp
   struct UIPhysicalTransform {
@@ -2550,11 +2550,11 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
 
   Add explicit field-wise C++17 `==`/`!=` to `PixelRectU32`; do not compare object representation or rely on C++20 rewritten operators.
 
-- [ ] **Step 7: Extend stable snapshot JSON with semantic payload fields only.**
+- [x] **Step 7: Extend stable snapshot JSON with semantic payload fields only.**
 
   Include `UIStableComponentKey`, canonical action/focus/text/inner-to-outer-scroll targets, canonical input-label ownership/roles, texture GUID/full content SHA/content-derived stable ID, immutable text layout structure, raw fixed rect/clip, reserved command span, payload kind, draw order, navigation mode, and canonical explicit-navigation targets. Exclude every runtime identity (including surface window, stage/navigation runtime targets), runtime edit/owner state, `TextureRuntimeBindingIdentity` in full, process-local texture/upload/device generations, native texture/sampler handles, lifetime tokens, atlas page/UV, and physical pixels. The device-recreate fixture must therefore produce byte-identical JSON.
 
-- [ ] **Step 8: Run snapshot/clip tests.**
+- [x] **Step 8: Run snapshot/clip tests.**
 
   ```bash
   cmake --build --preset debug --target test_ui_render_clip test_ui_snapshot test_ui_layout -j
@@ -2575,6 +2575,140 @@ the production-entry-point intrinsic case needs the `CollectRender` fixture that
     tests/test_ui_render_clip.cpp tests/test_ui_snapshot.cpp
   git commit -m "feat: publish complete UI render and hit snapshots"
   ```
+
+#### Implementation record (2026-09-09)
+
+Landed with the full suite at **107/107, 0 failures** (verified by the controller
+independently of the implementer's claim), and `test_ui_layout`, `test_ui_snapshot`,
+`test_ui_render_clip` clean under ASan and UBSan.
+
+**How this task was reviewed, because the result depends on it.** The implementer ran
+**54 mutations** and resolved all 54: 46 killed on the first pass, six survivors that were
+real coverage gaps it then closed, two left with reasons. Two independent review lenses
+then read the finished change set and **converged on the same two defects from different
+directions** — an unwired sprite path and premature handle destruction — which is the
+strongest signal this program's review process has produced. Nine findings in total went
+to a close-out pass that ran a further **16 mutations, all killed**.
+
+**The recurring defect appeared three more times in this task, in three different hands.**
+It is always the same shape: *an assertion taken where correct and broken agree.*
+- The implementer's own M11: the invalid-placeholder row never checked that the *rendered*
+  label stayed suppressed, so a mutation causing a visible double-draw passed everything.
+- The parity test that supposedly proved the snapshot and legacy paths agree: every canvas
+  in its fixture was `ConstantPixelSize`, pinning the scale factor at 1.0, so it was
+  measuring the scale factor rather than the two paths.
+- The close-out's own M-C2, which survived its first run: both rects in the fixture were
+  narrower than the longest word, so wrapping produced the same width either way.
+Each was caught by *running* the mutation, never by reading the test. Naming the shape has
+never once prevented it — this task is now the fourth consecutive demonstration.
+
+**A defect introduced during the fix, and caught by the suite.** Routing destruction
+through the registry made `~TextureManager` reach into a Meyers singleton that had already
+died during static destruction (`pointer being freed was not allocated`, failing
+`smoke_end_to_end`). The registry is now deliberately immortal. Worth recording because the
+fix for a lifetime defect created a different lifetime defect one scope up.
+
+Two independent review lenses converged on the same defect shape twice, and both are
+fixed here. Every fix below was mutation-verified: the production line was deleted or
+inverted, the source `touch`ed, the target rebuilt, and the named test confirmed red.
+
+**One ownership rule for binding handles, decided once.** Three pieces of code answered
+"who owns a binding's handles and when do they die" differently. The rule is now:
+*`TextureBindingRegistry` is the sole destroyer.* `Texture::Release()` and the reupload
+swap no longer call `DestroySampler`/`DestroyTexture`; they drop this texture's share and
+ask the registry to sweep, and the sweep releases only records whose weak token has
+expired — so a published `UISnapshot` holding the token keeps its handles alive, which is
+what Step 5c always said. `Publish` no longer discards expired records silently (that
+threw away the last knowledge of an unreleased handle); it releases them, and
+`ReleasedBindingCount()` is the observer that makes the difference visible, because
+`LiveRetainedBindingCount` skips expired records by construction. `Advance(TextureBinding)`
+is acquired **only** by `UITextureBindingRegistry::Publish`, not by `Texture`: that axis
+shadows the published guid→binding record, and `Texture`'s exhaustion response (a full
+`WaitIdle` plus discarding a completed upload) was disproportionate to a process-global
+condition. This is a deviation from Step 5b's literal text and is deliberate.
+
+**The producer that was missing.** `UITextureBindingRegistry::Publish` had exactly one
+caller in the repository and it was a test, so in production every textured `UIImage` took
+the missing-texture branch. `TextureManager` — path-indexed but the only place that sees
+both the authored GUID and a live `Texture` — now publishes on load and reload and retires
+on unload/clear. Retiring matters: the UI registry is a *strong* owner of the lifetime
+token, so a record left behind would block that handle's release forever. `Clear()` and
+`Texture::BindingLifetime()`, both callerless before, are now on the production path. The
+proof lives in `tests/test_gpu_sdl.cpp` because a binding is a live device's handle;
+headless there is nothing to join, which is why this shipped unnoticed.
+
+**Snapshot rects are surface-logical.** `Build` applied no canvas scale while
+`RectTransform::GetScreenRect` — the function `CollectRender`/`HitTest` actually call —
+multiplies by it, and `ScaleWithViewport` is the *default* mode. The published rect and
+clip now carry the scale, applied exactly once after arrangement as the checked rational
+`viewportRaw / canvasLogicalRaw` (not a second float multiply), so a canvas root maps onto
+the viewport exactly and `ConstantPixelSize` is a no-op. Nothing new goes in `UISnapshot`
+and Task 11.2's single `logicalViewport` per surface stays sufficient — which it would not
+be with two canvases at different scale modes on one surface. The parity test now runs both
+a scale-1 and a scale-2 canvas; with only the constant-pixel row it was measuring the scale
+factor, not the two paths.
+
+**One clip rule, not two.** Step 4a's checked `IntersectFixedRects` was dead: the live DFS
+used the pre-existing unchecked `IntersectRects` and narrowed its result through a bare
+`static_cast<std::int32_t>`. `ComputeClips` now carries `optional<FixedRect>` as Step 4b
+asked, calls the checked function, and the duplicate is deleted. The node rect and
+intrinsic size are range-checked on the way out too.
+
+**The intrinsic producer moved into `Build`.** Task 10.2 put it in `CollectRender` because
+`Build` had no `TextLayoutService`; Step 3i gave it one. `Build` now publishes from a
+constraint-stripped measurement taken *before* the geometry key, so the same frame consumes
+its own publication and the next frame's fast path still hits. `CollectRender` keeps
+publishing while the legacy path still draws — it is the only path that also holds a
+confirmed layout for input-owned labels — and the two cannot fight because the identity
+rule is now one shared function and a constraint-free measurement always re-publishes as
+"unchanged".
+
+Also closed: `placeholderLabel.enabledAndVisible` left canonical JSON (it carries focus and
+edit state, the exact reason IME geometry was excluded); the frozen input `baseOrder` now
+starts after the shell's own render items and reserves its text span, instead of being
+field-identical to the background sprite's key; the M35 diagnostic limiter is keyed by
+world generation and its memory is reclaimed when a generation retires; a broken rendered
+ref now suppresses its claimed placeholder instead of leaving permanent ghost text; and
+both entry points own the provider and the shared `TextLayoutService` through
+`UISystem::InstallLayoutDependencies`.
+
+**Carried forward.** `NotePayloadFact` stops limiting once 256 facts are remembered (the
+bound protects memory and removes the rate limit at the same moment). Canonical JSON now
+carries raw `float` colours with no signed-zero normalization and no non-finite rejection.
+A zero-glyph layout makes `stableSubmissionIndex` non-injective. `hit.interactable` is
+unconditionally true while `ObjectIsInteractionEligible` computes the real answer nearby.
+The process-global registries are unsynchronized. `~GraphicsDevice` advances no axis and
+consults no teardown. **Owner: Task 11.2**, which owns the teardown sequence and the first
+consumer of these records.
+
+
+
+**Deviation from the plan, deliberate and flagged.** Step 5b names `Texture` as an
+acquisition point for `Advance(TextureBinding)`. It no longer acquires; only
+`UITextureBindingRegistry::Publish` does. Both review lenses independently recommended
+this, and the reasons are in the ownership paragraph above. Recorded here rather than
+silently absorbed, because a later task reading Step 5b literally will not find what it
+expects.
+
+**Files touched outside this task's Files list.** `tests/test_gpu_sdl.cpp` (new case) and
+`tests/test_rendering_sdlgpu.cpp` (two lines in the existing entry-point case). A texture
+binding is a live device's handle, so the producer cannot be proven headlessly, and the
+entry-point contract is only testable as source text; those two targets are the ones that
+already do each. `src/Core/TextureManager.{h,cpp}`, `src/main.cpp` and
+`src/runtime_main.cpp` **are** in the Files list and had been left unmodified — the list is
+now honest.
+
+**Scope held against Task 11.2**, verified rather than asserted: `renderItems`,
+`hitTargets` and `textInputLabels` have zero consumers outside `UILayoutSystem.cpp` and
+`UILayoutSnapshot.*`; both production render sites (`SceneViewWindow.cpp:754`,
+`GameOutputRenderer.cpp:123`) still call the legacy `UISystem::CollectRender`. The real
+visual-state provider genuinely cannot exist before **Task 14** — Step 3e says so outright
+— so `EmptyUITextInputVisualStateProvider` is the correct value here and not a stub.
+
+**Further carried forward.** Input-owned labels get no intrinsic size from `Build`, which
+publishes only for labels it lays out, and `UITextInput` still has no intrinsic producer at
+all — **owner: Task 14**. `EqualLayoutRequests` ignoring `visualRevision` remains
+unkillable until something writes that field — **owner: Task 14.2**.
 
 ### Task 11.2: Enforce snapshot scissors through the render queue and SDL_GPU pass
 
