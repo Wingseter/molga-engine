@@ -807,6 +807,26 @@ This subplan is complete only when all of the following are true:
 
 ### Task 12.3: Make `UISystem::ProcessFrame` the sole ordered-vector loop
 
+**Inherited obligation (its original owner has already landed without closing it):**
+
+- **`DecodeUtf8` is ~4x slower on well-formed text and ~70x on ill-formed text, on a per-frame
+  render path.** Subplan 01 Step 10 routed it through `UnicodeTextBuffer` (in-spec), and the cost
+  lands on rendering. It was assigned to **Task 8.2** with an explicit escape clause: "if Task 8.2
+  lands as planned the regression disappears with the path. If that task slips, **or the path
+  survives it**, the lazy-diagnostic fix becomes required on its own."
+  **The path survived.** Task 8.2 has landed, and `src/UI/UISystem.cpp:287` still runs
+  `textRenderer.Layout(...)` per enabled label per frame through the legacy immediate path.
+  `src/Rendering/Utf8.cpp:73` still builds a `VectorTextDiagnosticSink` per call and discards it —
+  which stopped the log flooding but not the per-ill-formed-byte diagnostic construction the
+  amendment named. The remedy is lazy diagnostic-string construction in
+  `src/Text/UnicodeTextBuffer.cpp`.
+  **This task is the new owner** because its `CollectRender(const molga::ui::UISnapshot&, ...)`
+  signature is what finally retires the legacy per-frame text-layout path. If that retirement
+  removes the hot caller outright, record that and close the item; if any per-frame caller of
+  `DecodeUtf8` survives this task, implement the lazy-diagnostic fix here.
+  Source: `01-dependencies-unicode.md:2261-2267`.
+
+
 **Files:**
 
 - Modify: `src/UI/UISystem.h`

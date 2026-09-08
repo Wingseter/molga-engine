@@ -791,6 +791,25 @@ This subplan is complete only when the focused tests, `editor_smoke`, and full D
 
 ### Task 15.3: Register UI authoring, create font families, and scan transitive references
 
+**Inherited obligation (an ordering constraint that was recorded but not honoured):**
+
+- **A newly authored `UILabel` currently has no way to reference a font.** Task 8.2 made `UILabel`
+  schema 2 family-only — `src/ECS/Components/UILabel.cpp:171` states outright that schema 2 has no
+  `fontGuid` key, and `Serialize` round-trips a legacy payload verbatim only while
+  `loadedLegacyFontGuid_` is set. Subplan 02 recorded the consequence and asked for a decision
+  rather than resolving it unilaterally: "**Milestone 15 (editor font-family authoring) must land
+  before Task 8.2**, because until it does the editor has no other way to point a new label at a
+  font."
+  **That ordering was not honoured** — Task 8.2 landed first. So between then and this task, a user
+  who adds a `UILabel` in the editor can author no font for it: the legacy key is gone and no
+  family-authoring UI exists yet. Existing scenes are unaffected, since their legacy payload is
+  preserved untouched.
+  This task creates font families and registers UI authoring, so it is where the gap closes. Treat
+  "a newly created label can be pointed at a font entirely from the editor" as an exit condition,
+  not an incidental outcome.
+  Sources: `02-font-shaping-layout.md:3626-3636`, `src/ECS/Components/UILabel.cpp:167-200`.
+
+
 **Files:**
 
 - Create: `tests/support/ProjectFileCommandTestAccess.h`
@@ -1411,8 +1430,8 @@ byte-exactly undoable like every other migration this task owns. Add a step that
   and a user who drops a `.ttf` gets tofu unless the editor's font inspector authors settings.
   Milestones 5-8 stay closed only because `FontAsset::FromRecord` refuses the record. Closing the
   branch is itself a legacy migration, which is why it lands here.
-  Sources: `02-font-shaping-layout.md:520-524` and `:4248-4254`, plus the record at
-  `05-editor-authoring-migration.md:1376-1397`.
+  Sources: `02-font-shaping-layout.md:520-524` and `:4248-4254`, plus the "AMENDMENT (2026-09-04) —
+  inherited from Task 4.1" block recorded under Task 15.3 in this file.
 
 
 **Files:**
