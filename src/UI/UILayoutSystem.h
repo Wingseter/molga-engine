@@ -54,6 +54,24 @@ struct UIIntrinsicLayoutRecord {
     std::uint64_t generation = 0;
 };
 
+// ── 인계받은 결함 6 (Task 11.1 -> 11.2): 이 파일의 세 등록부는 동기화되지 ──
+// 않는다. 검토했고, 지금은 그것이 맞다고 판단한다. 근거는 관례가 아니라
+// 호출 그래프다:
+//
+//  - Publish/Find/Retire/Clear를 부르는 프로덕션 경로는 UILayoutSystem::Build,
+//    UISystem::CollectRender, TextureManager의 로드/리로드/언로드, 그리고
+//    Task 11.2의 EngineShutdown뿐이다. 넷 다 결정적 CPU 단계에서 프레임
+//    스레드 하나만 지난다.
+//  - Task 11.2가 더한 GPU 제출은 이 등록부를 읽지 않는다. UIRenderCollector가
+//    읽는 것은 **이미 게시된 스냅샷이 값으로 복사해 간 바인딩**이고, 그
+//    복사는 Build 안에서 같은 스레드가 한다.
+//
+// 그러므로 오늘 데이터 경합은 없다. 무엇이 이 판단을 뒤집는가도 함께 적는다:
+// 워커 스레드에서 텍스처를 로드하거나(TextureManager::Load), 두 표면을 서로
+// 다른 스레드에서 Build하는 순간 세 등록부 전부가 뮤텍스를 필요로 한다.
+// 그때는 unordered_map을 그대로 두고 잠그는 것으로는 부족하다 —
+// UITextureBindingRegistry는 수명 토큰의 강한 소유자라, 잠금 밖에서 지분을
+// 놓으면 그 파괴가 다른 스레드의 조회와 겹친다.
 class UIIntrinsicLayoutRegistry {
 public:
     static UIIntrinsicLayoutRegistry& Get();
@@ -289,7 +307,12 @@ std::optional<molga::FixedRect> IntersectFixedRects(
 // 배치된 glyph/tofu 기록의 합이다. 줄 수도 grapheme 수도 아니다 — 그 둘로
 // 세면 합자와 대체 glyph에서 예약 구간이 실제 명령 수와 어긋나고, 그 어긋남은
 // 다음 항목의 정렬 키가 이미 쓰인 뒤에야 드러난다.
-std::uint64_t TextRenderCommandSpan(const molga::text::TextLayout&) noexcept;
+//
+// Task 11.2: 이 규칙은 이제 molga::text::TextRenderCommandSpan 한 곳에만 있다
+// (Rendering/TextRenderer.h). 예약하는 쪽(여기)과 소비하는 쪽(CollectLayout)이
+// 각자 세면 두 수가 어긋날 수 있고, 그 어긋남은 다음 항목의 정렬 키가 이미
+// 배정된 뒤에야 드러나기 때문이다. 여기서는 그 이름을 다시 선언하지 않는다 —
+// 같은 이름이 두 네임스페이스에 있으면 ADL이 호출을 모호하게 만든다.
 
 // ── 고유 크기를 결정하는 입력을 그대로 이어 붙인 정체성 ─────────────────────
 // 해시가 아니라 바이트다 — 이 문자열은 UIVisualCacheIdentity::
@@ -321,6 +344,27 @@ struct UIPhysicalTransform {
     std::uint64_t deviceGeneration = 0;
 
     std::optional<molga::PixelRectU32> ToPhysicalOutward(
+        const molga::FixedRect&) const noexcept;
+    // ── Task 11.2 close-out: 잘린 사각형은 잘린 그림을 가리켜야 한다 ────────
+    // ToPhysicalOutward는 뷰포트로 **자른** 사각형을 돌려준다. scissor에는
+    // 그것이 맞지만, 그 사각형을 스프라이트의 quad로 쓰면서 UV를 0,0->1,1로
+    // 두면 텍스처 전체가 살아남은 폭에 눌려 들어간다 — 화면 밖으로 걸친
+    // 패널이 잘리는 대신 **찌그러진다**. 같은 요소의 글자는 자르지 않는
+    // LayoutToOutputAffine을 지나므로, 그 순간 글자와 그림이 눈에 보이게
+    // 어긋난다.
+    //
+    // 그래서 자름 자체를 UV로 옮긴다. u/v는 자르기 **전** 사각형(같은
+    // floor/ceil 규칙으로 연 것) 위에서 살아남은 구간이 차지하는 비율이고,
+    // 그래서 잘린 quad는 잘리지 않은 quad가 그 자리에 그렸을 바로 그 픽셀을
+    // 그린다.
+    struct SpriteQuad {
+        molga::PixelRectU32 rect;
+        float u0 = 0.0f;
+        float v0 = 0.0f;
+        float u1 = 1.0f;
+        float v1 = 1.0f;
+    };
+    std::optional<SpriteQuad> ToPhysicalSpriteOutward(
         const molga::FixedRect&) const noexcept;
     // 역방향 점 변환의 유일한 자리. 반열린 물리 뷰포트 안의 유한한 점만
     // 받는다 — 오른쪽/아래 가장자리는 뷰포트 밖이다.
@@ -367,6 +411,24 @@ public:
                         molga::text::TextLayoutService&,
                         molga::text::TextDiagnosticSink&);
     void OnWorldReleased(std::uint64_t worldGeneration);
+
+    // ── Step 7d: 장치가 바뀌면 장치에 묶인 스냅샷은 전부 버린다 ────────────
+    // newGeneration은 GraphicsDevice가 **이미 취득해 게시한** 그 값이다. 여기서
+    // 축을 한 번 더 올리지 않는다 — 올리면 방금 게시된 장치 세대가 그 자리에서
+    // 낡은 값이 되고, 새 장치로 지은 첫 스냅샷조차 캐시에 들어가지 못한다.
+    //
+    // 지우는 것: lastSnapshot_ 빠른 경로 포인터, 새 세대의 것이 아닌 모든
+    // world/device 슬롯, 옛 장치의 런타임 바인딩을 담은 마지막 키.
+    // 남기는 것: 상한 있는 기하 LRU와 정규 의미 스크래치 — 기하는 장치와
+    // 무관하므로 버리면 장치 재생성마다 전 UI를 다시 배치하게 된다.
+    void OnDeviceGenerationChanged(std::uint64_t oldGeneration,
+                                   std::uint64_t newGeneration);
+    // ── Step 7g: teardown이 부르는 자리 ────────────────────────────────────
+    // 그 장치 세대에 묶인 전체 스냅샷 슬롯과 빠른 경로 포인터를 놓는다.
+    // OnDeviceGenerationChanged와 달리 "남길 세대"가 없다: 장치가 사라지는
+    // 중이므로 그 세대의 것은 전부 놓아야 엔진이 마지막 강한 소유자를
+    // 내려놓는다.
+    void ClearFullSnapshotBindingCache(std::uint64_t deviceGeneration);
 
     // ── 관찰 seam ──────────────────────────────────────────────────────────
     // 텍스트 하위 시스템의 detail:: 계수기와 같은 성격이고 같은 이유로 출하되는

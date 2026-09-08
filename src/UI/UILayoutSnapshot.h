@@ -248,6 +248,13 @@ using UISnapshotPtr = std::shared_ptr<const UISnapshot>;
 // TextureRuntimeBindingIdentity는 통째로 빠진다. 그래야 같은 내용을 다시
 // 올리거나 장치를 다시 만든 뒤의 스냅샷이 바이트 동일한 정규 JSON을 낸다.
 //
+// ── 문서 형태 (Task 11.2에서 바뀐 곳) ───────────────────────────────────────
+// 색 배열(`tint`, `color`)은 이제 `array<number | string>`이다. 유한한 성분은
+// 수로, 유한하지 않은 성분은 문자열 `"non-finite"`로 나간다 — `null`을 쓰면
+// 이 문서에서 이미 "값이 없다"를 뜻하는 표기(예: `clip`)와 별칭이 되어 거절이
+// 부재와 구별되지 않기 때문이다. 이 배열을 `array<float>`로 읽는 소비자는
+// 거절된 성분에서 깨진다. 사본 하나가 아니라 이 문장이 그 형태의 정의다.
+//
 // 사전조건: snapshot.nodes는 이미 UIDrawOrderKey 오름차순으로 정렬되어
 // 있어야 한다. 노드가 draw order key를 담지 않으므로 이 함수는 그 순서를
 // 만들 수도, 검사할 수도 없다 — 정렬되지 않은 목록을 넘기면 진단 없이 다른

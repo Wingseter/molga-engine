@@ -1,5 +1,7 @@
 #include "UI/UILayoutSystem.h"
 
+#include "Common/Log.h"
+
 #include "Core/World.h"
 #include "ECS/Components/RectTransform.h"
 #include "ECS/Components/UIAccessibility.h"
@@ -568,17 +570,6 @@ std::string UILabelIntrinsicContentIdentity(
 }
 
 // ── Step 4e: 확정된 배치가 실제로 낼 명령 수 ────────────────────────────────
-std::uint64_t TextRenderCommandSpan(
-    const molga::text::TextLayout& layout) noexcept {
-    std::uint64_t span = 0;
-    for (const auto& line : layout.lines) {
-        for (const auto& run : line.visualRuns) {
-            span += run.glyphs.size();
-        }
-    }
-    return span;
-}
-
 namespace {
 
 // 부호 있는 내림/올림 나눗셈. C++의 정수 나눗셈은 0 쪽으로 자르므로 음수에서
@@ -612,7 +603,11 @@ bool SafeMul(std::int64_t a, std::int64_t b, std::int64_t& out) noexcept {
 } // namespace
 
 // ── Step 6: 논리 -> 물리 변환의 유일한 자리 ─────────────────────────────────
-std::optional<molga::PixelRectU32> UIPhysicalTransform::ToPhysicalOutward(
+// 변환은 여기 한 번만 적혀 있고, 사각형만 필요한 쪽(scissor, 솔리드)은 같은
+// 결과의 rect만 읽는다. 자름의 비율까지 함께 돌려주는 이유는 스프라이트
+// 하나 때문이다 — 아래 ToPhysicalSpriteOutward의 주석이 그 이유다.
+std::optional<UIPhysicalTransform::SpriteQuad>
+UIPhysicalTransform::ToPhysicalSpriteOutward(
     const molga::FixedRect& rect) const noexcept {
     const std::int64_t logicalW = logicalViewport.width.Raw();
     const std::int64_t logicalH = logicalViewport.height.Raw();
@@ -625,7 +620,8 @@ std::optional<molga::PixelRectU32> UIPhysicalTransform::ToPhysicalOutward(
     const auto axis = [](std::int64_t origin, std::int64_t extent,
                          std::int64_t viewportOrigin, std::int64_t logicalExtent,
                          std::uint32_t physicalExtent, std::uint32_t& outMin,
-                         std::uint32_t& outSize) -> bool {
+                         std::uint32_t& outSize, float& outLowFraction,
+                         float& outHighFraction) -> bool {
         const std::int64_t relMin = origin - viewportOrigin;
         const std::int64_t relMax = relMin + extent;
         const std::int64_t physical = static_cast<std::int64_t>(physicalExtent);
@@ -637,25 +633,36 @@ std::optional<molga::PixelRectU32> UIPhysicalTransform::ToPhysicalOutward(
         }
         // 바깥쪽으로 연다: 최소 변은 floor, 최대 변은 ceil. 반올림이면 1픽셀
         // 폭 클립이 통째로 사라진다.
-        std::int64_t low = FloorDiv(minProduct, logicalExtent);
-        std::int64_t high = CeilDiv(maxProduct, logicalExtent);
-        low = std::max<std::int64_t>(low, 0);
-        high = std::min<std::int64_t>(high, physical);
+        const std::int64_t openLow = FloorDiv(minProduct, logicalExtent);
+        const std::int64_t openHigh = CeilDiv(maxProduct, logicalExtent);
+        if (openHigh <= openLow) return false;
+        const std::int64_t low = std::max<std::int64_t>(openLow, 0);
+        const std::int64_t high = std::min<std::int64_t>(openHigh, physical);
         if (high <= low) return false;
         outMin = static_cast<std::uint32_t>(low);
         outSize = static_cast<std::uint32_t>(high - low);
+        // 자르기 전 구간 위에서 살아남은 구간이 차지하는 비율. 분모는
+        // openHigh - openLow > 0이므로 0으로 나누지 않는다. 자르지 않은
+        // 사각형은 정확히 0과 1을 낸다(뺄셈 결과가 0과 분모 그대로다).
+        const double span = static_cast<double>(openHigh - openLow);
+        outLowFraction = static_cast<float>(static_cast<double>(low - openLow) /
+                                            span);
+        outHighFraction =
+            static_cast<float>(static_cast<double>(high - openLow) / span);
         return true;
     };
 
-    molga::PixelRectU32 out;
+    SpriteQuad quad;
     std::uint32_t offsetX = 0;
     std::uint32_t offsetY = 0;
     if (!axis(rect.x.Raw(), rect.width.Raw(), logicalViewport.x.Raw(), logicalW,
-              physicalViewport.width, offsetX, out.width)) {
+              physicalViewport.width, offsetX, quad.rect.width, quad.u0,
+              quad.u1)) {
         return std::nullopt;
     }
     if (!axis(rect.y.Raw(), rect.height.Raw(), logicalViewport.y.Raw(), logicalH,
-              physicalViewport.height, offsetY, out.height)) {
+              physicalViewport.height, offsetY, quad.rect.height, quad.v0,
+              quad.v1)) {
         return std::nullopt;
     }
     // 물리 뷰포트 원점은 마지막에 한 번만 더한다.
@@ -667,9 +674,16 @@ std::optional<molga::PixelRectU32> UIPhysicalTransform::ToPhysicalOutward(
         absoluteY > std::numeric_limits<std::uint32_t>::max()) {
         return std::nullopt;
     }
-    out.x = static_cast<std::uint32_t>(absoluteX);
-    out.y = static_cast<std::uint32_t>(absoluteY);
-    return out;
+    quad.rect.x = static_cast<std::uint32_t>(absoluteX);
+    quad.rect.y = static_cast<std::uint32_t>(absoluteY);
+    return quad;
+}
+
+std::optional<molga::PixelRectU32> UIPhysicalTransform::ToPhysicalOutward(
+    const molga::FixedRect& rect) const noexcept {
+    const auto quad = ToPhysicalSpriteOutward(rect);
+    if (!quad) return std::nullopt;
+    return quad->rect;
 }
 
 std::optional<molga::FixedPoint> UIPhysicalTransform::ToLogicalPoint(
@@ -1851,9 +1865,11 @@ public:
         key += ':';
         key += diagnostic.message;
         if (std::find(seen_.begin(), seen_.end(), key) != seen_.end()) return;
-        if (seen_.size() < kMaxRememberedPayloadFacts) {
-            seen_.push_back(std::move(key));
-        }
+        // 기억할 수 없으면 보고하지 않는다. 기억하지 않고 보고만 하면 상한이
+        // 메모리를 지키는 그 순간에 rate limit이 사라진다(위 NotePayloadFact와
+        // 같은 규칙이고, 같은 인계 결함이다).
+        if (seen_.size() >= kMaxRememberedPayloadFacts) return;
+        seen_.push_back(std::move(key));
         target_.Report(std::move(diagnostic));
     }
 
@@ -1930,6 +1946,16 @@ struct UILayoutSystem::Impl {
     std::unordered_map<std::uint64_t, std::list<GeometryEntry>> geometry;
     std::vector<FullSlot> fullSlots;
 
+    // 슬롯을 버리는 규칙은 이 한 자리뿐이다. 세 호출자(Build의 게으른 감지,
+    // OnDeviceGenerationChanged, ClearFullSnapshotBindingCache)가 각자 지우면
+    // 언젠가 한 곳이 조건을 뒤집고, 그때 낡은 장치의 핸들이 살아남는다.
+    template <class Predicate>
+    void EraseFullSlots(Predicate predicate) {
+        fullSlots.erase(
+            std::remove_if(fullSlots.begin(), fullSlots.end(), predicate),
+            fullSlots.end());
+    }
+
     UILayoutFastPathStamp lastStamp;
     bool hasStamp = false;
     UISnapshotPtr lastSnapshot;
@@ -1999,14 +2025,37 @@ struct UILayoutSystem::Impl {
     // 새 진단이 그 안에 묻힌다. 같은 사실을 이 표면에서 한 번만 낸다.
     // reportedCycles와 같은 규약이다.
     std::vector<std::string> reportedPayloadFacts;
+    // 상한에 닿았다고 알린 적이 있는가. 억제 자체가 보이지 않으면 "로그가
+    // 조용하다"와 "로그가 억제되었다"가 구별되지 않는다.
+    bool payloadFactBudgetAnnounced = false;
+    // ── 인계받은 결함 1 (Task 11.1 -> 11.2) ─────────────────────────────────
+    // 예전 구현은 256칸이 차면 기억을 멈추면서도 **참을 계속 돌려주었다**.
+    // 그래서 상한은 메모리를 지키는 동시에 rate limit을 없앴다: 서로 다른
+    // 사실을 256개 넘게 내는 장면은 257번째부터 매 프레임 전부 다시 보고되고,
+    // 그것이 정확히 상한이 막으려던 상태다.
+    //
+    // 이제 기억할 수 없으면 보고도 하지 않는다. 새 문제 하나가 늦게 묻히는
+    // 것은 로그가 프레임마다 수백 줄로 넘치는 것보다 낫고, 억제는 아래 한 줄로
+    // 보인다. 은퇴한 월드의 사실은 OnWorldReleased가 거둬 가므로 이 상한이
+    // 죽은 월드로 영구히 포화되지는 않는다.
     bool NotePayloadFact(const std::string& key) {
         if (std::find(reportedPayloadFacts.begin(), reportedPayloadFacts.end(),
                       key) != reportedPayloadFacts.end()) {
             return false;
         }
-        if (reportedPayloadFacts.size() < kMaxRememberedPayloadFacts) {
-            reportedPayloadFacts.push_back(key);
+        if (reportedPayloadFacts.size() >= kMaxRememberedPayloadFacts) {
+            if (!payloadFactBudgetAnnounced) {
+                payloadFactBudgetAnnounced = true;
+                Log::Warn("UILayout",
+                          "this UI surface reached its " +
+                              std::to_string(kMaxRememberedPayloadFacts) +
+                              " distinct payload-diagnostic limit; further "
+                              "distinct payload facts are suppressed rather "
+                              "than repeated every frame");
+            }
+            return false;
         }
+        reportedPayloadFacts.push_back(key);
         return true;
     }
 
@@ -2079,6 +2128,53 @@ std::optional<UILayoutGeometryCacheKey> UILayoutSystem::LastGeometryKey() const 
     return impl_->lastGeometryKey;
 }
 
+void UILayoutSystem::OnDeviceGenerationChanged(std::uint64_t oldGeneration,
+                                              std::uint64_t newGeneration) {
+    // 0은 "장치 없음"이고 같은 값은 변화가 아니다. 둘 다 아무것도 버리지
+    // 않는다 — 여기서 버리면 정상적인 프레임이 캐시를 통째로 잃는다.
+    if (newGeneration == 0U || newGeneration == oldGeneration) return;
+    impl_->EraseFullSlots([newGeneration](const Impl::FullSlot& slot) {
+        return slot.slot.deviceGeneration != newGeneration;
+    });
+    // 빠른 경로 포인터는 세대와 무관하게 놓는다. 그 포인터가 가리키는
+    // 스냅샷은 옛 장치의 네이티브 핸들을 담고 있을 수 있고, 도장 비교만으로는
+    // 그것을 알 수 없다.
+    impl_->hasStamp = false;
+    impl_->lastStamp = UILayoutFastPathStamp{};
+    impl_->lastSnapshot.reset();
+    if (impl_->lastSnapshotKey &&
+        impl_->lastSnapshotKey->deviceGeneration != newGeneration) {
+        impl_->lastSnapshotKey.reset();
+    }
+    impl_->lastDeviceGeneration = newGeneration;
+    // 기하 LRU와 정규 스크래치는 손대지 않는다.
+}
+
+void UILayoutSystem::ClearFullSnapshotBindingCache(
+    std::uint64_t deviceGeneration) {
+    if (deviceGeneration == 0U) return;
+    impl_->EraseFullSlots([deviceGeneration](const Impl::FullSlot& slot) {
+        return slot.slot.deviceGeneration == deviceGeneration;
+    });
+    if (impl_->hasStamp &&
+        impl_->lastStamp.deviceGeneration == deviceGeneration) {
+        impl_->hasStamp = false;
+        impl_->lastStamp = UILayoutFastPathStamp{};
+        impl_->lastSnapshot.reset();
+    }
+    if (impl_->lastSnapshotKey &&
+        impl_->lastSnapshotKey->deviceGeneration == deviceGeneration) {
+        impl_->lastSnapshotKey.reset();
+    }
+    // 이 세대는 은퇴했다. 이름을 그대로 두면 배치 시스템이 teardown 뒤에도
+    // 죽은 세대를 "지난번 장치"로 부르고, 다음 Build의 지연 재탐지가 그
+    // 이름과 새 세대를 비교한다 — 두 값이 우연히 같아지는 순간(세대 축이
+    // 되감기거나 같은 값이 다시 발행되면) 그 재탐지는 아무 일도 하지 않는다.
+    if (impl_->lastDeviceGeneration == deviceGeneration) {
+        impl_->lastDeviceGeneration = 0U;
+    }
+}
+
 void UILayoutSystem::OnWorldReleased(std::uint64_t worldGeneration) {
     impl_->geometry.erase(worldGeneration);
     impl_->fullSlots.erase(
@@ -2138,20 +2234,10 @@ UISnapshotPtr UILayoutSystem::Build(
     // const가 아니다: 아래에서 라벨 고유 크기를 게시한 뒤 그 결과를 이 프레임이
     // 그대로 소비해야 하므로 한 번 다시 읽는다.
     auto clock = UIRuntimeInvalidationClock::Current();
-    if (impl.lastDeviceGeneration != 0 &&
-        impl.lastDeviceGeneration != clock.deviceGeneration) {
-        // 장치가 새로 만들어지면 옛 장치에 묶인 전체 스냅샷은 더 이상 쓸 수
-        // 없다. 기하는 장치와 무관하므로 그대로 둔다.
-        impl.fullSlots.erase(
-            std::remove_if(impl.fullSlots.begin(), impl.fullSlots.end(),
-                           [&clock](const Impl::FullSlot& slot) {
-                               return slot.slot.deviceGeneration !=
-                                      clock.deviceGeneration;
-                           }),
-            impl.fullSlots.end());
-        impl.hasStamp = false;
-        impl.lastSnapshot.reset();
-    }
+    // 장치가 새로 만들어졌는데 아무도 알려 주지 않았으면 여기서 알아챈다.
+    // 규칙은 OnDeviceGenerationChanged 한 벌뿐이다 — 두 벌이면 명시 경로만
+    // 고치고 이 경로를 잊는 회귀가 조용히 통과한다.
+    OnDeviceGenerationChanged(impl.lastDeviceGeneration, clock.deviceGeneration);
     impl.lastDeviceGeneration = clock.deviceGeneration;
 
     UILayoutFastPathStamp stamp;
@@ -2998,7 +3084,8 @@ UISnapshotPtr UILayoutSystem::Build(
                 item.order = makeOrder(label->GetSortingOrder());
                 item.logicalRect = rect;
                 item.logicalClip = clip;
-                item.reservedCommandSpan = TextRenderCommandSpan(**layout);
+                item.reservedCommandSpan =
+                    molga::text::TextRenderCommandSpan(**layout);
                 item.payload = std::move(text);
                 local.push_back(std::move(item));
             }
@@ -3055,7 +3142,19 @@ UISnapshotPtr UILayoutSystem::Build(
         bool groupOverflowed = false;
         for (auto& item : local) {
             item.order.stableSubmissionIndex = cursor;
-            const std::uint64_t span = item.reservedCommandSpan;
+            // ── 인계받은 결함 4 (Task 11.1 -> 11.2) ─────────────────────────
+            // 예약 구간이 0인 레코드는 자기 번호를 소비하지 않았고, 그래서
+            // **다음 레코드가 같은 번호를 받았다**. 두 다른 레코드가 같은
+            // 서수를 주장하면 UIDrawOrderKey는 그 둘을 구별하지 못하고,
+            // 화면과 hit-test의 순서가 그 자리에서 갈릴 수 있다. 위치 기록이
+            // 하나도 없는 텍스트(전부 기본 무시 문자인 문자열이 그렇다)가
+            // 정확히 그 모양이다.
+            //
+            // reservedCommandSpan 자체는 진짜 기록 수로 남는다 — 수집기가
+            // 그 값을 배치의 기록 수와 대조하기 때문이다. 바뀌는 것은
+            // 커서가 나아가는 양뿐이다.
+            const std::uint64_t span =
+                std::max<std::uint64_t>(item.reservedCommandSpan, 1U);
             if (span > std::numeric_limits<std::uint64_t>::max() - cursor) {
                 groupOverflowed = true;
                 break;
@@ -3075,6 +3174,10 @@ UISnapshotPtr UILayoutSystem::Build(
         // 올라앉아야 할 배경과 같은 자리에서 시작한다.
         std::uint64_t inputGroupBase = cursor;
         std::uint64_t inputGroupSpan = 0;
+        // 이 오브젝트가 실제로 입력창 시각 묶음을 낼 때만 그 한 자리를
+        // 예약한다. 입력창이 없는 오브젝트까지 한 칸씩 밀면 번호가 비어
+        // 있는 자리로 가득 찬다.
+        bool inputPresent = false;
         std::optional<molga::text::TextLayoutRequest> effectiveInputRequest;
         const UITextInputVisualState* inputState = nullptr;
         if (input && !groupOverflowed) {
@@ -3096,35 +3199,78 @@ UISnapshotPtr UILayoutSystem::Build(
                                      inputState->compositionUtf8
                                : input->InitialText(),
                     logicalViewport, claim.rendered->GetGameObject()->GetID());
+                inputPresent = true;
                 if (!effectiveInputRequest->utf8.empty()) {
                     DiscardingPayloadSink discard;
                     const auto inputLayout =
                         textLayout.Layout(*effectiveInputRequest, discard);
                     if (inputLayout && *inputLayout) {
-                        inputGroupSpan = TextRenderCommandSpan(**inputLayout);
+                        inputGroupSpan =
+                            molga::text::TextRenderCommandSpan(**inputLayout);
                     }
                 }
                 break;
             }
         }
         if (!groupOverflowed) {
-            if (inputGroupSpan >
+            // 결함 4의 나머지 절반. 비어 있는 입력창의 텍스트 단계는 예약
+            // 구간이 0이므로, 그대로 두면 baseOrder가 다음 오브젝트의 첫
+            // 레코드와 같은 번호를 갖는다. baseOrder는 언제나 자기 한 자리를
+            // 소유한다.
+            const std::uint64_t inputGroupAdvance =
+                inputPresent ? std::max<std::uint64_t>(inputGroupSpan, 1U)
+                             : inputGroupSpan;
+            if (inputGroupAdvance >
                 std::numeric_limits<std::uint64_t>::max() - cursor) {
                 groupOverflowed = true;
             } else {
-                cursor += inputGroupSpan;
+                cursor += inputGroupAdvance;
             }
         }
         if (groupOverflowed) {
             submissionOverflowed = true;
             continue;
         }
+        // ── 인계받은 결함 5의 나머지 절반 ──────────────────────────────────
+        // 렌더 레코드를 내지 않는 동작 대상(장식 없는 selectable/입력창
+        // 껍데기)은 groupBaseSubmission을 그대로 썼다. 그 번호는 이 묶음의
+        // 첫 레코드의 것이거나, 이 묶음이 아무 레코드도 내지 않았다면
+        // **다음 오브젝트의 첫 레코드**의 것이다 — 어느 쪽이든 그 hit
+        // 레코드가 아무도 차지하지 않은(또는 남의) 서수를 이름으로 갖는다.
+        // 자기 한 자리를 뒤에 예약한다.
+        //
+        // ── 그 절반의 나머지 절반 ──────────────────────────────────────────
+        // actionEmitsRender는 "렌더 레코드를 낼 **것이다**"라는 예측이지
+        // "냈다"는 사실이 아니다. 비어 있지 않은 라벨은 그 값을 참으로
+        // 만들지만, 그 라벨의 레코드는 TextLayoutService::Layout이 성공했을
+        // 때만 만들어진다 — family 해석 실패, 분석/측정 실패 등 여러 경로가
+        // nullopt를 돌려준다. 그때 예전 코드는 예약도 하지 않고 자기 번호도
+        // 찾지 못해 groupBaseSubmission을 그대로 들었고, 그 번호는 같은
+        // 오브젝트의 다른 레코드(상호작용 불가능한 UIButton의 솔리드가 그
+        // 모양이다)나 다음 오브젝트의 첫 레코드의 것이었다.
+        //
+        // 그래서 예약 여부를 예측이 아니라 **실제로 찾았는가**로 정한다.
         std::uint64_t actionSubmission = groupBaseSubmission;
-        for (const auto& item : local) {
-            if (actionComponent && actionEmitsRender &&
-                item.source == CaptureTarget(world, *actionComponent)) {
+        bool actionOrdinalClaimed = false;
+        if (actionComponent && actionEmitsRender) {
+            const UIRuntimeTargetIdentity actionTarget =
+                CaptureTarget(world, *actionComponent);
+            for (const auto& item : local) {
+                if (item.source != actionTarget) continue;
                 actionSubmission = item.order.stableSubmissionIndex;
+                actionOrdinalClaimed = true;
+                break;
             }
+        }
+        if (actionComponent && !actionOrdinalClaimed) {
+            if (cursor == std::numeric_limits<std::uint64_t>::max()) {
+                submissionOverflowed = true;
+                continue;
+            }
+            actionSubmission = cursor;
+            ++cursor;
+        }
+        for (const auto& item : local) {
             renderItems.push_back(item);
         }
         nextSubmission = cursor;
@@ -3140,7 +3286,12 @@ UISnapshotPtr UILayoutSystem::Build(
             // 렌더와 hit이 같은 클립을 든다. 두 번 계산하면 언젠가 갈리고,
             // 그때 보이지 않는 버튼이 생긴다.
             hit.logicalClip = clip;
-            hit.interactable = true;
+            // ── 인계받은 결함 5 (Task 11.1 -> 11.2) ─────────────────────
+            // 이 값은 무조건 참이었다. 진짜 답은 몇 줄 위에서 이미 계산되어
+            // 이 노드에 실려 있다(ObjectIsInteractionEligible). 무조건 참인
+            // 필드는 "상호작용할 수 있는 대상"과 "그저 hit 대상"을 구별하지
+            // 못하므로, 그 값을 읽는 첫 라우팅이 선택 불가 버튼을 누른다.
+            hit.interactable = node.interactionEligible;
             if (selectable && selectable->Interactable()) {
                 hit.focusTarget = MakeFrozenTarget(
                     world, objectId, *selectable,

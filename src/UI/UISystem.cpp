@@ -214,7 +214,10 @@ void PublishLabelIntrinsic(const World& world, const UILabel& label,
 }
 } // namespace
 
-UISystem::~UISystem() { molga::ui::SetUIWorldReleaseHandler(nullptr); }
+UISystem::~UISystem() {
+    molga::ui::SetUIWorldReleaseHandler(nullptr);
+    molga::ui::SetUIDeviceRetireHandler(nullptr);
+}
 
 UISystem& UISystem::Get() {
     static UISystem system;
@@ -224,6 +227,12 @@ UISystem& UISystem::Get() {
     static const bool releaseHandlerInstalled = [] {
         molga::ui::SetUIWorldReleaseHandler([](std::uint64_t generation) {
             UISystem::Get().OnWorldReleased(generation);
+        });
+        // 장치 축의 나머지 절반. GraphicsDevice가 은퇴할 때 그 세대에 묶인
+        // 스냅샷/슬롯을 놓는다 — 알리지 않으면 죽은 세대의 텍스처 핸들과
+        // 바인딩 수명 토큰을 UI가 계속 들고, 그 토큰이 다음 종료를 막는다.
+        molga::ui::SetUIDeviceRetireHandler([](std::uint64_t generation) {
+            UISystem::Get().ClearFullSnapshotBindingCache(generation);
         });
         return true;
     }();
@@ -371,6 +380,20 @@ molga::ui::UISnapshotPtr UISystem::BuildLayout(
     molga::text::TextDiagnosticSink& textDiagnostics) {
     return layout_.Build(world, surfaceWindowId, logicalViewport,
                          inputVisualStates, textLayout, textDiagnostics);
+}
+
+void UISystem::OnDeviceGenerationChanged(std::uint64_t oldGeneration,
+                                         std::uint64_t newGeneration) {
+    layout_.OnDeviceGenerationChanged(oldGeneration, newGeneration);
+}
+
+void UISystem::ClearFullSnapshotBindingCache(std::uint64_t deviceGeneration) {
+    layout_.ClearFullSnapshotBindingCache(deviceGeneration);
+}
+
+std::size_t UISystem::FullSnapshotCacheEntryCountForWorldDevice(
+    molga::ui::UISnapshotWorldDeviceSlotKey slot) const noexcept {
+    return layout_.FullSnapshotCacheEntryCountForWorldDevice(slot);
 }
 
 void UISystem::InstallLayoutDependencies(

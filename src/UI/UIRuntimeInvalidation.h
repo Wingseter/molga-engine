@@ -69,6 +69,21 @@ UIWorldReleaseHandler SetUIWorldReleaseHandler(
     UIWorldReleaseHandler handler) noexcept;
 void NotifyUIWorldReleased(std::uint64_t worldGeneration) noexcept;
 
+// ── 은퇴한 장치 세대 회수 ───────────────────────────────────────────────────
+// 월드 축과 같은 모양의 나머지 절반이다. 월드 축에는 다섯 개의 프로덕션
+// 알림이 있고 장치 축에는 **생성 하나**뿐이었다 — 그리고 생성 시점의 캐시는
+// 반드시 비어 있으므로 그 알림은 관찰될 수 있는 일을 하지 않는다. 실제로
+// 장치에 묶인 스냅샷을 놓아야 하는 순간은 장치가 **은퇴할 때**이고, 그때
+// GraphicsDevice는 아무에게도 알리지 않았다.
+//
+// 알리지 않으면 UILayoutSystem이 죽은 세대의 텍스처 핸들과 바인딩 수명
+// 토큰을 담은 lastSnapshot/fullSlots를 계속 든다. 그 상태로 다음 장치가
+// 서면 그 토큰들이 "외부 소유자"로 잡혀 다음 종료를 막는다.
+using UIDeviceRetireHandler = void (*)(std::uint64_t);
+UIDeviceRetireHandler SetUIDeviceRetireHandler(
+    UIDeviceRetireHandler handler) noexcept;
+void NotifyUIDeviceRetired(std::uint64_t deviceGeneration) noexcept;
+
 // 테스트 전용 훅. 소진 경계는 전역 원자값을 직접 세워 놓아야만 재현되고, 그
 // 원자값은 .cpp의 익명 이름공간에 산다. 스코프를 벗어나면 직전 값으로
 // 되돌리므로 다른 케이스가 소진된 시계를 물려받지 않는다.

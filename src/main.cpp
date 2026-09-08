@@ -53,6 +53,49 @@ const unsigned int SCR_HEIGHT = 600;
 
 static molga::AssetWatcher g_AssetWatcher;
 
+
+namespace {
+
+// ── Task 11.2 Step 7f: 막힌 종료 위에서는 정상적으로 돌아가지 않는다 ─────────
+// 결과가 Complete가 아닌 동안 이 진입점은 돌아가지도, 진단 sink나 텍스트
+// 런타임 guard를 파괴하지도, host를 강제로 reset하지도 않는다. 아는 외부
+// 소유자를 놓고 같은 host로 다시 시도하되, 계속 막히면 소유자를 전부 든 채
+// 실패하는 종료 코드로 프로세스를 끝낸다 — std::_Exit은 소멸자도 atexit도
+// 돌리지 않으므로 ICU 종결 정리가 살아 있는 page 밑에서 돌지 않는다.
+[[noreturn]] void ExitShutdownBlocked(EngineShutdownStatus status) {
+    const char* reason = status == EngineShutdownStatus::GpuDrainFailed
+                             ? "the GPU idle/fence drain failed"
+                             : "an external GPU lifetime is still held";
+    std::fprintf(stderr,
+                 "ENGINE_SHUTDOWN_BLOCKED: %s; every owner is retained and no "
+                 "normal teardown or ICU cleanup runs\n",
+                 reason);
+    std::fflush(stderr);
+    std::_Exit(70);
+}
+
+// 한 번 시도하고, 막히면 소유자를 전부 든 채 실패하는 종료 코드로 끝낸다.
+//
+// 예전에는 여기서 EngineShutdown을 두 번 불렀다. 재시도처럼 읽혔지만
+// 재시도가 아니었다: 두 호출 사이에 **아무것도 놓지 않으므로** 단계 기계는
+// 멱등하게 같은 답을 돌려주고, 유일한 관찰 가능한 차이는 같은 blocker
+// 진단이 두 번 나가는 것이었다. 그 자리를 디버깅하는 사람은 중복된
+// blocker에서 시작해 그 사실을 스스로 유도해야 한다.
+//
+// 재시도가 의미를 갖는 것은 그 사이에 놓을 외부 소유자가 있을 때뿐이고, 이
+// 진입점에는 아직 그런 소유자가 없다(최신 UIFrameResult를 붙드는 자리는
+// Task 12.3이 만든다). 그 자리가 생기면 **놓는 코드와 함께** 두 번째 호출을
+// 여기 되살린다 — 놓는 코드 없는 재시도는 배선이 아니라 잡음이다.
+EngineShutdownStatus ShutdownEngineOrExit(
+    std::unique_ptr<EngineHost>& host,
+    molga::text::TextDiagnosticSink& sink) {
+    const EngineShutdownStatus status = EngineShutdown(host, sink);
+    if (status != EngineShutdownStatus::Complete) ExitShutdownBlocked(status);
+    return status;
+}
+
+} // namespace
+
 namespace {
 
 // Step 4d/7d: the project root is what the opened project says it is. It is
@@ -342,7 +385,7 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     if (!renderer->Init(&rendererError)) {
         std::cerr << "Renderer initialization failed: " << rendererError << '\n';
         ImGuiLayer::Shutdown();
-        EngineShutdown(host);
+        ShutdownEngineOrExit(host, textDiagnostics);
         return -1;
     }
     molga::RenderSystem2D::Get().Init();
@@ -352,7 +395,7 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
         molga::RenderSystem2D::Get().Shutdown();
         renderer.reset();
         ImGuiLayer::Shutdown();
-        EngineShutdown(host);
+        ShutdownEngineOrExit(host, textDiagnostics);
         return -1;
     }
     SceneDocument sceneDoc;
@@ -649,18 +692,16 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // guard의 종결 u_cleanup은 맨 마지막이다. 그 순서는 이 함수 한 곳에만
     // 적혀 있다. 프로세스 인스턴스도 성공 시 그 안에서 놓이므로, guard가
     // 죽은 뒤에 도는 소멸자가 남지 않는다.
-    if (!ShutdownRendererThenTextGpuResources(*renderer, TextRenderer::Get(),
-                                              textDiagnostics)) {
-        // 거절되었다는 것은 종료 순서가 뒤집혔다는 뜻이다. 붙들려 있는 page
-        // 위에서 부수는 것보다 OS가 회수하게 두는 쪽이 싸므로, 여기서는
-        // 사유만 남기고 인스턴스를 그대로 둔다(Task 6의 잠정 종결 분기).
-        Log::Error("TextRenderer",
-                   "Text GPU teardown was refused during editor shutdown.");
-    }
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
+    // Task 11.2 Step 7f/7g: 종료 순서의 소유자는 host다. 진입점은 두 GPU
+    // 소비자의 **이름만** 넘기고(값을 넘기면 host가 두 번째 소유자가 된다),
+    // 결과가 Complete가 아닌 동안에는 돌아가지 않는다.
+    host->RegisterGpuConsumers(renderer.get(), &TextRenderer::Get());
+    ShutdownEngineOrExit(host, textDiagnostics);
+    // Complete 뒤에만 놓는다. 막힌 상태에서 여기 도달하지 않는 것은
+    // ShutdownEngineOrExit이 보장한다.
     renderer.reset();
-    EngineShutdown(host);
     return 0;
 }
 

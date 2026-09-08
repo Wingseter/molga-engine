@@ -456,10 +456,24 @@ public:
     bool WaitIdle(std::string* errorOut = nullptr);
     std::uint32_t ValidationErrorCount() const;
 
+    // ── Task 11.2 Step 7g: 명시적이고 멱등한 장치 파괴 ──────────────────────
+    // 소멸자가 하던 일을 이름 있는 단계로 옮긴다. 종료 순서는
+    // EngineShutdown 한 곳에만 적혀 있고, 그 마지막 줄이 이것이다.
+    //
+    // 파괴 직전에 teardown을 **실제로 물어본다**: 이 세대에 아직 만료되지
+    // 않은 텍스처 바인딩 토큰이 남아 있으면 순서가 뒤집혔다는 뜻이다.
+    // 소멸자는 실패할 수 없으므로 막지는 못하지만, 아무 말 없이 지나가지도
+    // 않는다 — 그 침묵이 인계받은 결함 2의 내용이었다.
+    void Destroy();
+    bool IsDestroyed() const noexcept { return impl_ == nullptr; }
+
 private:
     struct Impl;
     explicit GraphicsDevice(std::unique_ptr<Impl> impl);
     std::unique_ptr<Impl> impl_;
+    // 파괴 뒤에도 답할 수 있어야 하는 값. 종료 순서가 이 세대를 여러 단계에
+    // 걸쳐 쓰므로 impl_ 안에만 두면 마지막 단계에서 읽을 수 없다.
+    std::uint64_t generation_ = 0;
 
     void* NativeDeviceForImGui() const;
     void* NativeTextureForImGui(TextureHandle handle) const;

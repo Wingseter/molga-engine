@@ -2,9 +2,11 @@
 
 #include "Common/Log.h"
 #include "Core/AssetDatabase.h"
+#include "Core/Bootstrap.h"
 #include "Rendering/RenderQueue.h"
 #include "Rendering/Renderer.h"
 #include "Rendering/Texture.h"
+#include "Rendering/TextureBindingRegistry.h"
 #include "Text/FontFamilyResolver.h"
 #include "Text/FontRepository.h"
 #include "Text/TextLayoutCache.h"
@@ -297,15 +299,72 @@ const molga::GlyphAtlasCache& TextRenderer::GlyphAtlas() const noexcept {
 
 bool ShutdownRendererThenTextGpuResources(
     Renderer& renderer, TextRenderer& textRenderer,
-    molga::text::TextDiagnosticSink& sink) {
-    // 먼저 일을 멈추고 GPU idle을 증명하고 반납 큐를 비운다. 이 호출이
-    // 돌아왔다는 것은 제출된 명령이 하나도 남아 있지 않다는 뜻이고, 그때에야
-    // 그 명령들이 읽던 텍스처를 부술 수 있다.
-    renderer.Shutdown();
-    // GraphicsDevice는 아직 살아 있다(EngineShutdown이 마지막이다). 죽은
-    // 장치에 대고 텍스처를 해제하지 않는 것이 이 순서 전부다.
-    const bool released = textRenderer.ShutdownAfterGpuIdle(sink);
-    if (!released) {
+    std::uint64_t deviceGeneration,
+    molga::text::TextDiagnosticSink& sink,
+    const std::function<bool()>& releaseInternalOwnersAfterDrain) {
+    // 1~2. 이미 증명한 renderer는 다시 기다리지 않는다. 성공한 drain은
+    // 재시도를 건너 유지된다 — 두 번째 기다림은 첫 번째가 증명한 것을 다시
+    // 증명하지 못할 수도 있고(장치는 그 사이에 아무 일도 하지 않았다), 단계
+    // 로그에 없는 사건을 하나 더 남긴다.
+    if (!renderer.HasProvenGpuIdle()) {
+        std::string drainError;
+        if (!renderer.DrainSubmittedFrames(&drainError)) {
+            molga::detail::NotifyEngineShutdownStage("WaitIdleFailed");
+            Log::Error("Renderer",
+                       "GPU idle wait failed during shutdown; nothing was "
+                       "destroyed and every owner is retained: " + drainError);
+            return false;
+        }
+        molga::detail::NotifyEngineShutdownStage("WaitIdle");
+        renderer.ReleaseCompletedGpuLifetimes();
+        molga::detail::NotifyEngineShutdownStage("ReleaseCompletedGpuLifetimes");
+    }
+    // 3. host가 소유하는 엔진 쪽 강한 소유자 해제와 외부 소유자 검사. 이
+    // 자리여야 하는 이유는 하나다: 엔진 자신의 소유자를 전부 놓기 **전에**
+    // 외부 소유자를 세면 자기 캐시를 외부 소유자로 착각하고, 놓은 **뒤에**
+    // 텍스트를 부수지 않으면 아직 붙들린 page 위에서 atlas가 사라진다.
+    if (releaseInternalOwnersAfterDrain && !releaseInternalOwnersAfterDrain()) {
+        return false;
+    }
+    // ── 4a. 엔진이 소유한 atlas page를 먼저 놓는다 ─────────────────────────
+    // glyph atlas의 page는 Texture이고, Texture는 업로드마다 바인딩 수명
+    // 토큰을 게시한다(Task 11.1의 소유 규칙). 그래서 page를 놓기 **전에**
+    // 외부 바인딩 소유자를 세면 엔진 자신의 atlas가 외부 소유자로 잡히고,
+    // 종료는 언제나 그 자리에서 막힌다.
+    //
+    // 밖으로 나간 page 지분이 남아 있으면 여기서 아무것도 놓지 않는다. 그
+    // 상태의 보고와 거절은 아래 ShutdownAfterGpuIdle의 몫이고, 그 함수가
+    // 자기 사유를 진단 sink로 낸다 — 여기서 대신 거절하면 그 사유가 사라진다.
+    bool atlasReleased = false;
+    if (textRenderer.GlyphAtlas().LiveExternalPagePinCount() == 0U) {
+        atlasReleased = textRenderer.GlyphAtlas().ReleaseAfterGpuIdle();
+        if (atlasReleased) {
+            // 방금 사라진 page Texture들의 바인딩을 실제로 반납시킨다.
+            molga::TextureBindingRegistry::Get().SweepRetiredBindings();
+        }
+    }
+    // ── 4b. 이제 만료되지 않은 토큰은 진짜 외부 소유자다 ──────────────────
+    // 여기서 막히면 텍스트 서비스도 renderer 자원도 장치도 그대로다. atlas
+    // page만 놓였는데, 그것은 엔진 소유이고 다음 프레임에 다시 만들어진다.
+    if (atlasReleased && deviceGeneration != 0U) {
+        const std::size_t live =
+            molga::TextureBindingRegistry::Get().LiveRetainedBindingCount(
+                deviceGeneration);
+        if (live != 0U) {
+            molga::detail::NotifyEngineShutdownStage(
+                "ExternalBindingOwnerBlocked");
+            Log::Error("TextureBindingRegistry",
+                       "texture binding teardown blocked: " +
+                           std::to_string(live) +
+                           " external binding lifetime(s) still retained");
+            return false;
+        }
+    }
+    // 4c. GraphicsDevice는 아직 살아 있다(host가 마지막에 부순다). 죽은 장치에
+    // 대고 텍스처를 해제하지 않는 것이 이 순서 전부다. atlas는 위에서 이미
+    // 비었으므로 이 호출의 atlas 단계는 무해한 재실행이고, 두 단계 표식은
+    // 여전히 이 함수 안에서 그 순서로 나온다.
+    if (!textRenderer.ShutdownAfterGpuIdle(sink)) {
         Log::Error("TextRenderer",
                    "Text GPU teardown was refused; atlas pages or text "
                    "services are still held after the renderer proved idle.");
@@ -313,6 +372,29 @@ bool ShutdownRendererThenTextGpuResources(
         // 종료 때 OS가 회수하게 두는 쪽이 싸다.
         return false;
     }
+    // 5. 은퇴한 바인딩. 살아 있는 외부 토큰이 하나라도 있으면 아무것도
+    // 부수지 않고 거짓이므로, 이 자리에서 막히면 장치는 그대로 남는다.
+    //
+    // 세대는 호출자가 준 그 값이다. 여기서 Current()로 다시 읽으면 두 번째
+    // 권위가 생기고, 널이거나 남의 장치를 가리키는 순간 이 단계가 **조용히**
+    // 사라진다 — 그리고 그 침묵이 곧 "부수지 않은 채 Complete"다.
+    if (deviceGeneration != 0U) {
+        std::string destroyError;
+        if (!molga::TextureBindingRegistry::Get().DestroyRetiredBindings(
+                deviceGeneration, destroyError)) {
+            // 살아 있는 외부 바인딩 토큰이 지키는 것은 정확히 이 파괴다.
+            // 검사가 여기 있는 이유는 그것이고, 여기서 막히면 그 핸들은
+            // 하나도 파괴되지 않은 채 남는다.
+            molga::detail::NotifyEngineShutdownStage(
+                "ExternalBindingOwnerBlocked");
+            Log::Error("TextureBindingRegistry", destroyError);
+            return false;
+        }
+    }
+    molga::detail::NotifyEngineShutdownStage("DestroyRetiredTextureBindings");
+    // 6. renderer의 GPU 자원. 장치보다 앞이고 텍스트보다 뒤다.
+    renderer.DestroyDeviceResources();
+    molga::detail::NotifyEngineShutdownStage("DestroyRendererResources");
     if (&textRenderer == g_processInstance) {
         // 프로세스 인스턴스는 여기서만 죽는다. 정적 저장 수명이었다면 이
         // 파괴가 guard의 u_cleanup 다음에 일어난다.
@@ -329,6 +411,10 @@ TextRenderer& TextRenderer::Get() {
 void TextRenderer::DestroyProcessInstance() noexcept {
     delete g_processInstance;
     g_processInstance = nullptr;
+}
+
+TextRenderer* TextRenderer::ProcessInstanceOrNull() noexcept {
+    return g_processInstance;
 }
 
 TextRenderer::TextRenderer() = default;
@@ -423,6 +509,22 @@ TextRenderer::Layout(const molga::text::TextLayoutRequest& request,
     return services_->layout.Layout(request, sink);
 }
 
+// ── Task 11.2: 예약 구간을 세는 규칙은 이 함수 하나뿐이다 ───────────────────
+// molga::ui::TextRenderCommandSpan은 이 함수로 넘어온다. 두 벌이면 예약하는
+// 쪽과 소비하는 쪽이 서로 다른 수를 세고, 그 차이는 다음 항목의 정렬 키가
+// 이미 배정된 뒤에야 화면에서 드러난다.
+namespace molga::text {
+std::uint64_t TextRenderCommandSpan(const TextLayout& layout) noexcept {
+    std::uint64_t span = 0;
+    for (const auto& line : layout.lines) {
+        for (const auto& run : line.visualRuns) {
+            span += run.glyphs.size();
+        }
+    }
+    return span;
+}
+} // namespace molga::text
+
 // ── Step 3d/4/4a/5/5a/5b: 배치 하나를 명령으로 ───────────────────────────────
 
 namespace {
@@ -456,8 +558,15 @@ std::array<Vector2, 4> TransformQuad(const LogicalQuad& quad,
             affine.Apply(FixedPoint{quad.left, quad.bottom})};
 }
 
+// ── Task 11.2 Step 4b: 옮겨진 UI 값은 복사만 된다 ───────────────────────────
+// 클립도 순서도 여기서 다시 계산하지 않는다. 바뀌는 것은 복사된 키의
+// stableSubmissionIndex 하나뿐이고, 그 값은 예약 기준점 + 위치 기록 서수다.
+//
+// scissor가 batchKey가 아니라 command에 실리는 것이 중요하다: 같은 atlas
+// 텍스처를 쓰는 이웃 glyph들이 클립이 같으면 한 batch로 남아야 한다.
 void FillCommonCommandFields(molga::RenderCommand& command,
-                             const TextCollectContext& context) {
+                             const TextCollectContext& context,
+                             std::uint64_t positionedRecordOrdinal) {
     command.sortKey.cameraPass = context.cameraPass;
     command.sortKey.sortingLayer = context.sortingLayer;
     command.sortKey.sortingOrder = context.sortingOrder;
@@ -465,6 +574,15 @@ void FillCommonCommandFields(molga::RenderCommand& command,
     command.batchKey.shaderName = "batch";
     command.batchKey.isBatchable = true;
     command.isBatchableSprite = true;
+    command.scissor = context.scissor;
+    if (context.uiDrawOrder) {
+        molga::ui::UIDrawOrderKey key = *context.uiDrawOrder;
+        // CollectLayout이 시작 전에 구간 전체의 덧셈을 이미 검증했으므로
+        // 여기서 감기지 않는다.
+        key.stableSubmissionIndex =
+            context.stableSubmissionBase + positionedRecordOrdinal;
+        command.uiDrawOrder = std::move(key);
+    }
 }
 
 // Step 5a: 두부의 논리 사각형. 폭은 넓힌 advance의 절댓값이고 최소 raw는 1이다
@@ -488,6 +606,7 @@ std::optional<LogicalQuad> TofuQuad(const molga::text::TextLine& line,
 void EmitTofu(molga::RenderQueue& queue, const molga::text::TextLine& line,
               const molga::text::PositionedGlyph& positioned,
               const TextCollectContext& context,
+              std::uint64_t positionedRecordOrdinal,
               molga::text::TextDiagnosticSink& sink,
               CollectDiagnosticBudget& budget);
 
@@ -495,6 +614,7 @@ void CollectGlyph(molga::GlyphAtlasCache& atlas, molga::RenderQueue& queue,
                   const molga::text::TextLine& line,
                   const molga::text::PositionedGlyph& positioned,
                   const TextCollectContext& context,
+                  std::uint64_t positionedRecordOrdinal,
                   molga::text::TextDiagnosticSink& sink,
                   CollectDiagnosticBudget& budget);
 
@@ -525,12 +645,32 @@ void TextRenderer::CollectLayout(molga::RenderQueue& queue,
         return;
     }
 
+    // ── Step 4b: 예약 구간 전체가 검증된 다음에만 명령이 하나라도 나간다 ───
+    // 마지막 서수의 덧셈이 감기면 그 명령은 이 묶음보다 앞선 번호를 받아,
+    // 얼려 둔 순서가 화면에서 뒤집힌다. 부분 라벨을 내보내지 않는 이유가
+    // 이것이다 — 절반만 제자리에 있는 라벨은 아무것도 없는 것보다 나쁘다.
+    const std::uint64_t span = molga::text::TextRenderCommandSpan(layout);
+    if (span > 0 &&
+        span - 1 > std::numeric_limits<std::uint64_t>::max() -
+                       context.stableSubmissionBase) {
+        ReportTerminal(sink, TextDiagnosticCode::LayoutInvalid,
+                       "the reserved submission span for this text overflows "
+                       "the checked 64-bit draw order range",
+                       "Lower the number of UI render records on this surface; "
+                       "no partial label is submitted.");
+        return;
+    }
+
     CollectDiagnosticBudget budget;
+    // 위치 기록 서수다. 하나의 순회에서만 증가하므로 유일하고 단조롭다 —
+    // 그릴 수 있는 명령만 세면 공백 하나가 뒤의 모든 번호를 하나씩 당긴다.
+    std::uint64_t ordinal = 0;
     for (const molga::text::TextLine& line : layout.lines) {
         for (const molga::text::VisualRun& run : line.visualRuns) {
             for (const molga::text::PositionedGlyph& positioned : run.glyphs) {
-                CollectGlyph(atlas_, queue, line, positioned, context, sink,
-                             budget);
+                CollectGlyph(atlas_, queue, line, positioned, context, ordinal,
+                             sink, budget);
+                ++ordinal;
             }
         }
     }
@@ -542,6 +682,7 @@ void CollectGlyph(molga::GlyphAtlasCache& atlas, molga::RenderQueue& queue,
                   const molga::text::TextLine& line,
                   const molga::text::PositionedGlyph& positioned,
                   const TextCollectContext& context,
+                  std::uint64_t positionedRecordOrdinal,
                   molga::text::TextDiagnosticSink& sink,
                   CollectDiagnosticBudget& budget) {
     const molga::text::ShapedGlyph& glyph = positioned.glyph;
@@ -549,7 +690,8 @@ void CollectGlyph(molga::GlyphAtlasCache& atlas, molga::RenderQueue& queue,
     // Step 5: 없는 glyph와 face 없는 기록은 atlas에 닿지 않는다. 조회 자체가
     // page를 만들 수 있으므로, 예산이 0인 화면에서도 이 경로는 비용이 없다.
     if (glyph.missing || !glyph.faceResource || !glyph.faceResource->rasterFace) {
-        EmitTofu(queue, line, positioned, context, sink, budget);
+        EmitTofu(queue, line, positioned, context,
+                 positionedRecordOrdinal, sink, budget);
         return;
     }
 
@@ -600,7 +742,8 @@ void CollectGlyph(molga::GlyphAtlasCache& atlas, molga::RenderQueue& queue,
     if (handle.proceduralTofu) {
         // Step 5b: 포화도 없는 glyph와 같은 기하를 낸다. 어떤 page 정체성도
         // 토큰도 붙들지 않는다.
-        EmitTofu(queue, line, positioned, context, sink, budget);
+        EmitTofu(queue, line, positioned, context,
+                 positionedRecordOrdinal, sink, budget);
         return;
     }
     if (!handle.glyph.drawable) return;  // 공백 glyph에는 그릴 것이 없다
@@ -652,7 +795,7 @@ void CollectGlyph(molga::GlyphAtlasCache& atlas, molga::RenderQueue& queue,
                       context.layoutToOutput);
 
     molga::RenderCommand command;
-    FillCommonCommandFields(command, context);
+    FillCommonCommandFields(command, context, positionedRecordOrdinal);
     // ── RetainedTexture만이 텍스처를 내준다 (Task 6.2/6.3에서 온 의무) ───────
     // GlyphInfo::texture는 page가 소유하는 원시 포인터다. 지분 없이 그것을
     // 실으면, 명령이 큐에 있는 동안 page가 축출되어도 아무도 알아채지 못한다.
@@ -683,6 +826,7 @@ void CollectGlyph(molga::GlyphAtlasCache& atlas, molga::RenderQueue& queue,
 void EmitTofu(molga::RenderQueue& queue, const molga::text::TextLine& line,
               const molga::text::PositionedGlyph& positioned,
               const TextCollectContext& context,
+              std::uint64_t positionedRecordOrdinal,
               molga::text::TextDiagnosticSink& sink,
               CollectDiagnosticBudget& budget) {
     const auto quad = TofuQuad(line, positioned);
@@ -699,7 +843,7 @@ void EmitTofu(molga::RenderQueue& queue, const molga::text::TextLine& line,
         TransformQuad(*quad, context.layoutToOutput);
 
     molga::RenderCommand command;
-    FillCommonCommandFields(command, context);
+    FillCommonCommandFields(command, context, positionedRecordOrdinal);
     // Step 5/5c: 유효하지 않은 핸들 그대로 나간다. sprite 경로가 그것을
     // renderer 소유의 흰 텍스처로 묶으므로, atlas 예산이 0이어도 없는
     // grapheme마다 그릴 수 있는 명령이 하나씩 남는다. page 정체성도 토큰도

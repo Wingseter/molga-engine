@@ -25,7 +25,21 @@ TextureBindingRegistry& TextureBindingRegistry::Get() {
 void TextureBindingRegistry::ReleaseRecord(Record& record) {
     // 핸들을 실제로 반납하고 나서야 기록을 놓는다. 반납 없이 버리면 그 핸들을
     // 아는 마지막 지식이 사라진다 — 그것이 곧 누수다.
-    if (GraphicsDevice* device = GraphicsDevice::Current()) {
+    //
+    // ── Task 11.2 close-out: 반납은 그 핸들을 만든 장치에게만 한다 ─────────
+    // ResourceHandle은 {슬롯 index, 슬롯 generation}이고 **두 값 모두 장치마다
+    // 1부터 다시 시작한다**(ResourceSlot::generation의 초기값이 1이고, 슬롯
+    // 벡터는 새 장치에서 비어 있다). 그래서 죽은 세대의 TextureHandle{3,1}은
+    // 새 장치에서 **살아 있는 전혀 다른 텍스처**를 정확히 가리킨다.
+    //
+    // DestroyRetiredBindings는 세대로 거르고 부르지만 SweepRetiredBindings는
+    // 거르지 않았고, 그 sweep은 모든 Publish의 첫 문장이다 — 장치를 다시
+    // 만든 뒤의 첫 업로드가 새 장치의 살아 있는 텍스처를 파괴하는 경로가
+    // 그것이다. 세대가 다르면 그 장치는 이미 사라졌고 핸들도 함께 사라졌으므로
+    // 여기서 할 일은 없다.
+    GraphicsDevice* device = GraphicsDevice::Current();
+    if (device != nullptr &&
+        device->Generation() == record.identity.deviceGeneration) {
         TextureHandle texture = record.identity.texture;
         SamplerHandle sampler = record.identity.sampler;
         device->DestroySampler(sampler);

@@ -2,15 +2,18 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 
 #include "../Common/Types.h"
 #include "Common/Fixed26_6.h"
 #include "Rendering/FontAtlas.h"
+#include "Rendering/GraphicsDevice.h"
 #include "Rendering/PixelSize.h"
 #include "Text/TextDiagnostic.h"
 #include "Text/TextLayoutTypes.h"
+#include "UI/UILayoutTypes.h"
 
 class Renderer;
 namespace molga {
@@ -54,8 +57,17 @@ struct TextRasterPolicy {
         float scaleX, float scaleY, molga::text::TextDiagnosticSink&) const;
 };
 
-// 한 배치를 한 출력에 놓는 데 필요한 전부. Task 11이 여기에 옮겨진 UI draw
-// order와 최종 물리 scissor를 더하며, sink 없는 오버로드를 만들지 않는다.
+// 한 배치를 한 출력에 놓는 데 필요한 전부. Task 11.2가 여기에 옮겨진 UI draw
+// order와 최종 물리 scissor를 더했으며, sink 없는 오버로드는 없다.
+//
+// 세 UI 필드는 **옮겨진 값이지 유도할 값이 아니다.** glyph 루프는 이것들을
+// 복사만 하고 컴포넌트나 affine에서 다시 계산하지 않는다 — 다시 계산하는
+// 순간 스냅샷이 얼려 둔 순서/클립과 화면이 갈릴 수 있고, 그 차이는 스냅샷을
+// 다시 지어야만 보인다.
+//
+// 월드 텍스트는 uiDrawOrder/scissor를 비운 채로 온다. 비어 있는 uiDrawOrder는
+// "이 명령은 월드 정렬 키로 정렬된다"는 뜻이고, 비어 있는 scissor는 "패스
+// 전체"라는 뜻이다.
 struct TextCollectContext {
     TextAffine2D layoutToOutput;
     Color color = Color::White();
@@ -64,7 +76,22 @@ struct TextCollectContext {
     int sortingOrder = 0;
     float depthOrYSort = 0.0f;
     TextRasterPolicy rasterPolicy;
+    std::optional<molga::ui::UIDrawOrderKey> uiDrawOrder;
+    // 이 배치가 예약한 구간의 첫 번호. 명령마다의 최종 stableSubmissionIndex는
+    // 이 값에 **위치 기록 서수**를 더한 것이다 — 그릴 수 있는 명령 수가 아니다.
+    // 공백 glyph는 명령을 내지 않지만 자기 서수를 소비한다.
+    std::uint64_t stableSubmissionBase = 0;
+    std::optional<molga::PixelRectU32> scissor;
 };
+
+// ── Task 11.2: 하나의 확정된 배치가 예약하는 위치 기록 수 ────────────────────
+// 줄 수도 grapheme 수도 아니고, 그릴 수 있는 명령 수도 아니다. 배치된
+// glyph/tofu 기록 전부다. 규칙이 한 벌인 것이 요점이다: 예약하는 쪽
+// (UILayoutSystem)과 소비하는 쪽(CollectLayout)이 각자 세면, 합자와 공백에서
+// 두 수가 어긋나고 그 어긋남은 다음 항목의 정렬 키가 이미 쓰인 뒤에 드러난다.
+namespace molga::text {
+std::uint64_t TextRenderCommandSpan(const TextLayout&) noexcept;
+} // namespace molga::text
 
 class TextRenderer;
 
@@ -172,6 +199,12 @@ public:
     // guard가 u_cleanup을 돌리기 전에 정확히 한 번 부른다. 그 인스턴스가
     // 아닌 renderer에는 아무 영향이 없다.
     static void DestroyProcessInstance() noexcept;
+    // ── Task 11.2 close-out: 만들지 않고 묻는다 ─────────────────────────────
+    // Get()은 없으면 만든다. 그래서 종료 경로가 "부술 텍스트 renderer가
+    // 있는가"를 Get()으로 물으면, 없던 프로세스에 하나를 만들어 놓고 그것을
+    // 부수게 된다. 이 접근자는 만들지 않는다 — 그리고 등록되지 않은 GPU
+    // 소비자를 종료가 찾아내는 유일한 길이다.
+    static TextRenderer* ProcessInstanceOrNull() noexcept;
 
 private:
     struct TextServices;
@@ -212,9 +245,38 @@ private:
 // Task 8.2: 텍스트 서비스 파괴도 이 안에서 일어난다. 성공하면 그 renderer가
 // 프로세스 인스턴스일 때 인스턴스 자체도 여기서 놓인다 — guard의 u_cleanup
 // 뒤에 도는 소멸자를 남기지 않기 위해서다.
-bool ShutdownRendererThenTextGpuResources(Renderer& renderer,
-                                          TextRenderer& textRenderer,
-                                          molga::text::TextDiagnosticSink&);
+// ── Task 11.2 Step 7g: 순서는 여전히 이 함수 한 곳에만 있다 ────────────────
+// 단계는 정확히 이 순서다.
+//
+//   1. 제출된 프레임을 닫고 GPU idle을 증명한다. 실패하면 **아무것도 부수지
+//      않고** 거짓이다(Task 6.2의 std::abort()는 Task 11.2에서 사라졌다).
+//   2. 완료된 GPU 수명 지분을 반납한다.
+//   3. releaseInternalOwnersAfterDrain — host가 소유하는 엔진 쪽 강한 소유자
+//      해제와 외부 소유자 검사. 이 자리가 계약이다: drain 뒤여야 하고
+//      텍스트 teardown 앞이어야 한다. 거짓이면 아무것도 부수지 않고 거짓.
+//      비어 있으면 건너뛴다(host 없는 픽스처가 그 모양이다).
+//   4. 텍스트/atlas GPU 자원과 텍스트 서비스를 부순다.
+//   5. 은퇴한 텍스처 바인딩을 부순다.
+//   6. renderer의 GPU 자원을 부순다.
+//
+// GraphicsDevice 파괴는 여기 없다. 장치의 소유자는 host이고, host가 이
+// 함수가 참을 돌려준 다음에만 부순다.
+//
+// 이미 idle을 증명한 renderer로 다시 부르면 1과 2를 건너뛴다 — 성공한 drain은
+// 재시도를 건너 유지된다.
+//
+// deviceGeneration은 **호출자가 소유한 장치의 세대**다. 이 함수는 그 값을
+// GraphicsDevice::Current()에서 다시 읽지 않는다: host는 impl.graphics로
+// 세대를 이름하는데 여기서 프로세스 전역 Current()로 다시 읽으면 한 값에
+// 두 권위가 생기고, Current()가 널이거나 다른 장치를 가리키는 순간 바인딩
+// teardown 전체가 **조용히** 건너뛰어진다(그리고 host는 살아 있는 기록 위에서
+// 자기 장치를 부순다). 0을 넘기는 것은 "장치 없음"이고, 그때는 부술 바인딩도
+// 없다.
+bool ShutdownRendererThenTextGpuResources(
+    Renderer& renderer, TextRenderer& textRenderer,
+    std::uint64_t deviceGeneration,
+    molga::text::TextDiagnosticSink&,
+    const std::function<bool()>& releaseInternalOwnersAfterDrain = nullptr);
 
 namespace molga {
 namespace detail {

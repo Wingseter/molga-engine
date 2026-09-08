@@ -129,6 +129,7 @@ set(ENGINE_SOURCES
     src/UI/UI.cpp
     src/UI/UILayoutSnapshot.cpp
     src/UI/UILayoutSystem.cpp
+    src/UI/UIRenderCollector.cpp
     src/UI/UIRuntimeIdentity.cpp
     src/UI/UIRuntimeInvalidation.cpp
     src/UI/UISystem.cpp

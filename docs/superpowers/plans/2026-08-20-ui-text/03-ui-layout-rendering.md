@@ -2753,11 +2753,11 @@ unkillable until something writes that field — **owner: Task 14.2**.
 - Consumes: complete `UIRenderItemSnapshot` values and `UIPhysicalTransform`.
 - Produces: `UIRenderCollector::Collect`, the extended existing `TextCollectContext`, optional command UI order/scissor, deterministic clip transitions, `Renderer::ResetPassScissor`, and fail-closed device-binding teardown.
 
-- [ ] **Step 1a: Write the failing scissor command-stream audit.**
+- [x] **Step 1a: Write the failing scissor command-stream audit.**
 
   Add three adjacent commands with scissor A, A, B, followed by an unclipped command. Require the audit sequence `set A, draw, draw, flush, set B, draw, flush, reset full, draw`, exactly two clip-change flushes, no flush for equal A, and full-pass restore before batch end.
 
-- [ ] **Step 1b: Write the failing batch-identity invariant.**
+- [x] **Step 1b: Write the failing batch-identity invariant.**
 
   ```cpp
   TEST_CASE("scissor is not batch identity") {
@@ -2770,7 +2770,7 @@ unkillable until something writes that field — **owner: Task 14.2**.
   }
   ```
 
-- [ ] **Step 2a: Add failing image/text clip-order integration tests.**
+- [x] **Step 2a: Add failing image/text clip-order integration tests.**
 
   Build one clipped image followed by clipped text under a logical viewport `(10,20,200,100)` mapped to physical `(50,70,400,300)`. Assert every text glyph command carries the exact same final physical scissor and translated UI order as its `UITextSnapshot`, plus `layoutToOutput={2,0,0,3,70,100}` for logical text origin `(20,30)`. No text method recomputes a clip/transform from a component.
 
@@ -2798,7 +2798,7 @@ unkillable until something writes that field — **owner: Task 14.2**.
   }
   ```
 
-- [ ] **Step 2c: Replace the interim abort row with failing retryable-drain rows.**
+- [x] **Step 2c: Replace the interim abort row with failing retryable-drain rows.**
 
   Delete Task 6.2's `SIGABRT` subprocess assertion and its terminal-abort expectation in this same slice. A failed `WaitIdle`/fence drain must instead return `EngineShutdownStatus::GpuDrainFailed`, leave caches, snapshot owners, texture bindings, atlas, text services, renderer resources, host, and device untouched, and emit one blocker; a second call after the injected failure clears must complete without repeating a successful drain phase. Add an independent external glyph-page token row: after successful drain/internal-owner release it returns `ExternalGpuLifetime` with atlas/services/device unchanged, then after the token expires the retry logs `ReleaseGlyphAtlas` before `DestroyTextServices` and completes without another idle wait. A successful device-generation change must clear the full-snapshot binding cache/fast-path pointer while retaining semantic geometry/content caches; rebuilding same content publishes the new device binding. No test or production branch may require both abort and retry behavior after this commit.
   Add an application-owner audit around both rows: before `Complete`, markers
@@ -2845,7 +2845,7 @@ unkillable until something writes that field — **owner: Task 14.2**.
 
   Expected: compilation or assertions fail because `RenderCommand` has no scissor and the render loop does not transition clip state.
 
-- [ ] **Step 4a: Extend the existing text collection context in place.**
+- [x] **Step 4a: Extend the existing text collection context in place.**
 
   ```cpp
   struct TextCollectContext {
@@ -2869,7 +2869,7 @@ unkillable until something writes that field — **owner: Task 14.2**.
 
   This is the same type and sole sink-bearing overload produced by Task 8.2. Do not introduce `UITextCollectContext`, a sink-less overload, or an origin/color parameter overload. World text continues to set the complete `layoutToOutput` affine, color, and world sort fields with empty `uiDrawOrder`/`scissor`.
 
-- [ ] **Step 4b: Copy UI order and clip into every glyph command.**
+- [x] **Step 4b: Copy UI order and clip into every glyph command.**
 
   Before UI text collection, obtain `context.rasterPolicy` exactly once from
   `UIPhysicalTransform::RasterPolicy(sink)`; failure drops the whole item before
@@ -2884,7 +2884,7 @@ unkillable until something writes that field — **owner: Task 14.2**.
   glyph loop never recomputes order, clip, font size, or raster scale from a
   component/affine.
 
-- [ ] **Step 5a: Define the render collector boundary.**
+- [x] **Step 5a: Define the render collector boundary.**
 
   ```cpp
   class UIRenderCollector {
@@ -2895,27 +2895,27 @@ unkillable until something writes that field — **owner: Task 14.2**.
   };
   ```
 
-- [ ] **Step 5b: Convert sprite/solid snapshot items without ECS reads.**
+- [x] **Step 5b: Convert sprite/solid snapshot items without ECS reads.**
 
   `UIRenderCollector::Collect` visits sorted `snapshot.renderItems`, converts `logicalRect` and `logicalClip` with `ToPhysicalOutward`, and emits sprite commands from `UISpriteSnapshot::binding.texture`/`binding.sampler`; copy `binding.lifetimeIdentity` and the retained token into the Task 6.2 `RenderCommand::{resourceLifetimeIdentity,resourceLifetime}` fields. Solid commands use their stored variant. Require the lifetime identity/binding to match and `binding.deviceGeneration == physicalTransform.deviceGeneration` before enqueue. Invalid/empty converted clips or a retired/cross-device/mismatched binding drop the command and emit rate-limited `LayoutInvalid`.
 
-- [ ] **Step 5c: Convert text snapshot items with the shared explicit context.**
+- [x] **Step 5c: Convert text snapshot items with the shared explicit context.**
 
   Populate the existing `TextCollectContext` with `physicalTransform.LayoutToOutputAffine(storedLogicalOrigin)`, color, exact `UIDrawOrderKey`, the item's already-reserved `stableSubmissionIndex`, and final physical scissor. Reject a missing affine before submitting any glyph; never replace it with origin-only translation. Before calling `CollectLayout(queue, layout, context, sink)`, recompute/check `TextRenderCommandSpan(layout) == item.reservedCommandSpan`; do not assign or advance a second collector-local base. The following item's frozen order already begins after the complete text span. `UIRenderCollector` never calls `World::FindById` or reads a component.
 
-- [ ] **Step 6a: Add optional UI order and scissor fields to `RenderCommand`.**
+- [x] **Step 6a: Add optional UI order and scissor fields to `RenderCommand`.**
 
   Add `std::optional<ui::UIDrawOrderKey> uiDrawOrder` and `std::optional<PixelRectU32> scissor` after geometry/bounds fields. Neither enters `BatchKey::{operator==,operator<}`.
 
-- [ ] **Step 6b: Sort UI commands by the complete draw key.**
+- [x] **Step 6b: Sort UI commands by the complete draw key.**
 
   In `RenderQueue::Sort`, commands with `uiDrawOrder` compare by that complete key; all UI commands must carry it, and the distinct UI `cameraPass` keeps them from world commands. If two complete UI keys compare equal, use the already-assigned `SortKey::submissionIndex` as the final tie-break so `std::sort` cannot reorder them. Add a mixed sibling/component test that would fail if `siblingPath` were flattened into `sortingOrder`.
 
-- [ ] **Step 6c: Track active pass viewport in `Renderer::Impl`.**
+- [x] **Step 6c: Track active pass viewport in `Renderer::Impl`.**
 
   Set it in every target/swapchain pass begin, update it from `SetPassViewport`, and clear it after `EndTarget`.
 
-- [ ] **Step 6d: Add `Renderer::ResetPassScissor`.**
+- [x] **Step 6d: Add `Renderer::ResetPassScissor`.**
 
   Track the current active-pass viewport in `Renderer::Impl`; implement:
 
@@ -2932,27 +2932,27 @@ unkillable until something writes that field — **owner: Task 14.2**.
 
   Clear the tracked viewport at `EndTarget`; initialize it at every target/swapchain pass begin and update it from `SetPassViewport`.
 
-- [ ] **Step 7a: Compare effective scissor before each draw.**
+- [x] **Step 7a: Compare effective scissor before each draw.**
 
   Keep `optional<PixelRectU32> currentScissor`. Equal values continue batching; a changed value flushes before any renderer state call.
 
-- [ ] **Step 7b: Apply changed scissor or restore full pass.**
+- [x] **Step 7b: Apply changed scissor or restore full pass.**
 
   Call `SetPassScissor` for a clip or `ResetPassScissor` for no clip, then draw. Propagate a failed state call as a renderer error; never continue drawing under the previous clip.
 
-- [ ] **Step 7c: Restore full pass state at queue end.**
+- [x] **Step 7c: Restore full pass state at queue end.**
 
   After the final command, flush and call `ResetPassScissor` if a clip remains before `batcher_.End()`.
 
-- [ ] **Step 7d: Clear device-bound snapshots on generation change.**
+- [x] **Step 7d: Clear device-bound snapshots on generation change.**
 
   Add `UILayoutSystem::OnDeviceGenerationChanged(oldGeneration, newGeneration)` and route it through `UISystem`. Require the exact nonzero generation already acquired/published by `GraphicsDevice` (do not advance it a second time), then clear `lastSnapshot_`, every old-device `UISnapshotWorldDeviceSlotKey`, and runtime-binding scratch entries for the old device while preserving the bounded geometry LRU and canonical semantic scratch. No old native handle can be returned from the fast path.
 
-- [ ] **Step 7e: Retire superseded binding lifetimes through the submitted frame fence.**
+- [x] **Step 7e: Retire superseded binding lifetimes through the submitted frame fence.**
 
   Cache replacement drops only the cache's strong snapshot owner. `UIRenderCollector` copies every sprite/glyph binding lifetime into its command, and `RenderSystem2D` calls the existing `Renderer::RetainUntilFrameComplete(identity, lifetime)` only for commands actually submitted. The owning `FrameContext` releases those tokens only after its exact completion fence. Culled/unsubmitted items transfer no lifetime; external `UISnapshotPtr` values remain explicitly external. This keeps internal full-snapshot storage at one entry without destroying a binding still used by an in-flight command.
 
-- [ ] **Step 7f: Define fail-closed host shutdown status.**
+- [x] **Step 7f: Define fail-closed host shutdown status.**
 
   ```cpp
   enum class EngineShutdownStatus : std::uint8_t {
@@ -2979,7 +2979,7 @@ unkillable until something writes that field — **owner: Task 14.2**.
   returns `GpuDrainFailed` before any teardown mutation and is retryable through
   the still-owned host; only this status-return contract remains compiled.
 
-- [ ] **Step 7g: Implement idempotent teardown phases in exact order.**
+- [x] **Step 7g: Implement idempotent teardown phases in exact order.**
 
   ```text
   if phase == Running:
@@ -3012,7 +3012,7 @@ unkillable until something writes that field — **owner: Task 14.2**.
   destroying its owned text-service aggregate. Old handle/page tokens never
   outlive their device or ICU runtime.
 
-- [ ] **Step 8: Run CPU, GPU, and UI clip green gates.**
+- [x] **Step 8: Run CPU, GPU, and UI clip green gates.**
 
   ```bash
   cmake --build --preset debug --target test_ui_render_clip test_render_queue \
@@ -3039,6 +3039,494 @@ unkillable until something writes that field — **owner: Task 14.2**.
     tests/test_platform_sdl.cpp
   git commit -m "feat: enforce UI clips in render commands"
   ```
+
+#### Implementation record (2026-09-09, Task 11.2)
+
+Left in the tree, **not committed**, with the full suite at **107/107, 0 failures**.
+Two full-suite runs were needed and the extra one is worth naming: the first came back
+106/107, and the single failure was a defect in *this task's own new test* (below), not
+in production. The fix was made, the whole affected file was re-run, and the final gate
+was run again clean.
+
+**How this task was reviewed.** **51 distinct mutations, 54 runs** (three re-runs after a
+survivor was closed). **46 were killed on the first pass; five survived.** Three of the
+five were real holes — each an assertion taken where correct and broken agree, none
+visible by reading the test — and each is now closed by a *stronger observation*, not by
+a weaker mutation:
+
+- **M27** — `OnDeviceGenerationChanged` dropping the fast-path snapshot pointer survived
+  deletion, because the fast-path stamp already contains `deviceGeneration` so the stale
+  pointer could never be *returned*. What the reset actually protects is ownership: the
+  layout system is a strong owner of a snapshot that holds a texture-binding lifetime
+  token. The test now drops its own owner and requires a `weak_ptr` to expire.
+- **M29** — canonical JSON's non-finite colour rejection survived deletion, because
+  nlohmann prints a non-finite `float` as `null` on its own, and `null` is also what an
+  *absent* value looks like in this document (`OptionalRectJson`). The rejection had no
+  byte-level consequence and aliased with "no value". Rejected channels now emit the
+  string `"non-finite"`, which is neither a number nor `null`.
+- **M36** — the teardown's `UISystem::ClearFullSnapshotBindingCache` call survived
+  deletion because the shutdown-stage audit asserts a **marker**, and a marker records
+  "we emitted a marker", not "the call happened". Closed with a test that builds a real
+  snapshot through the process-owned `UISystem`, runs `EngineShutdown`, and requires the
+  world/device slot count to go from 1 to 0.
+
+Two mutations are **left surviving and are reported rather than hidden**.
+
+- **M33** — the `RateLimitedPayloadSink` half of the payload-diagnostic limiter. The
+  `NotePayloadFact` half is covered (M32, killed by a 300-distinct-fact fixture); the
+  label-sink half needs >256 distinct *label layout* diagnostics, which this fixture set
+  cannot construct today. Both halves now follow the same rule, so the risk is a silent
+  divergence between them, not a live defect. **Owner: Task 11.3.**
+- **M46** — clearing the tracked pass viewport at `EndTarget` (Step 6c asks for it).
+  It is unreachable: `ResetPassScissor` already refuses when `passRecording` is false, and
+  the next pass begin overwrites the value, so no read can ever see the stale rectangle.
+  The only way to make the clear observable would be to remove the `passRecording` guard,
+  which is a worse design. The line stays as the defence Step 6c names, with this reason
+  recorded so a later reader does not mistake it for covered code.
+
+**A defect in this task's own test, found only by running the whole file.** The churn
+case asserted `TextureBindingRegistry::RecordCount() <= 4`. That registry is a
+**process-global** singleton, so the number it reports includes every record the earlier
+cases in the same binary left behind — the assertion named "this loop leaks no records"
+and measured "this process has a short history". Run under a `-tc=` filter it passed; run
+in the full file it read 10. It is the same shape as every other defect this program
+keeps finding, one level up: *an assertion that agrees with itself for the wrong reason*.
+The bound is now on the **growth** this loop causes (`<= settledRecordCount + 1`, where
+the settled value is captured after the first iteration and the `+1` is the phase of the
+retire/sweep cycle), which is what the contract was always about and which is immune to
+whatever the process started with. Worth recording because a filtered run is exactly how
+a fast iteration loop hides this, and the full-suite gate is what caught it.
+
+**A defect the probe found that the plan's Step 7g order could not have survived.**
+Step 7g places the external *texture-binding* count before `ShutdownAfterGpuIdle`. In
+this engine that check can never pass: a glyph atlas page **is** a `Texture`, and
+`Texture` publishes a binding lifetime token on every upload (Task 11.1's ownership
+rule). So the engine's own atlas is counted as an external owner and shutdown blocks
+forever — which is exactly what happened on the first probe run. The binding check
+therefore moved to the destruction it guards (`DestroyRetiredBindings`), which destroys
+nothing when live tokens remain; the external *glyph page* check stayed where the plan
+put it, because the thing it guards is the very next step (the atlas release). This is a
+deliberate deviation from Step 7g's literal order, recorded here because a later task
+reading Step 7g will not find what it expects.
+
+**`RenderCommand::scissor` is state, not batching identity.** The submit loop keeps
+`optional<PixelRectU32> currentScissor`; equal adjacent values continue batching with no
+flush and no renderer state call, a changed value flushes the pending batch *first* and
+only then calls `SetPassScissor`/`ResetPassScissor`, and a failed state call stops the
+queue instead of drawing the remainder under the previous clip. The audit fixture uses
+four commands (A, A, B, unclipped) because one command has no transition and two cannot
+distinguish "always flush" from "flush only on change".
+
+**A latent crash Step 7e would have introduced, found before it shipped.** Atlas page
+identities (`GlyphAtlasCache::nextPageIdentity`) and texture-binding lifetime identities
+(`Texture.cpp::nextBindingLifetimeIdentity`) are two independent process-global
+sequences and **both start at 1**. `Renderer::Impl::frameRetainedPages` keyed them
+together, and `RetainUntilFrameComplete` throws `std::logic_error` when one identity
+arrives with two different owners — from inside the submit loop, between
+`SpriteBatcher::Begin` and `End`. The moment `UIRenderCollector` began copying binding
+lifetimes into commands, the first frame carrying both a glyph and a UI sprite would
+have thrown. `RenderCommand` now carries a `ResourceLifetimeDomain` beside the identity
+and the frame keys on the pair; the two-argument `RetainUntilFrameComplete` overload
+still means `GlyphPage`.
+
+**One rule for the reserved command span.** `molga::ui::TextRenderCommandSpan` was
+deleted and the rule now lives once, in `molga::text::TextRenderCommandSpan`
+(`Rendering/TextRenderer.h`). The reserving side (`UILayoutSystem::Build`) and the
+consuming side (`TextRenderer::CollectLayout`, `UIRenderCollector`) count the same
+records by construction; the name was not kept in `molga::ui` because two identical
+names in two namespaces make every unqualified call ambiguous through ADL.
+
+**Ordinals are positioned records, not emitted commands.** A glyph command's
+`stableSubmissionIndex` is `stableSubmissionBase + positionedRecordOrdinal`. A
+non-drawable glyph (a space) consumes its ordinal and emits nothing; a tofu emits one
+command per missing positioned glyph. `CollectLayout` validates the whole span's checked
+addition **before** emitting anything, so an overflow submits no partial label.
+
+**Inherited items from Task 11.1, one by one.**
+
+1. **`NotePayloadFact` stopped rate-limiting at its memory bound.** Both limiters
+   (`NotePayloadFact` and `RateLimitedPayloadSink`) now refuse to *report* what they
+   cannot *remember*, and the suppression is announced once. A 300-distinct-fact fixture
+   requires exactly 256 diagnostics on the first build and **zero** on the second; the
+   old code produced 300 and then 44 more every frame.
+2. **`~GraphicsDevice` advanced no axis and consulted no teardown.** `GraphicsDevice`
+   now has an explicit, idempotent `Destroy()` that the shutdown order calls, and it
+   consults teardown: destroying a device whose generation still has non-expired binding
+   tokens logs a blocker. The axis is deliberately **not** advanced on destroy — `Create`
+   already advances for the next device, and advancing on destroy would make
+   `Current().deviceGeneration` name a device that never existed. `UITextureBindingRegistry`
+   (the strong owner) is cleared through `TextureManager::ReleaseBindings(generation)`,
+   which is on the teardown path with a marker and an observer.
+3. **Canonical JSON colours.** One `ColorJson` rule replaces four copies of the same
+   array literal; signed zero normalizes to positive zero and non-finite channels emit
+   `"non-finite"` rather than aliasing with `null`. (See M29 above.)
+4. **A zero-glyph layout made `stableSubmissionIndex` non-injective.** Every render
+   record now advances the cursor by at least one ordinal even when its reserved span is
+   zero, and a text-input visual group that is present reserves at least its own place.
+   `reservedCommandSpan` itself still carries the true record count, because the
+   collector compares it against the layout. **Not mutation-verified:** no fixture in
+   this repository can produce a non-empty label that shapes to zero positioned records,
+   so the render-item half has no observer. The input-group half is reachable (an empty
+   text input) and is the one worth an observer — **owner: Task 14.2**, which is the
+   first task with a real text-input visual state provider.
+5. **`hit.interactable` was unconditionally true** and a non-rendering action target
+   named an ordinal no record occupied. The hit record now carries
+   `node.interactionEligible` — the answer already computed a few lines away — and a
+   decorative `UIImage` shell therefore reports `false` while an interactable `UIButton`
+   reports `true`. A non-rendering action target (a bare `UISelectable`) now reserves its
+   own ordinal after the group's records, so no render record can claim it.
+6. **The process-global registries are unsynchronized.** Examined rather than asserted:
+   the call graph is written into `UILayoutSystem.h` next to the registries, together
+   with the two concrete changes that would invalidate it (loading textures off the
+   frame thread, or building two surfaces concurrently) and why a plain mutex would not
+   be enough for `UITextureBindingRegistry` specifically.
+7. **`ToLogicalPoint` is `double`, not a checked rational.** **Deferred, deliberately.**
+   The input is a float pixel position, so *some* float step is unavoidable; converting
+   the scaling to checked `CheckedMulDiv` changes the rounding of the existing
+   half-open-edge contract, and this task had no way to prove the new rounding is the
+   same one hit-testing already agreed on. **Owner: Task 11.3**, which owns the first
+   real consumer of the inverse transform (scroll pointer deltas).
+
+**`lru.splice` is CLOSED — the earlier "still not observable, owner Task 11.3"
+paragraph was stale on the commit that wrote it.** This task's own new case,
+`tests/test_ui_render_clip.cpp` *"a geometry cache hit updates recency and survives one
+more eviction"*, fills the LRU to its 256-entry bound and forces one eviction, which is
+exactly the fixture the old paragraph said did not exist. Verified by mutation during the
+close-out: deleting `lru.splice(lru.begin(), lru, it);`
+(`src/UI/UILayoutSystem.cpp:2687`) makes that case fail at
+`CHECK(system.GeometryCacheContains(*firstKey))`. **No obligation is handed to Task
+11.3.** The `LayoutCycle` diagnostic rate limit is still unkillable — **owner: Task
+11.3**.
+
+**Deliberate deviations from the plan, flagged.**
+
+- Step 7g's external texture-binding check moved (see the paragraph above).
+- Step 2b's audit is written against the real `EngineHost`/probe rather than the
+  `UIDeviceTeardownFixture` sketch, and the blocked row uses an external **glyph page**
+  token instead of an external UI snapshot holding a sprite binding. The status/order/
+  no-destruction/retry contract is fully covered; the external-snapshot-owner row is
+  **not** — it needs a UI snapshot with a live device binding inside a host process.
+  **Owner: Task 12.x.**
+- Step 2d's mixed-span test covers the span arithmetic that exists today (drawable
+  glyph, non-drawable space, zero-record layout, `UINT64_MAX` reservation failure). The
+  composition-underline and caret record kinds do not exist before **Task 14**, so those
+  two rows of the plan's literal vector are not written.
+- Step 2e is **half implemented, and only the half this task can own is deferred**.
+  Written and mutation-checked here: 4096 same-content reuploads in one world/device,
+  each completing the preceding fixture fence, requiring after every replacement exactly
+  one full-snapshot slot, at most one retained *old* binding lifetime beyond the
+  currently published one, and a bounded registry record count — plus the two rows that
+  fix the *direction* of the retirement rule: a command-pinned lifetime stays alive
+  **after the cache replaced its snapshot** and dies **at that exact fence**, unless an
+  explicit external `UISnapshotPtr` owner remains. The churn loop alone cannot catch a
+  too-early release (it completes every fence before asserting), which is why the two
+  fence rows exist; the three together close both directions.
+  Still deferred: the step's last sentence, "4096 **scroll**/blink semantic misses".
+  Scroll displacement does not exist before **Task 11.3** and caret blink does not exist
+  before **Task 14**, so that row cannot be written here — **owners: Task 11.3 (scroll)
+  and Task 14 (blink)**, not 11.3 alone.
+- `ShutdownRendererThenTextGpuResources` keeps its name and its five existing
+  `test_rendering_sdlgpu` cases, but its body is now the Step 7g order with an explicit
+  interleave point (`releaseInternalOwnersAfterDrain`) that `EngineHost::TearDownGpu`
+  fills with the cache/snapshot/binding phases. There is one order, in one function; the
+  host decides only where its own phases sit inside it and when the device dies.
+
+**The collector's output space, written down because it is easy to get wrong later.**
+`UIRenderCollector` emits vertices in **physical output pixels**, including
+`UIPhysicalTransform::physicalViewport`'s origin — the same space
+`LayoutToOutputAffine` puts glyphs in, so sprites and text agree by construction. The
+scissor rectangles are in that same space, which is what `Renderer::SetPassScissor`
+wants. Whoever wires this into a production render site must therefore give the pass a
+projection over the whole target (`ortho(0, targetWidth, targetHeight, 0)`), **not** the
+logical `Camera2D(vpW, vpH)` the legacy `UISystem::CollectRender` path uses — those two
+disagree by exactly the physical viewport origin and the backing scale.
+
+**No production caller yet, and that is the plan's shape, not an oversight.** Task 11.1
+verified that both production render sites (`SceneViewWindow.cpp`,
+`GameOutputRenderer.cpp`) still call the legacy `UISystem::CollectRender`, and neither
+file is in Task 11.2's Files list or its Step 9 `git add` list. `UIRenderCollector` is
+therefore exercised only by `test_ui_render_clip` today. This is the same shape as the
+defect Task 11.1 found (`UITextureBindingRegistry::Publish` had one caller and it was a
+test), so it is named rather than left implicit: **owner: Task 12.3**, whose Files list
+contains `GameOutputRenderer.{h,cpp}` and which makes `UISystem::ProcessFrame` the sole
+ordered loop. **`src/Editor/Windows/SceneViewWindow.cpp` is absent from every later subplan's Files
+list** — verified across subplans 04 through 07: `GameOutputRenderer` appears in
+`04-ui-interaction-ime.md`, `SceneViewWindow` appears in none of them. So the editor
+Scene View's UI render path has **no owner** for its migration off the legacy
+`UISystem::CollectRender`. **Owner: Task 12.3**, which is the task that changes
+`CollectRender` to take a `UISnapshot&`; 12.3 must **add** the file to its own Files
+list, because inheriting the change without inheriting the file is how this path stays
+on the legacy renderer forever.
+
+#### Close-out review fixes (2026-09-09, Task 11.2)
+
+Two independent reviews (a quality lens and an integration lens) landed against the
+uncommitted change set. Everything below is **in the tree, still uncommitted**, and every
+fix carries an assertion that was verified to fail with the production line deleted or
+inverted and to pass with it restored.
+
+**I1/I2 — `EngineShutdown` reported `Complete` for a teardown that ran nothing.**
+`EngineHost::TearDownGpu` gated the whole Step 7g order behind
+`if (impl.renderer && impl.textRenderer)`. Without both registered it skipped `WaitIdle`,
+the atlas release, text-service destruction, `DestroyRetiredBindings` **and**
+`DestroyDeviceResources`, destroyed the device anyway, and returned `Complete`. Six
+production call sites reach that branch (`main.cpp` twice, `runtime_main.cpp` four times)
+and only three register. The sharpest case is in the packaged runtime: at the
+`TextRenderer::Get().Init()` failure the process text-renderer instance already exists,
+`ShutdownAfterGpuIdle` never ran, and the entry point's ICU guard then ran `u_cleanup`
+under a live text renderer — the inversion Task 8.2's ordering exists to prevent.
+
+Registration is not a proof that there is nothing to tear down, so the unregistered branch
+now proves it: it drains the device directly (`GraphicsDevice::WaitIdle`), tears down the
+**process** text renderer if one exists (`TextRenderer::ProcessInstanceOrNull()`, a new
+accessor that does not create one the way `Get()` does), sweeps and destroys the retired
+bindings of this generation, and **fails closed** with `GpuDrainFailed` /
+`ExternalGpuLifetime` instead of claiming `Complete`. `~EngineHost`'s bypass detector no
+longer keys on registration either — it keys on `graphics && !graphics->IsDestroyed()`,
+which is true on exactly the paths the detector existed for. That second half is why the
+test binaries now print one `EngineShutdown` error per host that is dropped without
+`EngineShutdown`; those are real contract violations in old fixtures, reported rather than
+hidden.
+
+The suite encoded the defect as correct, so the tests changed too: `Complete` on a
+consumer-less host is no longer the whole assertion. `tests/test_platform_sdl.cpp` now has
+*"engine shutdown tears down an unregistered process text renderer"* (requires the process
+instance to be **gone** afterwards — an effect, not a marker) and *"a host destroyed
+without a completed teardown is not silent"*.
+
+**Q1 — a partly off-screen UI sprite rendered squashed instead of cropped.**
+`ToPhysicalOutward` clamps to the viewport, which is right for a scissor; `FillQuad` then
+used that clamped rect as the sprite quad while hard-coding UVs `0,0 → 1,1`, so the whole
+texture was compressed into whatever survived the clamp. Text on the same element goes
+through the unclamped `LayoutToOutputAffine`, so text and sprite visibly disagreed on one
+node. The conversion now also reports the crop: `UIPhysicalTransform::ToPhysicalSpriteOutward`
+returns the clamped rect plus the u/v fractions of the *unclamped* (same floor/ceil) span,
+and `ToPhysicalOutward` is a thin wrapper over it so there is still exactly one conversion
+site. The cropped quad therefore shows the texels the uncropped quad would have shown at
+those pixels, which is what makes it agree with the text. Witness:
+*"a sprite straddling the viewport edge is cropped, not squashed"* asserts both the
+geometry and the u/v, plus a fully-inside case that still reads `0 → 1`.
+
+**Q2 — a failed clip state call left the pass clipped.** `SubmitVisibleCommands` returned
+mid-loop without restoring, and the test asserted the draw log, which is satisfied equally
+by a restored and an unrestored pass. The failure path now attempts a best-effort
+`ResetPassScissor` before returning false, and the test asserts the **pass state**
+(`appliedScissors.back()`), not the log. The fixture's failure injection had to change too:
+"fail every call after N" made the restore fail as well, so a restored and an unrestored
+pass produced identical logs — the fixture erased the very difference it should measure. It
+now injects failures at a named call index for a named count, and a second case covers the
+restore itself failing.
+
+**Q3 — `RenderQueue::Sort` was not a strict weak ordering.** Two different orderings over
+one range (complete UI key when both sides carry it, `sortKey` otherwise) is a transitivity
+break, and `std::sort` on an inconsistent comparator is undefined behaviour. The legacy
+`UISystem::CollectRender` already emits `cameraPass 1` with no `uiDrawOrder`, which is the
+non-bearing half of the cycle, so this becomes live on Task 12.3's first migrated surface.
+The comparator is now one lexicographic total order — `cameraPass`, then
+`uiDrawOrder.has_value()`, then that group's own total order — so it no longer depends on
+an unenforced convention. Witness: *"a queue mixing key-bearing and key-less UI commands
+has one total order"* (the exact three-command cycle), plus *"camera pass still outranks
+the UI draw key"*.
+
+**Q4 — the ordinal-collision fix covered only one branch.** `actionEmitsRender` is a
+*prediction* that a render record will exist; a non-empty label whose `Layout` returns
+`nullopt` makes it true while producing no record, so the hit record kept
+`groupBaseSubmission` — which belongs to another record. Reservation is now decided by
+whether the matching record was actually **found**, not by the prediction. Witness:
+*"a label that fails to lay out never claims another record's ordinal"*, built from the
+quality lens's constructible full four-field collision (a non-interactable `UIButton` plus
+a failing label on one object). Under mutation it fails on all three assertions, including
+`CHECK_FALSE(labelHit->order == buttonItem->order)` — the complete-key collision was real.
+
+**Q5 — CONFIRMED, then fixed. `SweepRetiredBindings` had no device filter.**
+`ResourceHandle` is `{slot index, slot generation}` and **both restart per device**
+(`ResourceSlot::generation` starts at 1 and the slot vector is empty on a new device), so a
+dead generation's `TextureHandle{3,1}` names a live texture of the current device.
+`DestroyRetiredBindings` filters by generation before releasing; `SweepRetiredBindings` did
+not, and that sweep is the first statement of every `Publish`. The guard now lives in
+`ReleaseRecord`, which protects both callers: a record is released through the current
+device only when the generation matches. Witness:
+*"sweeping a foreign generation's retired binding spares live handles"* publishes a retired
+record carrying a **real** handle the live device issued and requires `IsAlive` to stay
+true; with the guard removed both the texture and the sampler are destroyed. The churn
+fixture also stopped dodging: `PublishReupload` now allocates real 1x1 textures and samplers
+from the live device instead of picking handle indices at `1000000 + n` specifically so the
+release could never hit anything.
+
+**I3 — two authorities for one device generation.** The host named the generation through
+`impl.graphics->Generation()` while the two binding guards named it through the
+process-global `GraphicsDevice::Current()`, each inside an `if (device = Current())` with no
+else — a null or foreign `Current()` silently skipped the entire binding teardown.
+`ShutdownRendererThenTextGpuResources` now takes `std::uint64_t deviceGeneration` from its
+caller and never re-reads `Current()`, so the silent-skip shape does not exist. Witness:
+*"text GPU teardown blocks on a live binding of the caller's device generation"*, which
+also closes the other direction (releasing the owner lets the same order through).
+
+**I4 — the device axis had no retirement notifier.** The world axis has five production
+notifiers; the device axis had one, at creation, where the cache is necessarily empty.
+`molga::ui::NotifyUIDeviceRetired` now exists beside `NotifyUIWorldReleased` with the same
+handler shape, `UISystem::Get()` installs it, and `GraphicsDevice::Destroy()` calls it —
+**after** the live-token blocker check, because notifying first would release the engine's
+own snapshots and make that check vacuous. Witness: *"destroying the graphics device
+retires that generation's UI snapshots"*. `ClearFullSnapshotBindingCache` also clears
+`lastDeviceGeneration` now, so the layout system stops naming a dead generation.
+
+This defence overlapped M36's observation: with the notifier in place, deleting the
+teardown's own `ClearFullSnapshotBindingCache` call still left the cache empty *after*
+shutdown, so the existing assertion went quiet. The two calls are not interchangeable — the
+teardown call must precede the external-owner check, the destroy notification is the debris
+sweep behind it — so *"engine teardown actually clears the full-snapshot binding cache"*
+now reads the slot count **at the `ReleaseTextureManagerBindings` stage** through the
+existing shutdown-stage hook. That is state observed at a defined point, not a marker; the
+M36 mutation is killed again (`1 == 0`), and the old post-shutdown assertion was verified to
+survive it.
+
+**A7 — the collector's budget and counters never reset.** `DroppedItemCount` /
+`SubmittedItemCount` are now per-`Collect` values, which is what every test reads and what a
+frame diagnostic means; the diagnostic facts are keyed by world generation and
+`UIRenderCollector::OnWorldReleased` prunes them and re-arms the exhaustion summary. Both
+halves have witnesses. **The process wiring (`NotifyUIWorldReleased` → this method) is
+Task 12.3's**, because 12.3 creates the collector's first production owner and an
+unowned registration is not a registration.
+
+**A8 — `SetPassViewport`'s tracked-viewport update had no observer.** It now does, and
+getting there took one discarded attempt worth recording: the obvious test (narrow the
+viewport, reset, draw past it) **survived the mutation**, because drawing is always the
+intersection of viewport and scissor, so a restored rectangle that is *wider* than the
+viewport is indistinguishable from the right one. The working shape is the opposite:
+open the pass with a **16x16** viewport, widen it to 64x64, set and reset a clip, then draw
+— a stale tracked value restores the narrow 16x16 clip and the pixels outside it stay at the
+clear colour.
+
+**A10 — the two-call retry could not change its own outcome.** Nothing was released between
+the calls and the phase machine is idempotent, so the second call was guaranteed to repeat
+the first and the only observable effect was the blocker being emitted twice. Both entry
+points now call `EngineShutdown` once; the retry belongs back only together with the code
+that releases an owner (Task 12.3's `UIFrameResult::renderSnapshot`). The entry-point source
+audit gained `count("EngineShutdown(host, sink)") == 1` so a reintroduced no-op retry fails
+it, and its comment now says why the two existing `>= 1` counts cannot express pairing and
+which behavioural test answers that question instead.
+
+**I5 — colour serialization: right code, wrong comment, undocumented shape.** The stale
+"here we explicitly write `null`" comment in `UILayoutSnapshot.cpp` described exactly the
+alias M29 closed; it now describes `"non-finite"` and points at the reason. The canonical
+document's shape change is recorded where the format is specified
+(`UILayoutSnapshot.h`): the colour arrays are `array<number | string>`, and a consumer
+parsing them as `array<float>` breaks on a rejected channel.
+
+**Test-comment drift (quality lens B2).** The `EndTarget` assertion in
+`test_rendering_sdlgpu` claimed in prose to observe the tracked-viewport clear, which
+`!passRecording` short-circuits — the record's own M46. The comment now says so, so a reader
+of the test alone does not believe it is covered.
+
+**Carried-forward plan defect — Owner: Task 12.3.** The integration lens confirmed that
+12.3, not 11.2, owns wiring `UIRenderCollector` into production: 12.3 Step 3 defines
+`UISystem::CollectRender` with `UIRenderCollector::Collect`'s exact signature, Step 7b names
+both call sites, and the snapshot it consumes does not exist before `ProcessFrame`. But
+**12.3 cannot compile as written**: its Step 3 removes the production overloads taking
+object vectors and float viewport sizes, and `src/Editor/Windows/SceneViewWindow.cpp:754`
+still calls exactly that legacy overload. Three files are missing from 12.3's Files list and
+must be added there:
+
+- `src/Editor/Windows/SceneViewWindow.cpp` — calls the overload 12.3 deletes; it appears in
+  no later subplan's Files list at all, so the editor Scene View otherwise keeps no owner
+  for its migration.
+- `src/UI/UIRenderCollector.h`
+- `src/UI/UIRenderCollector.cpp` — 12.3 also owns the collector's world-release wiring
+  (A7 above), which cannot be done without editing this pair.
+
+This subplan does not edit `04-ui-interaction-ime.md`; cross-subplan plan edits are the
+plan owner's.
+
+**Three files the close-out adds to Task 11.2's own Files list.**
+
+- `src/UI/UIRuntimeInvalidation.h` / `src/UI/UIRuntimeInvalidation.cpp` — the device
+  retirement notifier (I4) belongs beside `NotifyUIWorldReleased`, which is the shape Task
+  10.2 established for the world axis; putting it anywhere else would give one axis two
+  patterns.
+- `tests/CMakeLists.txt` — see the gate note below.
+
+**Gate note: the suite's one non-pass is a time cap, not a failure.** The full
+`ctest --preset debug` run came back **106/107**, and the single non-pass was
+`test_ui_render_clip` hitting the preset's global **60 s** cap. The binary itself passes
+55/55, and it passes under ctest in ~160 s when the cap allows it. The cause is Step 2e's
+own churn case: *"bounded same-content reupload churn keeps one slot and bounded
+lifetimes"* takes **69–71 s by itself** — 4096 iterations, each with a frame submit and two
+`WaitIdle`s — and that measurement is identical (70.3 s vs 71.0 s, inside the noise) with
+the real-handle fixture and with the fabricated handles it replaced, so it is a property of
+the 4096-iteration contract rather than of this close-out. Everything the close-out added to
+that binary costs **1.1 s** in total. The 4096 is part of the contract, so the fix is a
+per-executable `TIMEOUT 600` in `tests/CMakeLists.txt` rather than a smaller loop: shrinking
+the contract to fit a timer would delete the thing the timer is measuring. Verified:
+`ctest --preset debug -R '^test_ui_render_clip$'` passes in 159 s with that property.
+
+#### Controller addendum to the Task 11.2 record (2026-09-09)
+
+Landed at **107/107** (verified by the controller independently of the
+implementer's claim), with `test_ui_render_clip`, `test_ui_layout`,
+`test_ui_snapshot` and `test_platform_sdl` clean under ASan and UBSan.
+
+**Review shape.** The implementer ran 51 distinct mutations and killed 46 on the
+first pass. Two independent review lenses then found ten further defects, and
+**both reached the sort-ordering UB and the clip-restore failure independently**
+— convergence from different directions, not one reviewer's reading. A close-out
+pass ran 15 more mutations, all killed.
+
+**The worst defect was certified correct by the suite.** `EngineShutdown` gated
+the whole Step 7g teardown behind `if (impl.renderer && impl.textRenderer)` and
+returned `Complete` when it skipped everything — including in the packaged
+runtime, where ICU's `u_cleanup` then ran under a live `TextRenderer`. Six
+production call sites reached that branch and three registered. The new bypass
+detector in `~EngineHost` keyed on *the same registration the bypass omits*, so
+both halves of the defence were blind to the case they existed for, and
+`test_platform_sdl.cpp` / `test_ui_render_clip.cpp` both asserted `Complete` on
+consumer-less hosts. Fixing the code required fixing assertions that encoded the
+bug. Registration is not proof there is nothing to tear down.
+
+**Two self-caught regressions during the fix, both recorded rather than buried.**
+Adding the device-retirement notifier (I4) silently disarmed mutation M36 — with
+the notifier in place, deleting the teardown's own cache clear still left the
+cache empty *after* shutdown, so the assertion no longer measured the teardown.
+It was moved to read slot count at the `ReleaseTextureManagerBindings` stage and
+M36 dies again. Separately, the first A8 test survived its own mutation because
+narrowing the viewport cannot distinguish the cases — drawing is always viewport
+∩ scissor — and was reworked to open at 16x16 and widen.
+
+**A fixture that steered around its own hazard.** The Q5 device-handle collision
+(slot index *and* generation restart per device, so a dead generation's handle
+names a live texture) was real. The churn fixture had been picking handle indices
+≥ 1000000 specifically to avoid it. It now allocates real device handles; the
+measured cost is 70.3s against 71.0s, inside the noise.
+
+**Test timeout raised deliberately.** `test_ui_render_clip` now carries
+`TIMEOUT 600`. Step 2e's 4096-iteration churn is contract, so the loop does not
+shrink; everything this close-out added to that binary costs 1.1s.
+
+**Known noise this introduces.** The broadened bypass detector makes roughly
+twenty pre-existing fixtures print an `EngineShutdown` error because they drop an
+`EngineHost` without shutting it down. Those are real contract violations that
+were silent before and are now audible; no assertion depends on them. Any fixture
+constructing an `EngineHost` owes it a shutdown. **Owner: Task 18.3**, which sets
+the allocation and workload gates and is the first task that needs a quiet
+baseline.
+
+**Steps left unticked and why.** 2b (the external-*snapshot*-owner row, as
+distinct from the glyph-page row covered — **Task 12.x**); 2d (underline and
+caret kinds do not exist before **Task 14**); 2e (only its closing
+"4096 scroll/blink semantic misses" sentence — **Task 11.3** for scroll and
+**Task 14** for blink; the reupload and fence-retirement half is implemented and
+mutation-checked); 3 (the red gate was not run as a separate gate, the collector
+having been written production-first). `lru.splice` is **closed**, verified by
+mutation rather than taken on the reviewer's word.
+
+**Plan defect carried forward — Task 12.3 cannot compile as written.** Its Step 3
+deletes the legacy `UISystem::CollectRender` overload that
+`src/Editor/Windows/SceneViewWindow.cpp:754` still calls, and its Files list
+names neither that file nor `src/UI/UIRenderCollector.{h,cpp}`. Both review
+lenses and the controller independently confirmed that 12.3 — not 11.2 — owns
+wiring the collector into production, so the fix is for 12.3 to add those three
+files. It also owns routing `NotifyUIWorldReleased` into
+`UIRenderCollector::OnWorldReleased`.
 
 ### Task 11.3: Add deterministic identity-keyed scroll state
 

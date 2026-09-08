@@ -41,10 +41,46 @@ struct RecordingRenderer {
     // 것은 제출 루프의 몫이고 그 판단은 이 함수 하나로만 관찰된다.
     bool HasFrame() const noexcept { return hasFrame; }
 
-    void RetainUntilFrameComplete(std::uint64_t pageIdentity,
+    void RetainUntilFrameComplete(molga::ResourceLifetimeDomain domain,
+                                  std::uint64_t pageIdentity,
                                   std::shared_ptr<const void> pageLifetime) {
         log_->push_back("retain");
+        retainedDomains.push_back(domain);
         retained.emplace_back(pageIdentity, std::move(pageLifetime));
+    }
+
+    // ── Task 11.2: 진짜 Renderer의 클립 상태 호출 두 개 ──────────────────────
+    // 로그에 값까지 남긴다. "set"만 남기면 A를 두 번 세우고 B를 건너뛴
+    // 구현이 같은 로그를 낸다.
+    bool FailThisScissorCall() {
+        const std::size_t call = scissorCalls_++;
+        return call >= failScissorCallIndex &&
+               call < failScissorCallIndex + failScissorCallCount;
+    }
+
+    bool SetPassScissor(molga::PixelRectU32 scissor, std::string* errorOut) {
+        if (FailThisScissorCall()) {
+            if (errorOut) *errorOut = "injected scissor failure";
+            return false;
+        }
+        log_->push_back("set " + RectText(scissor));
+        appliedScissors.push_back(scissor);
+        return true;
+    }
+
+    bool ResetPassScissor(std::string* errorOut) {
+        if (FailThisScissorCall()) {
+            if (errorOut) *errorOut = "injected scissor reset failure";
+            return false;
+        }
+        log_->push_back("reset full");
+        appliedScissors.push_back(molga::PixelRectU32{});
+        return true;
+    }
+
+    static std::string RectText(const molga::PixelRectU32& rect) {
+        return std::to_string(rect.x) + "," + std::to_string(rect.y) + "," +
+               std::to_string(rect.width) + "," + std::to_string(rect.height);
     }
 
     const std::vector<std::string>& CallOrder() const noexcept { return *log_; }
@@ -52,8 +88,22 @@ struct RecordingRenderer {
     RecordingStats stats;
     bool hasFrame = true;
     std::vector<std::pair<std::uint64_t, std::shared_ptr<const void>>> retained;
+    std::vector<molga::ResourceLifetimeDomain> retainedDomains;
+    std::vector<molga::PixelRectU32> appliedScissors;
+    // ── 실패를 주입할 클립 상태 호출의 0-기반 번호 ──────────────────────────
+    // **그 호출 하나만** 실패하고 나머지는 성공한다. 예전 모양("그 뒤로 전부
+    // 실패")으로 두면 실패 뒤의 복원 시도까지 실패하므로, "패스를 되돌렸다"와
+    // "되돌리지 않았다"가 같은 로그와 같은 appliedScissors를 낸다 — 픽스처가
+    // 재려는 차이를 픽스처가 지운다. 기본값은 어떤 호출과도 같지 않다.
+    static constexpr std::size_t kNeverFail =
+        std::numeric_limits<std::size_t>::max();
+    std::size_t failScissorCallIndex = kNeverFail;
+    // 그 자리에서 연속으로 몇 번 실패시킬지. 복원까지 실패하는 경우를 만들려면
+    // 둘이 필요하다 — 하나로는 "복원이 성공했다"만 만들 수 있다.
+    std::size_t failScissorCallCount = 1U;
 
 private:
+    std::size_t scissorCalls_ = 0;
     std::vector<std::string>* log_ = nullptr;
 };
 
@@ -153,8 +203,52 @@ struct RenderQueueFixture {
 
     void Render() {
         queue.Sort();
-        SubmitVisibleCommands(queue.GetCommands(), cameraBounds, renderer,
-                              batcher);
+        lastSubmitComplete = SubmitVisibleCommands(
+            queue.GetCommands(), cameraBounds, renderer, batcher, &lastError);
+    }
+
+    // 클립 하나를 실은 배치 가능한 sprite. 세 개 이상을 이웃으로 놓을 수
+    // 있어야 "같은 클립은 flush하지 않는다"와 "다른 클립은 flush한다"가 한
+    // 시퀀스 안에서 함께 관찰된다.
+    void EnqueueClippedSprite(std::optional<molga::PixelRectU32> scissor) {
+        RenderCommand command = TextCommand(0U, nullptr);
+        command.scissor = scissor;
+        enqueuedKeys.push_back(command.batchKey);
+        queue.Submit(command);
+    }
+
+    void EnqueueUiCommand(const molga::ui::UIDrawOrderKey& order) {
+        EnqueueUiCommandInPass(order, 100);
+    }
+
+    // ── 한 패스 안에 두 생산자를 놓을 수 있어야 한다 ────────────────────────
+    // 기본 UI 헬퍼는 cameraPass 100을 찍는다. 그 값 때문에 키를 가진 명령과
+    // 갖지 않은 명령이 어떤 픽스처에서도 같은 패스를 공유하지 못했고, 그래서
+    // 비교자의 갈래 선택이 문제가 되는 그 경계가 한 번도 시험되지 않았다.
+    void EnqueueUiCommandInPass(const molga::ui::UIDrawOrderKey& order,
+                                int cameraPass) {
+        RenderCommand command = TextCommand(0U, nullptr);
+        command.sortKey.cameraPass = cameraPass;
+        command.uiDrawOrder = order;
+        enqueuedKeys.push_back(command.batchKey);
+        queue.Submit(command);
+    }
+
+    // 레거시 UISystem::CollectRender가 내는 모양 그대로: UI 패스 번호를 쓰되
+    // uiDrawOrder는 싣지 않는다(src/UI/UISystem.cpp의 sortKey.cameraPass = 1).
+    void EnqueueLegacyUiCommand(int cameraPass) {
+        RenderCommand command = TextCommand(0U, nullptr);
+        command.sortKey.cameraPass = cameraPass;
+        enqueuedKeys.push_back(command.batchKey);
+        queue.Submit(command);
+    }
+
+    std::vector<std::uint64_t> SubmissionIndicesAfterSort() const {
+        std::vector<std::uint64_t> out;
+        for (const RenderCommand& command : queue.GetCommands()) {
+            out.push_back(command.sortKey.submissionIndex);
+        }
+        return out;
     }
 
     // 두 접근자 모두 먼저 존재를 못 박는다. 비어 있는 벡터의 front()를 비교에
@@ -174,6 +268,8 @@ struct RenderQueueFixture {
     RecordingBatcher batcher;
     std::vector<BatchKey> enqueuedKeys;
     std::optional<AABB> cameraBounds;
+    bool lastSubmitComplete = false;
+    std::string lastError;
 
 private:
     static RenderCommand TextCommand(std::uint64_t pageIdentity,
@@ -516,4 +612,230 @@ TEST_CASE("WorldSort2D normalizes malformed authored Y without changing fixed mo
     settings.sortMode = SortMode2D::Fixed;
     settings.ySortOffset = 100.0f;
     CHECK(MakeWorldSortKey(settings, 100.0f).depthOrYSort == 0.0f);
+}
+
+// ═══ Task 11.2 Step 1a/1b/6b/7a-7c: 클립은 상태이지 배치 정체성이 아니다 ════
+
+// Step 1a. 명령 넷을 A, A, B, 클립 없음으로 놓는다. 하나나 둘로는 아무것도
+// 재지 못한다: 하나면 전이가 없고, 둘이면 "언제나 flush한다"와 "같은 값에는
+// flush하지 않는다"가 같은 로그를 낸다. 인접한 같은 값 A가 둘 있어야 그
+// 구분이 로그에 남는다.
+TEST_CASE("equal adjacent scissors keep batching and a clip change flushes") {
+    RenderQueueFixture f;
+    const molga::PixelRectU32 a{10U, 20U, 30U, 40U};
+    const molga::PixelRectU32 b{50U, 60U, 70U, 80U};
+    f.EnqueueClippedSprite(a);
+    f.EnqueueClippedSprite(a);
+    f.EnqueueClippedSprite(b);
+    f.EnqueueClippedSprite(std::nullopt);
+    f.Render();
+
+    CHECK(f.lastSubmitComplete);
+    CHECK((f.log == std::vector<std::string>{
+              "set 10,20,30,40", "draw", "draw", "flush",
+              "set 50,60,70,80", "draw", "flush", "reset full", "draw"}));
+    // 클립 전이로 생긴 flush는 정확히 둘이다. 위 시퀀스가 그것을 이미 담고
+    // 있지만, 계수기를 따로 못 박아 두면 시퀀스를 손보는 나중의 편집이 이
+    // 계약을 조용히 지나칠 수 있다.
+    std::size_t flushes = 0U;
+    for (const std::string& entry : f.log) {
+        if (entry == "flush") ++flushes;
+    }
+    CHECK(flushes == 2U);
+    // 세운 사각형이 실제로 그 값이다. 값 없는 "set" 로그만 보면 A를 두 번
+    // 세우고 B를 건너뛴 구현도 통과한다.
+    REQUIRE(f.renderer.appliedScissors.size() == 3U);
+    CHECK(f.renderer.appliedScissors[0] == a);
+    CHECK(f.renderer.appliedScissors[1] == b);
+    CHECK(f.renderer.appliedScissors[2] == molga::PixelRectU32{});
+}
+
+// 위 케이스는 마지막 명령이 클립을 갖지 않아 끝에서의 복원을 재지 못한다.
+// 클립이 남은 채로 끝나는 큐가 그 나머지 절반이다.
+TEST_CASE("a clip still active at queue end is flushed and restored") {
+    RenderQueueFixture f;
+    const molga::PixelRectU32 a{1U, 2U, 3U, 4U};
+    f.EnqueueClippedSprite(std::nullopt);
+    f.EnqueueClippedSprite(a);
+    f.Render();
+    CHECK(f.lastSubmitComplete);
+    CHECK((f.log == std::vector<std::string>{
+              "draw", "flush", "set 1,2,3,4", "draw", "flush", "reset full"}));
+}
+
+// Step 7b. 상태 호출이 실패하면 남은 명령은 이전 클립 아래에서 그려지지
+// 않는다. 실패해도 계속 그리는 구현은 draw 수에서만 드러난다.
+//
+// 그리고 실패해도 **패스는 되돌아간다**. 이 케이스가 예전에 재던 것은 로그
+// 뿐이었고, 로그는 "A를 세운 채 그냥 나갔다"와 "A를 세웠다가 되돌리고
+// 나갔다"를 구별하지 못한다 — 그래서 그 단언은 고장난 동작에 동의했다.
+// 남은 클립이 패스에 그대로 있으면 같은 패스를 이어 쓰는 다음 소비자(ImGui
+// 오버레이)가 UI 클립 아래에서 그린다. 재야 하는 것은 로그가 아니라
+// **패스의 상태**이므로, 마지막으로 세워진 사각형을 못 박는다.
+TEST_CASE("a failed clip state call stops the queue and still restores the pass") {
+    RenderQueueFixture f;
+    const molga::PixelRectU32 a{1U, 2U, 3U, 4U};
+    const molga::PixelRectU32 b{5U, 6U, 7U, 8U};
+    f.EnqueueClippedSprite(a);
+    f.EnqueueClippedSprite(b);
+    f.EnqueueClippedSprite(b);
+    f.renderer.failScissorCallIndex = 1U;  // A는 세워지고 B에서 실패한다
+    f.Render();
+    CHECK_FALSE(f.lastSubmitComplete);
+    CHECK(f.lastError == "injected scissor failure");
+    // 남은 두 명령은 그려지지 않는다.
+    CHECK((f.log == std::vector<std::string>{"set 1,2,3,4", "draw", "flush",
+                                             "reset full"}));
+    // 그리고 패스에 마지막으로 세워진 것은 A가 아니라 전체 사각형이다.
+    REQUIRE_FALSE(f.renderer.appliedScissors.empty());
+    CHECK(f.renderer.appliedScissors.back() == molga::PixelRectU32{});
+    // 보고되는 사유는 첫 실패의 것이다 — 최선 노력의 복원이 그 사유를
+    // 덮어쓰면 진단이 원인이 아니라 뒤처리를 가리킨다.
+    CHECK(f.lastError != "injected scissor reset failure");
+}
+
+// 복원 자체가 실패해도 함수는 거짓을 돌려주고 남은 명령을 그리지 않는다.
+// 최선 노력이 "노력했으니 계속 그린다"로 바뀌는 회귀는 여기서만 보인다.
+TEST_CASE("a failed clip restore still stops the queue and keeps the first cause") {
+    RenderQueueFixture f;
+    const molga::PixelRectU32 a{1U, 2U, 3U, 4U};
+    const molga::PixelRectU32 b{5U, 6U, 7U, 8U};
+    f.EnqueueClippedSprite(a);
+    f.EnqueueClippedSprite(b);
+    f.EnqueueClippedSprite(std::nullopt);
+    // 호출 0/1은 A와 B의 set이다. 호출 2가 마지막 명령의 reset이고, 호출 3이
+    // 그 실패 뒤의 최선 노력 복원이다 — 둘 다 실패시킨다.
+    f.renderer.failScissorCallIndex = 2U;
+    f.renderer.failScissorCallCount = 2U;
+    f.Render();
+    CHECK_FALSE(f.lastSubmitComplete);
+    CHECK(f.lastError == "injected scissor reset failure");
+    CHECK((f.log == std::vector<std::string>{"set 1,2,3,4", "draw", "flush",
+                                             "set 5,6,7,8", "draw", "flush"}));
+    // 되돌리지 못했으므로 패스에는 B가 남아 있다. 이 사실을 숨기지 않는 것이
+    // 최선 노력의 계약이다 — 돌아가는 값이 거짓인 이유가 그것이다.
+    REQUIRE(f.renderer.appliedScissors.size() == 2U);
+    CHECK(f.renderer.appliedScissors.back() == b);
+}
+
+// Step 1b. 클립이 batch 정체성이 아니라는 것은 값 하나로 못 박힌다.
+TEST_CASE("scissor is not batch identity") {
+    molga::RenderCommand a;
+    molga::RenderCommand b;
+    a.batchKey.shaderName = b.batchKey.shaderName = "batch";
+    a.scissor = molga::PixelRectU32{0, 0, 10, 10};
+    b.scissor = molga::PixelRectU32{10, 0, 10, 10};
+    CHECK(a.batchKey == b.batchKey);
+    CHECK_FALSE(a.batchKey < b.batchKey);
+    CHECK_FALSE(b.batchKey < a.batchKey);
+    // uiDrawOrder도 마찬가지다. 두 필드를 한 케이스에서 함께 보는 이유는
+    // 하나만 빠져나가도 UI 명령이 draw order마다 다른 batch로 쪼개지기
+    // 때문이다.
+    a.uiDrawOrder = molga::ui::UIDrawOrderKey{};
+    b.uiDrawOrder = molga::ui::UIDrawOrderKey{};
+    b.uiDrawOrder->stableSubmissionIndex = 99U;
+    CHECK(a.batchKey == b.batchKey);
+}
+
+// Step 6b. siblingPath를 정수 하나로 접은 구현에서만 갈리는 쌍이다.
+// {0,5}는 {1}보다 앞서지만(사전식), 마지막 성분이나 합으로 접으면 5 > 1이라
+// 순서가 뒤집힌다. 삽입 순서는 정답의 역순이라 정렬이 실제로 움직여야 한다.
+TEST_CASE("UI commands sort by the complete draw key, not a flattened sibling path") {
+    RenderQueueFixture f;
+    molga::ui::UIDrawOrderKey deepLater;
+    deepLater.siblingPath = {1U};
+    deepLater.componentSortingOrder = 0;
+    molga::ui::UIDrawOrderKey shallowEarlier;
+    shallowEarlier.siblingPath = {0U, 5U};
+    shallowEarlier.componentSortingOrder = 0;
+    f.EnqueueUiCommand(deepLater);       // submissionIndex 0
+    f.EnqueueUiCommand(shallowEarlier);  // submissionIndex 1
+    f.queue.Sort();
+    CHECK((f.SubmissionIndicesAfterSort() ==
+           std::vector<std::uint64_t>{1U, 0U}));
+}
+
+// 완전한 키가 같은 UI 명령들은 배정된 submissionIndex 순서를 지킨다.
+// std::sort는 안정 정렬이 아니므로, 동률에서 false만 돌려주는 비교자는 같은
+// 입력에 대해 다른 순서를 낼 수 있다. 128개인 이유는 하나다 — 작은 범위는
+// 삽입 정렬로 처리되어 우연히 순서가 보존되고, 그 크기에서는 동률 처리를
+// 통째로 지워도 이 단언이 통과한다.
+TEST_CASE("equal UI draw keys fall back to the assigned submission index") {
+    RenderQueueFixture f;
+    std::vector<std::uint64_t> expected;
+    for (std::uint32_t index = 0; index < 128U; ++index) {
+        molga::ui::UIDrawOrderKey key;
+        key.siblingPath = {index % 2U};
+        f.EnqueueUiCommand(key);
+    }
+    for (std::uint64_t index = 0; index < 128U; index += 2U) expected.push_back(index);
+    for (std::uint64_t index = 1; index < 128U; index += 2U) expected.push_back(index);
+    f.queue.Sort();
+    CHECK((f.SubmissionIndicesAfterSort() == expected));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 11.2 close-out: 비교자는 큐 전체에 대한 **하나의 전순서**여야 한다.
+//
+// 예전 비교자는 두 명령이 모두 uiDrawOrder를 가질 때만 완전한 키로 비교하고
+// 나머지는 sortKey로 떨어졌다. 한 범위 위에 서로 다른 두 순서가 있으면 관계는
+// 추이적이지 않고, 비추이적 비교자를 받은 std::sort는 **미정의 동작**이다.
+//
+// 이 셋이 그 순환이다(전부 cameraPass 1, 나머지 sortKey 필드는 기본값):
+//   submissionIndex 0: 키 K_hi를 가진 UI 명령
+//   submissionIndex 1: 키가 없는 레거시 UI 명령
+//   submissionIndex 2: 키 K_lo(< K_hi)를 가진 UI 명령
+// 옛 비교자: comp(2,0)=참(완전한 키), comp(0,1)=참(sortKey), comp(1,2)=참.
+//
+// 그리고 그 레거시 명령은 가상이 아니다: src/UI/UISystem.cpp의
+// CollectRender가 cameraPass 1을 uiDrawOrder 없이 낸다. Task 12.3이 한
+// 표면만 옮기는 첫 프레임이 정확히 이 큐다.
+//
+// 단언은 libc++의 정렬 내부가 아니라 계약을 붙든다: 키를 가진 두 명령은
+// 언제나 키 순서로 나온다. 옛 비교자는 그 둘을 뒤집힌 채로 남긴다.
+TEST_CASE("a queue mixing key-bearing and key-less UI commands has one total order") {
+    // UIRenderCollector.h의 kUISnapshotCameraPass와 레거시
+    // UISystem::CollectRender가 쓰는 값이 같다는 것이 이 케이스의 전제다.
+    // 헤더를 끌어오지 않고 그 값을 여기 적는 이유는 하나다 — 이 파일이
+    // 재는 것은 RenderQueue이지 UI 수집기가 아니다.
+    constexpr int kUiCameraPass = 1;
+    RenderQueueFixture f;
+    molga::ui::UIDrawOrderKey high;
+    high.siblingPath = {9U};
+    molga::ui::UIDrawOrderKey low;
+    low.siblingPath = {1U};
+    REQUIRE(low < high);
+
+    f.EnqueueUiCommandInPass(high, kUiCameraPass);   // 0
+    f.EnqueueLegacyUiCommand(kUiCameraPass);         // 1
+    f.EnqueueUiCommandInPass(low, kUiCameraPass);    // 2
+    f.queue.Sort();
+
+    const std::vector<std::uint64_t> order = f.SubmissionIndicesAfterSort();
+    REQUIRE(order.size() == 3U);
+    const auto positionOf = [&order](std::uint64_t submissionIndex) {
+        for (std::size_t at = 0; at < order.size(); ++at) {
+            if (order[at] == submissionIndex) return at;
+        }
+        FAIL("submission index missing from the sorted queue");
+        return std::size_t{0};
+    };
+    // 키를 가진 두 명령은 키 순서로 나온다. 옛 비교자는 0을 맨 앞에 두고
+    // 2를 맨 뒤에 남긴다.
+    CHECK(positionOf(2U) < positionOf(0U));
+    // 그리고 전체 순서는 결정적이다: 같은 패스 안에서 키 없는 무리가 먼저다.
+    CHECK((order == std::vector<std::uint64_t>{1U, 2U, 0U}));
+}
+
+// 그 전순서가 월드 명령을 UI 뒤로 밀지 않는다. cameraPass가 여전히 가장
+// 바깥의 항이라는 것이 이 케이스다 — 그것을 잃으면 UI가 월드 밑에 그려진다.
+TEST_CASE("camera pass still outranks the UI draw key") {
+    constexpr int kUiCameraPass = 1;
+    RenderQueueFixture f;
+    molga::ui::UIDrawOrderKey first;
+    first.siblingPath = {0U};
+    f.EnqueueUiCommandInPass(first, kUiCameraPass); // 0
+    f.EnqueueLegacyUiCommand(0);                                       // 1 (월드 패스)
+    f.queue.Sort();
+    CHECK((f.SubmissionIndicesAfterSort() == std::vector<std::uint64_t>{1U, 0U}));
 }

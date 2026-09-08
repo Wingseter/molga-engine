@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <memory>
@@ -30,6 +31,15 @@ public:
 
     // Unload all textures
     void Clear();
+
+    // ── Task 11.2 Step 7g: 그 장치 세대의 바인딩에 대한 엔진 소유를 놓는다 ──
+    // 두 강한 소유자를 함께 놓아야 한다: UI 등록부의 기록과 Texture 자신이
+    // 든 수명 토큰. 하나만 놓으면 "만료되지 않은 토큰 = 진짜 외부 소유자"가
+    // 성립하지 않고, 종료가 엔진 자신의 캐시 때문에 영원히 막힌다.
+    //
+    // 돌려주는 값은 실제로 놓은 텍스처 수다. 관찰자가 없으면 아무것도 놓지
+    // 않는 구현과 구별되지 않는다.
+    std::size_t ReleaseBindings(std::uint64_t deviceGeneration);
 
     // Get texture count
     size_t GetCount() const { return textures.size(); }

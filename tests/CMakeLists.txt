@@ -680,6 +680,13 @@ target_compile_definitions(test_ui_layout PRIVATE
 # the process two text runtimes.
 molga_add_text_test(test_ui_render_clip test_ui_render_clip.cpp)
 target_include_directories(test_ui_render_clip PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+# ── Task 11.2: 이 실행 파일에는 4096회 fence 계약이 들어 있다 ────────────────
+# Step 2e의 재업로드 churn 케이스 하나가 4096번의 GPU 프레임 제출과 그만큼의
+# WaitIdle을 지난다(그 4096은 계약의 일부다: 낮추면 "상한이 있다"와 "천천히
+# 자란다"가 구별되지 않는다). 그 한 케이스만으로도 CMakePresets의 전역 60초
+# 상한을 넘으므로, 상한을 낮추는 대신 이 실행 파일에만 자기 상한을 준다 —
+# 계약을 시간에 맞추는 것은 계약을 지우는 것이다.
+set_tests_properties(test_ui_render_clip PROPERTIES TIMEOUT 600)
 # Real font bytes and a real catalog: the sprite/label payloads are only
 # observable through the production publishing entry points.
 target_compile_definitions(test_ui_render_clip PRIVATE

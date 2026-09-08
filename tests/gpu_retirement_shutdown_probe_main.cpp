@@ -1,60 +1,72 @@
-// ── Task 6.2 Step 1d: the renderer-shutdown child ───────────────────────────
-// 실패한 GPU idle wait는 프로세스를 죽인다. 그 순서를 관찰하려면 죽어도 되는
-// 프로세스가 필요하므로, test_gpu_retirement는 이 child를 띄우고 종료 시그널과
-// marker 파일만 읽는다. molga_text_runtime_probe와 같은 모양이다: 자기 root도
-// 경로 매크로도 스스로 유도하지 않고, 부모가 넘긴 리터럴 argv만 읽는다.
+// ── Task 11.2 Step 2c: the retryable-shutdown child ─────────────────────────
+// Task 6.2에서 이 child가 존재한 이유는 "실패한 GPU idle wait는 프로세스를
+// 죽인다"였다. 그 계약은 Task 11.2에서 삭제되었다. 지금 이 child가 있는 이유는
+// 다르다: EngineShutdown은 상태를 돌려주고, 막힌 상태에서는 진입점이 **돌아가지
+// 않는다**. 그 "돌아가지 않음"과 "그 뒤의 소멸자가 돌지 않음"은 한 프로세스의
+// 종료 순서로만 관찰되므로, 관찰하려면 실제로 끝까지 도는 프로세스가 하나
+// 필요하다.
 //
-// child가 하는 일은 하나다. 제출된 프레임이 살아 있는 atlas page 토큰을
-// 붙들고 있는 상태에서 렌더러를 내린다. injection이 켜져 있으면 그 안의
-// SDL_WaitForGPUIdle이 실패를 보고하고, 어떤 teardown도 일어나기 전에
-// std::abort()가 나야 한다.
-//
-// marker 파일에는 두 종류가 쌓인다. Shutdown *안*의 단계(stage: 접두사,
-// Renderer가 hook으로 알려 준다)와 Shutdown이 돌아온 *뒤*의 단계다. 앞의
-// 것이 없으면 abort를 drain 뒤나 GPU 자원 파괴 루프 뒤로 옮겨도 부모가
-// 차이를 볼 수 없다 — 어느 쪽이든 프로세스는 죽고 뒤의 두 marker는 남지
-// 않기 때문이다.
+// marker 파일에는 네 종류가 쌓인다.
+//   - stage:*      EngineShutdown 안의 단계(Bootstrap의 hook과 TextRenderer의
+//                  hook이 함께 낸다). 함수가 돌아온 뒤에 남은 것을 세는 것으로는
+//                  단계 사이의 순서를 구별할 수 없기 때문에 안에서 낸다.
+//   - status:*     각 시도의 결과.
+//   - blocked:*    막힌 시점에 무엇이 아직 살아 있는가.
+//   - 나머지       종료가 완료된 뒤의 평범한 반환/소멸자 사건.
 #include "Core/Bootstrap.h"
 #include "Rendering/FontAtlas.h"
 #include "Rendering/FontFace.h"
 #include "Rendering/GraphicsDevice.h"
 #include "Rendering/Renderer.h"
+#include "Rendering/TextRenderer.h"
 #include "Text/TextDiagnostic.h"
+#include "UI/UILayoutSnapshot.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace {
 
-// 종료 코드. 0은 성공, 2는 argv 계약 위반, 3은 준비 실패다. 부모는 0과
-// SIGABRT만 기대하므로, 그 밖의 값은 전부 "child가 재려던 것을 재지 못했다"는
-// 뜻으로 읽힌다.
 constexpr int kBadArguments = 2;
 constexpr int kSetupFailed = 3;
 
 std::vector<std::string> g_markers;
+std::vector<std::string> g_stages;
+std::map<std::string, int> g_stageCounts;
 std::filesystem::path g_markerFile;
 bool g_writeMarkers = false;
 
 void WriteMarker(const std::string& marker) {
     g_markers.push_back(marker);
     if (!g_writeMarkers) return;
-    // ofstream 하나를 열고 바로 닫는다. abort가 이 뒤에 올 수 있으므로 줄이
-    // 버퍼에 남아 있어서는 안 된다.
+    // ofstream 하나를 열고 바로 닫는다. 이 뒤에 프로세스가 정상 소멸자를
+    // 돌리지 않고 끝날 수 있으므로 줄이 버퍼에 남아 있어서는 안 된다.
     std::ofstream file(g_markerFile, std::ios::app);
     file << marker << '\n';
 }
 
-// Renderer::Shutdown이 단계를 지날 때마다 부른다. abort는 그 hook들보다
-// 앞서야 하므로, 죽은 프로세스가 남긴 stage: 줄이 곧 "abort보다 먼저 일어난
-// 일"의 전부다. 이것이 없으면 abort를 drain 뒤로, 또는 GPU 자원 파괴 루프
-// 뒤로 옮겨도 부모는 차이를 볼 수 없다.
-void RecordShutdownStage(const char* stage) {
+// EngineShutdown 안의 단계. 그 순서가 곧 종료 순서다.
+void RecordEngineStage(const char* stage) {
+    g_stages.push_back(stage);
+    ++g_stageCounts[stage];
     WriteMarker(std::string("stage:") + stage);
+}
+
+// TextRenderer가 내는 두 단계를 같은 로그에 감사 이름으로 옮긴다. 여기서
+// 이름을 바꾸는 것이 중요하다: 이 두 사건은 ShutdownAfterGpuIdle **안**에서
+// 일어나므로, 밖에서 표시를 찍으면 순서가 아니라 표시를 찍은 순서를 재게 된다.
+void RecordTextStage(const char* stage) {
+    const std::string name = std::string(stage) == "atlas_cleared"
+                                 ? "ReleaseGlyphAtlas"
+                                 : "DestroyTextServices";
+    RecordEngineStage(name.c_str());
 }
 
 int Fail(const char* reason) {
@@ -62,16 +74,40 @@ int Fail(const char* reason) {
     return kSetupFailed;
 }
 
+const char* StatusName(EngineShutdownStatus status) {
+    switch (status) {
+        case EngineShutdownStatus::Complete: return "Complete";
+        case EngineShutdownStatus::GpuDrainFailed: return "GpuDrainFailed";
+        case EngineShutdownStatus::ExternalGpuLifetime:
+            return "ExternalGpuLifetime";
+    }
+    return "Unknown";
+}
+
+// 진단 sink와 텍스트 런타임 guard의 파괴는 종료가 완료된 다음이어야 한다.
+// 그 "다음"을 관찰하려면 파괴 자체가 사건이어야 하므로, 이름을 남기는 얇은
+// 소유자를 쓴다.
+struct MarkerOnDestroy {
+    explicit MarkerOnDestroy(std::string name) : name_(std::move(name)) {}
+    MarkerOnDestroy(const MarkerOnDestroy&) = delete;
+    MarkerOnDestroy& operator=(const MarkerOnDestroy&) = delete;
+    ~MarkerOnDestroy() { WriteMarker(name_); }
+    std::string name_;
+};
+
 } // namespace
 
 int main(int argc, char** argv) {
     bool injectIdleWaitFailure = false;
+    bool holdExternalGlyphPage = false;
     bool writeShutdownMarkers = false;
     std::filesystem::path markerFile;
     for (int index = 1; index < argc; ++index) {
         const std::string argument = argv[index];
         if (argument == "--inject-gpu-idle-wait-failure") {
             injectIdleWaitFailure = true;
+        } else if (argument == "--hold-external-glyph-page") {
+            holdExternalGlyphPage = true;
         } else if (argument == "--write-shutdown-markers") {
             writeShutdownMarkers = true;
         } else if (argument == "--marker-file") {
@@ -86,7 +122,13 @@ int main(int argc, char** argv) {
     if (markerFile.empty()) return kBadArguments;
     g_markerFile = markerFile;
     g_writeMarkers = writeShutdownMarkers;
-    molga::detail::SetRendererShutdownStageHookForTest(&RecordShutdownStage);
+    molga::detail::SetEngineShutdownStageHookForTest(&RecordEngineStage);
+    molga::detail::SetTextRendererShutdownStageHookForTest(&RecordTextStage);
+
+    // 진단 sink는 종료보다 오래 산다. 그 파괴가 종료 완료보다 앞서면
+    // EngineShutdown이 쓰는 sink가 이미 죽은 객체다.
+    auto diagnosticSink = std::make_unique<molga::text::VectorTextDiagnosticSink>();
+    MarkerOnDestroy textRuntimeGuardMarker("DestroyTextRuntimeGuard");
 
     WindowConfig config;
     config.title = "Molga GPU retirement shutdown probe";
@@ -96,80 +138,146 @@ int main(int argc, char** argv) {
     std::unique_ptr<EngineHost> host = EngineInit(config);
     if (!host) return Fail("could not initialize the engine host");
 
+    auto renderer = std::make_unique<Renderer>();
+    std::string error;
+    if (!renderer->Init(&error)) return Fail(error.c_str());
+
+    // 진짜 page 하나. 빈 glyph는 page를 차지하지 않으므로 cmap으로 찾은
+    // 그릴 수 있는 glyph를 쓴다.
+    molga::FontFace face;
+    if (!face.LoadFromFile(MOLGA_GPU_RETIREMENT_PROBE_FONT, &error)) {
+        return Fail(error.c_str());
+    }
+    const std::uint32_t glyphId = face.GlyphId(U'A');
+    if (glyphId == 0U) return Fail("the probe font has no glyph for 'A'");
+
+    // 이 renderer가 소유한 atlas 하나. host의 종료 순서는 이 TextRenderer의
+    // atlas를 본다.
+    auto textRenderer = std::make_unique<TextRenderer>();
+    molga::GlyphAtlasKey key;
+    key.fontGuid = "gpu-retirement-probe";
+    key.fontRevision = "0";
+    key.faceIndex = 0U;
+    key.pixelSize = 24U;
+    key.rasterScaleKey = 64U;
+    key.renderMode = molga::GlyphRenderMode::Monochrome;
+    key.glyphId = glyphId;
+
+    molga::GlyphHandle handle;
     {
-        Renderer renderer;
-        std::string error;
-        if (!renderer.Init(&error)) return Fail(error.c_str());
-
-        // 진짜 page 하나. 빈 glyph는 page를 차지하지 않으므로 cmap으로 찾은
-        // 그릴 수 있는 glyph를 쓴다.
-        molga::FontFace face;
-        if (!face.LoadFromFile(MOLGA_GPU_RETIREMENT_PROBE_FONT, &error)) {
-            return Fail(error.c_str());
-        }
-        const std::uint32_t glyphId = face.GlyphId(U'A');
-        if (glyphId == 0U) return Fail("the probe font has no glyph for 'A'");
-
-        molga::GlyphAtlasCache atlas;
-        molga::text::VectorTextDiagnosticSink sink;
-        molga::GlyphAtlasKey key;
-        key.fontGuid = "gpu-retirement-probe";
-        key.fontRevision = "0";
-        key.faceIndex = 0U;
-        key.pixelSize = 24U;
-        key.rasterScaleKey = 64U;
-        key.renderMode = molga::GlyphRenderMode::Monochrome;
-        key.glyphId = glyphId;
-
-        atlas.BeginFrame(1);
-        molga::GlyphHandle handle = atlas.GetGlyph(key, face, sink);
-        atlas.EndCollection(1);
-        if (handle.proceduralTofu || handle.pageIdentity == 0U ||
-            !handle.pageLifetime) {
-            return Fail("the probe glyph did not land on an atlas page");
-        }
-
-        // 제출된 프레임이 그 page를 가리킨다. 이 상태로 내려가는 것이 이
-        // child의 전부다.
-        molga::BeginFrameResult acquired = host->BeginFrame();
-        if (acquired.status != molga::FrameAcquireStatus::Acquired) {
-            return Fail(acquired.error.empty() ? "swapchain is unavailable"
-                                               : acquired.error.c_str());
-        }
-        if (!renderer.BeginFrame(std::move(acquired.frame), &error)) {
-            return Fail(error.c_str());
-        }
-        renderer.RetainUntilFrameComplete(handle.pageIdentity,
-                                          handle.pageLifetime);
-        if (!renderer.SubmitFrame(&error)) return Fail(error.c_str());
-
-        if (injectIdleWaitFailure) {
-            molga::detail::SetGpuIdleWaitFailureInjectionForTest(true);
-        }
-        renderer.Shutdown();
-        // injection이 켜져 있으면 위 호출에서 프로세스가 죽으므로 여기에
-        // 도달하지 않는다.
-
-        // Shutdown이 실제로 반납 큐를 비웠는지 여기서 증명된다: 렌더러가
-        // 아직 자기 사본을 붙들고 있으면 아래 해제가 false다.
-        handle.pageLifetime.reset();
-        if (atlas.LiveExternalPagePinCount() != 0U) {
-            return Fail("the renderer still owns a submitted page token");
-        }
-        if (!atlas.ReleaseAfterGpuIdle()) {
-            return Fail("the atlas refused a post-idle release");
-        }
-        WriteMarker("atlas-destroyed");
+        auto scope = textRenderer->BeginGlyphCollection(1);
+        handle = textRenderer->GlyphAtlas().GetGlyph(key, face, *diagnosticSink);
+    }
+    if (handle.proceduralTofu || handle.pageIdentity == 0U ||
+        !handle.pageLifetime) {
+        return Fail("the probe glyph did not land on an atlas page");
     }
 
-    EngineShutdown(host);
-    WriteMarker("device-destroyed");
+    // 제출된 프레임이 그 page를 가리킨다.
+    molga::BeginFrameResult acquired = host->BeginFrame();
+    if (acquired.status != molga::FrameAcquireStatus::Acquired) {
+        return Fail(acquired.error.empty() ? "swapchain is unavailable"
+                                           : acquired.error.c_str());
+    }
+    if (!renderer->BeginFrame(std::move(acquired.frame), &error)) {
+        return Fail(error.c_str());
+    }
+    renderer->RetainUntilFrameComplete(handle.pageIdentity, handle.pageLifetime);
+    if (!renderer->SubmitFrame(&error)) return Fail(error.c_str());
+
+    // 엔진이 소유한 최신 스냅샷 자리. Step 7g의 "release engine-owned
+    // snapshots" 단계가 실제로 무언가를 놓는지 밖에서 보이게 한다 — 등록만
+    // 하고 부르지 않는 구현은 이 marker가 없는 것으로 드러난다.
+    auto engineSnapshot = std::make_shared<const molga::ui::UISnapshot>();
+    host->RegisterEngineSnapshotReleaser([&engineSnapshot]() {
+        if (!engineSnapshot) return;
+        engineSnapshot.reset();
+        WriteMarker("engine-snapshot-released");
+    });
+    host->RegisterGpuConsumers(renderer.get(), textRenderer.get());
+
+    if (injectIdleWaitFailure) {
+        molga::detail::SetGpuIdleWaitFailureInjectionForTest(true);
+    }
+    // 외부 page 토큰 하나를 계속 든다. 이 지분이 살아 있는 동안 종료는
+    // ExternalGpuLifetime이어야 한다.
+    std::shared_ptr<const void> externalPage;
+    if (holdExternalGlyphPage) externalPage = handle.pageLifetime;
+    handle.pageLifetime.reset();
+
+    EngineShutdownStatus status = EngineShutdown(host, *diagnosticSink);
+    WriteMarker(std::string("status:") + StatusName(status));
+    if (status != EngineShutdownStatus::Complete) {
+        // 막힌 상태의 계약: 아무것도 부수어지지 않았고, 평범한 반환도
+        // 소멸자도 아직 일어나지 않았다.
+        if (textRenderer->GlyphAtlas().ResidentPageCount() != 0U) {
+            WriteMarker("blocked:atlas-alive");
+        }
+        if (host && !host->Graphics().IsDestroyed()) {
+            WriteMarker("blocked:device-alive");
+        }
+        if (host) WriteMarker("blocked:host-alive");
+        // 막힌 시점에 평범한 반환/소멸자 표식이 하나도 없다는 것을 그
+        // 시점에서 확인한다. 부모가 marker 집합으로 세면 재시도가 성공한
+        // 뒤의 같은 이름이 함께 잡혀 이 사실을 잴 수 없다.
+        const bool anyOrdinaryMarker =
+            std::find(g_markers.begin(), g_markers.end(),
+                      std::string("ReturnFromEngine")) != g_markers.end() ||
+            std::find(g_markers.begin(), g_markers.end(),
+                      std::string("DestroyDiagnosticSink")) != g_markers.end() ||
+            std::find(g_markers.begin(), g_markers.end(),
+                      std::string("DestroyTextRuntimeGuard")) != g_markers.end();
+        if (!anyOrdinaryMarker) WriteMarker("blocked:no-return-markers");
+
+        // 이제 주입된 고장과 알려진 외부 소유자만 걷고 같은 host로 다시
+        // 시도한다. 재시도가 완료할 때까지 이 범위를 벗어나지 않는다.
+        molga::detail::SetGpuIdleWaitFailureInjectionForTest(false);
+        externalPage.reset();
+        status = EngineShutdown(host, *diagnosticSink);
+        WriteMarker(std::string("status:") + StatusName(status));
+        if (status != EngineShutdownStatus::Complete) {
+            return Fail("the retried shutdown is still blocked");
+        }
+    }
+
+    if (textRenderer->GlyphAtlas().ResidentPageCount() == 0U) {
+        WriteMarker("atlas-destroyed");
+    }
+    if (!host) WriteMarker("device-destroyed");
+    renderer.reset();
+    textRenderer.reset();
+
+    // 종료가 완료된 다음에야 평범한 반환과 소멸자가 온다.
+    WriteMarker("ReturnFromEngine");
+    diagnosticSink.reset();
+    WriteMarker("DestroyDiagnosticSink");
 
     std::string order = "order:";
     for (std::size_t index = 0; index < g_markers.size(); ++index) {
-        if (index != 0U) order += ',';
-        order += g_markers[index];
+        std::string entry = g_markers[index];
+        if (entry.rfind("stage:", 0) == 0) entry = entry.substr(6);
+        if (entry.rfind("status:", 0) == 0 || entry.rfind("blocked:", 0) == 0) {
+            continue;
+        }
+        if (order.size() > 6U) order += ',';
+        order += entry;
     }
+    order += ",DestroyTextRuntimeGuard";
     std::printf("%s\n", order.c_str());
+
+    std::string tail = "order-tail:";
+    for (std::size_t index = 0; index < g_stages.size(); ++index) {
+        if (g_stages[index] != "ReleaseGlyphAtlas") continue;
+        for (std::size_t at = index; at < g_stages.size(); ++at) {
+            if (at != index) tail += ',';
+            tail += g_stages[at];
+        }
+        break;
+    }
+    std::printf("%s\n", tail.c_str());
+
+    for (const auto& [stage, count] : g_stageCounts) {
+        std::printf("stage-count:%s=%d\n", stage.c_str(), count);
+    }
     return 0;
 }

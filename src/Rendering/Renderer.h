@@ -62,6 +62,25 @@ public:
     bool Init(std::string* errorOut = nullptr);
     void Shutdown();
 
+    // ── Task 11.2 Step 7f/7g: 종료의 세 단계를 따로 부를 수 있다 ────────────
+    // Shutdown은 이 셋을 순서대로 부르는 편의 함수일 뿐이다. host가 소유하는
+    // 재시도 가능한 종료(EngineShutdown)는 이 셋 사이에 캐시/소유자 해제
+    // 단계를 끼워 넣어야 하므로 세 조각을 따로 필요로 한다.
+    //
+    // 1) 열려 있던 프레임을 닫고 제출한 뒤 GPU idle을 증명한다. 실패하면
+    //    **아무것도 부수지 않고** 거짓이다. Task 6.2의 std::abort()는 여기서
+    //    사라졌다: 재시도할 수 있는 종료가 생겼으므로 프로세스를 죽일 이유가
+    //    없고, 죽이면 host가 붙들고 있는 외부 소유자도 함께 사라진다.
+    bool DrainSubmittedFrames(std::string* errorOut = nullptr);
+    // 2) 증명된 idle 위에서 반납 큐를 비운다. 여기 남은 fence 객체는 장치를
+    //    가리키므로 장치보다 먼저 사라져야 한다.
+    void ReleaseCompletedGpuLifetimes();
+    // 3) 이 renderer가 만든 GPU 자원을 부순다. 1이 성공한 뒤에만 부른다.
+    void DestroyDeviceResources();
+    // 1이 성공한 적이 있는가. 재시도가 성공한 drain을 반복하지 않게 하는
+    // 값이며, host의 단계 기계가 이것을 읽는다.
+    bool HasProvenGpuIdle() const noexcept;
+
     bool BeginFrame(molga::FrameContext&& frame,
                     std::string* errorOut = nullptr);
     bool HasFrame() const;
@@ -100,6 +119,10 @@ public:
                          std::string* errorOut = nullptr);
     bool SetPassScissor(molga::PixelRectU32 scissor,
                         std::string* errorOut = nullptr);
+    // ── Task 11.2 Step 6d: 활성 패스의 뷰포트로 클립을 되돌린다 ─────────────
+    // 활성 패스가 없으면 거짓이다. 조용히 참을 돌려주면 클립이 남은 채로
+    // 다음 소비자가 그린다.
+    bool ResetPassScissor(std::string* errorOut = nullptr);
 
     void Begin(Shader* shader, Camera2D* camera = nullptr);
     void SetShader(Shader* shader);
@@ -151,6 +174,15 @@ public:
     // 널 토큰은 무시하고 — 포화 tofu handle이 그 모양이다 — 0 정체성과
     // 활성 프레임 밖의 호출은 std::logic_error로 거절한다. 같은 정체성이 서로
     // 다른 소유자와 함께 오는 것도 거절한다: 둘 중 하나는 반납되지 않는다.
+    //
+    // ── Task 11.2 Step 7e: 정체성 옆의 출처 ─────────────────────────────────
+    // atlas page 수열과 텍스처 바인딩 수명 수열은 서로 다른 두 수열이고 둘 다
+    // 1에서 시작한다. 출처 없이 값만 키로 쓰면 page 1과 바인딩 1이 같은 자원이
+    // 되어, 하나는 반납되지 않거나 아래 소유자 충돌 검사가 프레임 한가운데서
+    // 던진다. 옛 두 인자 오버로드는 glyph page를 뜻한다.
+    void RetainUntilFrameComplete(molga::ResourceLifetimeDomain domain,
+                                  std::uint64_t identity,
+                                  std::shared_ptr<const void> lifetime);
     void RetainUntilFrameComplete(std::uint64_t pageIdentity,
                                   std::shared_ptr<const void> pageLifetime);
     std::size_t ActiveFrameRetainedPageCount() const noexcept;

@@ -72,6 +72,7 @@ namespace {
 // 프로세스 하나에 UI 런타임은 하나다. 등록되지 않았다면 UI가 한 번도 만들어진
 // 적이 없다는 뜻이고, 그때는 비울 캐시도 없다.
 UIWorldReleaseHandler g_worldReleaseHandler = nullptr;
+UIDeviceRetireHandler g_deviceRetireHandler = nullptr;
 } // namespace
 
 UIWorldReleaseHandler SetUIWorldReleaseHandler(
@@ -84,6 +85,18 @@ UIWorldReleaseHandler SetUIWorldReleaseHandler(
 void NotifyUIWorldReleased(std::uint64_t worldGeneration) noexcept {
     if (worldGeneration == 0 || !g_worldReleaseHandler) return;
     g_worldReleaseHandler(worldGeneration);
+}
+
+UIDeviceRetireHandler SetUIDeviceRetireHandler(
+    UIDeviceRetireHandler handler) noexcept {
+    UIDeviceRetireHandler previous = g_deviceRetireHandler;
+    g_deviceRetireHandler = handler;
+    return previous;
+}
+
+void NotifyUIDeviceRetired(std::uint64_t deviceGeneration) noexcept {
+    if (deviceGeneration == 0 || !g_deviceRetireHandler) return;
+    g_deviceRetireHandler(deviceGeneration);
 }
 
 bool NotifyUISemanticMutation() noexcept {

@@ -88,6 +88,20 @@ public:
 
     void OnWorldReleased(std::uint64_t worldGeneration);
 
+    // ── Task 11.2 Step 7d/7g: 장치 수명 사건의 유일한 라우팅 ────────────────
+    // 배치 시스템은 하나뿐이고 그 소유자는 UISystem이므로, 장치를 만드는 쪽과
+    // 부수는 쪽은 이 두 함수만 안다. 소유자를 건너뛰고 UILayoutSystem을 직접
+    // 부르는 두 번째 경로가 생기면 그 경로만 두 캐시 중 하나를 잊게 된다.
+    void OnDeviceGenerationChanged(std::uint64_t oldGeneration,
+                                   std::uint64_t newGeneration);
+    void ClearFullSnapshotBindingCache(std::uint64_t deviceGeneration);
+    // 관찰 seam. 종료가 실제로 위 함수를 부르는지는 밖에서 이 값으로만
+    // 보인다 — 단계 표식은 "표식을 냈다"는 사실이고 "그 일이 일어났다"는
+    // 사실이 아니다. 그 둘을 구별하지 못하는 시험은 호출을 지운 구현에서도
+    // 통과한다.
+    std::size_t FullSnapshotCacheEntryCountForWorldDevice(
+        molga::ui::UISnapshotWorldDeviceSlotKey) const noexcept;
+
 private:
     // 정적 파괴 순서 방어. 이 시설이 먼저 죽고 나서 어떤 World가 소멸하면
     // 등록된 핸들러는 죽은 객체를 부른다. 파괴될 때 이름을 거둬들인다.

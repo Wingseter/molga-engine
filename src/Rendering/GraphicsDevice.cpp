@@ -1,5 +1,7 @@
 #include "Rendering/GraphicsDevice.h"
 
+#include "Common/Log.h"
+#include "Rendering/TextureBindingRegistry.h"
 #include "UI/UIRuntimeInvalidation.h"
 
 #include <SDL3/SDL.h>
@@ -986,11 +988,36 @@ void* FrameContext::NativeRenderPassForImGui() const {
 
 GraphicsDevice::GraphicsDevice(std::unique_ptr<Impl> impl)
     : impl_(std::move(impl)) {
+    generation_ = impl_->generation;
     currentDevice = this;
 }
 
-GraphicsDevice::~GraphicsDevice() {
+GraphicsDevice::~GraphicsDevice() { Destroy(); }
+
+void GraphicsDevice::Destroy() {
     if (!impl_) return;
+    // ── 인계받은 결함 2: 파괴가 teardown을 물어본다 ─────────────────────────
+    // 이 세대에 아직 만료되지 않은 바인딩 토큰이 남아 있으면, 그 토큰을 든
+    // 스냅샷이나 명령이 지금 부술 핸들을 가리키고 있다는 뜻이다. 소멸자는
+    // 실패할 수 없으므로 진행은 하되, 침묵하지는 않는다. 막는 자리는
+    // EngineShutdown의 ExternalGpuLifetime이고 그쪽이 진짜 방어다.
+    if (const std::size_t live =
+            TextureBindingRegistry::Get().LiveRetainedBindingCount(generation_);
+        live != 0U) {
+        Log::Error("GraphicsDevice",
+                   "graphics device generation " + std::to_string(generation_) +
+                       " is being destroyed while " + std::to_string(live) +
+                       " texture binding lifetime token(s) are still held; the "
+                       "owning shutdown must return ExternalGpuLifetime and "
+                       "retry instead of reaching this point");
+    }
+    // ── Task 11.2 close-out: 장치 축의 은퇴 알림 ────────────────────────────
+    // 위의 blocker 검사 **뒤**여야 한다. 먼저 알리면 UI가 자기 스냅샷을 놓아
+    // 살아 있던 토큰이 그 자리에서 만료되고, 검사는 언제나 0을 본다 — 그
+    // 순서는 방어를 스스로 지우는 것이다. 여기서 알리는 이유는 그 반대다:
+    // 진짜 외부 소유자는 이미 보고되었고, 이제 엔진 자신이 든 죽은 세대의
+    // 핸들/토큰을 놓아야 다음 장치가 그 잔해 위에 서지 않는다.
+    ui::NotifyUIDeviceRetired(generation_);
     if (impl_->device) SDL_WaitForGPUIdle(impl_->device);
     for (auto& slot : impl_->pipelines) {
         if (slot.native) SDL_ReleaseGPUGraphicsPipeline(impl_->device, slot.native);
@@ -1009,6 +1036,9 @@ GraphicsDevice::~GraphicsDevice() {
     }
     if (impl_->device) SDL_DestroyGPUDevice(impl_->device);
     if (currentDevice == this) currentDevice = nullptr;
+    // 멱등하게 만든다. 명시적 Destroy 다음에 도는 소멸자가 같은 핸들을 두 번
+    // 해제하면 드라이버가 죽는다.
+    impl_.reset();
 }
 
 std::unique_ptr<GraphicsDevice> GraphicsDevice::Create(
@@ -1116,7 +1146,9 @@ GraphicsDevice* GraphicsDevice::Current() { return currentDevice; }
 const GraphicsDeviceInfo& GraphicsDevice::Info() const { return impl_->info; }
 
 std::uint64_t GraphicsDevice::Generation() const noexcept {
-    return impl_->generation;
+    // impl_ 이 아니라 멤버를 읽는다. 파괴 뒤에도 이 세대의 이름을 답할 수
+    // 있어야 종료 순서의 마지막 단계들이 같은 값을 쓴다.
+    return generation_;
 }
 
 BeginFrameResult GraphicsDevice::BeginFrame(WindowId windowId) {

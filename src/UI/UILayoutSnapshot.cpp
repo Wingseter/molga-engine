@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace molga::ui {
@@ -35,6 +36,42 @@ nlohmann::ordered_json PointJson(const molga::FixedPoint& point) {
     out["x"] = point.x.Raw();
     out["y"] = point.y.Raw();
     return out;
+}
+
+// ── Task 11.2: 정규 JSON의 색은 한 규칙으로만 나간다 ────────────────────────
+// 이 파일의 다른 모든 값은 검증된 26.6 raw 정수다. 색만 날 float으로 나가고
+// 있었고, 그래서 이 하위 시스템의 두 전역 규칙 — 부호 있는 0을 양의 0으로
+// 정규화한다, 유한하지 않은 값을 거절한다 — 이 색에서만 성립하지 않았다.
+//
+//  - -0.0f는 0.0f와 같은 값이지만 다른 바이트("-0.0")로 인쇄된다. 그러면 같은
+//    저작 색을 가진 두 빌드가 서로 다른 정규 바이트를 내고, "cold 빌드와 warm
+//    빌드가 바이트 동일한 스냅샷을 낸다"는 Exit Contract가 그 자리에서 깨진다.
+//  - NaN/Inf는 JSON에 수로 인쇄될 수 없다(nlohmann은 null을 쓴다). 조용히
+//    null이 되면 서로 다른 두 깨진 색이 같은 바이트를 갖고, 그 사실을 아무도
+//    모른다. 그래서 거절된 성분은 문자열 "non-finite"로 나간다 — null은 이
+//    문서에서 이미 "값이 없다"는 뜻이므로(OptionalRectJson) 그것을 쓰면
+//    거절이 부재와 별칭이 된다. 아래 kNonFiniteChannel의 주석이 그 이유다.
+//
+// 네 곳에 흩어져 있던 같은 배열 리터럴을 이 함수 하나로 접는다.
+// 거절된 성분의 표기. null이 **아니어야 한다** — 이 문서에서 null은
+// "값이 없다"는 뜻이고(OptionalRectJson이 그렇게 쓴다), nlohmann은 유한하지
+// 않은 float도 아무 말 없이 null로 인쇄한다. 그러면 "색이 없다"와 "색이
+// NaN이다"가 바이트로 구별되지 않고, 거절이 있는 구현과 없는 구현이 같은
+// 정규 바이트를 낸다 — 거절을 통째로 지워도 아무 시험이 움직이지 않는다.
+constexpr const char* kNonFiniteChannel = "non-finite";
+
+nlohmann::ordered_json ColorChannelJson(float value) {
+    if (!std::isfinite(value)) {
+        return nlohmann::ordered_json(std::string(kNonFiniteChannel));
+    }
+    // 부호 있는 0을 양의 0으로. value == 0.0f 는 -0.0f 에도 참이다.
+    return nlohmann::ordered_json(value == 0.0f ? 0.0f : value);
+}
+
+nlohmann::ordered_json ColorJson(const Color& color) {
+    return nlohmann::ordered_json::array(
+        {ColorChannelJson(color.r), ColorChannelJson(color.g),
+         ColorChannelJson(color.b), ColorChannelJson(color.a)});
 }
 
 nlohmann::ordered_json OptionalRectJson(
@@ -113,23 +150,20 @@ nlohmann::ordered_json PayloadJson(const UIRenderPayload& payload) {
         out["textureGuid"] = sprite->textureGuid;
         out["textureContentSha256"] = sprite->textureContentSha256;
         out["textureContentStableId"] = sprite->textureContentStableId;
-        out["tint"] = nlohmann::ordered_json::array(
-            {sprite->tint.r, sprite->tint.g, sprite->tint.b, sprite->tint.a});
+        out["tint"] = ColorJson(sprite->tint);
         return out;
     }
     if (const auto* text = std::get_if<UITextSnapshot>(&payload)) {
         out["kind"] = "text";
         out["origin"] = PointJson(text->origin);
-        out["color"] = nlohmann::ordered_json::array(
-            {text->color.r, text->color.g, text->color.b, text->color.a});
+        out["color"] = ColorJson(text->color);
         out["layout"] = text->layout ? TextLayoutJson(*text->layout)
                                      : nlohmann::ordered_json(nullptr);
         return out;
     }
     const auto& solid = std::get<UISolidRectSnapshot>(payload);
     out["kind"] = "solid";
-    out["color"] = nlohmann::ordered_json::array(
-        {solid.color.r, solid.color.g, solid.color.b, solid.color.a});
+    out["color"] = ColorJson(solid.color);
     return out;
 }
 
@@ -149,8 +183,7 @@ nlohmann::ordered_json InputLabelVisualJson(
     const UIFrozenInputLabelVisual& visual) {
     nlohmann::ordered_json out = nlohmann::ordered_json::object();
     out["label"] = FrozenTargetJson(visual.label);
-    out["color"] = nlohmann::ordered_json::array(
-        {visual.color.r, visual.color.g, visual.color.b, visual.color.a});
+    out["color"] = ColorJson(visual.color);
     // enabledAndVisible은 여기 없다. 그 값은 focused와 "커밋된 글이 비어
     // 있는가"를 그대로 담은 런타임 편집 상태이고, Step 7이 정규 JSON에서
     // 빼라고 명시한 부류다. 같은 저작 씬에서 사용자가 입력창을 누르기만 해도

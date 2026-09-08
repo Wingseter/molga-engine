@@ -152,6 +152,15 @@ struct Renderer::Impl {
     molga::SamplerHandle nearestSampler;
     molga::Color4f mainClear{0.0f, 0.0f, 0.0f, 1.0f};
     bool passRecording = false;
+    // Task 11.2 Step 7g. 이 renderer가 GPU idle을 한 번이라도 증명했는가.
+    // 재시도가 성공한 drain을 반복하지 않게 하는 값이다.
+    bool provenGpuIdle = false;
+    // ── Task 11.2 Step 6c: 지금 열려 있는 패스의 뷰포트 ──────────────────────
+    // ResetPassScissor가 "패스 전체"를 무엇으로 되돌릴지 아는 유일한 자리다.
+    // 패스 시작에서 세우고, SetPassViewport가 갱신하며, EndTarget이 지운다.
+    // 지우지 않으면 다음 패스가 열리기 전의 reset이 앞 패스의 사각형을
+    // 되돌려 준다 — 그 값은 이 패스의 것이 아니다.
+    molga::PixelRectU32 activePassViewport{};
     bool uploadsPrepared = false;
     bool renderEncoded = false;
     bool overlayPassOpen = false;
@@ -162,7 +171,8 @@ struct Renderer::Impl {
     molga::TextureFormat activeDepthFormat = molga::TextureFormat::Depth24Stencil8;
     // Task 6.2. 이 프레임이 붙든 page(정체성 -> 토큰 하나)와, 제출된 프레임들이
     // fence를 기다리며 붙들고 있는 토큰들.
-    std::map<std::uint64_t, std::shared_ptr<const void>> frameRetainedPages;
+    std::map<std::pair<molga::ResourceLifetimeDomain, std::uint64_t>,
+             std::shared_ptr<const void>> frameRetainedPages;
     molga::GpuRetirementQueue retirement;
     // fence 없이 붙든 묶음의 수. 큐는 이것을 세지 않고(공개 선언은 계획이 준
     // 그대로다), 아래 상한 검사는 fence가 있는 쪽과 없는 쪽을 함께 보아야
@@ -246,6 +256,7 @@ struct Renderer::Impl {
         indices.clear();
         operations.clear();
         passRecording = false;
+        activePassViewport = molga::PixelRectU32{};
         uploadsPrepared = false;
         renderEncoded = false;
         overlayPassOpen = false;
@@ -332,8 +343,8 @@ bool Renderer::Init(std::string* errorOut) {
     return true;
 }
 
-void Renderer::Shutdown() {
-    if (!impl_) return;
+bool Renderer::DrainSubmittedFrames(std::string* errorOut) {
+    if (!impl_) return true;
     // ── Step 8a: 먼저 일을 멈추고, 그다음에 idle을 기다린다 ──────────────────
     // 열려 있던 프레임을 닫아야 그 프레임의 명령과 page 토큰이 아래 idle
     // wait가 증명하는 범위 안으로 들어온다. 이 두 줄이 끝나면 활성 프레임이
@@ -342,31 +353,48 @@ void Renderer::Shutdown() {
         EndMainPassAndSubmit(nullptr);
     }
     impl_->ResetFrame();
-    if (impl_->device) {
-        // ── Step 9: idle을 증명하지 못하면 아무것도 부수지 않는다 ───────────
-        // 살아 있을지 모르는 명령 버퍼 밑에서 텍스처를 파괴하는 것보다,
-        // 여기서 죽고 OS에 자원 회수를 맡기는 편이 안전하다. 이것은 host가
-        // 소유하는 재시도 가능한 종료가 생기기 전까지의 임시 계약이다:
-        // Task 11.2가 이 분기와 그 subprocess 케이스를 한 커밋에서 지우고
-        // EngineShutdownStatus::GpuDrainFailed로 바꾼다.
-        std::string idleError;
-        if (!impl_->device->WaitIdle(&idleError)) {
-            // 아직 붙들고 있는 제출 수를 함께 남긴다. 이 값이 0이 아니라는
-            // 것이 "drain보다 먼저 죽었다"의 증거다 — 종료 코드만으로는
-            // abort를 drain 뒤로 옮긴 구현과 구별되지 않는다.
-            std::fprintf(stderr,
-                         "GPU_IDLE_WAIT_FAILED: %s (pending submissions: %zu)\n",
-                         idleError.c_str(),
-                         impl_->retirement.PendingSubmissionCount());
-            std::fflush(stderr);
-            std::abort();
+    if (!impl_->device) {
+        impl_->provenGpuIdle = true;
+        if (errorOut) errorOut->clear();
+        return true;
+    }
+    // ── Task 11.2 Step 7f: 증명하지 못하면 아무것도 부수지 않는다 ───────────
+    // Task 6.2의 std::abort()는 여기 있었다. 재시도할 수 있는 종료가 생긴
+    // 지금 프로세스를 죽이는 것은 fail-closed가 아니다 — 죽으면 host가
+    // 붙들고 있던 외부 소유자도, 그 소유자를 놓아 줄 기회도 함께 사라진다.
+    // 아직 붙들고 있는 제출 수를 오류 문자열에 남긴다: 0이 아니라는 것이
+    // "teardown보다 먼저 막혔다"의 증거다.
+    std::string idleError;
+    if (!impl_->device->WaitIdle(&idleError)) {
+        if (errorOut) {
+            *errorOut = idleError + " (pending submissions: " +
+                        std::to_string(impl_->retirement.PendingSubmissionCount()) +
+                        ")";
         }
-        NotifyShutdownStage("idle-wait-proven");
-        // ── Step 8b: idle이 증명된 다음에만, 장치가 살아 있는 동안 ──────────
-        // 반납 큐를 먼저 비운다. 여기 남은 fence 객체는 장치를 가리키고
-        // 있으므로 장치보다 먼저 사라져야 한다.
-        impl_->ClearRetirementAfterProvenIdle();
-        NotifyShutdownStage("retirement-drained");
+        return false;
+    }
+    impl_->provenGpuIdle = true;
+    NotifyShutdownStage("idle-wait-proven");
+    if (errorOut) errorOut->clear();
+    return true;
+}
+
+bool Renderer::HasProvenGpuIdle() const noexcept {
+    return impl_ && impl_->provenGpuIdle;
+}
+
+void Renderer::ReleaseCompletedGpuLifetimes() {
+    if (!impl_ || !impl_->device) return;
+    // ── Step 8b: idle이 증명된 다음에만, 장치가 살아 있는 동안 ──────────────
+    // 반납 큐를 먼저 비운다. 여기 남은 fence 객체는 장치를 가리키고 있으므로
+    // 장치보다 먼저 사라져야 한다.
+    impl_->ClearRetirementAfterProvenIdle();
+    NotifyShutdownStage("retirement-drained");
+}
+
+void Renderer::DestroyDeviceResources() {
+    if (!impl_) return;
+    if (impl_->device) {
         for (auto& [key, pipeline] : impl_->pipelines) {
             (void)key;
             impl_->device->DestroyPipeline(pipeline);
@@ -388,6 +416,23 @@ void Renderer::Shutdown() {
     currentShader_ = nullptr;
 }
 
+void Renderer::Shutdown() {
+    if (!impl_) return;
+    std::string drainError;
+    if (!DrainSubmittedFrames(&drainError)) {
+        // 증명하지 못한 idle 위에서는 아무것도 부수지 않는다. 살아 있을지
+        // 모르는 명령 버퍼 밑에서 텍스처를 파괴하는 것보다 자원을 OS가
+        // 회수하게 두는 쪽이 싸다. 재시도할 수 있는 경로는 EngineShutdown이다.
+        Log::Error("Renderer",
+                   "GPU idle wait failed during renderer shutdown; no GPU "
+                   "resource was destroyed and the device is retained: " +
+                       drainError);
+        return;
+    }
+    ReleaseCompletedGpuLifetimes();
+    DestroyDeviceResources();
+}
+
 bool Renderer::BeginFrame(molga::FrameContext&& frame, std::string* errorOut) {
     if (!impl_->device && !Init(errorOut)) return false;
     if (!frame.IsValid()) {
@@ -399,6 +444,12 @@ bool Renderer::BeginFrame(molga::FrameContext&& frame, std::string* errorOut) {
         return false;
     }
     impl_->ResetFrame();
+    // ── Task 11.2 Step 7g: 새 일이 시작되면 옛 증명은 무효다 ────────────────
+    // provenGpuIdle은 "이 renderer가 GPU idle을 증명했다"이고, 재시도하는
+    // 종료가 그 값을 보고 drain을 건너뛴다. 여기서 지우지 않으면, 증명한 뒤에
+    // 프레임을 하나 더 제출한 renderer가 그 제출을 기다리지 않고 자원을
+    // 부수게 된다 — 살아 있는 명령 밑에서 텍스처가 사라지는 정확히 그 상태다.
+    impl_->provenGpuIdle = false;
     impl_->frame.emplace(std::move(frame));
     impl_->mainClear = {0.0f, 0.0f, 0.0f, 1.0f};
     currentShader_ = nullptr;
@@ -417,6 +468,13 @@ bool Renderer::BeginFrame(molga::FrameContext&& frame, std::string* errorOut) {
 
 void Renderer::RetainUntilFrameComplete(
     std::uint64_t pageIdentity, std::shared_ptr<const void> pageLifetime) {
+    RetainUntilFrameComplete(molga::ResourceLifetimeDomain::GlyphPage,
+                             pageIdentity, std::move(pageLifetime));
+}
+
+void Renderer::RetainUntilFrameComplete(
+    molga::ResourceLifetimeDomain domain, std::uint64_t pageIdentity,
+    std::shared_ptr<const void> pageLifetime) {
     // 널 토큰은 붙들 것이 없다. 포화한 atlas가 돌려주는 tofu handle이 정확히
     // 그 모양(정체성 0, 토큰 없음)이므로, 그리는 쪽이 분기하지 않아도 된다.
     if (!pageLifetime) return;
@@ -430,9 +488,10 @@ void Renderer::RetainUntilFrameComplete(
         throw std::logic_error(
             "RetainUntilFrameComplete needs an active renderer frame");
     }
-    auto found = impl_->frameRetainedPages.find(pageIdentity);
+    const auto key = std::make_pair(domain, pageIdentity);
+    auto found = impl_->frameRetainedPages.find(key);
     if (found == impl_->frameRetainedPages.end()) {
-        impl_->frameRetainedPages.emplace(pageIdentity, std::move(pageLifetime));
+        impl_->frameRetainedPages.emplace(key, std::move(pageLifetime));
         return;
     }
     // 같은 page를 가리키는 두 번째 명령은 아무것도 바꾸지 않는다. 다만 소유자가
@@ -509,6 +568,7 @@ bool Renderer::BeginTarget(molga::RenderTarget& target,
     operation.scissor = viewport;
     impl_->operations.push_back(std::move(operation));
     impl_->passRecording = true;
+    impl_->activePassViewport = viewport;
     impl_->activeColorFormat =
         target.Specification().colorFormat == molga::RenderTargetColorFormat::RGBA16F
             ? molga::TextureFormat::RGBA16F : molga::TextureFormat::SRGBA8;
@@ -554,6 +614,7 @@ bool Renderer::BeginTextureTarget(molga::TextureView color,
     operation.scissor = viewport;
     impl_->operations.push_back(std::move(operation));
     impl_->passRecording = true;
+    impl_->activePassViewport = viewport;
     impl_->activeColorFormat = format;
     impl_->activeHasDepth = false;
     if (errorOut) errorOut->clear();
@@ -579,6 +640,7 @@ bool Renderer::BeginSwapchainPass(molga::PixelRectU32 viewport,
     operation.scissor = viewport;
     impl_->operations.push_back(std::move(operation));
     impl_->passRecording = true;
+    impl_->activePassViewport = viewport;
     impl_->activeColorFormat = impl_->device->Info().swapchainFormat;
     impl_->activeHasDepth = false;
     if (errorOut) errorOut->clear();
@@ -594,6 +656,7 @@ bool Renderer::EndTarget(std::string* errorOut) {
     operation.type = Impl::OperationType::EndPass;
     impl_->operations.push_back(std::move(operation));
     impl_->passRecording = false;
+    impl_->activePassViewport = molga::PixelRectU32{};
     if (errorOut) errorOut->clear();
     return true;
 }
@@ -611,6 +674,7 @@ bool Renderer::SetPassViewport(molga::PixelRectU32 viewport,
     operation.pass.color.storeAction = molga::StoreAction::DontCare;
     // An empty color attachment identifies a state update during encoding.
     impl_->operations.push_back(std::move(operation));
+    impl_->activePassViewport = viewport;
     if (errorOut) errorOut->clear();
     return true;
 }
@@ -628,6 +692,19 @@ bool Renderer::SetPassScissor(molga::PixelRectU32 scissor,
     impl_->operations.push_back(std::move(operation));
     if (errorOut) errorOut->clear();
     return true;
+}
+
+// ── Task 11.2 Step 6d: 클립을 패스 전체로 되돌린다 ──────────────────────────
+// 0,0,0,0으로 되돌리지 않는다 — SetScissor는 폭 0을 거절하고, 거절되면 앞
+// 명령의 클립이 그대로 남아 그 아래에서 다음 것이 그려진다. 되돌릴 값은
+// 언제나 지금 열려 있는 패스의 뷰포트다.
+bool Renderer::ResetPassScissor(std::string* errorOut) {
+    if (!impl_->passRecording || impl_->activePassViewport.width == 0 ||
+        impl_->activePassViewport.height == 0) {
+        if (errorOut) *errorOut = "scissor reset requires an active pass";
+        return false;
+    }
+    return SetPassScissor(impl_->activePassViewport, errorOut);
 }
 
 void Renderer::SetProjection(float left, float right, float bottom, float top) {

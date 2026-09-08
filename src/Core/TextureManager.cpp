@@ -183,6 +183,27 @@ void TextureManager::Unload(const std::string& path) {
     }
 }
 
+std::size_t TextureManager::ReleaseBindings(std::uint64_t deviceGeneration) {
+    if (deviceGeneration == 0U) return 0U;
+    std::size_t released = 0U;
+    for (auto it = textures.begin(); it != textures.end();) {
+        if (!it->second) { ++it; continue; }
+        const auto& lifetime = it->second->BindingLifetime();
+        if (!lifetime ||
+            lifetime->Identity().deviceGeneration != deviceGeneration) {
+            ++it;
+            continue;
+        }
+        // 기록을 먼저 놓는다(Unload와 같은 순서). UI 등록부가 수명 토큰의
+        // 강한 소유자이므로, 놓기 전에 Texture를 파괴하면 그 토큰이 만료되지
+        // 않아 핸들이 영원히 반납되지 않는다.
+        RetireBinding(it->first);
+        it = textures.erase(it);
+        ++released;
+    }
+    return released;
+}
+
 void TextureManager::Clear() {
     // 이 캐시가 guid -> 바인딩의 유일한 게시자이므로, 텍스처를 전부 놓는 것과
     // 그 등록부를 비우는 것은 같은 사실이다. guidByKey를 훑는 것보다 이쪽이

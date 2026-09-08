@@ -10,6 +10,7 @@
 #include "Rendering/GpuRetirementQueue.h"
 #include "Rendering/GraphicsDevice.h"
 #include "Rendering/Renderer.h"
+#include "Text/TextDiagnostic.h"
 #include "doctest.h"
 
 #include <fcntl.h>
@@ -17,7 +18,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -80,7 +80,8 @@ struct RendererFixture {
 
     ~RendererFixture() {
         renderer.Shutdown();
-        EngineShutdown(host);
+        molga::text::VectorTextDiagnosticSink shutdownSink;
+        EngineShutdown(host, shutdownSink);
     }
 
     RendererFixture(const RendererFixture&) = delete;
@@ -588,46 +589,167 @@ TEST_CASE("a frame closed outside the renderer keeps its pages to the drain") {
     CHECK(weak.expired());
 }
 
-TEST_CASE("failed GPU idle wait aborts before resource teardown") {
+// ── Task 11.2 Step 2c: abort 행은 사라지고 재시도 행이 그 자리에 온다 ──────
+// Task 6.2의 SIGABRT 계약(실패한 idle wait가 프로세스를 죽인다)은 이 커밋에서
+// 삭제되었다. 재시도할 수 있는 종료가 생긴 뒤로 프로세스를 죽이는 것은
+// fail-closed가 아니다 — 죽으면 host가 붙들고 있던 외부 소유자도, 그것을
+// 놓아 줄 기회도 함께 사라진다.
+//
+// 이제 실패한 drain은 EngineShutdownStatus::GpuDrainFailed를 돌려주고,
+// 캐시/스냅샷 소유자/텍스처 바인딩/atlas/텍스트 서비스/renderer 자원/host/
+// 장치를 전부 손대지 않은 채 남긴다. 주입된 실패가 걷히면 같은 host로 다시
+// 부른 종료가 성공한 drain 단계를 반복하지 않고 완료한다.
+//
+// 이 파일 안에는 abort를 요구하는 분기도, retry를 요구하는 분기도 함께 있지
+// 않다. 계약은 하나뿐이다.
+TEST_CASE("a failed GPU drain returns GpuDrainFailed and destroys nothing") {
     const SubprocessResult result = RunRendererShutdownSubprocess(
         {"--inject-gpu-idle-wait-failure", "--write-shutdown-markers"});
-    CHECK(result.terminationSignal == SIGABRT);
-    CHECK(result.stderrText.find("GPU_IDLE_WAIT_FAILED") != std::string::npos);
-    CHECK(result.markers.count("atlas-destroyed") == 0);
-    CHECK(result.markers.count("device-destroyed") == 0);
-}
-
-// 위 케이스가 재지 못하는 것: 그 두 marker는 Renderer::Shutdown이 *돌아온
-// 뒤에* probe가 쓴다. abort를 반납 drain 뒤로 옮기든 GPU 자원 파괴 루프 뒤로
-// 옮기든 위 케이스는 그대로 통과한다 — 어느 쪽이든 프로세스는 Shutdown 안에서
-// 죽고 두 marker는 남지 않기 때문이다. 그래서 Shutdown *안*의 단계를 본다.
-TEST_CASE("the failed idle wait aborts before anything inside Shutdown runs") {
-    const SubprocessResult result = RunRendererShutdownSubprocess(
-        {"--inject-gpu-idle-wait-failure", "--write-shutdown-markers"});
-    REQUIRE(result.terminationSignal == SIGABRT);
-    // 죽는 순간까지 이 제출은 반납되지 않았다. 0이면 drain이 abort보다 먼저
-    // 돌았다는 뜻이다.
-    CHECK(result.stderrText.find("pending submissions: 1") !=
+    // 프로세스는 죽지 않는다. 이 한 줄이 옛 SIGABRT 계약의 반대편이다.
+    CHECK(result.terminationSignal == 0);
+    CHECK_MESSAGE(result.exitCode == 0, result.stderrText);
+    // 첫 시도는 막힌다.
+    CHECK(result.markers.count("status:GpuDrainFailed") == 1);
+    // 그리고 그 시도는 아무것도 부수지 않았다. 이 셋 중 하나라도 남으면
+    // "실패했다고 말하면서 이미 절반을 부쉈다"는 뜻이다.
+    CHECK(result.markers.count("blocked:atlas-alive") == 1);
+    CHECK(result.markers.count("blocked:device-alive") == 1);
+    CHECK(result.markers.count("blocked:host-alive") == 1);
+    // 막힌 그 시점에 평범한 반환/소멸자 표식이 하나도 없었다. 이 사실은
+    // child 안에서만 잴 수 있다 — 부모가 marker 집합으로 세면 재시도가
+    // 성공한 뒤의 같은 이름이 함께 잡힌다.
+    CHECK(result.markers.count("blocked:no-return-markers") == 1);
+    // 주입이 걷힌 뒤의 재시도는 완료한다.
+    CHECK(result.markers.count("status:Complete") == 1);
+    CHECK(result.markers.count("atlas-destroyed") == 1);
+    CHECK(result.markers.count("device-destroyed") == 1);
+    // 성공한 drain은 재시도에서 반복되지 않는다. WaitIdle 단계는 정확히
+    // 한 번만 로그에 남는다(첫 시도는 실패했으므로 그 한 번은 재시도의
+    // 것이다).
+    CHECK(result.stdoutText.find("stage-count:WaitIdle=1") != std::string::npos);
+    // 그리고 그 뒤에야 평범한 반환과 소멸자가 그 순서로 온다.
+    CHECK(result.stdoutText.find(
+              "ReturnFromEngine,DestroyDiagnosticSink,"
+              "DestroyTextRuntimeGuard") != std::string::npos);
+    // 첫 시도는 어떤 단계도 지나지 못했다: 실패 표식 하나뿐이다.
+    CHECK(result.stdoutText.find("stage-count:WaitIdleFailed=1") !=
           std::string::npos);
-    CHECK(result.markers.count("stage:idle-wait-proven") == 0);
-    CHECK(result.markers.count("stage:retirement-drained") == 0);
-    CHECK(result.markers.count("stage:gpu-resources-destroyed") == 0);
 }
 
-TEST_CASE("a successful GPU idle wait tears down atlas then device") {
-    // 위 케이스의 성공 증인. 이것이 없으면 child를 언제나 죽게 만들어도, 또
-    // marker를 아예 쓰지 않게 만들어도 위 케이스는 그대로 통과한다.
+// 외부 glyph page 토큰이 남아 있으면 종료는 ExternalGpuLifetime이고, atlas/
+// 텍스트 서비스/장치는 그대로다. 토큰이 만료된 뒤의 재시도는 idle을 다시
+// 기다리지 않고 완료한다 — 그것이 "처음 성공한 drain은 재시도를 건너 유지
+// 된다"의 관찰 가능한 형태다.
+TEST_CASE("an external glyph page token blocks shutdown and the retry completes") {
+    const SubprocessResult result = RunRendererShutdownSubprocess(
+        {"--hold-external-glyph-page", "--write-shutdown-markers"});
+    CHECK(result.terminationSignal == 0);
+    CHECK_MESSAGE(result.exitCode == 0, result.stderrText);
+    CHECK(result.markers.count("status:ExternalGpuLifetime") == 1);
+    // 막은 것이 바로 그 검사다. 이름 없이 상태만 보면 다른 이유로 막힌
+    // 구현도 통과한다.
+    CHECK(result.markers.count("stage:ExternalGlyphPageOwnerBlocked") == 1);
+    // 그리고 엔진 쪽 소유자 해제 단계는 재시도에서 반복되지 않는다: 처음
+    // 지나간 단계는 단계 기계가 기억한다.
+    CHECK(result.stdoutText.find("stage-count:ClearFullSnapshotBindingCache=1") !=
+          std::string::npos);
+    CHECK(result.markers.count("blocked:atlas-alive") == 1);
+    CHECK(result.markers.count("blocked:device-alive") == 1);
+    CHECK(result.markers.count("blocked:host-alive") == 1);
+    CHECK(result.markers.count("blocked:no-return-markers") == 1);
+    CHECK(result.markers.count("status:Complete") == 1);
+    // 재시도는 성공한 drain을 반복하지 않는다: WaitIdle 단계는 통틀어 한 번.
+    CHECK(result.stdoutText.find("stage-count:WaitIdle=1") != std::string::npos);
+    // 그리고 재시도에서만 atlas와 텍스트 서비스가 그 순서로 사라진다.
+    CHECK(result.stdoutText.find(
+              "order-tail:ReleaseGlyphAtlas,DestroyTextServices,"
+              "DestroyRetiredTextureBindings,DestroyRendererResources,"
+              "DestroyGraphicsDevice") != std::string::npos);
+}
+
+// 위 두 케이스의 성공 증인. 이것이 없으면 child를 언제나 막히게 만들어도,
+// 또 marker를 아예 쓰지 않게 만들어도 위 두 케이스는 그대로 통과한다.
+TEST_CASE("an unobstructed shutdown completes in the audited order") {
     const SubprocessResult result =
         RunRendererShutdownSubprocess({"--write-shutdown-markers"});
     CHECK(result.terminationSignal == 0);
     CHECK_MESSAGE(result.exitCode == 0, result.stderrText);
-    CHECK(result.stderrText.find("GPU_IDLE_WAIT_FAILED") == std::string::npos);
+    CHECK(result.markers.count("status:Complete") == 1);
+    CHECK(result.markers.count("status:GpuDrainFailed") == 0);
+    CHECK(result.markers.count("status:ExternalGpuLifetime") == 0);
     CHECK(result.markers.count("atlas-destroyed") == 1);
     CHECK(result.markers.count("device-destroyed") == 1);
-    // 순서까지 못 박는다. Shutdown 안에서 idle 증명 -> 반납 drain -> GPU 자원
-    // 파괴 순이고, 그다음에 atlas가, 마지막에 장치가 없어진다.
+    // Step 7g의 순서 전부를 한 줄로 못 박는다.
     CHECK(result.stdoutText.find(
-              "order:stage:idle-wait-proven,stage:retirement-drained,"
-              "stage:gpu-resources-destroyed,atlas-destroyed,"
-              "device-destroyed") != std::string::npos);
+              "order:WaitIdle,ReleaseCompletedGpuLifetimes,"
+              "ClearFullSnapshotBindingCache,engine-snapshot-released,"
+              "ReleaseEngineSnapshots,"
+              "ReleaseTextureManagerBindings,ReleaseGlyphAtlas,"
+              "DestroyTextServices,DestroyRetiredTextureBindings,"
+              "DestroyRendererResources,DestroyGraphicsDevice,"
+              "atlas-destroyed,device-destroyed,ReturnFromEngine,"
+              "DestroyDiagnosticSink,DestroyTextRuntimeGuard") !=
+          std::string::npos);
+    // 엔진이 실제로 자기 스냅샷 소유자를 놓았다. 등록만 하고 부르지 않는
+    // 구현은 위 순서 문자열에서도 보이지 않는다(marker는 단계 자체가 낸다).
+    CHECK(result.markers.count("engine-snapshot-released") == 1);
+}
+
+// ── Task 11.2 Step 7e: 두 수열이 같은 값을 낼 수 있다 ───────────────────────
+// atlas page 정체성과 텍스처 바인딩 수명 정체성은 서로 다른 두 전역 수열에서
+// 오고 둘 다 1에서 시작한다. 그러므로 "page 1과 바인딩 1이 같은 프레임에
+// 있다"는 가정이 아니라 프로덕션의 첫 프레임이다. 출처 없이 값만 키로 쓰면
+// 아래 두 번째 호출이 소유자 충돌로 던지고, 그 예외는 SpriteBatcher를 열어
+// 둔 채 제출 루프 밖으로 나간다.
+TEST_CASE("a glyph page and a texture binding may share one identity value") {
+    RendererFixture f;
+    f.BeginFrame(1);
+    auto page = std::make_shared<int>(1);
+    auto binding = std::make_shared<int>(2);
+    f.renderer.RetainUntilFrameComplete(
+        molga::ResourceLifetimeDomain::GlyphPage, 1U, page);
+    f.renderer.RetainUntilFrameComplete(
+        molga::ResourceLifetimeDomain::TextureBinding, 1U, binding);
+    CHECK(f.renderer.ActiveFrameRetainedPageCount() == 2U);
+
+    // 같은 출처의 같은 정체성에 다른 소유자가 오는 것은 여전히 거절이다 —
+    // 출처를 더한 것이 그 방어를 끄는 일이어서는 안 된다.
+    CHECK_THROWS_AS(
+        f.renderer.RetainUntilFrameComplete(
+            molga::ResourceLifetimeDomain::GlyphPage, 1U, binding),
+        std::logic_error);
+    // 같은 출처의 같은 정체성에 같은 소유자는 중복일 뿐이다.
+    f.renderer.RetainUntilFrameComplete(
+        molga::ResourceLifetimeDomain::GlyphPage, 1U, page);
+    CHECK(f.renderer.ActiveFrameRetainedPageCount() == 2U);
+
+    std::weak_ptr<int> weakPage = page;
+    std::weak_ptr<int> weakBinding = binding;
+    page.reset();
+    binding.reset();
+    f.SubmitAndCompleteFrame();
+    f.renderer.Shutdown();
+    // 둘 다 반납된다. 하나만 반납되는 구현은 두 지분을 한 자리에 겹쳐 쓴다.
+    CHECK(weakPage.expired());
+    CHECK(weakBinding.expired());
+}
+
+// ── Task 11.2 Step 7g: 증명은 새 일 앞에서 무효가 된다 ──────────────────────
+// 재시도하는 종료는 "이미 증명했다"를 보고 drain을 건너뛴다. 그 값이 새
+// 프레임 앞에서 살아남으면, 증명한 뒤에 프레임을 하나 더 제출한 renderer가
+// 그 제출을 기다리지 않고 자원을 부순다.
+TEST_CASE("new frame work voids an earlier GPU idle proof") {
+    RendererFixture f;
+    std::string error;
+    CHECK_FALSE(f.renderer.HasProvenGpuIdle());
+    REQUIRE_MESSAGE(f.renderer.DrainSubmittedFrames(&error), error);
+    // 성공 증인. 증명이 서지 않으면 아래 거짓은 아무것도 재지 않는다.
+    REQUIRE(f.renderer.HasProvenGpuIdle());
+
+    f.BeginFrame(1);
+    CHECK_FALSE(f.renderer.HasProvenGpuIdle());
+    f.SubmitAndCompleteFrame();
+    // 그리고 다시 증명하면 다시 참이다.
+    REQUIRE_MESSAGE(f.renderer.DrainSubmittedFrames(&error), error);
+    CHECK(f.renderer.HasProvenGpuIdle());
 }
