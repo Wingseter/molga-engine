@@ -6,6 +6,7 @@
 #include "../Rendering/ShaderManager.h"
 #include "../ECS/Components/Transform.h"
 #include "../ECS/GameObject.h"
+#include "../Core/World.h"
 #include "../Scripting/ScriptCompiler.h"
 #include "../Scripting/ScriptManager.h"
 #include "../Core/MolgaTime.h"
@@ -506,7 +507,7 @@ void Editor::RenderMenuBar() {
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Build Game", "Ctrl+B")) {
-        buildMgr.Build(sceneOps.GetCurrentPath(), gameObjects);
+        buildMgr.Build(sceneOps.GetCurrentPath(), ObjectsPtr());
       }
       ImGui::EndMenu();
     }
@@ -580,19 +581,21 @@ void Editor::RenderPlayControls() {
   }
 }
 
-void Editor::SetGameObjects(std::vector<std::shared_ptr<GameObject>> *objects) {
-  gameObjects = objects;
+void Editor::SetActiveWorld(World& world) {
+  activeWorld_ = &world;
   auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
   if (hierarchy) {
-    hierarchy->SetGameObjects(objects);
+    // 계층 창은 목록만 그린다. 목록은 언제나 world.Objects()에서 유도하고
+    // 따로 보관하지 않는다 — 보관하면 월드가 바뀐 뒤에도 옛 벡터를 가리킨다.
+    hierarchy->SetGameObjects(&activeWorld_->Objects());
   }
   auto* sceneView = windowManager.GetAs<SceneViewWindow>(EditorConstants::WIN_SCENE);
   if (sceneView) {
-    sceneView->SetGameObjects(objects);
+    sceneView->SetActiveWorld(activeWorld_);
   }
   auto* gameView = windowManager.GetAs<GameViewWindow>(EditorConstants::WIN_GAME);
   if (gameView) {
-    gameView->SetGameObjects(objects);
+    gameView->SetActiveWorld(activeWorld_);
   }
 }
 
@@ -605,48 +608,55 @@ void Editor::SetSelectedObject(GameObject *obj) {
 }
 
 std::shared_ptr<GameObject> Editor::CreateGameObject(const std::string &name) {
-  if (!gameObjects)
+  if (!activeWorld_)
     return nullptr;
 
   auto obj = std::make_shared<GameObject>(name);
   obj->AddComponent<Transform>();
-  gameObjects->push_back(obj);
+  activeWorld_->Add(obj);
   sceneOps.MarkModified();
 
   return obj;
 }
 
 void Editor::NewScene() {
-  if (!gameObjects) return;
+  if (!activeWorld_) return;
 
-  sceneOps.NewScene(*gameObjects);
+  sceneOps.NewScene(activeWorld_->Objects());
+  // Task 10.2: 이 명령은 World::Clear/LoadFromFile을 지나지 않고 Objects()를
+  // 통해 내용을 통째로 갈아 끼운다. 새 세대를 발행하지 않으면 다음 프레임의
+  // UI 기하 캐시가 이전 씬의 항목을 그대로 적중시킨다.
+  activeWorld_->RepublishGenerationAfterExternalReplacement();
   commandHistory.Clear();
   SetSelectedObject(nullptr);
 }
 
 void Editor::SaveScene() {
-  if (!gameObjects) return;
-  if (sceneOps.SaveScene(*gameObjects)) {
+  if (!activeWorld_) return;
+  if (sceneOps.SaveScene(activeWorld_->Objects())) {
     commandHistory.MarkClean();
   }
 }
 
 void Editor::SaveSceneAs() {
-  if (!gameObjects) return;
-  if (sceneOps.SaveSceneAs(*gameObjects)) {
+  if (!activeWorld_) return;
+  if (sceneOps.SaveSceneAs(activeWorld_->Objects())) {
     commandHistory.MarkClean();
   }
 }
 
 void Editor::OpenScene() {
-  if (!gameObjects) return;
+  if (!activeWorld_) return;
 
-  if (sceneOps.OpenScene(*gameObjects)) {
+  if (sceneOps.OpenScene(activeWorld_->Objects())) {
+    // 성공한 뒤에만 발행한다. 실패한 열기는 내용도 세대도 그대로 두어야
+    // 살아 있는 식별자가 계속 유효하다.
+    activeWorld_->RepublishGenerationAfterExternalReplacement();
     commandHistory.Clear();
     SetSelectedObject(nullptr);
     auto* hierarchy = windowManager.GetAs<HierarchyWindow>(EditorConstants::WIN_HIERARCHY);
     if (hierarchy) {
-      hierarchy->SetGameObjects(gameObjects);
+      hierarchy->SetGameObjects(&activeWorld_->Objects());
     }
   }
 }
@@ -711,26 +721,28 @@ void Editor::RenderScriptingMenu() {
 }
 
 std::shared_ptr<GameObject> Editor::AddExistingObject(std::shared_ptr<GameObject> obj) {
-    if (!gameObjects || !obj) return nullptr;
-    gameObjects->push_back(obj);
+    // objects_를 직접 밀어 넣으면 World::Add에 달린 계층 알림과 SetWorld를
+    // 둘 다 건너뛴다. 여기는 붙여넣기/복제/실행취소가 지나는 자리라, 그렇게
+    // 들어온 UI는 빠른 경로가 낡은 스냅샷을 돌려주는 동안 보이지 않는다.
+    if (!activeWorld_ || !obj) return nullptr;
+    if (!activeWorld_->Add(obj)) return nullptr;
     sceneOps.MarkModified();
     return obj;
 }
 
 std::shared_ptr<GameObject> Editor::InsertExistingObjectAt(
     std::shared_ptr<GameObject> obj, std::size_t index) {
-    if (!gameObjects || !obj) return nullptr;
-    index = std::min(index, gameObjects->size());
-    gameObjects->insert(gameObjects->begin() + static_cast<std::ptrdiff_t>(index),
-                        obj);
+    if (!activeWorld_ || !obj) return nullptr;
+    if (!activeWorld_->InsertAt(obj, index)) return nullptr;
     sceneOps.MarkModified();
     return obj;
 }
 
 bool Editor::TryGetObjectIndex(unsigned int id, std::size_t& index) const {
-    if (!gameObjects) return false;
-    for (std::size_t i = 0; i < gameObjects->size(); ++i) {
-        const auto& object = (*gameObjects)[i];
+    auto* objects = ObjectsPtr();
+    if (!objects) return false;
+    for (std::size_t i = 0; i < objects->size(); ++i) {
+        const auto& object = (*objects)[i];
         if (object && object->GetID() == id) {
             index = i;
             return true;
@@ -740,20 +752,15 @@ bool Editor::TryGetObjectIndex(unsigned int id, std::size_t& index) const {
 }
 
 void Editor::RemoveObjectsByIds(const std::vector<unsigned int>& ids) {
-    if (!gameObjects) return;
-    gameObjects->erase(
-        std::remove_if(gameObjects->begin(), gameObjects->end(),
-            [&](const std::shared_ptr<GameObject>& o) {
-                if (!o) return false;
-                return std::find(ids.begin(), ids.end(), o->GetID()) != ids.end();
-            }),
-        gameObjects->end());
+    if (!activeWorld_) return;
+    activeWorld_->RemoveByIds(ids);
     sceneOps.MarkModified();
 }
 
 GameObject* Editor::FindObjectById(unsigned int id) const {
-    if (!gameObjects) return nullptr;
-    for (auto& o : *gameObjects) {
+    auto* objects = ObjectsPtr();
+    if (!objects) return nullptr;
+    for (auto& o : *objects) {
         if (o && o->GetID() == id) return o.get();
     }
     return nullptr;
@@ -766,8 +773,9 @@ void Editor::MarkSceneModified() {
 }
 
 std::shared_ptr<GameObject> Editor::ShareObjectById(unsigned int id) const {
-    if (!gameObjects) return nullptr;
-    for (auto& o : *gameObjects) {
+    auto* objects = ObjectsPtr();
+    if (!objects) return nullptr;
+    for (auto& o : *objects) {
         if (o && o->GetID() == id) return o;
     }
     return nullptr;
@@ -778,12 +786,12 @@ void Editor::SetSceneViewResources(
     molga::text::TextDiagnosticSink* textDiagnostics) {
     auto* sceneView = windowManager.GetAs<SceneViewWindow>(EditorConstants::WIN_SCENE);
     if (sceneView) {
-        sceneView->SetSceneResources(renderer, shader, gameObjects,
+        sceneView->SetSceneResources(renderer, shader, activeWorld_,
                                      textRenderer, textDiagnostics);
     }
     auto* gameView = windowManager.GetAs<GameViewWindow>(EditorConstants::WIN_GAME);
     if (gameView) {
-        gameView->SetSceneResources(renderer, shader, gameObjects,
+        gameView->SetSceneResources(renderer, shader, activeWorld_,
                                     textRenderer, textDiagnostics);
     }
 }

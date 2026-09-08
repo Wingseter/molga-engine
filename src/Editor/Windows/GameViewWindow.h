@@ -14,6 +14,7 @@
 #include <vector>
 
 class GameObject;
+class World;
 class Renderer;
 class Shader;
 
@@ -26,12 +27,13 @@ public:
     void SetSceneResources(
         Renderer* renderer,
         Shader* spriteShader,
-        std::vector<std::shared_ptr<GameObject>>* objects,
+        World* world,
         TextRenderer* textRenderer,
         molga::text::TextDiagnosticSink* textDiagnostics);
-    void SetGameObjects(std::vector<std::shared_ptr<GameObject>>* objects) {
-        gameObjects_ = objects;
-    }
+    // Task 10.2 Step 9d: Game View도 오브젝트 벡터가 아니라 World를 본다.
+    // 월드가 없으면 그 표면은 렌더도 입력 처리도 건너뛴다 — 세대 0으로
+    // 만들어진 UI 식별자는 어떤 살아 있는 월드도 가리키지 않는다.
+    void SetActiveWorld(World* world) { world_ = world; }
 
     // Called before gameplay scripts. Input is sampled from this panel's
     // native platform window and mapped to exact game-output pixels.
@@ -51,7 +53,7 @@ private:
     // Task 8.2 Step 7d: 이 프레임의 텍스트 권한. main이 주입한 그 하나다.
     TextRenderer* textRenderer_ = nullptr;
     molga::text::TextDiagnosticSink* textDiagnostics_ = nullptr;
-    std::vector<std::shared_ptr<GameObject>>* gameObjects_ = nullptr;
+    World* world_ = nullptr;
     molga::RenderTarget outputTarget_;
     molga::GameOutputRenderer outputRenderer_;
 

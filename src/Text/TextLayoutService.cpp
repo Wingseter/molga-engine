@@ -1,5 +1,6 @@
 #include "Text/TextLayoutService.h"
 
+
 #include "Assets/FontAsset.h"
 #include "Text/TextRuntimeDependencies.h"
 #include "Text/UnicodeAnalysis.h"
@@ -2066,6 +2067,20 @@ std::optional<std::shared_ptr<const TextLayout>> LayoutRun::Run() {
     auto finalKey = std::make_shared<const TextParagraphCacheKey>(BuildFinalKey());
     g_observations.finalKey = finalKey;
     cache_.Store(*requestKey, *finalKey, immutable);
+    // Task 10.2 Step 4j: 여기서 의미 세대를 올리지 않는다.
+    //
+    // LayoutRun::Run은 프로세스 전체의 문단 배치 경로라 UI 라벨뿐 아니라
+    // 월드 공간 TextRenderer2D도 지난다. 여기서 무조건 올리면 매 프레임
+    // 문자열이 바뀌는 점수판 하나가 UI 스냅샷 전체를 매 프레임 다시 짓게
+    // 만들고 — 그 문단은 어떤 UI 요소에도 속하지 않는다 — "변경 없는 600
+    // 프레임은 같은 스냅샷"이라는 종료 계약이 무너진다. 비용으로만 나타나고
+    // 진단은 하나도 나오지 않는 종류의 결함이다.
+    //
+    // 이 문단이 UI 요소의 것인지는 배치 서비스가 알 수 없다. 아는 쪽은 확정된
+    // 배치와 대상 정체성을 함께 쥔 UISystem::CollectRender이고, 거기서
+    // UIIntrinsicLayoutRegistry::Publish가 내용이나 크기가 실제로 달라졌을
+    // 때만 세대를 올린다. Step 4j의 "확정된 불변 배치 정체성 교체"는 그 좁은
+    // 경로로 충족된다.
     // Step 14a: 저장한 바로 그 불변 값을 돌려주고, 사실은 지금 문맥으로
     // 한 번씩만 진단이 된다.
     ReportFacts(facts_.Facts());

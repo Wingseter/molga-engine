@@ -8,6 +8,10 @@
 #include "SceneOperations.h"
 #include "BuildManager.h"
 #include "Core/Profiling/FrameProfile.h"
+// Task 10.2 Step 9b: 활성 월드에서 오브젝트 목록을 유도하는 접근자가 헤더에
+// 인라인으로 있어야 한다. Editor.cpp를 링크하지 않고 Editor 명령만 링크하는
+// 테스트 타깃(test_editor_undo_dirty)이 그 접근자를 쓴다.
+#include "Core/World.h"
 
 #include "Editor/Commands/CommandHistory.h"
 #include "Editor/Selection/SelectionService.h"
@@ -16,6 +20,7 @@
 #include "Scripting/ScriptReloadService.h"
 
 class GameObject;
+class World;
 class Renderer;
 class TextRenderer;
 namespace molga::text { class TextDiagnosticSink; }
@@ -36,8 +41,15 @@ public:
     void RenderGUI();
 
     // Scene management
-    void SetGameObjects(std::vector<std::shared_ptr<GameObject>>* objects);
-    std::vector<std::shared_ptr<GameObject>>* GetGameObjects() { return gameObjects; }
+    // Task 10.2 Step 9b: 창들이 보는 권한은 오브젝트 벡터가 아니라 World다.
+    // 벡터만 넘기면 그 벡터를 담은 월드의 세대를 알 수 없고, UI 런타임
+    // 식별자와 캐시 키가 전부 세대 0을 쓰게 된다 — 세대 0은 어떤 살아 있는
+    // 월드도 갖지 않는 값이라 그 순간 정체성 검사가 통째로 무의미해진다.
+    void SetActiveWorld(World& world);
+    World* GetActiveWorld() { return activeWorld_; }
+    std::vector<std::shared_ptr<GameObject>>* GetGameObjects() {
+        return ObjectsPtr();
+    }
 
     // Selection
     GameObject* GetSelectedObject() const;
@@ -106,6 +118,11 @@ private:
     void EndDockSpace();
     void SetupDefaultLayout(ImGuiID dockspaceId);
 
+    // 활성 월드의 오브젝트 벡터. 언제나 여기서 유도하고 따로 보관하지 않는다.
+    std::vector<std::shared_ptr<GameObject>>* ObjectsPtr() const {
+        return activeWorld_ ? &activeWorld_->Objects() : nullptr;
+    }
+
     void RenderMenuBar();
     void RenderPlayControls();
     void RenderScriptingMenu();
@@ -118,7 +135,9 @@ private:
     std::unique_ptr<molga::ILibraryPort> libraryPort_;
     std::unique_ptr<molga::ScriptReloadService> reloadService_;
 
-    std::vector<std::shared_ptr<GameObject>>* gameObjects = nullptr;
+    // 소유하지 않는다. 편집/플레이 전환마다 main이 지금 권한 있는 월드를
+    // 다시 심는다.
+    World* activeWorld_ = nullptr;
     molga::CommandHistory commandHistory;
     molga::CommandHistory assetCommandHistory_;
     molga::SelectionService selection_;

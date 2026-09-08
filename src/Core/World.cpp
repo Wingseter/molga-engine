@@ -7,6 +7,7 @@
 #include "Core/Profiling/ProfileScope.h"
 #include "Core/Profiling/ProfilerService.h"
 #include "Common/Log.h"
+#include "UI/UIRuntimeInvalidation.h"
 
 #include <algorithm>
 #include <atomic>
@@ -96,6 +97,9 @@ World::World()
 }
 
 World::~World() {
+    // 이 세대의 UI 런타임 캐시를 회수한다. Shutdown 전에 부른다 — 아래에서
+    // 내용이 사라져도 세대 번호는 그대로지만, 순서를 고정해 두는 편이 읽기 쉽다.
+    molga::ui::NotifyUIWorldReleased(generation_);
     Shutdown();
 }
 
@@ -119,6 +123,9 @@ World& World::operator=(World&& other) {
     if (IsLifecycleMutationActive() || other.IsLifecycleMutationActive()) {
         throw std::logic_error("cannot move a World during callbacks");
     }
+    // 두 세대가 여기서 은퇴한다: 덮어써지는 이쪽의 것과, 비워지는 저쪽의 것.
+    molga::ui::NotifyUIWorldReleased(generation_);
+    molga::ui::NotifyUIWorldReleased(other.generation_);
     TransferOwnedStateFrom(std::move(other));
     // 옮겨진 쪽에도 새 세대를 발행한다. 비워진 World가 다시 채워지더라도 예전
     // 식별자가 되살아나지 않도록 하는 거절 장치다(물리/스케줄러까지 넘어갔으니
@@ -164,7 +171,44 @@ GameObject* World::Add(std::shared_ptr<GameObject> obj) {
     obj->SetWorld(this);
     GameObject* raw = obj.get();
     objects_.push_back(std::move(obj));
+    // 오브젝트가 씬에 나타나는 것도 계층 변경이다. Canvas와 무관한 오브젝트는
+    // NotifyUIHierarchyChanged가 스스로 걸러낸다.
+    NotifyUIHierarchyChanged(raw);
     return raw;
+}
+
+GameObject* World::InsertAt(std::shared_ptr<GameObject> obj,
+                            std::size_t index) {
+    if (!obj || shuttingDown_) return nullptr;
+    obj->SetWorld(this);
+    GameObject* raw = obj.get();
+    index = std::min(index, objects_.size());
+    objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index),
+                    std::move(obj));
+    NotifyUIHierarchyChanged(raw);
+    return raw;
+}
+
+void World::RemoveByIds(const std::vector<unsigned int>& ids) {
+    if (ids.empty()) return;
+    // 지우기 전에 알린다. NotifyUIHierarchyChanged는 오브젝트의 부모 사슬을
+    // 읽어 Canvas 아래인지 판정하므로, 벡터에서 빠진 뒤에 부르면 판정 자체는
+    // 살아 있어도(명령이 undo용으로 shared_ptr을 붙들고 있다) "무엇이 사라졌나"를
+    // 말할 수 없다.
+    for (const auto& object : objects_) {
+        if (!object) continue;
+        if (std::find(ids.begin(), ids.end(), object->GetID()) != ids.end()) {
+            NotifyUIHierarchyChanged(object.get());
+        }
+    }
+    objects_.erase(
+        std::remove_if(objects_.begin(), objects_.end(),
+                       [&](const std::shared_ptr<GameObject>& object) {
+                           if (!object) return false;
+                           return std::find(ids.begin(), ids.end(),
+                                            object->GetID()) != ids.end();
+                       }),
+        objects_.end());
 }
 
 GameObject* World::FindById(unsigned int id) const {
@@ -217,6 +261,7 @@ void World::Clear() {
     // 있는 런타임 식별자로 이 World를 다시 해석하려 들면, 그 시점에 이미
     // 세대가 달라 실패해야 한다.
     const auto generation = AcquireWorldGeneration();
+    molga::ui::NotifyUIWorldReleased(generation_);
     generation_ = generation;
     Shutdown();
 }
@@ -364,6 +409,7 @@ bool World::LoadFromFile(const std::string& path) {
     std::vector<std::shared_ptr<GameObject>> loaded;
     if (!SceneSerializer::LoadScene(path, loaded)) return false;
     const auto generation = AcquireWorldGeneration();
+    molga::ui::NotifyUIWorldReleased(generation_);
     objects_.swap(loaded);
     generation_ = generation;
     for (auto& o : objects_) {
@@ -371,6 +417,20 @@ bool World::LoadFromFile(const std::string& path) {
     }
     return true;
 }
+void World::RepublishGenerationAfterExternalReplacement() {
+    // 에디터의 New/Open Scene은 Objects()를 통해 밖에서 내용을 통째로
+    // 교체하므로 LoadFromFile/Clear를 지나지 않는다. 세대를 그대로 두면
+    // 이전 씬의 기하 캐시 항목이 새 씬에 그대로 적중한다 — 오브젝트 id와
+    // 저작 revision은 씬이 달라도 겹칠 수 있고, 기하 키에는 그 둘을 넘어
+    // 실패로 닫을 네 번째 필드가 없다. 교체에 성공한 직후에만 부른다.
+    molga::ui::NotifyUIWorldReleased(generation_);
+    generation_ = AcquireWorldGeneration();
+    for (auto& object : objects_) {
+        if (object) object->SetWorld(this);
+    }
+    molga::ui::NotifyUISemanticMutation();
+}
+
 bool World::SaveToFile(const std::string& path) const {
     return SceneSerializer::SaveScene(path, objects_);
 }
@@ -513,6 +573,14 @@ void World::FlushDeferred(float dt) {
         }
 
         if (!subtreeIdSet.empty()) {
+            // 사라지는 오브젝트가 UI Canvas 서브트리에 닿아 있었다면 스냅샷이
+            // 달라진다. 벡터에서 지운 뒤에는 부모 사슬을 더 볼 수 없으므로
+            // 지우기 전에 판정한다.
+            for (const auto& object : objects_) {
+                if (object && subtreeIdSet.count(object->GetID()) != 0) {
+                    NotifyUIHierarchyChanged(object.get());
+                }
+            }
             auto removePredicate = [&](const std::shared_ptr<GameObject>& object) {
                 return !object || subtreeIdSet.count(object->GetID()) != 0;
             };

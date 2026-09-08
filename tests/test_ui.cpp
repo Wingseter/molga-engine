@@ -10,6 +10,9 @@
 #include "ECS/Components/UILabel.h"
 #include "ECS/GameObject.h"
 #include "UI/UISystem.h"
+#include "UI/UILayoutSystem.h"
+#include "UI/UIRuntimeIdentity.h"
+#include "UI/UIRuntimeInvalidation.h"
 
 #include "Assets/FontArtifactStore.h"
 #include "Core/AssetDatabase.h"
@@ -685,6 +688,99 @@ TEST_CASE("UISystem collects labels through the shared text renderer") {
     }
     // 성공 경로는 조용하다.
     CHECK(sink.Diagnostics().empty());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 10.2 Step 5b: 고유 크기의 프로덕션 생산자
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// `UILayoutSystem`은 고유 크기를 `UIIntrinsicLayoutRegistry`에서 읽기만 한다.
+// 이 케이스가 없으면 그 레지스트리에 게시하는 것은 테스트 헬퍼뿐이고, 실제
+// 세션의 모든 UILabel은 content fitter 아래에서 크기 0으로 측정된다 — 스위트는
+// 손으로 먹인 값 위에서 초록인 채로.
+TEST_CASE("a rendered label publishes its intrinsic size to layout") {
+    QualificationAssetTreeFixture tree;
+    molga::AssetDatabase database;
+    std::string bindError;
+    REQUIRE_MESSAGE(
+        database.BindFontArtifactStore(
+            std::make_shared<const molga::FontArtifactStore>(
+                molga::FontArtifactStore::ForProject(tree.ProjectRoot())),
+            &bindError),
+        bindError);
+    database.ScanProject(tree.AssetsRoot());
+
+    molga::text::VectorTextDiagnosticSink sink;
+    TextRenderer renderer;
+    REQUIRE(renderer.Init(database, sink));
+
+    World world;
+    auto canvas = MakeCanvas(world);
+    auto object = MakeLabel(world, canvas.get(), "Ag Ag Ag Ag",
+                            kUiPrimaryFamilyGuid);
+    auto* label = object->GetComponent<UILabel>();
+    REQUIRE(label != nullptr);
+    // 줄바꿈이 켜져 있어야 폭 제약이 실제로 측정을 바꾼다. NoWrap이면 제약을
+    // 벗기든 말든 같은 크기가 나오므로 아래 rect 축소 단언이 아무것도 지키지
+    // 못한다 — 이 한 줄이 이 케이스를 진짜로 만든다.
+    label->SetWrapMode(molga::text::TextWrapMode::Word);
+    const auto target = molga::ui::CaptureTarget(world, *label);
+    REQUIRE(static_cast<bool>(target));
+
+    const auto epoch = [] {
+        return molga::ui::UIRuntimeInvalidationClock::Current()
+            .semanticDirtyGeneration;
+    };
+    const auto collect = [&] {
+        molga::RenderQueue queue;
+        auto scope = renderer.BeginGlyphCollection(1);
+        UISystem::Get().CollectRender(world, {800.0f, 600.0f}, queue, renderer,
+                                      sink, TextRasterPolicy{});
+    };
+
+    // 배치를 지나기 전에는 아무도 게시하지 않았다.
+    REQUIRE_FALSE(molga::ui::UIIntrinsicLayoutRegistry::Get().Find(target));
+
+    collect();
+    const auto published =
+        molga::ui::UIIntrinsicLayoutRegistry::Get().Find(target);
+    REQUIRE(published);
+    // 실제로 셰이핑을 지난 크기다. 0이면 소비자 쪽 fitter가 라벨을 접는다.
+    CHECK(published->intrinsicSize.width.Raw() > 0);
+    CHECK(published->intrinsicSize.height.Raw() > 0);
+    CHECK_FALSE(published->contentIdentity.empty());
+
+    // 값이 수렴했다. 같은 프레임을 다시 그려도 세대가 움직이지 않아야
+    // 변경 없는 프레임의 빠른 경로가 살아남는다.
+    const auto settled = epoch();
+    collect();
+    CHECK(epoch() == settled);
+
+    // 여기가 이 케이스의 핵심이다. 렌더 요청은 현재 RectTransform을 제약으로
+    // 싣고 있다. 그 결과를 고유 크기로 게시하면 fitter가 rect를 바꿀 때마다
+    // 값이 흔들려 세대가 매 프레임 오른다. 고유 크기는 rect와 무관해야 한다.
+    auto* rect = object->GetComponent<RectTransform>();
+    REQUIRE(rect != nullptr);
+    // 한 낱말만 겨우 들어가는 폭. 제약 실린 배치를 게시하는 구현은 여기서
+    // 접힌 폭을 고유 크기로 내놓으므로 아래 두 단언이 무너진다.
+    rect->SetSizeDelta({40.0f, 100.0f});
+    collect();
+    const auto afterShrink =
+        molga::ui::UIIntrinsicLayoutRegistry::Get().Find(target);
+    REQUIRE(afterShrink);
+    CHECK(afterShrink->intrinsicSize == published->intrinsicSize);
+    CHECK(afterShrink->contentIdentity == published->contentIdentity);
+
+    // 반대로 내용이 달라지면 정체성과 크기가 함께 움직인다. 두 단언이 같이
+    // 서야 정체성이 내용에서 나온 값이라는 뜻이다.
+    label->SetText("Ag Ag Ag Ag Ag Ag Ag Ag");
+    collect();
+    const auto afterEdit =
+        molga::ui::UIIntrinsicLayoutRegistry::Get().Find(target);
+    REQUIRE(afterEdit);
+    CHECK(afterEdit->contentIdentity != published->contentIdentity);
+    CHECK(afterEdit->intrinsicSize.width.Raw() >
+          published->intrinsicSize.width.Raw());
 }
 
 // 반대편: family를 지목하지 않은 라벨은 명령을 만들지 못하고, 그 사실이 진단에

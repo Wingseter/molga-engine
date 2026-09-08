@@ -21,6 +21,7 @@
 class Renderer;
 class Shader;
 class GameObject;
+class World;
 // Task 8.2 Step 7d: Scene View의 텍스트 권한. 값으로 담지 않으므로 선언만
 // 있으면 된다.
 class TextRenderer;
@@ -43,21 +44,26 @@ public:
     void SetSceneResources(
         Renderer* renderer,
         Shader*   spriteShader,
-        std::vector<std::shared_ptr<GameObject>>* objects,
+        World*    world,
         TextRenderer* textRenderer,
         molga::text::TextDiagnosticSink* textDiagnostics
     );
 
-    // 씬 변경 시 오브젝트 목록 갱신
-    void SetGameObjects(std::vector<std::shared_ptr<GameObject>>* objects) {
-        gameObjects_ = objects;
-    }
+    // Task 10.2 Step 9c: UI 권한은 오브젝트 벡터가 아니라 World다. 벡터만
+    // 들고 있으면 UI가 그 벡터를 담은 월드의 세대를 알 수 없어 런타임
+    // 식별자가 세대 0으로 만들어지고, 그 값은 어떤 살아 있는 월드도 갖지
+    // 않으므로 정체성 검사가 통째로 무의미해진다. 월드가 없으면 그 표면은
+    // 아예 건너뛴다.
+    void SetActiveWorld(World* world) { world_ = world; }
 
 private:
     // 렌더 리소스
     Renderer*   renderer_     = nullptr;
     Shader*     spriteShader_ = nullptr;
-    std::vector<std::shared_ptr<GameObject>>* gameObjects_ = nullptr;
+    World* world_ = nullptr;
+    // 세계 스프라이트/카메라 순회는 목록만 필요하다. 목록은 언제나 여기서
+    // 유도하고 따로 보관하지 않는다.
+    std::vector<std::shared_ptr<GameObject>>* Objects() const;
     // main이 주입한 그 하나. 창이 스스로 TextRenderer::Get()을 부르면 이
     // 프로세스에 두 번째 텍스트 서비스가 생길 수 있다.
     TextRenderer* textRenderer_ = nullptr;

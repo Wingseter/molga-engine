@@ -375,7 +375,7 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
 
     // Initialize Editor
     Editor::Get().Init();
-    Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+    Editor::Get().SetActiveWorld(sceneDoc.EditWorld());
     // SceneView에 렌더 리소스 주입 (FBO 렌더 활성화)
     Editor::Get().SetSceneViewResources(renderer.get(), shader,
                                         &TextRenderer::Get(), &textDiagnostics);
@@ -397,7 +397,7 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
             }
             Editor::Get().GetCommandHistory().Clear();
             Editor::Get().ResetPlayUIInput();
-            Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+            Editor::Get().SetActiveWorld(sceneDoc.ActiveWorld());
             
             World& pw = sceneDoc.ActiveWorld();
             Editor::Get().GetSelection().Rebind(
@@ -407,7 +407,7 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
         [&sceneDoc]() {  // Play/Pause → Stop
             Editor::Get().GetCommandHistory().Clear();
             Editor::Get().ResetPlayUIInput();
-            Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+            Editor::Get().SetActiveWorld(sceneDoc.EditWorld());
             sceneDoc.ExitPlay();
             
             World& ew = sceneDoc.EditWorld();
@@ -485,7 +485,7 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
         const fs::path mainScene = p.is_absolute() ? p : fs::path(Project::Get().GetPath()) / p;
         if (sceneDoc.Open(mainScene.string())) {
             sceneDoc.EditWorld().ResolveAssets();
-            Editor::Get().SetGameObjects(&sceneDoc.EditWorld().Objects());
+            Editor::Get().SetActiveWorld(sceneDoc.EditWorld());
             Editor::Get().SetCurrentScenePath(mainScene.string());
             // 씬 로드 후 SceneView 리소스 재주입 (오브젝트 목록 갱신)
             Editor::Get().SetSceneViewResources(renderer.get(), shader,
@@ -610,7 +610,7 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
                     // bind to an unrelated same-ID object after a transition.
                     Editor::Get().GetCommandHistory().Clear();
                     Editor::Get().ResetPlayUIInput();
-                    Editor::Get().SetGameObjects(&sceneDoc.ActiveWorld().Objects());
+                    Editor::Get().SetActiveWorld(sceneDoc.ActiveWorld());
                     Editor::Get().GetSelection().UnlockInspector();
                     Editor::Get().GetSelection().Clear(molga::SelectionSource::Code);
                 }

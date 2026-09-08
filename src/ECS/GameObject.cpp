@@ -4,11 +4,48 @@
 #include "../Scripting/ScriptInvocationBoundary.h"
 #include "../Core/World.h"
 #include "Common/Log.h"
+#include "ECS/Components/UICanvas.h"
+#include "UI/UIRuntimeInvalidation.h"
 #include <algorithm>
 #include <cassert>
 #include <exception>
 
 unsigned int GameObject::nextID = 1;
+
+namespace {
+
+bool SubtreeHasCanvas(const GameObject* object) {
+    if (!object) return false;
+    if (object->GetComponent<UICanvas>()) return true;
+    for (const GameObject* child : object->GetChildren()) {
+        if (SubtreeHasCanvas(child)) return true;
+    }
+    return false;
+}
+
+// 이 오브젝트를 움직이는 것이 UI Canvas 서브트리를 바꿀 수 있는가. 조상에
+// Canvas가 있으면 이 오브젝트가 그 서브트리의 일부이고, 자손에 Canvas가
+// 있으면 서브트리 전체가 함께 움직인다.
+//
+// 여기서 조건을 넓게 잡으면 UI가 하나도 없는 씬의 매 프레임 오브젝트 이동이
+// UI 캐시를 통째로 무효화하고, 그 손해는 진단 없이 성능으로만 드러난다.
+bool TouchesUICanvasSubtree(const GameObject* object) {
+    for (const GameObject* node = object; node; node = node->GetParent()) {
+        if (node->GetComponent<UICanvas>()) return true;
+    }
+    return SubtreeHasCanvas(object);
+}
+
+} // namespace
+
+// 계층 변경이 성공한 뒤에 정확히 한 번. 실패한 재부모(자기 자신/순환)는
+// 아무것도 바꾸지 않았으므로 여기 오지 않는다.
+void NotifyUIHierarchyChanged(const GameObject* object,
+                              const GameObject* alsoAffected) {
+    if (TouchesUICanvasSubtree(object) || TouchesUICanvasSubtree(alsoAffected)) {
+        molga::ui::NotifyUISemanticMutation();
+    }
+}
 
 GameObject::GameObject(const std::string& name)
     : id(nextID++), name(name) {
@@ -150,6 +187,7 @@ GameObject::~GameObject() noexcept {
 
 bool GameObject::SetParent(GameObject* newParent) {
     if (parent == newParent) return true;
+    GameObject* previousParent = parent;
     if (newParent == this) {
         Log::Warn("GameObject", "Ignoring attempt to parent '" + name + "' to itself");
         return false;
@@ -174,6 +212,9 @@ bool GameObject::SetParent(GameObject* newParent) {
             siblings.push_back(this);
         }
     }
+    // 옛 부모도 함께 본다. Canvas 밖에서 Canvas 안으로 들어오는 이동과 그
+    // 반대 방향은 둘 다 UI 스냅샷을 바꾸는데, 새 부모만 보면 후자를 놓친다.
+    NotifyUIHierarchyChanged(this, previousParent);
     return true;
 }
 
@@ -195,6 +236,7 @@ bool GameObject::SetSiblingIndex(std::size_t index) {
     siblings.erase(current);
     index = std::min(index, siblings.size());
     siblings.insert(siblings.begin() + static_cast<std::ptrdiff_t>(index), object);
+    NotifyUIHierarchyChanged(this);
     return true;
 }
 
@@ -225,8 +267,12 @@ void GameObject::AddChild(GameObject* child) {
 void GameObject::RemoveChild(GameObject* child) {
     auto it = std::find(children.begin(), children.end(), child);
     if (it != children.end()) {
-        (*it)->parent = nullptr;
+        GameObject* removed = *it;
+        removed->parent = nullptr;
         children.erase(it);
+        // 이미 떼어낸 뒤이므로 옛 부모(this)를 함께 넘긴다. 떨어져 나간
+        // 오브젝트만 보면 Canvas 아래에서 빠져나온 변경을 놓친다.
+        NotifyUIHierarchyChanged(removed, this);
     }
 }
 
@@ -518,6 +564,8 @@ void GameObject::ResolveAssets() {
 void GameObject::SetActive(bool value) {
     if (active == value) return;
     active = value;
+    // 활성 전환은 그 서브트리를 통째로 스냅샷에 넣거나 뺀다.
+    NotifyUIHierarchyChanged(this);
 
     // 라이프사이클 콜백은 월드가 Play(running) 중일 때만 발화한다.
     // 에디트/로드 중 SetActive는 플래그만 바꾼다(오발화 방지).

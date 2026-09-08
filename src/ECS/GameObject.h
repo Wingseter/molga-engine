@@ -11,6 +11,16 @@
 
 class World;
 
+// Task 10.2 Step 4i: 계층 변경이 활성 UI Canvas 서브트리를 바꿀 수 있을 때만
+// 집계 의미 세대를 올린다. 성공한 변경 뒤에 정확히 한 번 부른다 —
+// 실패한 재부모나 값이 그대로인 SetActive에서 부르면 UI 캐시가 매 프레임
+// 미스가 되고, 그 손해는 진단 없이 성능으로만 드러난다.
+//
+// alsoAffected에는 옛 부모처럼 그 변경으로 함께 달라지는 노드를 넘긴다.
+// 새 위치만 보면 Canvas 밖으로 빠져나가는 이동을 놓친다.
+void NotifyUIHierarchyChanged(const GameObject* object,
+                              const GameObject* alsoAffected = nullptr);
+
 class GameObject {
 public:
     explicit GameObject(const std::string& name = "GameObject");

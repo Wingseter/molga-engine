@@ -1192,7 +1192,7 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
             MOLGA_PROFILE_SCOPE("GameOutput.Render", molga::ProfileCategory::Rendering);
             if (frameAvailable && framebufferSize.IsValid()) {
                 lastGameOutputResult = gameOutputRenderer->Render(
-                    world.Objects(),
+                    world,
                     {framebufferSize, configuredLogicalSize,
                      config.outputScaleMode},
                     *renderer, shader, TextRenderer::Get(), textDiagnostics);

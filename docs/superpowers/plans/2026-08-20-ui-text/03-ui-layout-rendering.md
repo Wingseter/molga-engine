@@ -1338,13 +1338,13 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 - Consumes: all authored layout components, `TextLayout::intrinsicSize`, checked fixed geometry, hierarchy revisions, and semantic snapshot types.
 - Produces: `UILayoutSystem::Build(World&, WindowId, FixedSize, TextDiagnosticSink&)`, `UILayoutFastPathStamp`, deterministic driver resolution, SCC authored-axis fallback, a collision-checked 256-entry-per-world geometry LRU, one latest full-snapshot slot per world/device, and an allocation-free unchanged fast path.
 
-- [ ] **Step 1: Register layout-bearing tests with the common text runtime session.** Create `test_ui_layout` through `molga_add_text_test` and replace the Task 10.1 registration of `test_ui_snapshot` with the same helper before either fixture constructs `TextLayoutService`. The helper itself performs the idempotent `molga_attach_text_dependencies`; do not add a second explicit attach. Use only `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT`, do not link `doctest_main`, and preserve every existing label/include/property after target creation. Both targets reuse Task 2.2's installed `TextRuntimeTestSession`; no local ICU init or alternate resource root is allowed.
+- [x] **Step 1: Register layout-bearing tests with the common text runtime session.** Create `test_ui_layout` through `molga_add_text_test` and replace the Task 10.1 registration of `test_ui_snapshot` with the same helper before either fixture constructs `TextLayoutService`. The helper itself performs the idempotent `molga_attach_text_dependencies`; do not add a second explicit attach. Use only `MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT`, do not link `doctest_main`, and preserve every existing label/include/property after target creation. Both targets reuse Task 2.2's installed `TextRuntimeTestSession`; no local ICU init or alternate resource root is allowed.
 
-- [ ] **Step 1a: Write failing horizontal/vertical allocation cases.**
+- [x] **Step 1a: Write failing horizontal/vertical allocation cases.**
 
   Add `LayoutCase` rows `horizontal-padding-spacing`, `vertical-cross-align`, `authored-size-child`, `control-expand`, and `below-minimum-overflow`. Each row supplies authored JSON, viewport raw units, and the exact expected raw child rect vector; loop over the rows and compare all four rect fields.
 
-- [ ] **Step 1b: Write failing grid and remainder cases.**
+- [x] **Step 1b: Write failing grid and remainder cases.**
 
   Add rows `fixed-columns`, `fixed-rows`, `flexible-grid`, and `sibling-order`, then add this exact raw-unit remainder case:
 
@@ -1361,15 +1361,15 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
   }
   ```
 
-- [ ] **Step 1c: Write failing Canvas, anchor, hierarchy, and driver cases.**
+- [x] **Step 1c: Write failing Canvas, anchor, hierarchy, and driver cases.**
 
   Add rows `anchors`, `constant-pixel-canvas`, `scaled-viewport-canvas`, `fitter-below-parent-driver`, and `inactive-ancestor`, each with exact expected raw rects.
 
-- [ ] **Step 2a: Write the failing SCC authored-fallback test.**
+- [x] **Step 2a: Write the failing SCC authored-fallback test.**
 
   Create a parent group → child intrinsic text → content fitter → parent-size cycle. Require all driven properties in that axis to use authored RectTransform, one `LayoutCycle` diagnostic, and identical JSON for cold, warm, and different edit histories.
 
-- [ ] **Step 2b: Write the failing unchanged full-cache pointer test.**
+- [x] **Step 2b: Write the failing unchanged full-cache pointer test.**
 
   Build an unchanged frame twice and assert pointer identity:
 
@@ -1382,7 +1382,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Build the same world/viewport next on window 8. Require a full-snapshot miss, unchanged geometry-build count, `surfaceWindowId==8`, and canonical JSON byte-equal to window 7. Build window 7 once more and require another full miss with `surfaceWindowId==7` while full-cache occupancy stays exactly one for that world/device. This prevents detached surfaces from reusing the wrong runtime routing identity without multiplying the bounded slot count.
 
-- [ ] **Step 2c: Write failing visual/content and interaction cache tests.**
+- [x] **Step 2c: Write failing visual/content and interaction cache tests.**
 
   ```cpp
   TEST_CASE("payload-only edits miss snapshot cache but reuse geometry") {
@@ -1416,7 +1416,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Extend the first case as a table with one edit per fresh fixture: `UILabel` text, label color, immutable layout content identity, `UIImage` tint, texture content SHA under the same GUID, selectable interactability, one explicit navigation ref, and mask enablement. Each edit must miss the full-snapshot cache; pure visual/interaction edits retain the identical geometry-cache entry. Task 11.1 adds exact updated render/hit payload assertions once those records exist.
 
-- [ ] **Step 2d: Write the failing RectTransform/Canvas dirty-epoch table.**
+- [x] **Step 2d: Write the failing RectTransform/Canvas dirty-epoch table.**
 
   ```cpp
   const std::array rectCanvasMutations{
@@ -1431,7 +1431,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   `CheckEachMutationAdvancesSemanticEpoch` creates a fresh attached component, records `UIRuntimeInvalidationClock::Current().semanticDirtyGeneration`, applies exactly the named setter with a different finite canonical value, and requires a strictly greater nonzero generation. Its exhaustive `switch(UIFieldMutation)` has no `default`.
 
-- [ ] **Step 2e: Write the failing layout/fitter/group dirty-epoch table.**
+- [x] **Step 2e: Write the failing layout/fitter/group dirty-epoch table.**
 
   ```cpp
   const std::array layoutMutations{
@@ -1458,7 +1458,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
   CheckEachMutationAdvancesSemanticEpoch(layoutMutations);
   ```
 
-- [ ] **Step 2f: Write the failing mask/scroll/selectable dirty-epoch table.**
+- [x] **Step 2f: Write the failing mask/scroll/selectable dirty-epoch table.**
 
   ```cpp
   const std::array interactionMutations{
@@ -1477,7 +1477,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
   CheckEachMutationAdvancesSemanticEpoch(interactionMutations);
   ```
 
-- [ ] **Step 2g: Write the failing visual/text/semantic dirty-epoch table.**
+- [x] **Step 2g: Write the failing visual/text/semantic dirty-epoch table.**
 
   ```cpp
   const std::array payloadMutations{
@@ -1512,7 +1512,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Add one same-value row per component type; setting an already-canonical identical value must change neither the component revision nor the aggregate epoch.
 
-- [ ] **Step 2h: Write the failing hierarchy/intrinsic/font dirty-epoch table.**
+- [x] **Step 2h: Write the failing hierarchy/intrinsic/font dirty-epoch table.**
 
   ```cpp
   const std::array externalMutations{
@@ -1530,7 +1530,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Hierarchy hooks bump only when an active UI Canvas subtree could change. Font repository/family/layout generation publication bumps after successful immutable replacement, not on a failed/no-op reload.
 
-- [ ] **Step 2i: Write the failing 600-frame zero snapshot-key-allocation test.**
+- [x] **Step 2i: Write the failing 600-frame zero snapshot-key-allocation test.**
 
   ```cpp
   TEST_CASE("warm static UI bypasses snapshot key construction and allocation") {
@@ -1549,7 +1549,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   The counter is incremented by the cache-key scratch allocator's upstream allocation path, so this is the same `ui.snapshot-key` allocation boundary consumed by the later warm-static performance gate, not a generic frame counter.
 
-- [ ] **Step 2j: Write failing bounded-cache churn tests.**
+- [x] **Step 2j: Write failing bounded-cache churn tests.**
 
   ```cpp
   TEST_CASE("UI snapshot and geometry caches remain bounded under churn") {
@@ -1571,7 +1571,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Add an interleaved two-world/two-device row: each `{worldGeneration,deviceGeneration}` has at most one full entry, each world has at most 256 geometry entries, releasing a world removes both its LRU and every full slot, and a device-generation transition removes old-device full slots without removing reusable geometry.
 
-- [ ] **Step 3: Run the layout red gate.**
+- [x] **Step 3: Run the layout red gate.**
 
   ```bash
   cmake --preset debug
@@ -1580,7 +1580,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Expected: compilation fails because `UILayoutSystem` does not exist.
 
-- [ ] **Step 4a: Define the layout service boundary.**
+- [x] **Step 4a: Define the layout service boundary.**
 
   ```cpp
   namespace molga::ui {
@@ -1596,7 +1596,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Reject a zero surface window, invalid viewport, or invalid/non-finite authored value before key construction. Update every Task 10 fixture/facade caller to pass its exact surface window; no overload guesses a global keyboard window.
 
-- [ ] **Step 4b: Define the allocation-free fast-path stamp.**
+- [x] **Step 4b: Define the allocation-free fast-path stamp.**
 
   ```cpp
   struct UILayoutFastPathStamp {
@@ -1614,7 +1614,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   `UILayoutSystem` stores the last successful stamp and `UISnapshotPtr`. `surfaceWindowId` is the exact nonzero UI surface window supplied by the caller; it is runtime-only and excluded from canonical JSON. At the first line of `Build` after surface/viewport validation, read the process-global generation snapshot and compare these scalar/value fields. If all fields match and the clocks remain cacheable, return the prior shared pointer immediately: do not traverse Canvas trees, allocate/clear/resize a vector, canonicalize JSON, build a string, hash a key, or touch the scratch allocator. A raw viewport change first acquires a checked new `viewportGeneration`; exhaustion disables the fast path and both caches.
 
-- [ ] **Step 4c: Define the collision-checked geometry cache key.**
+- [x] **Step 4c: Define the collision-checked geometry cache key.**
 
   ```cpp
   struct UILayoutGeometryCacheKey {
@@ -1631,7 +1631,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Store the original ordered vectors and compare them after any hash match; do not trust a hash alone. This key may reuse measured/arranged geometry after a tint, focusability, or other payload-only edit.
 
-- [ ] **Step 4d: Define the visual/content cache identity.**
+- [x] **Step 4d: Define the visual/content cache identity.**
 
   ```cpp
   struct UIVisualCacheIdentity {
@@ -1650,7 +1650,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   `canonicalAuthoredPayload` contains collision-checked canonical values such as label UTF-8/style/color and image tint; it is not a hash-only shortcut. The immutable layout identity is content-derived and equality-checked. Texture identity is the authored GUID plus validated content SHA and a content-derived stable ID, never a process-local asset/upload revision.
 
-- [ ] **Step 4e: Define interaction identity and the complete snapshot key.**
+- [x] **Step 4e: Define interaction identity and the complete snapshot key.**
 
   ```cpp
   struct UIInteractionCacheIdentity {
@@ -1698,31 +1698,31 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   `surfaceWindowId` is nonzero runtime routing identity and is compared before returning the one world/device slot; it never enters geometry reuse or canonical JSON. Build both ordered identity vectors in the same stable Canvas DFS order. These process-local non-wrapping scalars prevent a fast-path invalidation—including later hover/focus/text visual state—from falling back onto a prior full snapshot; Task 11.1 adds exact per-binding collision fields and Task 11.3 adds exact scroll displacement fields. They are runtime cache fields only and never enter stable snapshot JSON. Task 11 adds the resolved render/hit records and exact binding identities under this key. GPU handles, pointers, process-local generations, and frame audit values appear in neither the geometry key nor canonical JSON.
 
-- [ ] **Step 4f: Define reusable collision-key scratch storage.**
+- [x] **Step 4f: Define reusable collision-key scratch storage.**
 
   Keep member-owned, capacity-retaining scratch vectors for geometry revisions, visual content, interaction, and later runtime bindings. On a changed stamp, `resize` and overwrite entries in stable Canvas DFS order; reuse per-entry string capacity. Count only upstream capacity growth as `ui.snapshot-key` allocation. Copy/move a completed collision-checked key into cache ownership only on a miss; an unchanged fast path never resets the scratch.
 
-- [ ] **Step 4g: Implement exact bounded lookup and eviction.**
+- [x] **Step 4g: Implement exact bounded lookup and eviction.**
 
   Geometry lookup first compares hash and then every original key field. A hit moves its intrusive/list recency node to MRU without reallocating; insertion at capacity evicts exactly the LRU entry for that world. A full-snapshot lookup addresses the single `UISnapshotWorldDeviceSlotKey` entry, collision-compares its complete `UISnapshotCacheKey`, and replaces the old entry on miss. `OnWorldReleased` erases that world's geometry LRU, full slots, fast-path stamp, and reserved per-world scratch metadata.
 
-- [ ] **Step 4h: Publish component-setter mutations.**
+- [x] **Step 4h: Publish component-setter mutations.**
 
   Route every `UIComponent::Invalidate` through `Advance(SemanticDirty)` and make the Step 2d–2g setter tables pass. Each setter compares canonical old/new state first and advances exactly once after success; a failed mutation/no-op does not advance.
 
-- [ ] **Step 4i: Publish hierarchy mutations.**
+- [x] **Step 4i: Publish hierarchy mutations.**
 
   Mark active-state, add/remove, reparent, and sibling-order changes in `GameObject`/`World` after the mutation succeeds. Limit notifications to changes that can affect an active UI Canvas subtree and make the hierarchy rows in Step 2h pass.
 
-- [ ] **Step 4j: Publish intrinsic/font/content mutations.**
+- [x] **Step 4j: Publish intrinsic/font/content mutations.**
 
   Advance semantic dirty after successful immutable text-layout identity, font-face byte, fallback-order, style-map, or validated texture content-SHA replacement. Failed/no-op repository/resolver/asset changes preserve the epoch.
 
-- [ ] **Step 4k: Implement fast-path lookup before key construction.**
+- [x] **Step 4k: Implement fast-path lookup before key construction.**
 
   Validate the viewport, update its checked local generation when raw width/height changes, read `UIRuntimeInvalidationClock::Current`, and construct only the scalar `UILayoutFastPathStamp` on the stack. Return `lastSnapshot_` immediately on equality. On change, build collision keys with reserved scratch; publish `lastFastPathStamp_`/`lastSnapshot_` only after a complete snapshot has been built and inserted/resolved. If any generation is exhausted or a reachable component is uncacheable, clear the saved fast-path pointer and rebuild without lookup/insertion.
 
-- [ ] **Step 5a: Gather active Canvas trees in exact sibling DFS order.**
+- [x] **Step 5a: Gather active Canvas trees in exact sibling DFS order.**
 
   ```text
   gather(node, siblingPath):
@@ -1734,7 +1734,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Build `UIDrawOrderKey` during this traversal and never derive a second traversal index later.
 
-- [ ] **Step 5b: Measure intrinsic constraints child-to-parent.**
+- [x] **Step 5b: Measure intrinsic constraints child-to-parent.**
 
   ```text
   measure(node):
@@ -1744,7 +1744,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   ```
 
-- [ ] **Step 5c: Resolve each arranged axis owner.**
+- [x] **Step 5c: Resolve each arranged axis owner.**
 
   ```cpp
   enum class UILayoutDriver : std::uint8_t {
@@ -1756,11 +1756,11 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Return the first true driver in `Canvas > parent group > self fitter > authored RectTransform`; `UILayoutElement` never appears as a driver.
 
-- [ ] **Step 6a: Allocate horizontal/vertical main-axis minimums.**
+- [x] **Step 6a: Allocate horizontal/vertical main-axis minimums.**
 
   Remove padding and fixed spacing. Preserve authored size for `controlChildSize=false`, clamped to minimum; initialize controlled children at minimum. If available space is below the sum, retain minimums and allow overflow.
 
-- [ ] **Step 6b: Distribute preferred and flexible deltas.**
+- [x] **Step 6b: Distribute preferred and flexible deltas.**
 
   ```text
   distribute(extra, weights, caps):
@@ -1770,19 +1770,19 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Apply once with weights `preferred-min` and caps `preferred`, then with flexible weights; `forceExpand` maps zero flexible weight to one.
 
-- [ ] **Step 6c: Place aligned cross-axis rectangles.**
+- [x] **Step 6c: Place aligned cross-axis rectangles.**
 
   Honor min/preferred, child-control, expand, and authored alignment. Remaining main-axis space changes only leading offset; never stretch authored spacing.
 
-- [ ] **Step 6d: Arrange fixed and flexible grids.**
+- [x] **Step 6d: Arrange fixed and flexible grids.**
 
   Use authored positive cell size. `FixedColumns/FixedRows` uses the exact positive count. `Flexible` calls `CheckedFloorDiv(inner + spacing, cell + spacing)` and clamps the valid result to at least one. Start corner, fill axis, and sibling order uniquely determine each cell.
 
-- [ ] **Step 7a: Build the driven-property dependency graph.**
+- [x] **Step 7a: Build the driven-property dependency graph.**
 
   Create one node for `(stableObjectId, Width)` and `(stableObjectId, Height)` when a group/fitter/intrinsic dependency exists; add directed edges before layout evaluation.
 
-- [ ] **Step 7b: Run Tarjan and mark cyclic property sets.**
+- [x] **Step 7b: Run Tarjan and mark cyclic property sets.**
 
   ```text
   strongConnect(v):
@@ -1792,48 +1792,48 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
     cyclic = size > 1 or self-edge
   ```
 
-- [ ] **Step 7c: Recompute cyclic axes from authored rectangles.**
+- [x] **Step 7c: Recompute cyclic axes from authored rectangles.**
 
   For the full cyclic SCC, ignore every dynamic driver on that axis and recompute from authored RectTransform in the current pass. Never read cached last-good geometry. Emit one rate-limited `LayoutCycle` diagnostic keyed by sorted stable object IDs and axis.
 
-- [ ] **Step 8a: Publish nodes in stable draw order without pointers.**
+- [x] **Step 8a: Publish nodes in stable draw order without pointers.**
 
   Populate nodes in stable draw order, retain no live pointers, and sort once.
 
-- [ ] **Step 8b: Cache geometry and the complete immutable snapshot separately.**
+- [x] **Step 8b: Cache geometry and the complete immutable snapshot separately.**
 
   Store measured/arranged geometry in the bounded per-world LRU, then store the final `shared_ptr<const UISnapshot>` in the one latest full slot for `{worldGeneration,deviceGeneration}`. A full-key hit returns the same shared object with zero snapshot allocation; a miss atomically replaces the slot only after the new immutable snapshot is complete. Dirty propagation flows `intrinsic -> every ancestor layout`; a visual/content/interaction/runtime-binding-only edit may reuse geometry but must miss the full-snapshot slot and rebuild its render/hit payload. If any reachable `UIComponent` reports an exhausted revision or any aggregate generation is uncacheable, emit one blocker, clear `lastSnapshot_`, and bypass both lookup and insertion rather than risk stale reuse. Task 11.2 attaches submitted superseded snapshots to their exact GPU fence before dropping the final internal strong owner.
 
-- [ ] **Step 9a: Route the `UISystem` facade through `UILayoutSystem`.**
+- [x] **Step 9a: Route the `UISystem` facade through `UILayoutSystem`.**
 
   Keep `UISystem` as the public facade, own one `UILayoutSystem`, and route production layout through `Build(World&, WindowId, FixedSize, sink)`.
 
-- [ ] **Step 9b: Give editor windows an owning-world authority.** Replace
+- [x] **Step 9b: Give editor windows an owning-world authority.** Replace
   `Editor::SetGameObjects(vector*)` with `SetActiveWorld(World&)`; store the
   non-owning active `World*`, derive the hierarchy vector only as
   `world.Objects()`, and forward the same `World*` to Scene View and Game View.
   Update every edit/play/load transition in `main.cpp` before a window may
   render or hit-test.
 
-- [ ] **Step 9c: Convert Scene View UI calls.** Replace
+- [x] **Step 9c: Convert Scene View UI calls.** Replace
   `SceneViewWindow::gameObjects_` as the UI authority with the injected
   `World*`. Its UI render and hit-test calls pass `*world_` to `UISystem`; world
   sprite/camera iteration may use `world_->Objects()`. A missing/stale world
   skips the surface rather than constructing generation zero.
 
-- [ ] **Step 9d: Convert Game View and output rendering.** Change
+- [x] **Step 9d: Convert Game View and output rendering.** Change
   `GameViewWindow` and `GameOutputRenderer::{Render,RenderLogical}` to accept a
   real `World&`; only camera/world traversal derives `world.Objects()`.
   Update `runtime_main.cpp`, `test_game_view.cpp`, and every
   `test_rendering_sdlgpu.cpp` call in the same slice.
 
-- [ ] **Step 9e: Remove generation-less UI overloads.** Delete every
+- [x] **Step 9e: Remove generation-less UI overloads.** Delete every
   `UISystem` overload accepting only `vector<shared_ptr<GameObject>>` after the
   Scene View, Game View, GameOutputRenderer, standalone runtime, and tests all
   compile with `World&`. Do not retain an address-derived identity adapter or
   invent generation zero.
 
-- [ ] **Step 10: Run focused, sanitizer, and existing UI gates.**
+- [x] **Step 10: Run focused, sanitizer, and existing UI gates.**
 
   ```bash
   cmake --build --preset debug --target molga_engine molga_runtime \
@@ -1850,7 +1850,7 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
 
   Expected: all selected Debug/ASan/UBSan tests pass with byte-stable snapshots.
 
-- [ ] **Step 11: Commit deterministic layout.**
+- [x] **Step 11: Commit deterministic layout.**
 
   ```bash
   git add CMakeLists.txt tests/CMakeLists.txt src/UI/UILayoutSystem.* \
@@ -1865,6 +1865,110 @@ without the default-restoration points. **Owner: Task 15.4**, which owns making 
     tests/test_rendering_sdlgpu.cpp
   git commit -m "feat: publish deterministic fixed UI layout"
   ```
+
+#### Implementation record (2026-09-08)
+
+Landed with the full suite at **106/106, 0 failures**, plus the Step 10 sanitizer gate
+(`test_ui_layout`, `test_ui_snapshot` clean under ASan and UBSan).
+
+**The defect this task kept reproducing: a seam with a consumer and no producer.**
+`UIIntrinsicLayoutRegistry` was read at three call sites in `Build` and written by nobody
+outside `tests/test_ui_layout.cpp`'s `PublishIntrinsic` helper. Every fitter, group and cycle
+case was green on sizes the tests fed it themselves, while in a real session every `UILabel`
+and `UITextInput` measured zero. The same shape appeared in Step 4j, where the epoch hook sat
+inside an `if (artifact)` branch that `.fontfamily` assets never reach.
+
+**Where the producer went, and why not where the brief first said.** The controller's first
+instruction was to publish from inside `Build`'s measure pass. That was wrong twice over: the
+header states the contract outright ("배치는 텍스트 서비스를 스스로 찾지 않는다(Build의
+인자에 없다)"), and this task's own Produces line fixes `Build(World&, WindowId, FixedSize,
+TextDiagnosticSink&)` — reaching a text service from there would have changed the signature,
+which is Task 11.1 Step 3i's work. The implementing agent stopped and challenged the
+instruction rather than following it; the correction is recorded here because the brief was
+the controller's error, not the agent's.
+
+The producer is `PublishLabelIntrinsic` in `UISystem::CollectRender`, the one place holding
+both a confirmed immutable `TextLayout` and the target identity. It measures with a **second
+request whose constraints are stripped**. Publishing the render layout's `intrinsicSize`
+instead looks obviously right and oscillates: a fitter reads the size, resizes the rect, the
+rect becomes next frame's constraint, and the value never settles — so `Publish` returns true
+every frame and the unchanged-frame fast path can never hit again. The unconstrained
+measurement depends only on text and style, so it converges on first publication.
+
+That distinction was invisible to the first version of the test, which used the default
+`NoWrap` label: with no wrapping, a width constraint changes nothing, and the oscillating
+implementation passed all 17 assertions. Enabling `TextWrapMode::Word` made the constraint
+load-bearing; the mutation then fails on constrained width 2326 against unconstrained 8905.
+
+**Findings from the two review lenses, all fixed here.** Each fix was mutation-verified by
+deleting it and confirming a named test goes red.
+
+1. `Component::SetEnabled` never reached `UIComponent::Invalidate`, so disabling a `UICanvas`
+   or `RectTransform` changed no revision and no epoch — while `Build` filters everything on
+   `IsEnabled()`. The fast path returned a stale snapshot forever, and `enabled` is not in
+   `canonicalAuthoredPayload`, so the geometry key could not tell the two states apart either.
+2. Nothing in production ever called `OnWorldReleased`. Every retired generation leaked its
+   geometry LRU, its full slot and its intrinsic bucket — on editor Play/Stop, on Open Scene,
+   and on the shipping runtime's scene transitions. `World` now notifies at all five
+   retirement sites through a registered handler, so `Core` does not depend on `UI`.
+3. The editor's `AddExistingObject`/`InsertExistingObjectAt`/`RemoveObjectsByIds` mutated the
+   raw object vector, bypassing `World::Add`'s hierarchy hook. That is paste, duplicate,
+   delete, undo and prefab instantiate. Routed through new `World::InsertAt`/`RemoveByIds`.
+4. `DeleteObjectCommand` never detached the deleted root, and `Build` descends by
+   `GetChildren()` — so a deleted Canvas child kept getting a snapshot node. It now detaches,
+   symmetrically with `Undo`'s `SetParent`.
+5. `TextLayoutService` advanced the UI semantic epoch on **every** cold paragraph store,
+   including world-space `TextRenderer2D`. One animated score counter would rebuild the whole
+   UI snapshot every frame, destroying the 600-unchanged-frames property. Removed; the epoch
+   now moves only through the intrinsic publisher, which knows the paragraph belongs to UI.
+   The Step 4j case was re-pointed to assert the narrow contract rather than the broad one.
+6. `viewportGeneration` was a bare counter, so Scene View and Game View alternating on the
+   singleton produced 1,2,3,4… and no two builds ever shared a geometry key. It is now
+   memoized per distinct viewport value, bounded at eight, so a returning viewport recovers
+   its name. Eviction hands out a fresh name, which is a miss and never a wrong hit.
+7. `node.dropped` was not restored on a geometry-cache hit, so clipped-out nodes entered the
+   visual key on warm builds but not cold ones. The flags now travel with the cache entry.
+   This one is only observable through the new `LastVisualKeyEntryCount()` accessor: the
+   snapshot content comes from the cached node vector, so both versions render identically,
+   and the global semantic epoch moves on every edit, so pointer identity cannot see it either.
+8. The geometry key omitted the label state that `HasSizeDependentIntrinsicWidth` reads, so
+   toggling wrap mode reused stale geometry. **First fix was too broad** — adding the label's
+   whole revision broke "payload-only edits reuse geometry", caught by the existing suite, not
+   by review. The key now carries the wrap mode itself; intrinsic size is already covered by
+   `intrinsicGenerations`.
+9. `AssetDatabase::IndexOne` read every texture twice per scan. The second read is now gated
+   on `rec.hash` being unchanged **and** an identity already being published, so a first scan
+   or a previously unreadable file still publishes.
+
+**Approved deviations from the Files list.** `src/Text/FontFamilyResolver.cpp` owns no cache
+and publishes nothing, so Step 4j has no boundary there; the family hook belongs in
+`AssetDatabase`. `src/Core/TextureManager.cpp` is path-indexed with no authored GUID and no
+source bytes, so the only identity it could publish is the upload ordinal that
+`UITextureContentIdentity` forbids — its real obligation is the binding-generation axis, which
+Tasks 11.1 and 11.2 list. `tests/test_ui_snapshot.cpp` and `tests/test_game_view.cpp` needed
+no change: Step 1's obligation is CMake-side, and Step 9d's three signatures are not called
+from either file. `tests/test_ui.cpp` is **outside** the Files list and was modified anyway —
+the production-entry-point intrinsic case needs the `CollectRender` fixture that lives there.
+
+**Carried forward.**
+
+- **Attaching or detaching a UI component publishes nothing.** `UIComponent::Invalidate` is
+  reached only from setters, so `AddComponent<UICanvas>()` on an object already in the world
+  advances no revision and no epoch. Reported SUSPECTED by the quality lens and left alone
+  here because the plan's mutation tables have no row for component attachment and inventing
+  one silently would be worse. **Owner: Task 11.1**, which first makes an unpublished Canvas
+  visible on screen.
+- **Four mutation survivors remain in this task's own suite**, all rooted in the same fact:
+  the global semantic generation is a scalar in the full key and moves on every edit, so
+  per-field key *content* is nearly untestable through pointer identity. Deleting the whole
+  `visualContent`/`interaction` collision key, the `LayoutCycle` rate limit, the `lru.splice`
+  recency update, and the viewport-generation exhaustion check each leave the suite green.
+  `LastVisualKeyEntryCount()` now gives partial observability. **Owner: Task 11.2**, which
+  needs the collision key to be load-bearing when render payloads depend on it.
+- **The legacy immediate path and the snapshot path are not proven to agree.**
+  `UISystem::CollectRender` resolves float screen rects with per-node recursion; `Build`
+  resolves checked 26.6 against a validated logical viewport with one gathered DFS. Only the
+  legacy path renders at this milestone, so they cannot disagree yet. **Owner: Task 11.1.**
 
 ### Task 11.1: Publish concrete render and hit payloads with one nested clip
 

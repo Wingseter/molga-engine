@@ -79,6 +79,23 @@ public:
     bool RevisionCacheable() const noexcept { return revisionCacheable_; }
     void ClearDirtyMask() noexcept { dirtyMask_ = 0; }
 
+    // enable/disable은 저작 상태이고 직렬화되지만(SceneSerializer), 기본 구현은
+    // revision도 의미 세대도 건드리지 않는다. 그런데 배치는 모든 것을
+    // IsEnabled()로 거른다 — EnabledComponent<T>, IsCanvasRoot,
+    // ObjectIsInteractionEligible. 그래서 컴포넌트 하나를 끄면 저작 상태가
+    // 실제로 달라졌는데도 빠른 경로의 도장은 그대로고, 낡은 스냅샷이 영원히
+    // 돌아온다. enabled 값은 canonicalAuthoredPayload에도 들어 있지 않으므로
+    // 기하 키조차 두 상태를 구분하지 못한다.
+    //
+    // 켜고 끄는 것은 이 컴포넌트가 배치·렌더·히트에 참여하는지를 통째로 바꾸는
+    // 일이라 모든 축을 무효화한다. revision은 한 번만 올린다 — 축마다 한 번씩
+    // 올리면 같은 한 번의 저작이 다섯 개의 서로 다른 정체성을 만든다.
+    void SetEnabled(bool value) override {
+        if (IsEnabled() == value) return;
+        Component::SetEnabled(value);
+        Invalidate(static_cast<UIInvalidation>(UIAllInvalidationBits));
+    }
+
 #ifdef MOLGA_UI_COMPONENT_TESTING
     // 테스트 타깃에서만 컴파일된다. 데이터 멤버도 가상 함수도 늘리지 않으므로
     // 이 헤더를 매크로 없이 본 molga_core의 레이아웃과 동일하다. 소진 경계는

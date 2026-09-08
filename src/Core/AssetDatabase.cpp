@@ -1,4 +1,8 @@
 #include "Core/AssetDatabase.h"
+
+#include "UI/UILayoutSystem.h"
+#include "UI/UIRuntimeInvalidation.h"
+#include "Common/Sha256.h"
 #include "Core/AssetMeta.h"
 #include "Assets/FontArtifactStore.h"
 #include "Common/Log.h"
@@ -279,6 +283,48 @@ nlohmann::json PublishedImportFingerprint(const molga::AssetRecord& record) {
 
 bool TracksContentGeneration(const std::string& importer) {
     return importer == "FontImporter" || importer == "FontFamilyImporter";
+}
+
+// Task 10.2 Step 4d/4j: 저작된 텍스처 GUID가 "지금 실제로 담고 있는 바이트"를
+// UI에 알린다. 카탈로그가 GUID → 원본 바이트의 유일한 권한이므로 발행도 여기서
+// 한다. TextureManager는 경로로 색인되고 살아 있는 GraphicsDevice가 있어야만
+// 무언가를 담으므로, 그쪽에서 발행하면 헤드리스 편집 세션과 import 시점에는
+// 정체성이 아예 없다.
+//
+// 내용 SHA와 거기서 유도한 안정 ID만 쓴다. AssetRecord::hash는 64bit FNV라
+// 충돌이 실제로 가능하고, 프로세스 지역 import/upload 순번은 같은 내용을 다시
+// 열기만 해도 달라져 warm 캐시를 통째로 무력화한다.
+std::uint64_t StableIdFromSha256(const std::string& sha256Hex) {
+    std::uint64_t id = 0;
+    for (std::size_t index = 0; index < 16U && index < sha256Hex.size(); ++index) {
+        const char digit = sha256Hex[index];
+        std::uint64_t value = 0;
+        if (digit >= '0' && digit <= '9') value = static_cast<std::uint64_t>(digit - '0');
+        else if (digit >= 'a' && digit <= 'f') value = static_cast<std::uint64_t>(digit - 'a') + 10U;
+        else if (digit >= 'A' && digit <= 'F') value = static_cast<std::uint64_t>(digit - 'A') + 10U;
+        else return 0;
+        id = (id << 4) | value;
+    }
+    // 0은 "정체성 없음"이라 안정 ID로 쓸 수 없다. 앞 16자리가 전부 0인 SHA는
+    // 사실상 나오지 않지만, 그 경우에도 유효한 값을 돌려주어야 소비자가 0을
+    // 특별 취급하지 않아도 된다.
+    return id == 0 ? 1U : id;
+}
+
+// 성공적으로 import된 텍스처의 원본 바이트를 해싱해 발행한다. 같은 내용을 다시
+// 스캔하면 Publish가 거짓을 돌려주므로 의미 세대는 움직이지 않는다.
+void PublishTextureContentIdentity(const std::string& guid,
+                                   const std::filesystem::path& absPath) {
+    std::string hashError;
+    const std::string sha256 = molga::Sha256File(absPath, &hashError);
+    // 읽지 못한 바이트는 검증된 내용이 아니다. 직전 정체성을 그대로 두는 것이
+    // 옳다 — 비어 있는 SHA를 발행하면 서로 다른 두 텍스처가 같은 정체성을 갖게
+    // 된다.
+    if (sha256.empty()) return;
+    molga::ui::UITextureContentIdentity identity;
+    identity.contentSha256 = sha256;
+    identity.contentStableId = StableIdFromSha256(sha256);
+    molga::ui::UITextureContentRegistry::Get().Publish(guid, identity);
 }
 
 } // namespace
@@ -584,8 +630,35 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
             if (PublishedImportFingerprint(*previous) !=
                 PublishedImportFingerprint(rec)) {
                 ++contentGenerations_[rec.guid];
+                // Task 10.2 Step 4j: face 바이트와 family의 fallback 순서/스타일
+                // 표가 실제로 달라졌을 때만 UI 의미 epoch을 올린다. 이 자리여야
+                // 하는 이유: artifact는 FontImporter에서만 채워지므로 위쪽
+                // `if (artifact)`는 .fontfamily 자산에서 절대 실행되지 않고,
+                // family의 fallback 순서를 바꿔도 UI가 옛 순서로 계속 그려진다.
+                // TracksContentGeneration은 FontImporter와 FontFamilyImporter를
+                // 모두 포함하고, 위 fingerprint 비교가 "성공적인 불변 교체"만
+                // 통과시킨다(실패/무변경 reload는 여기 오지 않는다).
+                molga::ui::NotifyUISemanticMutation();
             }
         }
+    }
+
+    // Task 10.2 Step 4j: 검증된 텍스처 내용 SHA의 교체도 같은 의미 epoch을
+    // 움직인다. 중복 GUID 검사 뒤에 오는 이유는 폰트 쪽과 같다: 실패로 끝날
+    // record가 정체성을 먼저 발행하면 안 된다. Publish가 실제 변경만 참으로
+    // 판정하므로, 바이트가 그대로인 재스캔은 세대를 움직이지 않는다.
+    if (rec.importer == "TextureImporter" && !rec.importFailed) {
+        // rec.hash는 바로 위에서 같은 파일을 통째로 읽어 만든 값이다. 그것이
+        // 그대로면 바이트도 그대로이므로 두 번째 전체 읽기 + SHA는 순수한
+        // 낭비다 — 수천 장짜리 프로젝트에서 새로 고침마다 눈에 띈다. 이미
+        // 발행된 정체성이 있고 해시가 같을 때만 건너뛴다: 정체성이 아직 없으면
+        // (첫 스캔, 또는 이전에 읽지 못한 파일) 반드시 발행해야 한다.
+        const AssetRecord* previous = PreviouslyPublished(rec.guid);
+        const bool bytesUnchanged =
+            previous != nullptr && previous->hash == rec.hash &&
+            molga::ui::UITextureContentRegistry::Get().Find(rec.guid)
+                .has_value();
+        if (!bytesUnchanged) PublishTextureContentIdentity(rec.guid, absPath);
     }
 
     sourceToGuid_[rec.sourcePath] = rec.guid;

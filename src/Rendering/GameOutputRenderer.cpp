@@ -1,5 +1,7 @@
 #include "Rendering/GameOutputRenderer.h"
 
+#include "Core/World.h"
+
 #include "Common/Log.h"
 #include "ECS/Components/Camera.h"
 #include "ECS/GameObject.h"
@@ -101,7 +103,7 @@ bool DrawPreparedWorldLayer(PreparedWorldLayer2D& prepared,
     return renderer.EndTarget(&error);
 }
 
-bool RenderUiLayer(const std::vector<std::shared_ptr<GameObject>>& objects,
+bool RenderUiLayer(World& world,
                    PixelSize logicalSize, RenderTarget& target,
                    Renderer& renderer, Shader* spriteShader,
                    TextRenderer& textRenderer,
@@ -119,7 +121,7 @@ bool RenderUiLayer(const std::vector<std::shared_ptr<GameObject>>& objects,
         uiPolicy = *derived;
     }
     UISystem::Get().CollectRender(
-        objects,
+        world,
         {static_cast<float>(logicalSize.width),
          static_cast<float>(logicalSize.height)},
         queue, textRenderer, textDiagnostics, uiPolicy);
@@ -203,7 +205,7 @@ Camera* GameOutputRenderer::FindMainCamera(
 }
 
 GameOutputResult GameOutputRenderer::RenderLogical(
-    const std::vector<std::shared_ptr<GameObject>>& objects,
+    World& world,
     PixelSize logicalSize, Renderer& renderer, Shader* spriteShader,
     TextRenderer& textRenderer,
     molga::text::TextDiagnosticSink& textDiagnostics) {
@@ -211,6 +213,8 @@ GameOutputResult GameOutputRenderer::RenderLogical(
     if (!logicalSize.IsValid() || !spriteShader || !renderer.HasFrame()) {
         return result;
     }
+    // 카메라와 세계 순회만 목록을 유도한다. UI는 World 자체를 받는다.
+    const auto& objects = world.Objects();
     result.cameraLayout = CameraOutputLayout::Build(objects, logicalSize);
     result.mainCamera = result.cameraLayout.PrimaryCamera();
 
@@ -431,7 +435,7 @@ GameOutputResult GameOutputRenderer::RenderLogical(
         result.cameraResults.push_back(cameraResult);
     }
 
-    if (!RenderUiLayer(objects, logicalSize, logicalFramebuffer_, renderer,
+    if (!RenderUiLayer(world, logicalSize, logicalFramebuffer_, renderer,
                        spriteShader, textRenderer, textDiagnostics, error)) {
         Log::Warn("GameOutput", "UI pass failed: " + error);
     }
@@ -451,7 +455,7 @@ GameOutputResult GameOutputRenderer::RenderLogical(
 }
 
 GameOutputResult GameOutputRenderer::Render(
-    const std::vector<std::shared_ptr<GameObject>>& objects,
+    World& world,
     const GameOutputRequest& request, Renderer& renderer,
     Shader* spriteShader, TextRenderer& textRenderer,
     molga::text::TextDiagnosticSink& textDiagnostics) {
@@ -485,7 +489,7 @@ GameOutputResult GameOutputRenderer::Render(
         return result;
     }
     const OutputPresentationLayout presentation = result.presentation;
-    result = RenderLogical(objects, logicalSize, renderer, spriteShader,
+    result = RenderLogical(world, logicalSize, renderer, spriteShader,
                            textRenderer, textDiagnostics);
     result.presentation = presentation;
 
@@ -505,12 +509,12 @@ GameOutputResult GameOutputRenderer::Render(
 }
 
 GameOutputResult GameOutputRenderer::Render(
-    const std::vector<std::shared_ptr<GameObject>>& objects,
+    World& world,
     PixelSize outputSize, Renderer& renderer, Shader* spriteShader,
     TextRenderer& textRenderer,
     molga::text::TextDiagnosticSink& textDiagnostics) {
     GameOutputRenderer path;
-    return path.Render(objects,
+    return path.Render(world,
         GameOutputRequest{outputSize, outputSize,
                           GameOutputScaleMode::Native, nullptr},
         renderer, spriteShader, textRenderer, textDiagnostics);

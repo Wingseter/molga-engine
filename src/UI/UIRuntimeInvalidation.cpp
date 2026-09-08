@@ -68,6 +68,30 @@ std::optional<std::uint64_t> UIRuntimeInvalidationClock::Advance(
     }
 }
 
+namespace {
+// 프로세스 하나에 UI 런타임은 하나다. 등록되지 않았다면 UI가 한 번도 만들어진
+// 적이 없다는 뜻이고, 그때는 비울 캐시도 없다.
+UIWorldReleaseHandler g_worldReleaseHandler = nullptr;
+} // namespace
+
+UIWorldReleaseHandler SetUIWorldReleaseHandler(
+    UIWorldReleaseHandler handler) noexcept {
+    UIWorldReleaseHandler previous = g_worldReleaseHandler;
+    g_worldReleaseHandler = handler;
+    return previous;
+}
+
+void NotifyUIWorldReleased(std::uint64_t worldGeneration) noexcept {
+    if (worldGeneration == 0 || !g_worldReleaseHandler) return;
+    g_worldReleaseHandler(worldGeneration);
+}
+
+bool NotifyUISemanticMutation() noexcept {
+    return UIRuntimeInvalidationClock::Advance(
+               UIRuntimeGenerationKind::SemanticDirty)
+        .has_value();
+}
+
 ScopedUIRuntimeGenerationForTesting::ScopedUIRuntimeGenerationForTesting(
     UIRuntimeGenerationKind kind, std::uint64_t value) noexcept
     : kind_(kind),

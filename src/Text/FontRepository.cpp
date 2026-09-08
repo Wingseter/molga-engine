@@ -1,5 +1,7 @@
 #include "Text/FontRepository.h"
 
+#include "UI/UIRuntimeInvalidation.h"
+
 #include "Assets/FontArtifactStore.h"
 #include "Common/Sha256.h"
 #include "Core/AssetDatabase.h"
@@ -95,10 +97,16 @@ FontFaceResourcePtr FontRepository::FindCached(const std::string& fontGuid,
 void FontRepository::Publish(const std::string& fontGuid,
                              FontFaceResourcePtr resource) const {
     cache_[fontGuid][resource->faceIndex] = std::move(resource);
+    // Task 10.2 Step 4j: 불변 face 자원이 실제로 발행된 뒤에만 의미 세대가
+    // 오른다. 이 GUID를 쓰는 라벨의 고유 크기가 달라질 수 있다.
+    molga::ui::NotifyUISemanticMutation();
 }
 
 void FontRepository::Invalidate(const std::string& fontGuid) {
-    cache_.erase(fontGuid);
+    // 캐시에 없던 GUID를 무효화하는 것은 교체가 아니다. 그때도 세대를 올리면
+    // hot reload 감시자가 매 프레임 UI 캐시를 통째로 비운다.
+    if (cache_.erase(fontGuid) == 0) return;
+    molga::ui::NotifyUISemanticMutation();
 }
 
 std::optional<FontFaceResourcePtr> FontRepository::Load(

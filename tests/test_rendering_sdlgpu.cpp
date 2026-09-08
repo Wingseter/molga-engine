@@ -19,6 +19,7 @@
 #include "Rendering/Camera2D.h"
 #include "Rendering/FontAtlas.h"
 #include "Rendering/FontFace.h"
+#include "Core/World.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/PostProcessPipeline.h"
 #include "Rendering/PostProcessProfile2D.h"
@@ -74,7 +75,7 @@ bool Acquire(EngineHost& host, Renderer& renderer, std::string& error) {
 
 bool RenderOutputFrame(
     EngineHost& host, Renderer& renderer, molga::GameOutputRenderer& output,
-    const std::vector<std::shared_ptr<GameObject>>& objects,
+    World& objects,
     molga::RenderTarget& target, molga::PixelSize logicalSize,
     molga::GameOutputScaleMode scaleMode, molga::GameOutputResult& result,
     std::string& error) {
@@ -327,7 +328,7 @@ struct OutputCameraFixture {
 };
 
 OutputCameraFixture AddOutputCamera(
-    std::vector<std::shared_ptr<GameObject>>& objects, const char* name,
+    World& objects, const char* name,
     CameraOutputRole role, const CameraViewport& viewport, int depth,
     const Color& background) {
     auto object = std::make_shared<GameObject>(name);
@@ -339,11 +340,11 @@ OutputCameraFixture AddOutputCamera(
     camera->SetPixelPerfect(true);
     camera->SetPixelZoom(1);
     camera->SetBackgroundColor(background);
-    objects.push_back(object);
+    objects.Add(object);
     return {std::move(object), camera};
 }
 
-void AddLayerPixel(std::vector<std::shared_ptr<GameObject>>& objects,
+void AddLayerPixel(World& objects,
                    const char* name, int layer, const Color& color) {
     auto object = std::make_shared<GameObject>(name);
     object->SetLayer(layer);
@@ -351,7 +352,7 @@ void AddLayerPixel(std::vector<std::shared_ptr<GameObject>>& objects,
     auto* sprite = object->AddComponent<SpriteRenderer>();
     sprite->SetSize(1.0f, 1.0f);
     sprite->SetColor(color);
-    objects.push_back(std::move(object));
+    objects.Add(std::move(object));
 }
 
 // ── Task 6.3: 제출된 프레임이 붙들고 있는 glyph page 하나 ────────────────────
@@ -947,7 +948,7 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
     molga::RenderSystem2D::Get().Init();
     molga::GameOutputRenderer output;
 
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     auto cameraObject = std::make_shared<GameObject>("Camera");
     cameraObject->AddComponent<Transform>(0.0f, 0.0f);
     Camera* camera = cameraObject->AddComponent<Camera>();
@@ -955,7 +956,7 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
     camera->SetPixelPerfect(true);
     camera->SetPixelZoom(1);
     camera->SetBackgroundColor(Color::Black());
-    objects.push_back(cameraObject);
+    objects.Add(cameraObject);
 
     const auto addPixel = [&](float x, float y, const Color& color) {
         auto object = std::make_shared<GameObject>("Pixel");
@@ -963,7 +964,7 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
         auto* sprite = object->AddComponent<SpriteRenderer>();
         sprite->SetSize(1.0f, 1.0f);
         sprite->SetColor(color);
-        objects.push_back(std::move(object));
+        objects.Add(std::move(object));
     };
     addPixel(0.0f, 0.0f, Color::Red());
     addPixel(1.0f, 0.0f, Color::Green());
@@ -1016,20 +1017,20 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
     REQUIRE(croppedPixels.size() == 4U);
     CHECK(IsColor(Pixel(croppedPixels, 1, 0, 0), 255, 255, 255));
 
-    std::vector<std::shared_ptr<GameObject>> uiOnly;
+    World uiOnly;
     auto canvasObject = std::make_shared<GameObject>("Canvas");
     canvasObject->AddComponent<UICanvas>()->SetReferenceResolution({2.0f, 2.0f});
     auto* canvasRect = canvasObject->AddComponent<RectTransform>();
     canvasRect->SetAnchors({0.0f, 0.0f}, {1.0f, 1.0f});
     canvasRect->SetSizeDelta({0.0f, 0.0f});
-    uiOnly.push_back(canvasObject);
+    uiOnly.Add(canvasObject);
     auto imageObject = std::make_shared<GameObject>("Full UI Image");
     auto* imageRect = imageObject->AddComponent<RectTransform>();
     imageRect->SetAnchors({0.0f, 0.0f}, {1.0f, 1.0f});
     imageRect->SetSizeDelta({0.0f, 0.0f});
     imageObject->AddComponent<UIImage>()->SetTint(Color::Red());
     imageObject->SetParent(canvasObject.get());
-    uiOnly.push_back(imageObject);
+    uiOnly.Add(imageObject);
 
     molga::RenderTarget uiTarget;
     REQUIRE(uiTarget.Init(2, 2, &error));
@@ -1063,7 +1064,7 @@ TEST_CASE("SDL_GPU composes split PIP cameras and camera-local culling") {
     molga::RenderTarget target;
     REQUIRE(target.Init(8, 4, &error));
 
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     const auto base = AddOutputCamera(
         objects, "Primary Split", CameraOutputRole::Primary,
         {0.0f, 0.0f, 0.5f, 0.75f}, 0, Color::Red());
@@ -1118,7 +1119,7 @@ TEST_CASE("SDL_GPU composes split PIP cameras and camera-local culling") {
     const auto deeperPixels = ReadTarget(*host, target, error);
     CHECK(IsColor(Pixel(deeperPixels, 8, 3, 1), 0, 255, 0));
 
-    std::vector<std::shared_ptr<GameObject>> culledObjects;
+    World culledObjects;
     const auto layerOne = AddOutputCamera(
         culledObjects, "Layer One", CameraOutputRole::Secondary,
         {0.0f, 0.0f, 0.5f, 1.0f}, 0, Color::Black());
@@ -1148,7 +1149,7 @@ TEST_CASE("SDL_GPU composes split PIP cameras and camera-local culling") {
     CHECK(IsColor(Pixel(culledPixels, 4, 1, 1), 0, 0, 0));
     CHECK(IsColor(Pixel(culledPixels, 4, 3, 1), 0, 0, 0));
 
-    std::vector<std::shared_ptr<GameObject>> fallbackObjects;
+    World fallbackObjects;
     const auto fallbackCamera = AddOutputCamera(
         fallbackObjects, "Missing PostFX Profile", CameraOutputRole::Primary,
         {0.0f, 0.0f, 0.5f, 1.0f}, 0, Color::Green());
@@ -1417,7 +1418,7 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     molga::RenderSystem2D::Get().Init();
 
     molga::GameOutputRenderer output;
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     const auto litCamera = AddOutputCamera(
         objects, "Lit Primary", CameraOutputRole::Primary,
         {0.0f, 0.0f, 0.5f, 1.0f}, 0, Color::Black());
@@ -1438,14 +1439,14 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     REQUIRE(light->SetRadius(100.0f));
     REQUIRE(light->SetHeight(0.0f));
     REQUIRE(light->SetFalloff(1.0f));
-    objects.push_back(lightObject);
+    objects.Add(lightObject);
 
     auto spriteObject = std::make_shared<GameObject>("White Receiver");
     spriteObject->AddComponent<Transform>(0.0f, 0.0f);
     auto* sprite = spriteObject->AddComponent<SpriteRenderer>();
     sprite->SetSize(1.0f, 1.0f);
     sprite->SetColor(Color::White());
-    objects.push_back(spriteObject);
+    objects.Add(spriteObject);
 
     molga::RenderTarget splitTarget;
     REQUIRE(splitTarget.Init(4, 1, &error));
@@ -1494,7 +1495,7 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     CHECK_FALSE(disabled.lightingApplied);
     CHECK(output.CachedLightingPipelineCount() == 0U);
 
-    std::vector<std::shared_ptr<GameObject>> shadowObjects;
+    World shadowObjects;
     const auto shadowCamera = AddOutputCamera(
         shadowObjects, "Shadow Camera", CameraOutputRole::Primary,
         {0, 0, 1, 1}, 0, Color::Black());
@@ -1510,7 +1511,7 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     REQUIRE(shadowLight->SetHeight(32.0f));
     REQUIRE(shadowLight->SetFalloff(1.0f));
     shadowLight->SetCastsShadows(true);
-    shadowObjects.push_back(shadowLightObject);
+    shadowObjects.Add(shadowLightObject);
 
     auto largeReceiver = std::make_shared<GameObject>("Large Receiver");
     largeReceiver->AddComponent<Transform>(0.0f, 0.0f);
@@ -1518,13 +1519,13 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     largeSprite->SetSize(8.0f, 4.0f);
     largeSprite->SetColor(Color::White());
     largeSprite->SetLightingMode(SpriteLightingMode2D::Lit);
-    shadowObjects.push_back(largeReceiver);
+    shadowObjects.Add(largeReceiver);
 
     auto occluderObject = std::make_shared<GameObject>("Occluder");
     occluderObject->AddComponent<Transform>(3.0f, 2.0f);
     auto* occluder = occluderObject->AddComponent<ShadowOccluder2D>();
     REQUIRE(occluder->SetBox(Vector2::Zero(), {1.0f, 2.0f}));
-    shadowObjects.push_back(occluderObject);
+    shadowObjects.Add(occluderObject);
 
     molga::GameOutputRenderer shadowOutput;
     molga::RenderTarget shadowTarget;
@@ -1608,7 +1609,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     REQUIRE(renderer.Init(&error));
     molga::RenderSystem2D::Get().Init();
 
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     const auto camera = AddOutputCamera(
         objects, "Normal Camera", CameraOutputRole::Primary,
         {0, 0, 1, 1}, 0, Color::Black());
@@ -1623,7 +1624,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     REQUIRE(light->SetRadius(10.0f));
     REQUIRE(light->SetHeight(0.0f));
     REQUIRE(light->SetFalloff(1.0f));
-    objects.push_back(lightObject);
+    objects.Add(lightObject);
 
     auto receiverObject = std::make_shared<GameObject>("Normal Receiver");
     auto* receiverTransform = receiverObject->AddComponent<Transform>(0, 0);
@@ -1632,7 +1633,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     receiver->SetSize(1.0f, 1.0f);
     receiver->SetLightingMode(SpriteLightingMode2D::Lit);
     receiver->SetNormalMapGuid(normalGuid);
-    objects.push_back(receiverObject);
+    objects.Add(receiverObject);
 
     molga::GameOutputRenderer output;
     molga::RenderTarget target;
@@ -1664,7 +1665,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     CHECK(flipped[1] < 8);
     CHECK(flipped[2] < 8);
 
-    objects.clear();
+    objects.Clear();
     molga::RenderSystem2D::Get().Shutdown();
     TextureManager::Get().Clear();
     molga::AssetDatabase::Get().Clear();

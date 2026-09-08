@@ -48,6 +48,12 @@ public:
     std::uint64_t Generation() const noexcept { return generation_; }
 
     GameObject* Add(std::shared_ptr<GameObject> obj);
+    // 에디터의 붙여넣기/실행취소는 순서를 보존해야 하고, 삭제는 id 집합으로
+    // 들어온다. 그 두 경로가 objects_를 직접 만지면 Add에 달린 계층 알림을
+    // 건너뛰므로, 세 mutator를 모두 여기 둔다 — World가 계층 변경을 발행하는
+    // 유일한 자리라는 계약이 그때만 참이 된다.
+    GameObject* InsertAt(std::shared_ptr<GameObject> obj, std::size_t index);
+    void RemoveByIds(const std::vector<unsigned int>& ids);
     GameObject* FindById(unsigned int id) const;
     GameObject* FindWithTag(const std::string& tag) const;
     std::vector<GameObject*> FindAllWithTag(const std::string& tag) const;
@@ -80,6 +86,15 @@ public:
 
     void Clear();
     void Shutdown() noexcept;
+
+    // Task 10.2: 씬 교체가 LoadFromFile/Clear를 거치지 않고 Objects()를 통해
+    // 밖에서 일어났을 때, 성공한 직후 새 세대를 발행한다. 이것이 없으면 그
+    // 교체는 살아 있는 런타임 식별자와 세대로 키를 잡는 캐시에 보이지 않고,
+    // 다음 프레임이 이전 씬의 기하를 그대로 재사용한다.
+    //
+    // 소진되면 던진다. AcquireWorldGeneration과 같은 계약이다 — 감아서
+    // 재사용하면 옛 세대가 새 씬을 가리킨다.
+    void RepublishGenerationAfterExternalReplacement();
 
     std::vector<std::shared_ptr<GameObject>>& Objects() { return objects_; }
     const std::vector<std::shared_ptr<GameObject>>& Objects() const { return objects_; }

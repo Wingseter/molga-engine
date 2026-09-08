@@ -645,14 +645,31 @@ molga_add_test(test_ui_identity test_ui_identity.cpp)
 molga_add_test(test_ui_components test_ui_components.cpp)
 target_compile_definitions(test_ui_components PRIVATE MOLGA_UI_COMPONENT_TESTING)
 
-# Task 10.1: checked fixed-point geometry and semantic layout snapshots are
-# plain value/JSON contracts. No ICU or HarfBuzz object is constructed here, so
-# these stay molga_add_test targets rather than session-backed ones.
-# Task 10.2 Step 1 re-registers test_ui_snapshot through molga_add_text_test
-# before its fixture constructs TextLayoutService; leave this line as the one to
-# replace rather than adding a second registration next to it.
+# Task 10.1: checked fixed-point geometry is a plain value contract. No ICU or
+# HarfBuzz object is constructed here, so this stays a molga_add_test target.
 molga_add_test(test_ui_fixed test_ui_fixed.cpp)
-molga_add_test(test_ui_snapshot test_ui_snapshot.cpp)
+
+# Task 10.2 Step 1: every layout-bearing fixture constructs a TextLayoutService,
+# which needs the one process-wide ICU lifetime that only a session-backed
+# executable owns. Both targets therefore go through molga_add_text_test — which
+# already performs the idempotent molga_attach_text_dependencies, supplies the
+# single MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT resource root, and links
+# text_doctest_main instead of doctest_main. A second explicit attach or a
+# second main would give the process two text runtimes.
+molga_add_text_test(test_ui_snapshot test_ui_snapshot.cpp)
+molga_add_text_test(test_ui_layout test_ui_layout.cpp)
+# SetAuthoredRevisionForTesting is the only way to reach the revision-exhaustion
+# boundary without authoring 2^64 times; the macro adds no member and no virtual,
+# so this target sees the same UIComponent layout molga_core was built with.
+target_compile_definitions(test_ui_layout PRIVATE MOLGA_UI_COMPONENT_TESTING)
+target_include_directories(test_ui_layout PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+# Step 4j의 네 게시 경계(폰트 face 바이트, family fallback/style map, 확정된
+# 텍스트 배치, 검증된 텍스처 내용 SHA)는 전부 실제 카탈로그와 실제 폰트
+# 바이트를 지나야 관찰된다. 알림 함수를 테스트가 직접 부르면 훅을 통째로
+# 지워도 스위트가 초록이므로, 이 픽스처 트리가 그 경계를 프로덕션 입구로
+# 바꿔 준다.
+target_compile_definitions(test_ui_layout PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
