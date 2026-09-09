@@ -75,6 +75,18 @@ target_sources(test_create_sprite_from_asset PRIVATE
 # text test uses. MOLGA_TEXT_INTER_FONT is the hot-reload fixture's replacement
 # face; the test never discovers a host font.
 molga_add_text_test(test_text         test_text.cpp)
+# ── Task 11.3 gate note: 이것은 실패가 아니라 시간 상한이다 ───────────────────
+# test_text는 29/29를 통과하면서 이 기계에서 **63.7초**가 걸린다 — CMakePresets의
+# 전역 60초 상한 바로 위다. 상한에 걸터앉아 있으므로 기계 부하에 따라 통과와
+# Timeout 사이를 오간다(Task 11.3의 전체 스위트 실행에서 60.03초에 잘렸고,
+# 곧바로 단독 실행에서는 29/29 통과했다). Task 11.2가 test_ui_render_clip에
+# 세운 선례와 같은 처리다: 재는 것을 시계에 맞춰 줄이는 것은 재는 것을 지우는
+# 일이므로, 이 실행 파일에만 자기 상한을 준다.
+#
+# 이 파일도 이 시험도 Task 11.3이 건드리지 않았다. 63.7초는 이 태스크가 만든
+# 값이 아니라 물려받은 값이며, 진짜 원인(왜 텍스트 스위트가 1분을 넘는가)은
+# 워크로드 게이트를 세우는 **Task 18.3**의 것이다.
+set_tests_properties(test_text PROPERTIES TIMEOUT 600)
 target_compile_definitions(test_text PRIVATE MOLGA_TEXT_INTER_FONT="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf")
 target_compile_definitions(test_text PRIVATE
     MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
@@ -691,6 +703,22 @@ set_tests_properties(test_ui_render_clip PROPERTIES TIMEOUT 600)
 # observable through the production publishing entry points.
 target_compile_definitions(test_ui_render_clip PRIVATE
     MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
+# Task 11.3: every scroll fixture builds a real snapshot through
+# UILayoutSystem::Build, which takes a TextLayoutService — and that needs the
+# one process-wide ICU lifetime only a session-backed executable owns. The
+# label-diagnostic case additionally needs real font bytes and a real catalog,
+# because the payload limiter is only observable through the production
+# publishing entry point.
+molga_add_text_test(test_ui_scroll test_ui_scroll.cpp)
+target_include_directories(test_ui_scroll PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui_scroll PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+# Step 2e의 스크롤 절반은 4096번의 의미 미스를 요구한다(그 4096은 계약의
+# 일부다: 낮추면 "상한이 있다"와 "천천히 자란다"가 구별되지 않는다). 프리셋의
+# 전역 60초 상한을 넘길 수 있으므로 이 실행 파일에만 자기 상한을 준다 —
+# 계약을 시간에 맞추는 것은 계약을 지우는 것이다.
+set_tests_properties(test_ui_scroll PROPERTIES TIMEOUT 600)
 
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)

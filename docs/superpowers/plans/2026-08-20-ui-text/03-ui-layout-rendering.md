@@ -3546,7 +3546,7 @@ files. It also owns routing `NotifyUIWorldReleased` into
 - Consumes: authored `UIScrollView`, complete runtime identities, fixed layout snapshots, viewport/content `SceneObjectRef`, and fixed-point time/deltas.
 - Produces: `UIDeterministicTick`, `UIScrollState`, `UIScrollInput`, `UIScrollMutation`, `UIScrollSystem::{ApplyInput,AdvanceTick,State,OnWorldReleased}` and arrangement/render invalidation for Task 12's one-event/tick orchestrator.
 
-- [ ] **Step 1a: Write the failing signed delta/axis test.**
+- [x] **Step 1a: Write the failing signed delta/axis test.**
 
   ```cpp
   TEST_CASE("scroll preserves signed deltas and axis selection") {
@@ -3564,7 +3564,7 @@ files. It also owns routing `NotifyUIWorldReleased` into
   }
   ```
 
-- [ ] **Step 1b: Write the failing runtime-only serialization test.**
+- [x] **Step 1b: Write the failing runtime-only serialization test.**
 
   ```cpp
   TEST_CASE("scroll runtime state is not serialized") {
@@ -3576,7 +3576,7 @@ files. It also owns routing `NotifyUIWorldReleased` into
   }
   ```
 
-- [ ] **Step 1c: Write the failing exact elastic recurrence test.**
+- [x] **Step 1c: Write the failing exact elastic recurrence test.**
 
   ```cpp
   TEST_CASE("elastic fixed step uses the exact signed 26.6 recurrence") {
@@ -3595,7 +3595,7 @@ files. It also owns routing `NotifyUIWorldReleased` into
   }
   ```
 
-- [ ] **Step 1d: Write the failing stable-identity iteration test.**
+- [x] **Step 1d: Write the failing stable-identity iteration test.**
 
   ```cpp
   TEST_CASE("fixed step visits complete identities in stable order") {
@@ -3611,11 +3611,11 @@ files. It also owns routing `NotifyUIWorldReleased` into
   }
   ```
 
-- [ ] **Step 1e: Write the failing exact scroll policy matrix.**
+- [x] **Step 1e: Write the failing exact scroll policy matrix.**
 
   Add one table row each for authored initial normalized position, clamped movement, sensitivity, inertia-off, disabled axis, nested-mask parity, invalid references, checked-overflow fail-closed, identity replacement, and world release. Give every row exact raw input/output and diagnostic counts. The `64 -> 48` fixture is intentionally above legal `[-640,0]`; its declared viewport extent is 640 raw units.
 
-- [ ] **Step 1f: Write a failing deterministic-tick identity/replay test.**
+- [x] **Step 1f: Write a failing deterministic-tick identity/replay test.**
 
   ```cpp
   TEST_CASE("scroll consumes exact deterministic UI ticks") {
@@ -3646,7 +3646,7 @@ files. It also owns routing `NotifyUIWorldReleased` into
 
   Expected: compilation fails because `UIScrollSystem` and its fixed input contract do not exist.
 
-- [ ] **Step 3: Define explicit X/Y and gamepad-axis input.**
+- [x] **Step 3: Define explicit X/Y and gamepad-axis input.**
 
   ```cpp
   namespace molga::ui {
@@ -3692,31 +3692,31 @@ files. It also owns routing `NotifyUIWorldReleased` into
 
   `UIDeterministicTick` is defined in `src/UI/UIDeterministicTick.h` and serialized in canonical traces as exact nonzero integer `tickIndex` plus `deltaSecondsRaw`; no timestamp or floating duration is accepted. `UISystem` owns validation/iteration of the frame tick stream in Task 12.3 and passes each same value to scroll and later caret blink.
 
-- [ ] **Step 4a: Resolve viewport/content refs to complete identities.**
+- [x] **Step 4a: Resolve viewport/content refs to complete identities.**
 
   Resolve viewport/content `SceneObjectRef` through the current world and capture full identities. A missing/replaced ref disables that feature and emits one rate-limited `ReferenceInvalid`; it must not redirect to the same numeric ID in another generation.
 
-- [ ] **Step 4b: Validate authored rates and initialize one runtime scroll state.**
+- [x] **Step 4b: Validate authored rates and initialize one runtime scroll state.**
 
   Convert authored values once with `Fixed26_6::FromFloat`: normalized positions must be in `[0,1]`, sensitivity/deceleration are non-negative per-second rates, and elasticity is a positive per-second return rate for `Elastic`. Normalize signed zero; conversion failure disables only that scroll identity with `LayoutInvalid`. Compute each legal extent from snapshot N and initialize `offset = max + RoundNearestAway((min-max) * normalized)` only when the complete scroll identity has no state.
 
-- [ ] **Step 5a: Apply signed wheel/pointer and named-axis deltas with checked Q6 math.**
+- [x] **Step 5a: Apply signed wheel/pointer and named-axis deltas with checked Q6 math.**
 
   Add wheel/pointer `logicalDelta` per enabled axis and `axisValue` only to its named axis, then multiply by sensitivity with the checked round-nearest/ties-away helper below. Both sources are additive if both are intentionally nonzero. Add the scaled value to `offset`; if inertia is enabled, also add it to velocity, otherwise set velocity to zero. A disabled axis consumes no displacement and remains unchanged.
 
-- [ ] **Step 5b: Apply clamped movement.**
+- [x] **Step 5b: Apply clamped movement.**
 
   Clamp each enabled-axis offset to the current legal content extent immediately and zero outward velocity at the boundary.
 
-- [ ] **Step 5c: Implement checked Q6 multiply and delta validation.**
+- [x] **Step 5c: Implement checked Q6 multiply and delta validation.**
 
   `AdvanceTick` accepts only nonzero `tickIndex` and `1 <= tick.deltaSeconds.Raw() <= 64`; use that exact delta throughout the step. Implement a checked `MulQ6NearestAway(a,b)` using an `int64_t` product, absolute remainder, and final `int32_t` bounds; promote to `int64_t` before absolute-value operations. Every add/subtract is checked before publication.
 
-- [ ] **Step 5d: Iterate runtime states in complete-identity order.**
+- [x] **Step 5d: Iterate runtime states in complete-identity order.**
 
   Copy active keys, sort lexicographically by `(worldGeneration, objectId, componentRuntimeTypeId, componentInstanceId)`, then look up and step each state. Never iterate the unordered table directly.
 
-- [ ] **Step 5e: Apply the exact per-axis elastic/deceleration recurrence.**
+- [x] **Step 5e: Apply the exact per-axis elastic/deceleration recurrence.**
 
   For each enabled axis, execute this order exactly:
 
@@ -3748,23 +3748,23 @@ files. It also owns routing `NotifyUIWorldReleased` into
           nextVelocity = 0
   ```
 
-- [ ] **Step 5f: Fail closed on arithmetic errors and lock the hand fixture.**
+- [x] **Step 5f: Fail closed on arithmetic errors and lock the hand fixture.**
 
   The hand fixture computes `integrated=96`, `retained=48`, `nextVelocity=96`, `overscroll=96`, `returnStep=32`, `correction=48`, and `nextOffset=48`. Any invalid delta or checked-arithmetic failure leaves the prior state unchanged, records the identity in a runtime fail-closed set until its authored revision/world changes, and emits one rate-limited `LayoutInvalid`; it never publishes a partial/wrapped state.
 
-- [ ] **Step 6a: Translate the content subtree during arrangement.**
+- [x] **Step 6a: Translate the content subtree during arrangement.**
 
   Translate the content subtree by runtime offset before final node/render/hit rects are published.
 
-- [ ] **Step 6b: Add semantic scroll displacement to snapshot cache identity.**
+- [x] **Step 6b: Add semantic scroll displacement to snapshot cache identity.**
 
   Before publishing any changed offset, require `UIRuntimeInvalidationClock::Advance(ScrollDisplacement)`; exhaustion leaves the prior offset visible, disables snapshot caching, and emits one blocker rather than aliasing the warm fast-path stamp. Extend the geometry/full-snapshot cache inputs with an ordered collision-checked vector of `{scrollTargetIdentity, offsetXRaw, offsetYRaw, viewportIdentity, contentIdentity}`. Velocity is excluded because it is not visible until it changes offset and does not advance this clock by itself. This vector is derived after the stable identity sort; it contains original fields, not a hash alone. An offset change therefore republishes arranged node/render/hit rects while reusing immutable text shape/layout when constraints are unchanged.
 
-- [ ] **Step 6c: Preserve clip parity and narrow dirty propagation.**
+- [x] **Step 6c: Preserve clip parity and narrow dirty propagation.**
 
   Keep viewport clipping identical for render and hit records. A changed offset returns `arrangementDirty=true`, `renderDirty=true`, and `textShapeDirty=false`; reuse text layout unless its width/height constraint changes.
 
-- [ ] **Step 7: Run scroll, layout, clip, and serialization gates.**
+- [x] **Step 7: Run scroll, layout, clip, and serialization gates.**
 
   ```bash
   cmake --build --preset debug --target test_ui_scroll test_ui_layout \
@@ -3783,9 +3783,98 @@ files. It also owns routing `NotifyUIWorldReleased` into
   git commit -m "feat: add deterministic UI scrolling"
   ```
 
+#### Implementation record — Task 11.3 (2026-09-09)
+
+Landed at **108/108, 0 failures** (verified by the controller independently), with
+`test_ui_scroll` and `test_ui_layout` clean under ASan and UBSan. `test_ui_scroll`
+is 46 cases / 21295 assertions.
+
+**Review shape.** The implementer ran 45 distinct mutations and killed all 45 —
+three survived their first run and were closed, and it re-ran earlier mutations
+after later changes because a fix can silently disarm one. A five-lens adversarial
+review then raised 27 findings, each attacked by three verifiers instructed to
+refute it; **13 were refuted and discarded**, 14 survived into a fix brief. The
+close-out ran 25 more mutations, all killed. Total for the task: **70 mutations**.
+
+**B2 — four lenses converged.** `AdvanceTick` retired a live scroll state on *any*
+`ResolveScroll` failure. Its comment claimed the cause was "component replaced or
+disappeared", but a merely disabled `UIScrollView` or an out-of-range authored rate
+took the same path and erased the user's scroll offset, re-seeding it from
+`initialNormalized` — while `ApplyInput` handled the identical rejection by simply
+returning. `ResolveScroll` now answers `Ok`/`Retired`/`Disabled`/`FailedClosed`, only
+`Retired` may erase, and both entry points route through the one decision.
+
+**B1 — three findings from two lenses, one design decision.** "Content node is not
+in this snapshot" was conflated with "reference is broken", so elastic overscroll
+that pushed short content outside its own viewport clip disabled the axis forever —
+an absorbing state the user could not escape — while also pinning a hidden panel's
+authored start at 0 and burning one of 256 diagnostic slots per hidden scroll view.
+The lookup now returns a four-way `ScrollPresence` keyed only on checkable facts,
+and the authored start seeds on the first *measurable* frame rather than the first
+sighting.
+
+**B3.** The scroll content subtree was matched by bare `objectId`, against the
+Global Constraint that every runtime UI identity is the complete four fields — so an
+empty content identity (objectId 0) could translate an unrelated subtree by a live
+offset. One shared full-identity predicate now serves both sites.
+
+**Three brief items did not hold when checked against the code**, and the close-out
+said so rather than implementing them: one reproduction sequence was unreachable
+because `SetElasticity(0.0f)` on an Elastic view throws (the defect is real; it is
+reached another way); one demanded an assertion that contradicted a constraint the
+same brief marked binding (dropped nodes are canonically excluded, so the correct
+assertion is `== nullptr` plus a recovery check); and one expected an offset of 0
+that the mandated recurrence does not produce — see the decision item below.
+
+**Two pre-existing gaps found, needing owners.**
+- `UILayoutSystem.cpp`'s canvas-root `IsHierarchyActive` gate is unmeasured: under
+  mutation, `test_ui_layout` (39 cases) and `test_ui_render_clip` (55) both stayed
+  fully green. Pre-existing, not disarmed by this task. **Owner: Task 12.1**, the
+  next task to touch canvas gathering.
+- **The geometry cache key cannot see a component replaced by an identically
+  authored one.** `rectAndLayoutRevisions` stores per-component revision *numbers*
+  and `revision_` restarts at 0 for a new component, so remove-then-re-add with the
+  same setter count yields an identical key: the cache hits and `Build` republishes
+  the previous nodes carrying **stale `rectTransform` identities**. This is the same
+  shape as the defects Tasks 11.1 and 11.2 exist to prevent. **Owner: Task 12.1**,
+  which owns freezing target plans against a snapshot and cannot be correct while a
+  snapshot can carry identities of components that no longer exist.
+
+#### DECISION REQUIRED — Step 5e's mandated recurrence does not converge
+
+Verified by the close-out agent and confirmed independently by the controller by
+hand. Step 5e mandates the elastic/deceleration recurrence *verbatim*, and
+`MulQ6NearestAway` rounds ties away from zero. That combination has non-zero fixed
+points, so an elastic scroll never comes to rest at some authored rates.
+
+Using the plan's **own hand-fixture value** `retained = 48`, the velocity sequence
+from the fixture's `nextVelocity = 96` is:
+
+```
+96 -> 72 -> 54 -> 41 -> 31 -> 23 -> 17 -> 13 -> 10 -> 8 -> 6 -> 5 -> 4 -> 3 -> 2 -> 2 -> 2 ...
+```
+
+`2 * 48 / 64 = 1.5`, and ties-away rounds it back to `2`. The settle clause requires
+`abs(nextVelocity) <= 1`, so it never fires and the axis keeps integrating forever.
+The same rounding parks an offset up to 15 raw units outside the legal range when
+`abs(overscroll)` is small enough that `correction` rounds to 0 — and the settle
+clause's other arm requires `<= 1`, so that does not fire either.
+
+This is a defect in the approved design, not in the implementation. The Global
+Constraint "the approved design is authoritative; stop and obtain renewed approval
+before changing public behavior" forbids fixing it here, so **Task 11.3 implements
+Step 5e exactly as written** and its tests isolate the surrounding behaviour with
+`inertia=false, elasticity=1.0` rather than asserting a convergence the formula does
+not deliver.
+
+Whoever owns Step 5e must decide. The plausible repairs are a deadband that zeroes
+velocity below a threshold, round-toward-zero for the decay multiply specifically,
+or widening the settle clause's bounds — each changes published scroll behaviour,
+so none may be taken without approval.
+
 ## Final Verification
 
-- [ ] **Run the complete focused Debug boundary.**
+- [x] **Run the complete focused Debug boundary.**
 
   ```bash
   cmake --preset debug
@@ -3796,13 +3885,13 @@ files. It also owns routing `NotifyUIWorldReleased` into
   ctest --test-dir build/debug -R '^(test_ui_identity|test_ui_components|test_ui_fixed|test_ui_layout|test_ui_snapshot|test_ui_render_clip|test_ui_scroll|test_render_queue|test_rendering_sdlgpu|test_platform_sdl|test_ui)$' --output-on-failure
   ```
 
-- [ ] **Run the complete Debug regression suite.**
+- [x] **Run the complete Debug regression suite.**
 
   ```bash
   ctest --preset debug
   ```
 
-- [ ] **Run source-contract checks.**
+- [x] **Run source-contract checks.**
 
   ```bash
   rg -n 'frameIndex|timestamp' src/UI/UILayoutSnapshot.h

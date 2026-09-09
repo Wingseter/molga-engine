@@ -252,6 +252,13 @@ bool UIRuntimeBindingCacheIdentity::operator==(
            binding == other.binding;
 }
 
+bool UIScrollDisplacementCacheIdentity::operator==(
+    const UIScrollDisplacementCacheIdentity& other) const noexcept {
+    return scrollTarget == other.scrollTarget &&
+           offsetXRaw == other.offsetXRaw && offsetYRaw == other.offsetYRaw &&
+           viewport == other.viewport && content == other.content;
+}
+
 bool UITextInputImeGeometrySnapshot::operator==(
     const UITextInputImeGeometrySnapshot& other) const noexcept {
     return input == other.input &&

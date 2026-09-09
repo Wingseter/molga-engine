@@ -208,6 +208,13 @@ struct UILayoutGeometryCacheKey {
     // UTF-8과 유효 요청이 빠지면 편집 이전의 고유/확정 기하가 재사용되어
     // 화면에 옛 글이 남는다.
     std::vector<UITextInputGeometryCacheIdentity> inputGeometry;
+    // ── Task 11.3 Step 6b: 의미 있는 스크롤 변위 ────────────────────────────
+    // 완전한 식별자 순서로 정렬된 원본 필드 벡터다(해시 하나가 아니다).
+    // 오프셋이 달라지면 배치된 노드/렌더/hit 사각형이 달라지므로 이것은
+    // **기하** 키에 있다 — 전체 키는 이 키를 통째로 담으므로 두 캐시가 같은
+    // 구분을 얻는다. 속도는 여기 없다: 오프셋을 바꾸기 전까지 보이지 않으므로
+    // 넣으면 관성이 잦아드는 동안 매 tick이 배치 전체를 다시 돌린다.
+    std::vector<UIScrollDisplacementCacheIdentity> scrollDisplacements;
     bool operator==(const UILayoutGeometryCacheKey&) const;
     bool operator!=(const UILayoutGeometryCacheKey& other) const {
         return !(*this == other);

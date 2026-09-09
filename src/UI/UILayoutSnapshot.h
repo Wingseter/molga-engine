@@ -99,6 +99,29 @@ struct UIRuntimeBindingCacheIdentity {
     }
 };
 
+// ── Task 11.3 Step 6b: 의미 있는 스크롤 변위 하나 ───────────────────────────
+// 기하/전체 스냅샷 캐시의 입력이다. 원래 필드를 그대로 든다 — 해시 하나로
+// 접으면 서로 다른 두 변위가 한 항목을 나눠 갖고, 그때 화면에 나오는 것은
+// 다른 오프셋으로 배치된 내용이다.
+//
+// velocity는 여기 없다. 속도는 오프셋을 바꾸기 전까지 화면에 보이지 않으므로
+// 그 자체로는 캐시 정체성을 움직이지 않는다. 넣으면 관성이 잦아드는 동안
+// 매 tick이 기하 미스가 되어 배치가 통째로 다시 돈다.
+//
+// 런타임 값이므로 정규 JSON에도 씬/prefab 직렬화에도 들어가지 않는다.
+struct UIScrollDisplacementCacheIdentity {
+    UIRuntimeTargetIdentity scrollTarget;
+    std::int32_t offsetXRaw = 0;
+    std::int32_t offsetYRaw = 0;
+    UIRuntimeTargetIdentity viewport;
+    UIRuntimeTargetIdentity content;
+    bool operator==(const UIScrollDisplacementCacheIdentity&) const noexcept;
+    bool operator!=(
+        const UIScrollDisplacementCacheIdentity& other) const noexcept {
+        return !(*this == other);
+    }
+};
+
 // ── Step 3d/3g: 구체 페이로드 ───────────────────────────────────────────────
 // textureContentStableId는 검증된 GUID/SHA 쌍에서 결정적으로 유도된 값이고,
 // 동등 비교는 언제나 원래의 두 문자열까지 다시 본다 — 유도값만 비교하면 서로

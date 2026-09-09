@@ -16,8 +16,10 @@
 #include "Common/Fixed26_6.h"
 #include "Text/TextDiagnostic.h"
 #include "Text/TextLayoutTypes.h"
+#include "UI/UIHierarchy.h"
 #include "UI/UILayoutSystem.h"
 #include "UI/UIRuntimeIdentity.h"
+#include "UI/UIScrollSystem.h"
 
 #include <algorithm>
 #include <optional>
@@ -41,12 +43,9 @@ int CanvasOrder(GameObject* object) {
     return 0;
 }
 
-bool IsHierarchyActive(GameObject* object) {
-    for (GameObject* node = object; node; node = node->GetParent()) {
-        if (!node->IsActive()) return false;
-    }
-    return true;
-}
+// 규칙의 사본은 하나다(UI/UIHierarchy.h). 여기에 두 번째 벌을 두면 배치가
+// 보는 "활성"과 입력이 보는 "활성"이 갈릴 수 있고, 그 어긋남은 관찰되지 않는다.
+using molga::ui::IsHierarchyActive;
 
 UICanvas* ActiveCanvas(GameObject* object) {
     for (GameObject* node = object; node; node = node->GetParent()) {
@@ -418,6 +417,12 @@ molga::ui::UISnapshotPtr UISystem::BuildLayout(
 
 void UISystem::OnWorldReleased(std::uint64_t worldGeneration) {
     layout_.OnWorldReleased(worldGeneration);
+    // ── Task 11.3: 런타임 스크롤 상태도 이 seam에서만 회수된다 ──────────────
+    // Task 10.2에서 UILayoutSystem::OnWorldReleased는 옳았고, 손으로 시험되었고,
+    // 아무도 부르지 않았다 — 은퇴한 모든 월드 세대가 캐시를 통째로 흘렸다.
+    // 스크롤 표도 같은 모양이므로 같은 라우터에 붙인다: World ->
+    // NotifyUIWorldReleased -> 여기 -> 표 세 개(상태/실패 집합/tick 커서).
+    molga::ui::UIScrollSystem::Get().OnWorldReleased(worldGeneration);
 }
 
 void UISystem::ResetPointerCapture() {

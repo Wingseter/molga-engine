@@ -19,8 +19,10 @@
 #include "ECS/GameObject.h"
 #include "Rendering/TextureBindingRegistry.h"
 #include "Text/TextLayoutService.h"
+#include "UI/UIHierarchy.h"
 #include "UI/UILayoutTypes.h"
 #include "UI/UIRuntimeInvalidation.h"
+#include "UI/UIScrollSystem.h"
 
 #include <nlohmann/json.hpp>
 
@@ -122,13 +124,6 @@ struct LayoutNode {
     std::optional<molga::FixedRect> logicalClip;
     bool dropped = false;
 };
-
-bool IsHierarchyActive(const GameObject* object) {
-    for (const GameObject* node = object; node; node = node->GetParent()) {
-        if (!node->IsActive()) return false;
-    }
-    return true;
-}
 
 const UICanvas* NearestEnabledCanvas(const GameObject* object) {
     for (const GameObject* node = object; node; node = node->GetParent()) {
@@ -401,6 +396,15 @@ bool UILayoutGeometryCacheKey::operator==(
     for (std::size_t i = 0; i < inputGeometry.size(); ++i) {
         if (!(inputGeometry[i] == other.inputGeometry[i])) return false;
     }
+    // Step 6b: 원래 필드를 전부 다시 본다. 해시가 같아도 여기서 갈린다.
+    if (scrollDisplacements.size() != other.scrollDisplacements.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < scrollDisplacements.size(); ++i) {
+        if (!(scrollDisplacements[i] == other.scrollDisplacements[i])) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -498,6 +502,18 @@ std::size_t HashUILayoutGeometryCacheKey(
             entry.effectiveRequest.style.shape.fontSize.Raw()));
         mix(molga::text::CacheBytesHash(entry.effectiveRequest.utf8));
         mix(entry.effectiveRequest.visualRevision);
+    }
+    // 스크롤 변위도 후보를 좁히는 데 참여한다. 넣지 않으면 오프셋만 다른 두
+    // 키가 같은 bucket에 쌓여 조회가 선형 탐색이 되고, 그것은 진단 없이
+    // 성능으로만 드러난다. 값 비교는 언제나 operator==가 다시 한다.
+    mix(key.scrollDisplacements.size());
+    for (const auto& entry : key.scrollDisplacements) {
+        mix(entry.scrollTarget.objectId);
+        mix(entry.scrollTarget.componentInstanceId);
+        mix(static_cast<std::uint64_t>(entry.offsetXRaw));
+        mix(static_cast<std::uint64_t>(entry.offsetYRaw));
+        mix(entry.viewport.objectId);
+        mix(entry.content.objectId);
     }
     return hash;
 }
@@ -705,21 +721,51 @@ std::optional<molga::FixedPoint> UIPhysicalTransform::ToLogicalPoint(
     if (outputPixelX < minX || outputPixelX >= maxX) return std::nullopt;
     if (outputPixelY < minY || outputPixelY >= maxY) return std::nullopt;
 
+    // ── Task 11.3: 배율은 double이 아니라 검증된 유리수다 ───────────────────
+    // 부동소수 걸음은 딱 하나 남는다: 들어오는 값이 float 픽셀 위치이므로
+    // 그것을 정수 분자로 못 박는 반올림 한 번은 피할 수 없다. 그 뒤의 배율은
+    // Fixed26_6::CheckedMulDiv 하나가 정의한다 — 이 하위 시스템의 다른 모든
+    // 변환과 같은 0에서 먼 쪽 반올림, 같은 넘침 거절이다.
+    //
+    // 분자를 26.6이 아니라 **Q16**으로 잡는 것이 요점이다. 26.6으로 잡으면
+    // 1/64 픽셀보다 미세한 포인터 위치가 통째로 사라져, 논리 단위가 픽셀보다
+    // 촘촘한 표면에서 이 변환이 지금보다 **덜** 정확해진다. 1/65536 픽셀은
+    // 어떤 실제 포인터보다 촘촘하고, L/P가 65536 미만인 한 출력의 1/64 논리
+    // 단위 양자화보다 언제나 미세하다.
+    //
+    // double 곱셈은 relative * logicalExtent가 2^53을 넘는 순간부터 조용히
+    // 부정확해지고 그 부정확함을 보고하지 않는다. 여기서는 분자가 int32에
+    // 들어가지 않으면(즉 물리 뷰포트가 32768픽셀보다 넓으면) 값을 지어내는
+    // 대신 실패를 보고한다. hit-test에서 그 실패는 "그 점은 이 표면 밖"이므로
+    // fail-closed다.
+    //
+    // 반열린 경계 검사는 위에서 이미 끝났고 여기서 바뀌지 않는다.
+    constexpr std::int64_t kInverseSubPixel = 65536;
     const auto axis = [](double pixel, double viewportMin,
                          std::uint32_t physicalExtent, std::int64_t logicalExtent,
                          std::int64_t logicalOrigin,
                          std::int64_t& out) -> bool {
         const double relative = pixel - viewportMin;
-        const double scaled = relative * static_cast<double>(logicalExtent) /
-                              static_cast<double>(physicalExtent);
-        if (!std::isfinite(scaled)) return false;
-        // 26.6으로 딱 한 번 반올림한다. 0에서 먼 쪽 규칙은 Fixed26_6과 같다 —
-        // 축마다 다른 규칙이면 정사각 입력이 축에 따라 갈린다.
-        const double rounded = scaled >= 0.0 ? std::floor(scaled + 0.5)
-                                             : std::ceil(scaled - 0.5);
-        if (rounded < -9.0e18 || rounded > 9.0e18) return false;
-        const std::int64_t value =
-            logicalOrigin + static_cast<std::int64_t>(rounded);
+        const double relativeNumerator =
+            relative * static_cast<double>(kInverseSubPixel);
+        if (!std::isfinite(relativeNumerator)) return false;
+        const double rounded = relativeNumerator >= 0.0
+                                   ? std::floor(relativeNumerator + 0.5)
+                                   : std::ceil(relativeNumerator - 0.5);
+        if (rounded < static_cast<double>(kRawMin) ||
+            rounded > static_cast<double>(kRawMax)) {
+            return false;
+        }
+        // CheckedMulDiv는 (raw * numerator) / denominator를 0에서 먼 쪽으로
+        // 반올림하고 int32 범위를 검사한다. 여기서 raw는 26.6 값이 아니라
+        // Q16 분자다 — 이 함수가 정의하는 것은 타입이 아니라 그 산술 규칙이고,
+        // 규칙의 사본을 두 벌 두지 않는 것이 이 호출의 이유다.
+        const auto scaled = Fixed26_6::CheckedMulDiv(
+            Fixed26_6::FromRaw(static_cast<std::int32_t>(rounded)),
+            logicalExtent,
+            static_cast<std::int64_t>(physicalExtent) * kInverseSubPixel);
+        if (!scaled) return false;
+        const std::int64_t value = logicalOrigin + scaled->Raw();
         if (!InRawRange(value)) return false;
         out = value;
         return true;
@@ -1638,6 +1684,25 @@ void ScaleSubtree(LayoutBuilder& builder, std::size_t index, Raw numeratorX,
     for (const auto child : node.children) {
         ScaleSubtree(builder, child, numeratorX, denominatorX, numeratorY,
                      denominatorY);
+    }
+}
+
+// ── Task 11.3 Step 6a: content 서브트리를 런타임 오프셋만큼 옮긴다 ──────────
+// 뷰포트는 움직이지 않고 내용만 움직인다. 그래서 이 함수는 content 노드와 그
+// 자손만 건드리고, 그 위의 마스크/뷰포트 사각형은 제자리에 남아 잘라 낸다.
+void TranslateSubtree(LayoutBuilder& builder, std::size_t index, Raw dx,
+                      Raw dy) {
+    LayoutNode& node = builder.nodes[index];
+    const Raw x = node.resolved.x + dx;
+    const Raw y = node.resolved.y + dy;
+    if (!InRawRange(x) || !InRawRange(y)) {
+        builder.Fail("UI scroll displacement left the 26.6 range");
+        return;
+    }
+    node.resolved.x = x;
+    node.resolved.y = y;
+    for (const auto child : node.children) {
+        TranslateSubtree(builder, child, dx, dy);
     }
 }
 
@@ -2664,6 +2729,39 @@ UISnapshotPtr UILayoutSystem::Build(
         impl.intrinsicScratch[i] = node.intrinsicGeneration;
     }
 
+    // ── Step 6b: 이 표면의 사각형을 실제로 움직이는 스크롤 변위만 ───────────
+    // 목록은 이미 완전한 식별자 순서로 정렬되어 도착한다(UIScrollSystem이
+    // 정렬한다). 여기서 다시 정렬하면 규칙이 두 벌이 되고, 두 벌은 언젠가
+    // 갈린다. content 서브트리가 이 트리에 없는 변위는 아무 사각형도 옮기지
+    // 않으므로 키에서도 뺀다 — 넣으면 다른 Canvas의 스크롤이 이 표면의 기하를
+    // 무효화한다.
+    //
+    // 대상은 **완전한 런타임 식별자**로만 고른다. objectId 하나만 맞춰 보면
+    // 두 가지가 조용히 깨진다: 참조가 끊긴 스크롤 뷰가 남기는 빈 식별자
+    // (objectId 0)가 씬이 그대로 발급할 수 있는 id 0 오브젝트와 맞아 무관한
+    // 서브트리를 살아 있는 오프셋만큼 밀어내고, 같은 오브젝트에서 교체된
+    // RectTransform이 죽은 컴포넌트의 변위를 물려받는다.
+    const auto namesNode = [&world](const LayoutNode& node,
+                                    const UIRuntimeTargetIdentity& content) {
+        // 숫자 id 비교는 값싼 선행 필터일 뿐이다. 통과 여부는 네 필드가 정한다.
+        return node.object->GetID() == content.objectId &&
+               CaptureTarget(world, *node.rect) == content;
+    };
+    std::vector<UIScrollDisplacementCacheIdentity> scrollDisplacements;
+    for (auto& displacement :
+         UIScrollSystem::Get().DisplacementsForWorld(world.Generation())) {
+        // 빈 식별자는 아무것도 이름하지 않는다. 어떤 사각형도 움직여서는 안
+        // 되고, 기하 키에도 들어가서는 안 된다.
+        if (!displacement.content) continue;
+        const bool present =
+            std::any_of(builder.nodes.begin(), builder.nodes.end(),
+                        [&](const LayoutNode& node) {
+                            return namesNode(node, displacement.content);
+                        });
+        if (!present) continue;
+        scrollDisplacements.push_back(std::move(displacement));
+    }
+
     UILayoutGeometryCacheKey geometryKey;
     geometryKey.worldGeneration = world.Generation();
     geometryKey.viewport = logicalViewport;
@@ -2673,6 +2771,7 @@ UISnapshotPtr UILayoutSystem::Build(
     geometryKey.rectAndLayoutRevisions = impl.rectScratch;
     geometryKey.intrinsicGenerations = impl.intrinsicScratch;
     geometryKey.inputGeometry = gatheredInputGeometry;
+    geometryKey.scrollDisplacements = scrollDisplacements;
     const std::size_t geometryHash = HashUILayoutGeometryCacheKey(geometryKey);
 
     std::vector<UIDrawOrderKey> orderedKeys;
@@ -2720,6 +2819,32 @@ UISnapshotPtr UILayoutSystem::Build(
             if (scale[0] == scale[1] && scale[2] == scale[3]) continue;
             ScaleSubtree(builder, canvasRoots[i], scale[0], scale[1], scale[2],
                          scale[3]);
+        }
+        if (builder.failed) return nullptr;
+        // ── Step 6a: 배율 뒤, 클립 앞 ───────────────────────────────────────
+        // 배율 뒤인 것이 계약이다. 스크롤 시스템이 읽는 오프셋은 게시된
+        // 스냅샷의 표면 논리 단위이므로(그 스냅샷이 배율을 이미 받았다),
+        // 배율 앞에서 더하면 같은 수가 두 공간을 오간다.
+        //
+        // 클립 앞인 것도 계약이다. 뷰포트 마스크는 제자리에 남고 내용만
+        // 움직여야 잘려 나가야 할 부분이 실제로 잘린다 — 뒤에 두면 내용과
+        // 함께 클립도 움직여 스크롤해도 아무것도 잘리지 않는다.
+        for (const auto& displacement : scrollDisplacements) {
+            if (displacement.offsetXRaw == 0 && displacement.offsetYRaw == 0) {
+                continue;
+            }
+            for (std::size_t i = 0; i < builder.nodes.size(); ++i) {
+                // 위의 존재 필터와 **같은 술어 하나**를 쓴다. 두 벌이면 키에
+                // 들어간 변위와 실제로 옮겨진 서브트리가 갈릴 수 있고, 그
+                // 어긋남은 캐시가 잘못된 기하를 정당한 항목으로 저장하는
+                // 방식으로만 드러난다.
+                if (!namesNode(builder.nodes[i], displacement.content)) {
+                    continue;
+                }
+                TranslateSubtree(builder, i, displacement.offsetXRaw,
+                                 displacement.offsetYRaw);
+                break;
+            }
         }
         if (builder.failed) return nullptr;
         for (const auto root : canvasRoots) {

@@ -132,6 +132,7 @@ set(ENGINE_SOURCES
     src/UI/UIRenderCollector.cpp
     src/UI/UIRuntimeIdentity.cpp
     src/UI/UIRuntimeInvalidation.cpp
+    src/UI/UIScrollSystem.cpp
     src/UI/UISystem.cpp
     src/Systems/Audio.cpp
     src/Core/Scene.cpp
