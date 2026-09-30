@@ -3840,7 +3840,7 @@ that the mandated recurrence does not produce — see the decision item below.
   which owns freezing target plans against a snapshot and cannot be correct while a
   snapshot can carry identities of components that no longer exist.
 
-#### DECISION REQUIRED — Step 5e's mandated recurrence does not converge
+#### DECIDED (2026-10-01) — Step 5e's mandated recurrence does not converge
 
 Verified by the close-out agent and confirmed independently by the controller by
 hand. Step 5e mandates the elastic/deceleration recurrence *verbatim*, and
@@ -3871,6 +3871,52 @@ Whoever owns Step 5e must decide. The plausible repairs are a deadband that zero
 velocity below a threshold, round-toward-zero for the decay multiply specifically,
 or widening the settle clause's bounds — each changes published scroll behaviour,
 so none may be taken without approval.
+
+#### Resolution of the Step 5e decision (2026-10-01)
+
+**Decided by the controller under explicit delegation from the user** ("decide for
+me"). The repair removes the rounding fixed points at their root rather than hiding
+them, adds no tuning constant, and changes **none** of the values this plan pinned.
+
+The amended Step 5e recurrence differs from the verbatim text in exactly four places:
+
+1. **Velocity decay rounds toward zero.**
+   `nextVelocity = MulQ6TowardZero(velocity, retained)` replaces
+   `MulQ6NearestAway(velocity, retained)`. With `retained <= 63`, every nonzero
+   `|velocity|` strictly decreases each tick, so it reaches 0 in finitely many ticks.
+   Truncation is symmetric about zero, so the sign behaviour is unchanged.
+2. **A positive deceleration rate always decays.** When `decelerationRate > 0`,
+   `decayStep = clamp(MulQ6NearestAway(decelerationRate, deltaSeconds), 1, 64)`.
+   Without this floor, a rate too small to register in one tick rounds `decayStep`
+   to 0, `retained` stays 64, and the view coasts forever despite a positive rate.
+3. **A positive elasticity rate always returns.** When `elasticityRate > 0`,
+   `returnStep = clamp(MulQ6NearestAway(elasticityRate, deltaSeconds), 1, 64)`.
+4. **Elastic correction always makes progress.** When `overscroll != 0` and
+   `returnStep > 0`, `|correction| >= 1`, and `|correction| <= |overscroll|` so it can
+   never push past the legal edge. This removes the case where a small overscroll
+   times a small `returnStep` rounds the correction to 0 and parks the offset up to
+   15 raw units outside the legal range.
+
+The settle clause is unchanged. Termination follows directly: `|velocity|` and
+`|overscroll|` are non-negative integers that each strictly decrease while nonzero,
+and velocity's contribution to overscroll vanishes once velocity reaches 0.
+
+**Pinned values are unchanged**, because every one of them is an exact division
+that no rounding mode affects: the Step 5f hand fixture (`integrated=96`,
+`retained=48`, `nextVelocity=96`, `overscroll=96`, `returnStep=32`, `correction=48`,
+`nextOffset=48`) and the second step Task 11.3 pinned (`48 -> 36`, `96 -> 72`).
+
+**Rejected alternatives.** A velocity deadband adds an arbitrary threshold and does
+not fix the parked-offset case. Widening the settle clause only hides the fixed
+points near the legal edge; a velocity stuck at 2 in the interior of a Clamped view
+would still keep the state "moving" forever.
+
+**Owner:** a focused amendment to `src/UI/UIScrollSystem.cpp` and
+`tests/test_ui_scroll.cpp`, landed as its own commit before Task 12.2. It must add a
+convergence property test over a grid of authored rates and initial states —
+including the non-converging sequence `96 -> 72 -> ... -> 3 -> 2 -> 2` at
+`retained = 48` — asserting rest (velocity 0, offset legal) within a bounded number
+of ticks, and mutation-check each of the four changes independently.
 
 ## Final Verification
 
