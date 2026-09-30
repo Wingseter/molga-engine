@@ -720,6 +720,25 @@ target_compile_definitions(test_ui_scroll PRIVATE
 # 계약을 시간에 맞추는 것은 계약을 지우는 것이다.
 set_tests_properties(test_ui_scroll PROPERTIES TIMEOUT 600)
 
+# Task 12.1: every planning fixture builds a real snapshot through
+# UILayoutSystem::Build, which takes a TextLayoutService — and that needs the
+# one process-wide ICU lifetime only a session-backed executable owns. The
+# text-input stage targets additionally need real font bytes and a real
+# catalog: a UITextInput only claims a rendered label through the production
+# publishing entry point, and without that claim `textInputTarget` never
+# appears in a hit record — the stage-target table would then assert nothing.
+molga_add_text_test(test_ui_input test_ui_input.cpp)
+target_include_directories(test_ui_input PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui_input PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+# Every case builds its own real snapshot on a fresh per-case asset tree (one
+# NotoSans face plus a test-written single-face family), because a process-wide
+# text runtime would outlive ShutdownAfterTests() and carry cache history across
+# cases. In Debug that isolation costs tens of seconds, and Task 12.2 adds more
+# cases to this file, so the preset's global 60 s cap cannot hold it. As with
+# test_ui_scroll: fitting the contract to the clock would erase the contract.
+set_tests_properties(test_ui_input PROPERTIES TIMEOUT 600)
+
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

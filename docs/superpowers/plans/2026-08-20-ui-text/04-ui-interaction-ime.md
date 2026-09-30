@@ -178,7 +178,7 @@ This subplan is complete only when all of the following are true:
 - Consumes: immutable `UISnapshot`, complete runtime identities, stable component keys, fixed geometry, and exact reverse draw order.
 - Produces: C++17-comparable `NativeKeyModifiers`, `UIInputEvent`, surface-owned `UIPlanningState`, source-compatible multi-stage `PlannedUIEvent::{TargetFor,ScrollTargetCount}`, stage-validating `UIEventHandlerResult`, primary-target `UIEventDispatchAccumulator`/`UIEventDispatchRecord`, tick-bearing `UIFrameInput`, `UIFrameResult`, `UIInputRouter::{PlanNext,HandleEvent}`, and no subsystem vector-processing API.
 
-- [ ] **Step 1a: Write a failing frozen-target test.**
+- [x] **Step 1a: Write a failing frozen-target test.**
 
   ```cpp
   TEST_CASE("planned target never changes after snapshot N") {
@@ -203,11 +203,11 @@ This subplan is complete only when all of the following are true:
   }
   ```
 
-- [ ] **Step 1b: Add the frozen-target lifecycle/edge table.**
+- [x] **Step 1b: Add the frozen-target lifecycle/edge table.**
 
   Add reparent-with-same-identity (delivered once), remove/add same type (skipped), replacement world with reused object ID (skipped), scene transition (skipped), exact reverse draw order, parent clip, and boundary exclusion.
 
-- [ ] **Step 1c: Write a failing projected pointer-capture batch test.**
+- [x] **Step 1c: Write a failing projected pointer-capture batch test.**
 
   ```cpp
   TEST_CASE("batch planning projects pointer capture using snapshot N") {
@@ -223,7 +223,7 @@ This subplan is complete only when all of the following are true:
   }
   ```
 
-- [ ] **Step 1d: Write a failing projected-focus versus ingest-owner test.**
+- [x] **Step 1d: Write a failing projected-focus versus ingest-owner test.**
 
   ```cpp
   TEST_CASE("key follows projected focus but text stays on its ingest owner") {
@@ -245,11 +245,11 @@ This subplan is complete only when all of the following are true:
 
   This fixture models one SDL batch ingested while the old runtime owner was active. The pointer-down projects a new focus for later key policy, but it cannot rewrite the immutable owner stamp on text already copied by the host. An editor-stamped event remains available to the ImGui observer only and has no runtime UI target.
 
-- [ ] **Step 1e: Add callback-mutation assertions to both projection cases.**
+- [x] **Step 1e: Add callback-mutation assertions to both projection cases.**
 
   Preplan the full batch, then make the pointer callback hide/reparent the new focus and transition owner. Require the key plan to retain the projected N identity, the text plan to retain the old stamped identity, and both to rely on dispatch-time full-identity resolution rather than N+1 retargeting.
 
-- [ ] **Step 1f: Write failing per-stage target and primary-audit tests.**
+- [x] **Step 1f: Write failing per-stage target and primary-audit tests.**
 
   ```cpp
   TEST_CASE("handlers resolve only their frozen stage target") {
@@ -266,11 +266,11 @@ This subplan is complete only when all of the following are true:
 
   Add accumulator rows proving: a runtime-stamped text target is primary; the first consumed inner-to-outer scroll target is primary; pointer/key action target is primary; window-focus and foreign-window events have no primary; a focus-stage result never replaces primary. A handler result naming another stage's valid target must be rejected with `ReferenceInvalid` just like an unknown target.
 
-- [ ] **Step 1g: Write a failing cross-window surface-isolation test.**
+- [x] **Step 1g: Write a failing cross-window surface-isolation test.**
 
   Build surface window 10 with focus/capture and pass ordered events from windows `{10,20,10}`. Require three audit records in the same sequence; the window-20 record is `surfaceEligible=false`, targetless, unconsumed, and cannot clear/project/dispatch window-10 state. Run the same world in detached window 20 and require an independent `{windowId,worldGeneration}` focus/capture state. A foreign `WindowFocus(active=false)` must not release the local surface.
 
-- [ ] **Step 1h: Write a failing unstamped text target rule.**
+- [x] **Step 1h: Write a failing unstamped text target rule.**
 
   ```cpp
   TEST_CASE("unstamped text is targetless and never follows projected focus") {
@@ -285,7 +285,7 @@ This subplan is complete only when all of the following are true:
 
   Repeat with a `None` stamp. Only an explicit valid `RuntimeUITextInput` ingest stamp may populate a text plan; tests and canonical replay helpers may not synthesize projected-focus text.
 
-- [ ] **Step 2: Write failing event-value tests for scroll, gamepad axes, and key modifiers.**
+- [x] **Step 2: Write failing event-value tests for scroll, gamepad axes, and key modifiers.**
 
   ```cpp
   TEST_CASE("UI events preserve signed scroll and axis values") {
@@ -318,7 +318,7 @@ This subplan is complete only when all of the following are true:
 
   Expected: compilation fails because ordered event and planner contracts do not exist.
 
-- [ ] **Step 4a: Define the shared value-only owner stamp.**
+- [x] **Step 4a: Define the shared value-only owner stamp.**
 
   ```cpp
   namespace molga::platform {
@@ -352,7 +352,7 @@ This subplan is complete only when all of the following are true:
 
   Equality compares all fields. `RuntimeUITextInput` is valid only with a full runtime target; `EditorImGui` is valid only without one. The stamp is a value snapshot, not a pointer into arbiter state and not a generation lookup key.
 
-- [ ] **Step 4b: Define value-only UI input records.**
+- [x] **Step 4b: Define value-only UI input records.**
 
   ```cpp
   namespace molga::ui {
@@ -405,7 +405,7 @@ This subplan is complete only when all of the following are true:
 
   Equality compares all four booleans. The all-false default applies to injected/legacy descriptors. The Milestone 18 qualification trace contains no Enter key event, so it retains identical JSON and behavior without adding a qualification schema key; focused Milestone 14 tests own the modifier-bearing rows.
 
-- [ ] **Step 4c: Define projected planning state and plans.**
+- [x] **Step 4c: Define projected planning state and plans.**
 
   ```cpp
   namespace molga::ui {
@@ -446,7 +446,7 @@ This subplan is complete only when all of the following are true:
   } // namespace molga::ui
   ```
 
-- [ ] **Step 4c2: Implement the sole stage-target accessor.**
+- [x] **Step 4c2: Implement the sole stage-target accessor.**
 
   ```cpp
   std::optional<UIFrozenTarget> PlannedUIEvent::TargetFor(
@@ -477,7 +477,7 @@ This subplan is complete only when all of the following are true:
 
   No handler directly reads a sibling target field; tests compile-fail private/internal access where practical and exercise this accessor for every stage.
 
-- [ ] **Step 4d: Define one-event handler result values.**
+- [x] **Step 4d: Define one-event handler result values.**
 
   ```cpp
   namespace molga::ui {
@@ -502,7 +502,7 @@ This subplan is complete only when all of the following are true:
   } // namespace molga::ui
   ```
 
-- [ ] **Step 4e: Define the aggregate dispatch record and accumulator.**
+- [x] **Step 4e: Define the aggregate dispatch record and accumulator.**
 
   ```cpp
   namespace molga::ui {
@@ -529,7 +529,7 @@ This subplan is complete only when all of the following are true:
   } // namespace molga::ui
   ```
 
-- [ ] **Step 4f: Define frame audit input and result values.**
+- [x] **Step 4f: Define frame audit input and result values.**
 
   ```cpp
   namespace molga::ui {
@@ -559,11 +559,11 @@ This subplan is complete only when all of the following are true:
   are mapped from the same take-once host batch seed before any event in
   `orderedEvents`; no caller substitutes post-poll/current input state.
 
-- [ ] **Step 5a: Implement pure hit selection against snapshot N.**
+- [x] **Step 5a: Implement pure hit selection against snapshot N.**
 
   Read `hitTargets` in exact reverse `UIDrawOrderKey`, test the stored rect and stored clip, and copy source-compatible action fields plus `focusTarget`, `textInputTarget`, and inner-to-outer `scrollTargets` into the plan. Key/gamepad lookup finds the snapshot hit route whose frozen focus target equals projected focus; captured pointer events find the route whose action target equals projected capture. Never store a component pointer.
 
-- [ ] **Step 5b: Implement sequential `UIPlanningState` projection.**
+- [x] **Step 5b: Implement sequential `UIPlanningState` projection.**
 
   ```cpp
   PlannedUIEvent UIInputRouter::PlanNext(const UISnapshot& n,
@@ -574,7 +574,7 @@ This subplan is complete only when all of the following are true:
 
   First compare `event.windowId` with `surfaceWindowId`. A mismatch returns `surfaceEligible=false` with every stage target empty and changes no projection state. For matching `PointerMotion`/`PointerButton`, `logicalPointValid=false` produces a targetless but surface-eligible pointer-departure plan, clears projected hover/capture/pointer validity, and never clears keyboard/gamepad focus; no zero/default point is hit-tested. A valid pointer event first replaces `projected.pointer` and marks it valid. Pointer down then selects N's hit route and projects action capture plus its separate focus target; pointer move/up copies every stage target from the captured N route until up releases it. A `Scroll` plan uses only the current projected pointer (batch-start seed or preceding valid pointer event) to freeze the hit route and inner-to-outer scroll targets; if `pointerValid=false` it stays targetless without treating delta or `(0,0)` as a position. Key/gamepad/navigation events find the route for projected focus. `TextEditing`/`TextCommit` never use `projected.focus`: a valid `RuntimeUITextInput` stamp populates both the source-compatible primary fields and `textInputTargetFromSnapshotN`; `EditorImGui`/`None`/missing stamps produce no UI target. Matching-window focus loss clears projected focus/capture. Task 12.2's mutable `UIFocusSystem::ProjectEvent` resolves a navigation destination only from N, stores it in `focusDestinationFromSnapshotN`, makes `TargetFor(Focus)` return that destination (falling back to `focusTargetFromSnapshotN` for non-navigation focus), and advances `projected.focus` to the identical value. Neither planning stage invokes a callback or reads callback/N+1 state.
 
-- [ ] **Step 6a: Implement one-event dispatch with final identity resolution.**
+- [x] **Step 6a: Implement one-event dispatch with final identity resolution.**
 
   ```cpp
   class UIInputRouter {
@@ -590,11 +590,11 @@ This subplan is complete only when all of the following are true:
 
   `HandleEvent` asks `planned.TargetFor(Input)` and immediately resolves all four fields of that stage target. Dispatch at most once; stale plans return `callbackDelivered=false` and the same `resolvedStageTarget` for validation. It never validates against the focus/text/scroll sibling by accident. Reparenting does not invalidate a live identity, but its geometry is not reconsidered.
 
-- [ ] **Step 6b: Implement dispatch accumulation.**
+- [x] **Step 6b: Implement dispatch accumulation.**
 
   Seed sequence/trace/kind and choose primary by exact rule: stamped text target; action target for pointer/key/gamepad; no target for window-focus/foreign events; scroll remains empty until a scroll handler reports the first consumed target. `Merge` rejects a different sequence, obtains the expected target from `TargetFor(result.stage,result.stageTargetOrdinal)`, requires field-for-field equality with `resolvedStageTarget`, ORs action/dirty/consumed/delivered fields, and never substitutes a focus side effect. A consumed scroll result may set the still-empty primary once to its validated consumer. `Finish` returns one immutable record and marks the accumulator spent.
 
-- [ ] **Step 6c: Run the focused accumulator assertions.**
+- [x] **Step 6c: Run the focused accumulator assertions.**
 
   ```bash
   cmake --build --preset debug --target test_ui_input -j
@@ -603,11 +603,11 @@ This subplan is complete only when all of the following are true:
 
   Expected: merge-order permutations produce the same flags/target; sequence/target conflicts report `ReferenceInvalid` and never substitute a target.
 
-- [ ] **Step 7: Prohibit subsystem vector overloads at compile time.**
+- [x] **Step 7: Prohibit subsystem vector overloads at compile time.**
 
   Add a test-only detection trait that fails if `UIInputRouter`, `UIFocusSystem`, `UIScrollSystem`, or `UITextInputSystem` exposes `HandleEvents(vector<...>)` or `Process(vector<...>)`. Keep only `PlanNext` and one-event `HandleEvent` public.
 
-- [ ] **Step 8: Run the planner green gate.**
+- [x] **Step 8: Run the planner green gate.**
 
   ```bash
   cmake --build --preset debug --target test_ui_input -j
@@ -624,6 +624,140 @@ This subplan is complete only when all of the following are true:
     src/UI/UIInputRouter.* tests/test_ui_input.cpp
   git commit -m "feat: freeze UI event targets against snapshot N"
   ```
+
+#### Implementation record — Task 12.1 (2026-10-01)
+
+Landed with `ctest --preset debug` green (the 60 s per-test cap is the real gate) —
+see the controller's verification note at the end of this record. Implemented
+subagent-driven across three rounds; the controller verified every claim below
+independently before landing.
+
+**Mutation evidence: 122 mutation runs across three campaigns, every survivor closed.**
+Round 1 ran 31 mutations (29 killed; M18 and M25 survived). Round 2 added 15 (all
+killed, including the first mutation checks of Step 7's compile-time ban). Round 3
+re-ran the whole campaign against the fixed tree — **76 mutations, 76 killed, 0
+survived, 0 unexpected build failures** — because round 3 changed production code and
+the "no production file changed" argument that protected earlier kills no longer held.
+Compile-time mutations counted as killed only when the build failed with the exact
+`static_assert` message.
+
+**Before its own campaign ran, the implementer found eight tests where correct and
+broken code agreed** — the recurring defect of this program — and closed them: Step 1a
+dispatched only a press, so the click path was never touched; Step 1d left the pointer
+over the focused widget, so focus routing and pointer routing gave the same answer;
+Step 1c had no post-release event, so "capture never releases" would pass; Step 1h had
+no positive control; Step 1g had no same-window control; Step 1f's stage targets could
+all have been one component; the draw-order test did not require overlap; the clip test
+did not require the point to be inside the rect.
+
+**The two inherited defects from subplan 03 are closed.**
+- *Geometry cache key blind to a replaced component.* First fixed for RectTransform
+  (stride 6 → 7, adding its instance id). Review then showed the defect class was only
+  closed for RectTransform: element, group, fitter, mask and canvas slots were
+  per-instance revision counters, so a replacement with *different* values but the same
+  number of changed fields hit the cache and returned stale geometry — for a canvas,
+  stale draw order, so clicks went to the wrong canvas. The key now carries instance ids
+  for all of them (stride 11, canvas roots as revision/instance pairs). Five
+  different-values replacement tests were red before the fix.
+- *Unmeasured canvas-root `IsHierarchyActive` gate.* A deactivated canvas root is already
+  skipped by `GatherSubtree`, so a test that deactivates the root cannot see the gate. It
+  answers exactly one state — root active, ancestor inactive — and is now measured in
+  both the deactivation and reactivation directions.
+
+**Review.** Two independent lenses read the finished tree. Both reached two defects
+independently: scroll over non-interactable content scrolled nothing (every UIImage and
+plain UILabel publishes a non-interactable record that still carries its ancestor
+scroll targets), and the dispatch accumulator stored a raw pointer to a possibly
+temporary plan. Also fixed: a release over a button that was never pressed fired its
+click; `Merge` accepted flag-bearing results into targetless and foreign records; the
+Step 7 vector-API ban only caught one-argument overloads, so the realistic
+`HandleEvents(World&, const UISnapshot&, const std::vector<PlannedUIEvent>&, sink&)`
+passed — it now detects the member *name* regardless of signature; and six paths that
+no test exercised (gamepad, TextEditing, text-plan scroll chains, window-focus resets,
+hover-on-press) plus two tautological assertions.
+
+**A reviewer's claim was refuted by execution, not accepted.** The quality lens argued
+UIMask could not collide because each toggle bumps its revision twice. The implementer
+showed that `UIComponent::SetEnabled` bumps once, so a disabled-and-re-enabled mask
+collides with a toggled one; the mask slot's test is red without it.
+
+**Test runtime.** `test_ui_input` took **60 s** on the clean tree against the debug
+preset's 60 s cap. Every fixture construction re-scanned the full qualification asset
+tree and SHA-256-hashed 5.74 MB of fonts in Debug, 81% of it a Korean font nothing in
+the file renders. Each case now builds a slim tree (one face, a test-written
+single-face family, no fallbacks): **58.77 s → 7.97 s**, 10.89 s with round 3's cases.
+`TIMEOUT 600` is added as margin for 12.2's cases and the sanitizer presets. The runtime
+is deliberately *not* a process-lifetime static: `ShutdownAfterTests()` fails `main` if
+any text-runtime client handle outlives `context.run()`.
+
+**User decision (2026-10-01): pointer targeting routes to the nearest interactable
+ancestor and occludes when there is none.** Review found that under 12.1's first rule a
+non-interactable record blocked presses — the editor's default Button puts a child Label
+over nearly all of it, so the button clicked only on its margins, a regression that would
+appear the moment Task 12.3 routes production input through `PlanNext`. The plan was
+silent on pass-through. 12.1 lands with an *interim* rule — pointer action targeting
+picks the topmost interactable record, which exactly preserves today's legacy behaviour
+— isolated in the single function `PointerActionRouteAt`. The user then approved the
+standard model (route a decorative record to its nearest interactable ancestor; occlude
+when there is none, so a modal's background blocks clicks behind it). It lands as a
+separate amendment immediately after this task; see "Amendment — pointer ownership".
+
+**Deviations from the plan text:** `UIEventDispatchAccumulator` takes an explicit
+`TextDiagnosticSink&` (Steps 1f/6c need `ReferenceInvalid` and the subplan forbids a
+hidden sink); `Merge` returns `UIEventMergeStatus` (`Merged`, `RejectedSequence`,
+`RejectedStageTarget`, `RejectedTargetless`, `RejectedSpent`) so callers can tell a
+reported conflict from a merge; the accumulator cannot be copied, moved or bound to a
+temporary plan, and a second `Finish()` is refused; a click requires a captured press on
+the same full identity; Step 3's red gate was not run as written (the headers were
+written before the test compiled against them), so Step 3 stays unticked.
+
+**Carried forward, each with an owner.**
+- **R7 → Task 12.2 Step 6.** The plan makes snapshot N "the sole authority for ...
+  visibility ... and interactability", so a same-batch `SetActive(false)` does not
+  retarget — only identity loss (remove, replace, scene transition) does. But UIButton
+  still checks its live `interactable_` and suppresses onClick while the audit records
+  Click, consumed and delivered: two authorities. Step 6 moves button runtime state into
+  the router and must make the router's decision the single authority. Same owner: after
+  a press, if capture is lost to focus loss or departure, UIButton's `pressed_` stays set.
+- **R6 → Task 12.3.** `HandleEvent` judges a click against whatever snapshot the caller
+  passes; the plan carries no snapshot identity. 12.3 owns the loop that passes N and
+  needs a test where a callback publishes N+1 between the press and release plans.
+- **R10 → Task 13.2.** The router ignores `event.control`, so right and middle clicks fire
+  onClick and a second button's press steals capture. Recommended policy: primary only.
+- **F3 → Task 12.3.** Step 5a's "debug assertion plus ReferenceInvalid" would abort
+  `test_ui_input`, which deliberately feeds mismatched, wrong-sequence, finished and
+  targetless results; the check must be non-fatal and observable. Step 5b's (and Step
+  1a's) one-argument accumulator constructor does not match the real API above. 12.3 must
+  treat these merge rules as landed and not re-implement them.
+- **R11 → Task 12.3 Step 4a.** `UIPlanningState::{surfaceWindowId,
+  surfaceWorldGeneration}` are written but never read; check them against N there.
+- **Handler contract → Task 12.2 Step 5c2.** A targetless result may carry only dirty
+  flags (now enforced); `resultingFocus` cannot express "focus cleared"; every handler
+  must echo `sequence`, stage, ordinal and `TargetFor` even for a no-op.
+- **`UIInputEvent::control` has no declared domain for Key events** — 12.2, 13.2 and
+  14.1 must agree on one.
+- **Bare `UITextInput` → Task 14.1.** An input without a `UISelectable` publishes a
+  non-interactable record, so a pointer cannot focus it under either pointer model.
+- **Plan-level.** Final Verification's `rg 'vector<.*PlannedUIEvent'` expecting no
+  production matches contradicts 12.3's required vector of stored plans.
+- **`UIButton.h:37`** ("Called only by UISystem") is stale; 12.2 Step 6 rewrites it.
+- **Step 7's trait** now matches by name and covers the two subsystems that exist; 12.2
+  and 14.1 each add one `static_assert` line (`UIFocusSystem`, `UITextInputSystem`), and
+  each checked subsystem must be a non-final class.
+
+**Controller verification (2026-10-01).** On the final tree, after the round-3
+campaign exited and every file was confirmed byte-identical to its restore copy with no
+`MUTATION` markers: full build clean; `test_ui_input` alone **11 s**;
+**`ctest --preset debug` 109/109** with the preset's 60 s per-test cap in force (earlier
+tasks were verified with `ctest --test-dir`, which does not apply that cap — the preset is
+the real gate and is used from here on); `test_ui_input` and `test_ui_layout` clean under
+**ASan and UBSan**. The sanitizer trees had not been reconfigured since the target was
+added, so `cmake --preset asan|ubsan` had to run before the targets existed there.
+
+**Commit scope.** Step 9's `git add` list omits `src/UI/UILayoutSystem.{h,cpp}` and
+`tests/test_ui_layout.cpp`, which carry the inherited-defect, G1 and canvas-gate work;
+they are committed with this task. `.serena/project.yml` is unrelated tool state and is
+not staged.
 
 ### Task 12.2: Add full-identity focus, capture, navigation, and one-event scrolling
 

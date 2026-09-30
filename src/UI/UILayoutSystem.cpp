@@ -94,6 +94,10 @@ bool MulDiv(Raw value, Raw numerator, Raw denominator, Raw& out) {
 }
 
 // ── 노드 하나 ───────────────────────────────────────────────────────────────
+// 기하 키에서 노드 하나가 차지하는 칸 수. 칸의 뜻은 UILayoutGeometryCacheKey::
+// rectAndLayoutRevisions의 주석이 정한다.
+constexpr std::size_t kRectKeyStride = 11;
+
 struct LayoutNode {
     GameObject* object = nullptr;
     RectTransform* rect = nullptr;
@@ -2689,15 +2693,25 @@ UISnapshotPtr UILayoutSystem::Build(
 
     // ── Step 4c: 기하 키 ────────────────────────────────────────────────────
     ++impl.keyBuilds;
-    ScratchResize(impl.canvasScratch, canvasRoots.size(), impl.keyAllocations);
+    // 캔버스 뿌리마다 두 칸: 저작 revision과 컴포넌트 인스턴스 id. 아래
+    // 노드 칸들과 같은 이유다 — revision은 인스턴스마다 다시 세는 카운터라,
+    // 다른 값을 가졌지만 변경 횟수가 같은 캔버스로 교체하면 revision만으로는
+    // 두 상태가 같다. 캔버스는 배율과 draw order의 첫 항을 정하므로, 그때
+    // 캐시가 돌려주는 것은 옛 기하와 옛 hit 순서다(아래로 내린 캔버스가 계속
+    // 위에서 클릭을 받는다). 중첩 캔버스는 뿌리가 아니면 기하에 닿지 않으므로
+    // 여기 없다.
+    ScratchResize(impl.canvasScratch, canvasRoots.size() * 2,
+                  impl.keyAllocations);
     for (std::size_t i = 0; i < canvasRoots.size(); ++i) {
         const LayoutNode& root = builder.nodes[canvasRoots[i]];
-        impl.canvasScratch[i] =
+        impl.canvasScratch[i * 2 + 0] =
             root.canvas ? root.canvas->AuthoredRevision() : 0;
+        impl.canvasScratch[i * 2 + 1] =
+            root.canvas ? root.canvas->GetInstanceID() : 0;
     }
     ScratchResize(impl.hierarchyScratch, builder.nodes.size(),
                   impl.keyAllocations);
-    ScratchResize(impl.rectScratch, builder.nodes.size() * 6,
+    ScratchResize(impl.rectScratch, builder.nodes.size() * kRectKeyStride,
                   impl.keyAllocations);
     ScratchResize(impl.intrinsicScratch, builder.nodes.size(),
                   impl.keyAllocations);
@@ -2706,14 +2720,14 @@ UISnapshotPtr UILayoutSystem::Build(
         impl.hierarchyScratch[i] =
             (static_cast<std::uint64_t>(node.object->GetID()) << 32) |
             static_cast<std::uint32_t>(node.object->GetSiblingIndex());
-        impl.rectScratch[i * 6 + 0] = node.rect->AuthoredRevision();
-        impl.rectScratch[i * 6 + 1] =
+        impl.rectScratch[i * kRectKeyStride + 0] = node.rect->AuthoredRevision();
+        impl.rectScratch[i * kRectKeyStride + 1] =
             node.element ? node.element->AuthoredRevision() : 0;
-        impl.rectScratch[i * 6 + 2] =
+        impl.rectScratch[i * kRectKeyStride + 2] =
             node.group ? node.group->AuthoredRevision() : 0;
-        impl.rectScratch[i * 6 + 3] =
+        impl.rectScratch[i * kRectKeyStride + 3] =
             node.fitter ? node.fitter->AuthoredRevision() : 0;
-        impl.rectScratch[i * 6 + 4] =
+        impl.rectScratch[i * kRectKeyStride + 4] =
             node.mask ? node.mask->AuthoredRevision() : 0;
         // 라벨이 기하에 닿는 통로는 정확히 둘이다. 하나는 고유 크기이고 그것은
         // 이미 intrinsicGenerations가 덮는다. 다른 하나가 줄바꿈 모드다 —
@@ -2724,8 +2738,46 @@ UISnapshotPtr UILayoutSystem::Build(
         // 기하를 무효화해 "페이로드만 바뀐 편집은 기하를 재사용한다"는 계약이
         // 깨진다. 그래서 모드 값 자체를 넣는다(라벨이 없으면 0).
         const auto* label = node.object->GetComponent<UILabel>();
-        impl.rectScratch[i * 6 + 5] =
+        impl.rectScratch[i * kRectKeyStride + 5] =
             label ? static_cast<std::uint64_t>(label->GetWrapMode()) + 1U : 0U;
+        // ── Task 12.1이 인계받은 결함 1 ─────────────────────────────────────
+        // 이 캐시가 재사용하는 것은 사각형만이 아니다. 캐시된 노드는
+        // rectTransform — 완전한 런타임 식별자 — 를 함께 들고 다시 게시된다.
+        // revision **번호**만으로는 컴포넌트 교체를 볼 수 없다: 새 컴포넌트의
+        // revision은 다시 0에서 시작하므로, 같은 저작값으로 떼었다 붙이면 키가
+        // 글자 하나 다르지 않고 이미 죽은 식별자가 그대로 다시 게시된다.
+        // 그 스냅샷에 대해 얼린 모든 계획은 존재하지 않는 대상을 이름한다.
+        //
+        // 식별자의 나머지 세 필드는 이미 이 키 안에 있다: worldGeneration은
+        // 키의 첫 필드고, objectId는 hierarchyAndSiblingRevisions에 있으며,
+        // componentRuntimeTypeId는 RectTransform 하나로 고정이다. 빠져 있던
+        // 것은 componentInstanceId뿐이다.
+        //
+        impl.rectScratch[i * kRectKeyStride + 6] = node.rect->GetInstanceID();
+        // ── 라운드 3 (G1): 기하에 닿는 나머지 컴포넌트도 인스턴스 id를 든다 ──
+        // 위의 revision 칸들은 값이 아니라 **인스턴스마다 1에서 시작하는
+        // 카운터**다. 세터는 실제로 값이 바뀔 때만 세므로 revision은 "몇 번
+        // 바뀌었나"일 뿐 "무엇으로 바뀌었나"가 아니다. 그래서 다른 값을
+        // 가졌지만 변경 횟수가 같은 컴포넌트로 교체하면 — 수평 맞춤 하나를 켠
+        // fitter와 수직 맞춤 하나를 켠 fitter, 간격 10과 간격 30 — revision만
+        // 담은 키가 두 상태를 구별하지 못하고 옛 기하가 돌아온다.
+        //
+        // 한 인스턴스 안에서 revision은 줄지 않으므로 (인스턴스 id, revision)
+        // 쌍은 그 인스턴스의 저작 상태 하나를 정확히 이름한다. 교체는 인스턴스
+        // id를 바꾸므로 측정·배치를 한 번 다시 돌린다 — 드물고, 옳다.
+        //
+        // UIMask도 넣는다. "토글 한 번에 두 번 올리므로 revision의 홀짝이 값을
+        // 정한다"는 논증은 UIComponent::SetEnabled가 revision을 한 번 올린다는
+        // 사실을 빠뜨린다: 껐다 켠 마스크와 자르기를 끈 마스크가 같은 revision을
+        // 낸다.
+        impl.rectScratch[i * kRectKeyStride + 7] =
+            node.element ? node.element->GetInstanceID() : 0;
+        impl.rectScratch[i * kRectKeyStride + 8] =
+            node.group ? node.group->GetInstanceID() : 0;
+        impl.rectScratch[i * kRectKeyStride + 9] =
+            node.fitter ? node.fitter->GetInstanceID() : 0;
+        impl.rectScratch[i * kRectKeyStride + 10] =
+            node.mask ? node.mask->GetInstanceID() : 0;
         impl.intrinsicScratch[i] = node.intrinsicGeneration;
     }
 

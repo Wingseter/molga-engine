@@ -197,8 +197,22 @@ struct UILayoutGeometryCacheKey {
     std::uint64_t worldGeneration = 0;
     molga::FixedSize viewport;
     std::uint64_t viewportGeneration = 0;
+    // 캔버스 뿌리마다 두 칸: 저작 revision, 그리고 그 UICanvas의 인스턴스 id.
     std::vector<std::uint64_t> canvasScaleRevisions;
     std::vector<std::uint64_t> hierarchyAndSiblingRevisions;
+    // 노드마다 열한 칸이다:
+    //   0..4  RectTransform/UILayoutElement/UILayoutGroup/UIContentSizeFitter/
+    //         UIMask의 저작 revision
+    //   5     UILabel의 줄바꿈 모드 **값**
+    //   6..10 같은 다섯 컴포넌트의 인스턴스 id (없으면 0)
+    //
+    // revision은 값이 아니라 **인스턴스마다 1에서 시작하는 변경 카운터**다.
+    // 그래서 revision만으로는 컴포넌트 교체를 볼 수 없다: 다른 값을 가졌지만
+    // 변경 횟수가 같은 컴포넌트로 교체하면 키가 같고, 캐시가 옛 기하를 — 그리고
+    // RectTransform이라면 이미 죽은 rectTransform 식별자를(Task 12.1이
+    // 인계받은 결함 1) — 그대로 다시 게시한다. 한 인스턴스 안에서 revision은
+    // 줄지 않으므로 (인스턴스 id, revision) 쌍이 저작 상태 하나를 정확히
+    // 이름한다.
     std::vector<std::uint64_t> rectAndLayoutRevisions;
     std::vector<std::uint64_t> intrinsicGenerations;
     // ── Step 3e: 입력창의 보이는 글과 유효 요청 ─────────────────────────────

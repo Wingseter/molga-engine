@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -2480,20 +2481,71 @@ TEST_CASE("an external scene replacement invalidates the geometry cache") {
     REQUIRE(second->nodes.size() == 2);
     CHECK(second->nodes[1].logicalRect.width.Raw() == 1280);
 
-    // 이 시험이 무엇을 지키는지 못 박는다: 두 키는 worldGeneration 하나만
-    // 다르다. 세대를 발행하지 않았다면 두 씬이 같은 항목을 공유했을 것이다.
+    // 이 시험이 무엇을 지키는지 못 박는다: 두 씬은 저작 revision·계층·뷰포트
+    // 면에서 글자 하나 다르지 않다. 그 상태에서 키를 갈라 놓는 축은 정확히
+    // 둘뿐이고, 둘 다 되돌리면 키는 같아진다.
+    //
+    // 첫째 축이 worldGeneration이다 — 이 시험의 원래 주장이고, 위의
+    // `world.Generation() != generationBefore`가 그 발행을 직접 측정한다.
+    // 둘째 축은 컴포넌트 인스턴스 id다(Task 12.1이 인계받은 결함 1과 라운드
+    // 3의 G1): revision은 인스턴스마다 다시 세는 카운터라 교체를 볼 수 없고,
+    // 새 씬의 컴포넌트는 전부 새 인스턴스다.
     const auto secondKey = layout.LastGeometryKey();
     REQUIRE(secondKey.has_value());
     CHECK(firstKey->worldGeneration != secondKey->worldGeneration);
     CHECK(firstKey->viewport == secondKey->viewport);
     CHECK(firstKey->viewportGeneration == secondKey->viewportGeneration);
-    CHECK(firstKey->canvasScaleRevisions == secondKey->canvasScaleRevisions);
     CHECK(firstKey->hierarchyAndSiblingRevisions ==
           secondKey->hierarchyAndSiblingRevisions);
-    CHECK(firstKey->rectAndLayoutRevisions == secondKey->rectAndLayoutRevisions);
     CHECK(firstKey->intrinsicGenerations == secondKey->intrinsicGenerations);
+
     molga::ui::UILayoutGeometryCacheKey sameGeneration = *secondKey;
     sameGeneration.worldGeneration = firstKey->worldGeneration;
+    // 세대만 되돌린 키는 아직 다르다. 새 씬의 컴포넌트는 새 인스턴스다.
+    CHECK(sameGeneration != *firstKey);
+    CHECK(firstKey->rectAndLayoutRevisions !=
+          secondKey->rectAndLayoutRevisions);
+    CHECK(firstKey->canvasScaleRevisions != secondKey->canvasScaleRevisions);
+
+    // 인스턴스 id 칸만 되돌린다. 노드마다 열한 칸 중 6..10이 인스턴스 id이고
+    // (있는 컴포넌트만 0이 아니다), 캔버스 뿌리마다 두 칸 중 1이 인스턴스
+    // id다. 그 칸들을 되돌리면 나머지 — 저작 revision과 라벨 줄바꿈 모드 —
+    // 는 두 씬에서 동일하다.
+    constexpr std::size_t kRectKeyStride = 11;
+    constexpr std::size_t kFirstInstanceSlot = 6;
+    constexpr std::size_t kCanvasKeyStride = 2;
+    REQUIRE(sameGeneration.rectAndLayoutRevisions.size() ==
+            firstKey->rectAndLayoutRevisions.size());
+    REQUIRE(sameGeneration.rectAndLayoutRevisions.size() % kRectKeyStride == 0);
+    REQUIRE(sameGeneration.canvasScaleRevisions.size() ==
+            firstKey->canvasScaleRevisions.size());
+    REQUIRE(sameGeneration.canvasScaleRevisions.size() % kCanvasKeyStride == 0);
+    std::size_t differingRectInstances = 0;
+    for (std::size_t node = 0;
+         node < sameGeneration.rectAndLayoutRevisions.size();
+         node += kRectKeyStride) {
+        // RectTransform은 모든 노드에 있으므로 그 인스턴스 id 칸은 언제나
+        // 두 씬에서 다르다.
+        CHECK(sameGeneration.rectAndLayoutRevisions[node + kFirstInstanceSlot] !=
+              firstKey->rectAndLayoutRevisions[node + kFirstInstanceSlot]);
+        for (std::size_t slot = kFirstInstanceSlot; slot < kRectKeyStride;
+             ++slot) {
+            if (sameGeneration.rectAndLayoutRevisions[node + slot] !=
+                firstKey->rectAndLayoutRevisions[node + slot]) {
+                ++differingRectInstances;
+            }
+            sameGeneration.rectAndLayoutRevisions[node + slot] =
+                firstKey->rectAndLayoutRevisions[node + slot];
+        }
+    }
+    CHECK(differingRectInstances > 0);
+    for (std::size_t root = 0; root < sameGeneration.canvasScaleRevisions.size();
+         root += kCanvasKeyStride) {
+        CHECK(sameGeneration.canvasScaleRevisions[root + 1] !=
+              firstKey->canvasScaleRevisions[root + 1]);
+        sameGeneration.canvasScaleRevisions[root + 1] =
+            firstKey->canvasScaleRevisions[root + 1];
+    }
     CHECK(sameGeneration == *firstKey);
 }
 
@@ -2608,7 +2660,8 @@ TEST_CASE("the geometry cache rejects a colliding but different key") {
     const auto cached = f.System().LastGeometryKey();
     REQUIRE(cached.has_value());
     REQUIRE(f.System().GeometryCacheContains(*cached));
-    REQUIRE(cached->canvasScaleRevisions.size() == 1);
+    // 캔버스 뿌리 하나 = 두 칸(저작 revision, 인스턴스 id).
+    REQUIRE(cached->canvasScaleRevisions.size() == 2);
     REQUIRE(cached->hierarchyAndSiblingRevisions.size() >= 1);
 
     std::size_t state = kUILayoutCacheHashSeed;
@@ -2619,8 +2672,11 @@ TEST_CASE("the geometry cache rejects a colliding but different key") {
         state, static_cast<std::uint64_t>(cached->viewport.height.Raw()));
     state = FoldUILayoutCacheHash(state, cached->viewportGeneration);
     state = FoldUILayoutCacheHash(state, cached->canvasScaleRevisions.size());
+    // 첫 칸(revision)은 두 키에서 같다. 갈라지는 것은 마지막 칸(인스턴스
+    // id)이고, 그 바로 뒤에 오는 자유 값에서 상태를 다시 합친다.
+    state = FoldUILayoutCacheHash(state, cached->canvasScaleRevisions[0]);
 
-    const std::uint64_t canvasOriginal = cached->canvasScaleRevisions[0];
+    const std::uint64_t canvasOriginal = cached->canvasScaleRevisions[1];
     const std::uint64_t canvasAltered = canvasOriginal ^ 0x5A5A5A5AULL;
     std::size_t afterOriginal = FoldUILayoutCacheHash(state, canvasOriginal);
     std::size_t afterAltered = FoldUILayoutCacheHash(state, canvasAltered);
@@ -2632,7 +2688,7 @@ TEST_CASE("the geometry cache rejects a colliding but different key") {
     afterAltered = FoldUILayoutCacheHash(afterAltered, hierarchySize);
 
     UILayoutGeometryCacheKey colliding = *cached;
-    colliding.canvasScaleRevisions[0] = canvasAltered;
+    colliding.canvasScaleRevisions[1] = canvasAltered;
     colliding.hierarchyAndSiblingRevisions[0] =
         cached->hierarchyAndSiblingRevisions[0] ^
         static_cast<std::uint64_t>(afterOriginal) ^
@@ -3094,4 +3150,443 @@ TEST_CASE("Step 4j: a real texture import publishes validated content identity")
     CHECK(republished->contentSha256 != published->contentSha256);
     CHECK(republished->contentStableId != published->contentStableId);
     CHECK(SemanticEpoch() > afterScan);
+}
+
+// ── Task 12.1이 인계받은 결함 1: 교체된 컴포넌트를 못 보는 기하 캐시 키 ──────
+//
+// 기하 키는 컴포넌트마다 revision **번호**를 담았고, 새 컴포넌트의 revision은
+// 다시 0에서 시작한다. 그래서 같은 저작값으로 컴포넌트를 떼었다 붙이면 키가
+// 글자 하나 다르지 않고, 캐시가 맞아 이전 노드가 그대로 다시 게시된다 — 그
+// 노드가 든 rectTransform은 이미 죽은 컴포넌트의 완전한 식별자다.
+//
+// 이것이 Task 12.1에 치명적인 이유: 계획은 스냅샷 N에 대해 얼려지고 dispatch는
+// 그 얼린 식별자를 다시 해석한다. 스냅샷이 존재하지 않는 컴포넌트를 이름할 수
+// 있는 한 "N에 대해 얼린 대상"이라는 말 자체가 성립하지 않는다.
+namespace {
+
+const molga::ui::UILayoutNodeSnapshot* FindNodeById(
+    const molga::ui::UISnapshot& snapshot, unsigned int objectId) {
+    for (const auto& node : snapshot.nodes) {
+        if (node.rectTransform.objectId == objectId) return &node;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+TEST_CASE("a geometry cache hit never republishes a retired component identity") {
+    World world;
+    molga::ui::UILayoutSystem layout;
+    CountingDiagnosticSink sink;
+    const auto viewport = RawSize(640, 384);
+    BuildAuthoredNode(
+        world,
+        Node(1,
+             {{"UICanvas", ConstantCanvasJson()},
+              {"RectTransform", StretchRectJson()}},
+             // UISelectable은 기하에 닿지 않는 편집을 한 번 만들기 위해서만
+             // 있다(아래 세 번째 배치).
+             {Node(2, {{"RectTransform", OffsetRectJson(1, 2, 10, 5)},
+                       {"UISelectable",
+                        {{"schemaVersion", 1},
+                         {"interactable", true},
+                         {"navigationMode", "Auto"},
+                         {"navigateUp", {{"targetId", 0}}},
+                         {"navigateDown", {{"targetId", 0}}},
+                         {"navigateLeft", {{"targetId", 0}}},
+                         {"navigateRight", {{"targetId", 0}}}}}})}),
+        nullptr);
+
+    const auto first =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(first);
+    const auto* before = FindNodeById(*first, 2);
+    REQUIRE(before != nullptr);
+    const auto retired = before->rectTransform;
+    const auto retiredRect = before->logicalRect;
+    REQUIRE(molga::ui::ResolveTarget(world, retired) != nullptr);
+    const auto keyBefore = layout.LastGeometryKey();
+    REQUIRE(keyBefore.has_value());
+
+    // 같은 저작 payload로 컴포넌트만 교체한다. 세터 호출 수가 같으므로
+    // AuthoredRevision도 같은 값에 도달한다 — 그래서 revision 번호만 담은 키는
+    // 두 상태를 구별하지 못한다.
+    GameObject* child = world.FindById(2);
+    REQUIRE(child != nullptr);
+    const auto* original = child->GetComponent<RectTransform>();
+    REQUIRE(original != nullptr);
+    const std::uint64_t originalRevision = original->AuthoredRevision();
+    child->RemoveComponent<RectTransform>();
+    Component* replacement = AddNamedComponent(*child, "RectTransform");
+    REQUIRE(replacement != nullptr);
+    replacement->Deserialize(OffsetRectJson(1, 2, 10, 5));
+    auto* liveRect = child->GetComponent<RectTransform>();
+    REQUIRE(liveRect != nullptr);
+    // 결함의 전제를 못 박는다. 두 revision이 같지 않다면 이 케이스는 캐시
+    // 히트를 만들지 못하고, 그러면 아래 단언들은 아무것도 지키지 않는다.
+    REQUIRE(liveRect->AuthoredRevision() == originalRevision);
+    REQUIRE(molga::ui::CaptureTarget(world, *liveRect) != retired);
+
+    const auto second =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(second);
+    const auto* after = FindNodeById(*second, 2);
+    REQUIRE(after != nullptr);
+
+    // 저작된 기하는 글자 하나 다르지 않다. 그것이 이 케이스의 요점이다 —
+    // 캐시가 맞을 만한 상태에서 정체성만 달라졌다.
+    CHECK(after->logicalRect == retiredRect);
+    CHECK(molga::ui::ResolveTarget(world, retired) == nullptr);
+    CHECK(after->rectTransform != retired);
+    CHECK(after->rectTransform == molga::ui::CaptureTarget(world, *liveRect));
+    CHECK(molga::ui::ResolveTarget(world, after->rectTransform) != nullptr);
+
+    // 키 자체가 두 상태를 구별해야 한다. 위의 단언들만으로는 "게시 직전에
+    // 정체성만 덧칠했다"는 구현도 통과하고, 그 구현은 캐시가 실제로 담고 있는
+    // 항목이 죽은 정체성을 든 채로 남아 다음 히트에서 다시 새어 나온다.
+    const auto keyAfter = layout.LastGeometryKey();
+    REQUIRE(keyAfter.has_value());
+    CHECK(*keyAfter != *keyBefore);
+
+    // 그리고 **캐시에 담긴 것** 자체가 살아 있는 식별자여야 한다. 위의 단언들만
+    // 두면 "게시 직전에 정체성만 덧칠했다"는 구현도 통과하고, 그 구현이 담아
+    // 둔 항목은 다음 히트에서 죽은 식별자를 다시 내놓는다.
+    //
+    // 세 번째 배치는 LRU 항목에서 나와야 한다. 아무것도 바꾸지 않으면 빠른
+    // 경로가 마지막 스냅샷을 통째로 돌려주고 LRU는 읽히지도 않는다(라운드 3
+    // 리뷰가 짚은 구멍). 그래서 기하에 닿지 않는 편집 하나 — selectable의
+    // 상호작용 토글 — 로 빠른 경로를 놓치게 한 뒤, 키는 새로 지어지되(빠른
+    // 경로 미스) 기하는 다시 만들지 않았음(기하 히트)을 함께 확인한다.
+    auto* selectable = child->GetComponent<UISelectable>();
+    REQUIRE(selectable != nullptr);
+    selectable->SetInteractable(false);
+    const std::uint64_t keyBuildsBeforeReuse = layout.SnapshotKeyBuildCount();
+    const std::uint64_t buildsBeforeReuse = layout.GeometryBuildCount();
+    const auto third =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(third);
+    CHECK(third != second);
+    CHECK(layout.SnapshotKeyBuildCount() == keyBuildsBeforeReuse + 1);
+    CHECK(layout.GeometryBuildCount() == buildsBeforeReuse);
+    CHECK(*layout.LastGeometryKey() == *keyAfter);
+    const auto* reused = FindNodeById(*third, 2);
+    REQUIRE(reused != nullptr);
+    CHECK(reused->rectTransform == molga::ui::CaptureTarget(world, *liveRect));
+    CHECK(reused->rectTransform != retired);
+}
+
+// ── Task 12.1이 인계받은 결함 2: 측정되지 않던 캔버스 뿌리 활성 게이트 ───────
+//
+// 뿌리 **자신**이 비활성인 경우는 GatherSubtree가 이미 첫 줄에서 막는다. 이
+// 게이트가 유일하게 답하는 것은 조상이 꺼진 경우다 — 순회는 캔버스 뿌리에서
+// 시작하므로 그 위를 절대 보지 않는다. 그래서 뿌리를 끄는 시험만 있으면
+// 게이트를 통째로 지워도 스위트가 초록이다.
+TEST_CASE("a canvas root under an inactive ancestor publishes nothing") {
+    World world;
+    molga::ui::UILayoutSystem layout;
+    CountingDiagnosticSink sink;
+    const auto viewport = RawSize(640, 384);
+    BuildAuthoredNode(
+        world,
+        Node(1, nlohmann::json::object(),
+             {Node(2,
+                   {{"UICanvas", ConstantCanvasJson()},
+                    {"RectTransform", StretchRectJson()}},
+                   {Node(3, {{"RectTransform", OffsetRectJson(1, 2, 10, 5)},
+                             {"UISelectable",
+                              {{"schemaVersion", 1},
+                               {"interactable", true},
+                               {"navigationMode", "Auto"},
+                               {"navigateUp", {{"targetId", 0}}},
+                               {"navigateDown", {{"targetId", 0}}},
+                               {"navigateLeft", {{"targetId", 0}}},
+                               {"navigateRight", {{"targetId", 0}}}}}})})}),
+        nullptr);
+
+    GameObject* holder = world.FindById(1);
+    REQUIRE(holder != nullptr);
+    GameObject* canvasObject = world.FindById(2);
+    REQUIRE(canvasObject != nullptr);
+
+    // 켜져 있을 때는 실제로 무언가 나온다. 이 REQUIRE가 없으면 아래의 "비어
+    // 있다"가 씬을 잘못 만든 덕에 통과할 수 있다.
+    const auto visible =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(visible);
+    REQUIRE(visible->nodes.size() == 2);
+    REQUIRE(visible->hitTargets.size() == 1);
+
+    holder->SetActive(false);
+    // 캔버스 뿌리 자신은 여전히 켜져 있다. 꺼진 것은 그 위뿐이고, 그것이 이
+    // 게이트가 답하는 유일한 상태다.
+    REQUIRE(canvasObject->IsActive());
+
+    const auto hidden =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(hidden);
+    CHECK(hidden->nodes.empty());
+    CHECK(hidden->renderItems.empty());
+    CHECK(hidden->hitTargets.empty());
+
+    // 반대 방향. 조상을 다시 켜면 그 서브트리가 돌아와야 한다 — 빈 스냅샷이
+    // 캐시에 눌어붙으면 한 번 숨긴 캔버스가 영원히 사라진다.
+    holder->SetActive(true);
+    const auto restored =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(restored);
+    REQUIRE(restored->nodes.size() == visible->nodes.size());
+    CHECK(restored->hitTargets.size() == 1);
+    for (std::size_t i = 0; i < visible->nodes.size(); ++i) {
+        CAPTURE(i);
+        CHECK(restored->nodes[i].rectTransform == visible->nodes[i].rectTransform);
+        CHECK(restored->nodes[i].logicalRect == visible->nodes[i].logicalRect);
+    }
+}
+
+// ── Task 12.1 라운드 3: 기하 키의 나머지 revision 칸들 (G1) ──────────────────
+//
+// 인계받은 결함 1은 RectTransform에서만 닫혔었다. UILayoutElement/UILayoutGroup/
+// UIContentSizeFitter/UIMask/UICanvas의 칸도 **인스턴스마다** 1에서 시작하는
+// revision 카운터이고, 세터는 실제로 값이 바뀔 때만 센다. 그래서 다른 값을
+// 가졌지만 변경 횟수가 같은 컴포넌트로 교체하면 키가 글자 하나 다르지 않고,
+// 캐시가 옛 기하를 — UICanvas라면 옛 draw order와 그러므로 옛 hit 순서를 —
+// 그대로 돌려준다.
+//
+// 신탁은 캐시가 없는 두 번째 UILayoutSystem이다. 그 시스템은 저작값만으로
+// 계산하므로, 캐시를 쓰는 시스템의 답은 언제나 그것과 같아야 한다.
+namespace {
+
+// 기하만 담은 비교용 서명. 식별자 순번(인스턴스 id/세대)은 넣지 않는다 —
+// 신탁과 비교하는 것은 기하와 순서다. raw 26.6 정수만 쓴다.
+std::string GeometrySignature(const molga::ui::UISnapshot& snapshot) {
+    std::string out;
+    const auto rect = [&out](const molga::FixedRect& r) {
+        out += std::to_string(r.x.Raw()) + "," + std::to_string(r.y.Raw()) +
+               "," + std::to_string(r.width.Raw()) + "," +
+               std::to_string(r.height.Raw());
+    };
+    for (const auto& node : snapshot.nodes) {
+        out += "n" + std::to_string(node.rectTransform.objectId) + "[";
+        rect(node.logicalRect);
+        out += "]";
+        if (node.logicalClip) {
+            out += "clip[";
+            rect(*node.logicalClip);
+            out += "]";
+        }
+        out += ";";
+    }
+    for (const auto& hit : snapshot.hitTargets) {
+        out += "h" + std::to_string(hit.canonicalTarget.sceneObjectId) + "@" +
+               std::to_string(hit.order.canvasSortingOrder) + ";";
+    }
+    return out;
+}
+
+std::string FreshGeometrySignature(World& world, FixedSize viewport) {
+    molga::ui::UILayoutSystem fresh;
+    CountingDiagnosticSink sink;
+    const auto snapshot =
+        BuildUILayout(fresh, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(snapshot);
+    return GeometrySignature(*snapshot);
+}
+
+nlohmann::json SelectableJson() {
+    return nlohmann::json{{"schemaVersion", 1},
+                          {"interactable", true},
+                          {"navigationMode", "Auto"},
+                          {"navigateUp", {{"targetId", 0}}},
+                          {"navigateDown", {{"targetId", 0}}},
+                          {"navigateLeft", {{"targetId", 0}}},
+                          {"navigateRight", {{"targetId", 0}}}};
+}
+
+// 한 번의 교체를 캐시가 있는 시스템과 신탁에 모두 보인다. 교체 전 기하를
+// 먼저 캐시에 넣고, 같은 revision의 다른 값으로 교체한 뒤, 다시 짓는다.
+void RequireReplacementIsSeen(World& world, FixedSize viewport,
+                              const std::function<std::uint64_t()>& revision,
+                              const std::function<void()>& replace) {
+    molga::ui::UILayoutSystem layout;
+    CountingDiagnosticSink sink;
+    const auto before =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(before);
+    const std::string freshBefore = FreshGeometrySignature(world, viewport);
+    REQUIRE(GeometrySignature(*before) == freshBefore);
+
+    const std::uint64_t originalRevision = revision();
+    replace();
+    // 결함의 전제: 교체된 컴포넌트의 revision이 원래와 같다. 다르다면 키가
+    // 이미 갈라져 이 케이스는 아무것도 시험하지 않는다.
+    REQUIRE(revision() == originalRevision);
+    // 그리고 새 값은 정말로 기하를 바꾼다. 바꾸지 않는다면 캐시가 맞든 틀리든
+    // 같은 답이 나온다.
+    const std::string freshAfter = FreshGeometrySignature(world, viewport);
+    REQUIRE(freshAfter != freshBefore);
+
+    const auto after =
+        BuildUILayout(layout, world, molga::WindowId{7}, viewport, sink);
+    REQUIRE(after);
+    CHECK(GeometrySignature(*after) == freshAfter);
+    CHECK(GeometrySignature(*after) != freshBefore);
+}
+
+template <typename T>
+T* LiveComponent(World& world, unsigned int objectId) {
+    GameObject* object = world.FindById(objectId);
+    REQUIRE(object != nullptr);
+    T* component = object->GetComponent<T>();
+    REQUIRE(component != nullptr);
+    return component;
+}
+
+template <typename T>
+void ReplaceWithAuthored(World& world, unsigned int objectId,
+                         const std::string& typeName,
+                         const nlohmann::json& payload) {
+    GameObject* object = world.FindById(objectId);
+    REQUIRE(object != nullptr);
+    object->RemoveComponent<T>();
+    Component* replacement = AddNamedComponent(*object, typeName);
+    REQUIRE(replacement != nullptr);
+    replacement->Deserialize(payload);
+}
+
+} // namespace
+
+TEST_CASE("a replaced content size fitter with different fits is re-measured") {
+    World world;
+    BuildAuthoredNode(
+        world,
+        Node(1,
+             {{"UICanvas", ConstantCanvasJson()},
+              {"RectTransform", StretchRectJson()}},
+             {Node(2, {{"RectTransform", OffsetRectJson(1, 2, 10, 5)},
+                       {"UILayoutElement",
+                        ElementJson(AxisJson(0, 30, 0), AxisJson(0, 40, 0))},
+                       {"UIContentSizeFitter",
+                        FitterJson("Preferred", "Unconstrained")}})}),
+        nullptr);
+    RequireReplacementIsSeen(
+        world, RawSize(640, 384),
+        [&] { return LiveComponent<UIContentSizeFitter>(world, 2)->AuthoredRevision(); },
+        [&] {
+            ReplaceWithAuthored<UIContentSizeFitter>(
+                world, 2, "UIContentSizeFitter",
+                FitterJson("Unconstrained", "Preferred"));
+        });
+}
+
+TEST_CASE("a replaced layout element with a different preferred width is re-measured") {
+    World world;
+    BuildAuthoredNode(
+        world,
+        Node(1,
+             {{"UICanvas", ConstantCanvasJson()},
+              {"RectTransform", StretchRectJson()},
+              {"UILayoutGroup",
+               GroupJson("Horizontal", 0, 0, 0, 0, 0, 0, "Left", "Top", true,
+                         false, false, false)}},
+             {Node(2, {{"RectTransform", OffsetRectJson(0, 0, 10, 20)},
+                       {"UILayoutElement",
+                        ElementJson(AxisJson(0, 100, 0), AxisJson(0, 0, 0))}}),
+              Node(3, {{"RectTransform", OffsetRectJson(0, 0, 10, 20)}})}),
+        nullptr);
+    RequireReplacementIsSeen(
+        world, RawSize(64000, 38400),
+        [&] { return LiveComponent<UILayoutElement>(world, 2)->AuthoredRevision(); },
+        [&] {
+            ReplaceWithAuthored<UILayoutElement>(
+                world, 2, "UILayoutElement",
+                ElementJson(AxisJson(0, 200, 0), AxisJson(0, 0, 0)));
+        });
+}
+
+TEST_CASE("a replaced layout group with different spacing is re-arranged") {
+    World world;
+    BuildAuthoredNode(
+        world,
+        Node(1,
+             {{"UICanvas", ConstantCanvasJson()},
+              {"RectTransform", StretchRectJson()},
+              {"UILayoutGroup",
+               GroupJson("Horizontal", 0, 0, 0, 0, 10, 0, "Left", "Top", false,
+                         false, false, false)}},
+             {Node(2, {{"RectTransform", OffsetRectJson(0, 0, 30, 20)}}),
+              Node(3, {{"RectTransform", OffsetRectJson(0, 0, 30, 20)}})}),
+        nullptr);
+    RequireReplacementIsSeen(
+        world, RawSize(64000, 38400),
+        [&] { return LiveComponent<UILayoutGroup>(world, 1)->AuthoredRevision(); },
+        [&] {
+            ReplaceWithAuthored<UILayoutGroup>(
+                world, 1, "UILayoutGroup",
+                GroupJson("Horizontal", 0, 0, 0, 0, 30, 0, "Left", "Top", false,
+                          false, false, false));
+        });
+}
+
+// 라운드 3 리뷰는 UIMask가 충돌할 수 없다고 보았다(토글 한 번에 두 번 올리므로
+// revision의 홀짝이 값을 정한다는 논증). 그 논증은 SetEnabled를 빠뜨렸다 —
+// UIComponent::SetEnabled는 revision을 **한 번** 올린다. 그래서 껐다 켠 마스크
+// (rev 3, 자르기 켜짐)와 자르기를 끈 마스크(rev 3)가 같은 칸 값을 낸다.
+TEST_CASE("a replaced mask with a different clip mode is re-clipped") {
+    World world;
+    BuildAuthoredNode(
+        world,
+        Node(1,
+             {{"UICanvas", ConstantCanvasJson()},
+              {"RectTransform", StretchRectJson()}},
+             {Node(2,
+                   {{"RectTransform", OffsetRectJson(0, 0, 10, 10)},
+                    {"UIMask", {{"schemaVersion", 1}, {"clipsDescendants", true}}}},
+                   {Node(3, {{"RectTransform", OffsetRectJson(5, 5, 10, 10)},
+                             {"UISelectable", SelectableJson()}})})}),
+        nullptr);
+    auto* original = LiveComponent<UIMask>(world, 2);
+    REQUIRE(original->ClipsDescendants());
+    original->SetEnabled(false);
+    original->SetEnabled(true);
+    RequireReplacementIsSeen(
+        world, RawSize(64000, 38400),
+        [&] { return LiveComponent<UIMask>(world, 2)->AuthoredRevision(); },
+        [&] {
+            GameObject* object = world.FindById(2);
+            REQUIRE(object != nullptr);
+            object->RemoveComponent<UIMask>();
+            auto* replacement = object->AddComponent<UIMask>();
+            REQUIRE(replacement != nullptr);
+            replacement->SetClipsDescendants(false);
+        });
+}
+
+// 캔버스는 기하만이 아니라 draw order의 첫 항을 정한다. 옛 정렬 순서가 캐시에서
+// 돌아오면 저작자가 아래로 내린 캔버스가 계속 위에서 hit을 받는다.
+TEST_CASE("a replaced canvas with a different sorting order is re-ordered") {
+    World world;
+    BuildAuthoredNode(
+        world,
+        Node(1,
+             {{"UICanvas", CanvasJson("ConstantPixelSize", 800, 600, 0.5f, 0)},
+              {"RectTransform", StretchRectJson()}},
+             {Node(2, {{"RectTransform", OffsetRectJson(0, 0, 10, 10)},
+                       {"UISelectable", SelectableJson()}})}),
+        nullptr);
+    BuildAuthoredNode(
+        world,
+        Node(10,
+             {{"UICanvas", CanvasJson("ConstantPixelSize", 800, 600, 0.5f, 5)},
+              {"RectTransform", StretchRectJson()}},
+             {Node(11, {{"RectTransform", OffsetRectJson(0, 0, 10, 10)},
+                        {"UISelectable", SelectableJson()}})}),
+        nullptr);
+    RequireReplacementIsSeen(
+        world, RawSize(64000, 38400),
+        [&] { return LiveComponent<UICanvas>(world, 10)->AuthoredRevision(); },
+        [&] {
+            ReplaceWithAuthored<UICanvas>(
+                world, 10, "UICanvas",
+                CanvasJson("ConstantPixelSize", 800, 600, 0.5f, -5));
+        });
 }
