@@ -1,0 +1,15 @@
+{
+  "guid": "77777777777777777777777777777777",
+  "importer": "FontImporter",
+  "importerVersion": 2,
+  "settings": {
+    "faceIndex": 0,
+    "weight": 400,
+    "stretchPercent": 100,
+    "slant": "Upright",
+    "redistributableConfirmed": true,
+    "licenseKind": "OFL-1.1",
+    "copyright": "fixture provenance: Noto CJK 523d033d",
+    "licenseAssetGuid": "99999999999999999999999999999999"
+  }
+}

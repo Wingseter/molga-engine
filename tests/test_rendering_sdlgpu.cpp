@@ -1,4 +1,7 @@
 #include "Core/Bootstrap.h"
+#include "AssetDatabaseTestAuthority.h"
+#include "Common/Log.h"
+#include "Common/RingBufferSink.h"
 #include "Core/AssetDatabase.h"
 #include "Core/PathService.h"
 #include "Core/TextureManager.h"
@@ -14,6 +17,9 @@
 #include "ECS/Components/UIImage.h"
 #include "ECS/GameObject.h"
 #include "Rendering/Camera2D.h"
+#include "Rendering/FontAtlas.h"
+#include "Rendering/FontFace.h"
+#include "Core/World.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/PostProcessPipeline.h"
 #include "Rendering/PostProcessProfile2D.h"
@@ -24,7 +30,11 @@
 #include "Rendering/ShaderManager.h"
 #include "Rendering/Texture.h"
 #include "Rendering/TextRenderer.h"
+#include "Rendering/TextureBindingRegistry.h"
 #include "Systems/Particle.h"
+#include "Common/Fixed26_6.h"
+#include "Text/TextDiagnostic.h"
+#include "Text/TextLayoutTypes.h"
 #include "doctest.h"
 
 #include <array>
@@ -36,6 +46,7 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -65,15 +76,20 @@ bool Acquire(EngineHost& host, Renderer& renderer, std::string& error) {
 
 bool RenderOutputFrame(
     EngineHost& host, Renderer& renderer, molga::GameOutputRenderer& output,
-    const std::vector<std::shared_ptr<GameObject>>& objects,
+    World& objects,
     molga::RenderTarget& target, molga::PixelSize logicalSize,
     molga::GameOutputScaleMode scaleMode, molga::GameOutputResult& result,
     std::string& error) {
     if (!Acquire(host, renderer, error)) return false;
+    // Task 8.2 Step 7d: 게임 출력은 이 프레임의 텍스트 권한을 인자로 받는다.
+    // 프로덕션과 같은 하나의 프로세스 renderer를 쓴다 — 여기서 두 번째
+    // TextRenderer를 세우면 이 픽스처가 재는 것이 프로덕션이 아니게 된다.
+    static molga::text::VectorTextDiagnosticSink textSink;
     result = output.Render(
         objects,
         {{target.Width(), target.Height()}, logicalSize, scaleMode, &target},
-        renderer, ShaderManager::Get().Get("default"));
+        renderer, ShaderManager::Get().Get("default"), TextRenderer::Get(),
+        textSink);
     if (!result.presented) {
         error = "game output was not presented";
         return false;
@@ -313,7 +329,7 @@ struct OutputCameraFixture {
 };
 
 OutputCameraFixture AddOutputCamera(
-    std::vector<std::shared_ptr<GameObject>>& objects, const char* name,
+    World& objects, const char* name,
     CameraOutputRole role, const CameraViewport& viewport, int depth,
     const Color& background) {
     auto object = std::make_shared<GameObject>(name);
@@ -325,11 +341,11 @@ OutputCameraFixture AddOutputCamera(
     camera->SetPixelPerfect(true);
     camera->SetPixelZoom(1);
     camera->SetBackgroundColor(background);
-    objects.push_back(object);
+    objects.Add(object);
     return {std::move(object), camera};
 }
 
-void AddLayerPixel(std::vector<std::shared_ptr<GameObject>>& objects,
+void AddLayerPixel(World& objects,
                    const char* name, int layer, const Color& color) {
     auto object = std::make_shared<GameObject>(name);
     object->SetLayer(layer);
@@ -337,8 +353,165 @@ void AddLayerPixel(std::vector<std::shared_ptr<GameObject>>& objects,
     auto* sprite = object->AddComponent<SpriteRenderer>();
     sprite->SetSize(1.0f, 1.0f);
     sprite->SetColor(color);
-    objects.push_back(std::move(object));
+    objects.Add(std::move(object));
 }
+
+// ── Task 6.3: 제출된 프레임이 붙들고 있는 glyph page 하나 ────────────────────
+// 두 종료 순서를 같은 모양의 상태 위에서 재기 위한 준비. 이 픽스처가 끝나면
+// 살아 있는 외부 page 지분은 정확히 하나이고, 그 하나를 들고 있는 것은
+// 제출된 프레임(=renderer의 반납 큐)뿐이다.
+struct SubmittedGlyphPageFixture {
+    SubmittedGlyphPageFixture(EngineHost& host, Renderer& renderer,
+                              TextRenderer& text) {
+        std::string error;
+        REQUIRE_MESSAGE(face.LoadFromFile(MOLGA_TEST_KOREAN_FONT_PATH, &error),
+                        error);
+        const std::uint32_t glyphId = face.GlyphId(U'가');
+        REQUIRE(glyphId != 0U);
+
+        molga::GlyphAtlasKey key;
+        key.fontGuid = "shutdown-order";
+        key.fontRevision = "0";
+        key.faceIndex = 0U;
+        key.pixelSize = 32U;
+        key.rasterScaleKey = 64U;
+        key.renderMode = molga::GlyphRenderMode::Monochrome;
+        key.glyphId = glyphId;
+
+        molga::GlyphHandle handle;
+        {
+            auto collection = text.BeginGlyphCollection(1);
+            handle = text.GlyphAtlas().GetGlyph(key, face, sink);
+        }
+        REQUIRE_FALSE(handle.proceduralTofu);
+        REQUIRE(handle.pageIdentity != 0U);
+        REQUIRE(handle.pageLifetime);
+        pageIdentity = handle.pageIdentity;
+        REQUIRE(text.GlyphAtlas().ResidentPageCount() == 1U);
+
+        // 텍스처는 지분을 통해서만 꺼낸다. GlyphInfo만 복사해 둔 소비자는 이
+        // 질문을 할 수 없다는 것이 RetainedTexture의 내용이고, 그 계약은 진짜
+        // 텍스처가 있는 곳에서만 관찰된다 — 헤드리스 캐시에서는 두 표현이
+        // 똑같이 널이라 어느 쪽으로 굳혀도 단언이 움직이지 않는다.
+        Texture* retained = molga::RetainedTexture(handle);
+        REQUIRE(retained != nullptr);
+        REQUIRE(retained->IsValid());
+        REQUIRE(retained == handle.glyph.texture);
+
+        molga::BeginFrameResult acquired = host.BeginFrame();
+        REQUIRE(acquired.status == molga::FrameAcquireStatus::Acquired);
+        REQUIRE_MESSAGE(renderer.BeginFrame(std::move(acquired.frame), &error),
+                        error);
+        renderer.RetainUntilFrameComplete(handle.pageIdentity,
+                                          handle.pageLifetime);
+        REQUIRE(renderer.ActiveFrameRetainedPageCount() == 1U);
+        REQUIRE_MESSAGE(renderer.SubmitFrame(&error), error);
+
+        // 이 테스트의 사본을 놓는다. 남은 외부 지분은 제출된 프레임의 것
+        // 하나뿐이어야, 아래 두 케이스가 재는 것이 "종료 순서"가 된다.
+        handle.pageLifetime.reset();
+        REQUIRE(text.GlyphAtlas().LiveExternalPagePinCount() == 1U);
+
+        // 반대편: 지분을 놓은 handle은 텍스처를 돌려주지 않는다. 원시 필드는
+        // 여전히 그 값을 담고 있으므로, 이 둘의 차이가 곧 "GlyphInfo는 수명
+        // 단위가 아니다"이다.
+        CHECK(molga::RetainedTexture(handle) == nullptr);
+        CHECK(handle.glyph.texture == retained);
+    }
+
+    molga::FontFace face;
+    molga::text::VectorTextDiagnosticSink sink;
+    std::uint64_t pageIdentity = 0U;
+};
+
+// ── Task 6.3: 거절이 조용하지 않다는 것까지가 계약이다 ──────────────────────
+// 진입점 두 곳(src/main.cpp, src/runtime_main.cpp)은 어떤 테스트 바이너리도
+// 컴파일하지 않으므로, 그쪽에서 순서가 뒤집혔을 때 남는 유일한 실행 시 증거가
+// TextRenderer::Shutdown의 이 Log::Error다. 메시지가 존재 이유의 전부인
+// 경로를 아무도 단언하지 않으면, 그 메시지는 지워져도 아무 일도 일어나지
+// 않는다 — 기구가 아니라 보고가 fail-open이 된다.
+class TextRendererErrorLog {
+public:
+    TextRendererErrorLog() : sink_(std::make_shared<Log::RingBufferSink>(16)) {
+        Log::AddSink(sink_);
+    }
+    ~TextRendererErrorLog() { Log::RemoveSink(sink_); }
+    TextRendererErrorLog(const TextRendererErrorLog&) = delete;
+    TextRendererErrorLog& operator=(const TextRendererErrorLog&) = delete;
+
+    std::size_t ErrorCount() const {
+        std::size_t count = 0U;
+        for (const Log::LogMessage& message : sink_->Snapshot()) {
+            if (message.severity == Log::Severity::Error &&
+                message.category == "TextRenderer") {
+                ++count;
+            }
+        }
+        return count;
+    }
+
+    std::string LastErrorMessage() const {
+        std::string last;
+        for (const Log::LogMessage& message : sink_->Snapshot()) {
+            if (message.severity == Log::Severity::Error &&
+                message.category == "TextRenderer") {
+                last = message.message;
+            }
+        }
+        return last;
+    }
+
+private:
+    std::shared_ptr<Log::RingBufferSink> sink_;
+};
+
+// Renderer::Shutdown이 지나간 단계를 순서대로 받아 적는다.
+std::vector<std::string>* g_shutdownStages = nullptr;
+void RecordShutdownStage(const char* stage) {
+    if (g_shutdownStages != nullptr) g_shutdownStages->push_back(stage);
+}
+
+// ── Task 8.2 Step 7f: ShutdownAfterGpuIdle 안의 두 사건 ──────────────────────
+// 계약은 atlas_cleared < text_services_destroyed < u_cleanup이다. 앞의 두
+// 사건은 그 함수 안에서만 일어나므로, 밖에서 두 번 표시를 찍으면 순서가 아니라
+// 표시를 찍은 순서를 재게 된다. 위 renderer hook과 같은 규칙이다.
+std::vector<std::string>* g_textShutdownStages = nullptr;
+void RecordTextShutdownStage(const char* stage) {
+    if (g_textShutdownStages != nullptr) g_textShutdownStages->push_back(stage);
+}
+
+class TextShutdownStageLog {
+public:
+    TextShutdownStageLog() {
+        g_textShutdownStages = &stages;
+        molga::detail::SetTextRendererShutdownStageHookForTest(
+            &RecordTextShutdownStage);
+    }
+    ~TextShutdownStageLog() {
+        molga::detail::SetTextRendererShutdownStageHookForTest(nullptr);
+        g_textShutdownStages = nullptr;
+    }
+    TextShutdownStageLog(const TextShutdownStageLog&) = delete;
+    TextShutdownStageLog& operator=(const TextShutdownStageLog&) = delete;
+
+    std::vector<std::string> stages;
+};
+
+class ShutdownStageLog {
+public:
+    ShutdownStageLog() {
+        g_shutdownStages = &stages;
+        molga::detail::SetRendererShutdownStageHookForTest(&RecordShutdownStage);
+    }
+    ~ShutdownStageLog() {
+        molga::detail::SetRendererShutdownStageHookForTest(nullptr);
+        g_shutdownStages = nullptr;
+    }
+    ShutdownStageLog(const ShutdownStageLog&) = delete;
+    ShutdownStageLog& operator=(const ShutdownStageLog&) = delete;
+
+    std::vector<std::string> stages;
+};
 
 } // namespace
 
@@ -388,6 +561,95 @@ TEST_CASE("SDL_GPU RHI rejects stale handles and invalid frame ordering") {
     host->Graphics().DestroyBuffer(live);
 }
 
+// ── Task 6.2: 진짜 제출 fence ───────────────────────────────────────────────
+// GpuRetirementQueue의 CPU 케이스는 가짜 fence로 "신호하기 전에는 놓지 않는다"를
+// 재고, 여기서는 그 경계의 반대쪽 — 실제 SDL_GPU 제출이 완료를 보고하는가 — 을
+// 잰다. 이 단언이 없으면 IsSignaled()가 언제나 false인 구현도, 극성이 뒤집힌
+// 구현도 CPU 스위트를 전부 통과한다.
+//
+// 벤더된 SDL 3.4.14의 Metal 백엔드에서 SDL_QueryGPUFence는 문서와 반대로
+// "진행 중"을 돌려준다(METAL_QueryFence -> METAL_INTERNAL_IsFenceBusy). 그래서
+// 이 케이스는 장치 생성 시 측정한 극성이 실제로 적용될 때만 통과한다.
+TEST_CASE("SDL_GPU submission fences report completion after a device idle wait") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU submission fence";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    std::string error;
+    molga::BeginFrameResult acquired = host->BeginFrame();
+    REQUIRE(acquired.status == molga::FrameAcquireStatus::Acquired);
+    molga::RenderPassDescriptor pass;
+    pass.color.swapchain = true;
+    pass.color.loadAction = molga::LoadAction::Clear;
+    REQUIRE(acquired.frame.BeginRenderPass(pass, &error));
+    acquired.frame.EndRenderPass();
+
+    std::unique_ptr<molga::IGpuCompletionFence> fence;
+    REQUIRE_MESSAGE(acquired.frame.SubmitAndAcquireFence(fence, &error), error);
+    REQUIRE(fence);
+    REQUIRE_MESSAGE(host->Graphics().WaitIdle(&error), error);
+    CHECK(fence->IsSignaled());
+
+    // 이미 제출된 프레임은 두 번째 fence를 만들지 않는다. 실패한 호출이
+    // 낡은 fence를 남겨 두면 그 다음 Poll이 남의 제출을 보고 page를 놓는다.
+    std::unique_ptr<molga::IGpuCompletionFence> second;
+    CHECK_FALSE(acquired.frame.SubmitAndAcquireFence(second, &error));
+    CHECK_FALSE(second);
+
+    // fence 객체는 장치보다 먼저 사라져야 한다. 이 줄이 그 순서다.
+    fence.reset();
+}
+
+// 위 케이스는 한쪽 방향만 잰다. 완료된 fence에 대한 CHECK(IsSignaled())는
+// IsSignaled()가 통째로 `return true`인 구현도 만족시키는데, 그것이야말로 이
+// 마일스톤이 막으려는 방향이다 — 제출된 순간 모든 page가 반납되고, GPU가
+// 읽고 있는 텍스처가 그 밑에서 사라진다.
+//
+// 진짜 fence를 비행 중에 붙잡는 단언은 쓸 수 없다(GPU가 먼저 끝내면 그 단언은
+// 사라진다). 대신 fail-closed 세 갈래를 완료가 증명된 진짜 fence 위에서
+// 결정적으로 관찰한다: 장치가 없는 것, fence가 없는 것, 극성을 측정하지 못한
+// 것. 셋 다 "아직 아니다"여야 한다.
+TEST_CASE("a real submission fence answers false whenever it lacks proof") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU fence polarity";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    molga::detail::CompletionFenceProbe probe =
+        molga::detail::ProbeCompletionFenceForTest(host->Graphics());
+    REQUIRE(probe.valid);
+
+    // 성공 증인. 이것이 없으면 IsSignaled()가 언제나 false인 구현이 아래 세
+    // 단언을 전부 통과한다.
+    CHECK(probe.completed->IsSignaled());
+
+    // 증거가 없는 세 갈래. 이 셋이 `return true`를 죽인다.
+    CHECK_FALSE(probe.withoutDevice->IsSignaled());
+    CHECK_FALSE(probe.withoutFence->IsSignaled());
+    CHECK_FALSE(probe.completedWithUnusablePolarity->IsSignaled());
+
+    // 측정한 극성은 이 장치의 실제 답과 맞아야 한다. 벤더된 SDL 3.4.14의
+    // Metal 백엔드에서 SDL_QueryGPUFence는 완료된 fence에 false를 돌려주므로
+    // (METAL_QueryFence -> METAL_INTERNAL_IsFenceBusy), 여기서 극성은
+    // ReportsBusy이고 IsSignaled()는 원값과 어긋나야 한다. 극성을 상수로
+    // 박아 두면 SDL이 고쳐지는 날 이 줄이 먼저 깨진다.
+    CHECK(probe.polarity != molga::FenceQueryPolarity::Unusable);
+    if (probe.polarity == molga::FenceQueryPolarity::ReportsBusy) {
+        CHECK_FALSE(probe.rawQueryOnCompletedFence);
+        CHECK(probe.completed->IsSignaled() != probe.rawQueryOnCompletedFence);
+    } else {
+        CHECK(probe.rawQueryOnCompletedFence);
+        CHECK(probe.completed->IsSignaled() == probe.rawQueryOnCompletedFence);
+    }
+}
+
 TEST_CASE("SDL_GPU pipeline keys are deterministic and state-complete") {
     molga::ShaderBundleEntry entry;
     entry.name = "key-test";
@@ -435,6 +697,162 @@ TEST_CASE("SDL_GPU render target preserves last-good allocation") {
     CHECK(target.Width() == 32);
     CHECK(target.Height() == 24);
     CHECK(target.ColorView().texture == original.texture);
+}
+
+// ── Task 11.2 Step 6d/7c: 클립을 패스 전체로 되돌린다 ───────────────────────
+// 이 계약은 픽셀에서만 참이거나 거짓이다. "ResetPassScissor가 참을 돌려주었다"
+// 는 클립이 실제로 풀렸다는 뜻이 아니다 — 0,0,0,0을 세우고 참을 돌려주는
+// 구현도, 아무것도 하지 않고 참을 돌려주는 구현도 같은 반환값을 낸다.
+// 그래서 되돌린 뒤에 전체를 덮어 그리고, 옛 클립 **밖**의 픽셀을 읽는다.
+TEST_CASE("ResetPassScissor restores the whole pass and refuses without one") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU scissor reset";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    config.graphicsValidation = true;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    Renderer renderer;
+    std::string error;
+    REQUIRE(renderer.Init(&error));
+    molga::RenderTarget target({molga::RenderTargetColorFormat::SRGBA8,
+                                false, molga::TextureFilter::Nearest});
+    REQUIRE(target.Init(64, 64, &error));
+
+    // 활성 패스가 없으면 거절한다. 조용히 참을 돌려주면 클립이 남은 채로
+    // 다음 소비자가 그린다.
+    CHECK_FALSE(renderer.ResetPassScissor(&error));
+    CHECK(error == "scissor reset requires an active pass");
+
+    REQUIRE(Acquire(*host, renderer, error));
+    REQUIRE(renderer.BeginTarget(target, {0.0f, 0.0f, 0.0f, 1.0f},
+                                 molga::LoadAction::Clear, &error));
+    Shader* batch = ShaderManager::Get().Get("batch");
+    REQUIRE(batch);
+    Camera2D camera(64.0f, 64.0f);
+    molga::BatchKey key;
+    key.shaderName = "batch";
+    key.shaderRevision = batch->Revision();
+    const auto quad = [](float r, float g, float b) {
+        return std::vector<molga::Vertex2D>{
+            {0, 0, 0, 0, r, g, b, 1},
+            {64, 0, 1, 0, r, g, b, 1},
+            {64, 64, 1, 1, r, g, b, 1},
+            {0, 64, 0, 1, r, g, b, 1}};
+    };
+
+    // 왼쪽 위 16x16만 빨강.
+    REQUIRE(renderer.SetPassScissor({0, 0, 16, 16}, &error));
+    {
+        molga::RenderPass logical(renderer, batch, &camera);
+        REQUIRE(renderer.SubmitBatch(quad(1.0f, 0.0f, 0.0f), key, nullptr,
+                                     &error));
+    }
+    // 되돌린 다음 전체를 초록으로 덮는다.
+    REQUIRE(renderer.ResetPassScissor(&error));
+    {
+        molga::RenderPass logical(renderer, batch, &camera);
+        REQUIRE(renderer.SubmitBatch(quad(0.0f, 1.0f, 0.0f), key, nullptr,
+                                     &error));
+    }
+    REQUIRE(renderer.EndTarget(&error));
+    REQUIRE(renderer.SubmitFrame(&error));
+
+    std::vector<std::uint8_t> pixels;
+    REQUIRE(host->Graphics().ReadbackRGBA8(target.ColorView(), {0, 0, 64, 64},
+                                           pixels, error));
+    // 옛 클립 밖. 되돌리지 않았으면 여기는 지운 색(검정) 그대로다.
+    const auto outside = Pixel(pixels, 64, 48, 48);
+    CHECK(Near(outside[0], 0));
+    CHECK(Near(outside[1], 255));
+    CHECK(Near(outside[2], 0));
+    // 옛 클립 안도 초록이다 — 되돌린 그리기가 전체를 덮었다는 나머지 절반.
+    const auto inside = Pixel(pixels, 64, 4, 4);
+    CHECK(Near(inside[1], 255));
+
+    // 패스가 닫히면 추적하던 뷰포트도 사라진다. 남겨 두면 다음 패스가 열리기
+    // 전의 reset이 앞 패스의 사각형을 되돌려 준다.
+    //
+    // 이 두 줄이 그 지움 자체를 관찰하지는 못한다는 것을 여기 적어 둔다:
+    // ResetPassScissor는 !passRecording을 먼저 보므로 지워진 사각형은 읽힐
+    // 수 없다(구현 기록의 M46이 그 사실이다). 관찰되는 것은 거절뿐이다.
+    CHECK_FALSE(renderer.ResetPassScissor(&error));
+    CHECK(error == "scissor reset requires an active pass");
+}
+
+// ── Task 11.2 close-out (A8): 되돌릴 값은 **지금** 열려 있는 뷰포트다 ───────
+// Step 6d는 SetPassViewport가 추적 값을 갱신할 것을 요구하지만, 그 한 줄에는
+// 관찰자가 없었다 — 지워도 스위트 전체가 초록이었다. 위 케이스는
+// SetPassViewport를 부르지 않으므로 패스 시작 값과 현재 값이 언제나 같다.
+//
+// 갱신을 잃으면 뷰포트를 좁힌 패스의 reset이 **패스 전체**를 클립으로
+// 세우고, 그다음 UI 그리기가 자기 뷰포트 밖으로 새어 나간다. 반환값으로는
+// 구별되지 않으므로 픽셀에서 읽는다.
+TEST_CASE("ResetPassScissor restores the current pass viewport, not the pass-begin one") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU narrowed pass viewport reset";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    config.graphicsValidation = true;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    Renderer renderer;
+    std::string error;
+    REQUIRE(renderer.Init(&error));
+    molga::RenderTarget target({molga::RenderTargetColorFormat::SRGBA8,
+                                false, molga::TextureFilter::Nearest});
+    REQUIRE(target.Init(64, 64, &error));
+
+    REQUIRE(Acquire(*host, renderer, error));
+    // 패스를 **좁은** 뷰포트로 연다. 그래야 나중의 SetPassViewport가 추적
+    // 값을 넓히고, 갱신을 잃은 구현이 좁은 옛 값을 되돌리게 된다. 패스를
+    // 전체로 열고 좁히는 반대 순서로는 이 줄을 관찰할 수 없다: 그리기는
+    // 언제나 뷰포트와 scissor의 교집합이므로, 되돌린 값이 뷰포트보다 넓기만
+    // 하면 두 구현이 같은 픽셀을 낸다.
+    REQUIRE(renderer.BeginTarget(target, {0, 0, 16, 16},
+                                 {0.0f, 0.0f, 0.0f, 1.0f},
+                                 molga::LoadAction::Clear, &error));
+    Shader* batch = ShaderManager::Get().Get("batch");
+    REQUIRE(batch);
+    Camera2D camera(64.0f, 64.0f);
+    molga::BatchKey key;
+    key.shaderName = "batch";
+    key.shaderRevision = batch->Revision();
+
+    // 패스 뷰포트를 대상 전체로 넓힌다. 이 호출이 추적 값을 갱신해야 한다.
+    REQUIRE(renderer.SetPassViewport({0, 0, 64, 64}, &error));
+    // UI 클립 하나를 세웠다가 되돌린다. 되돌릴 값은 **지금** 열려 있는
+    // 뷰포트(64x64)이지 패스가 열릴 때의 16x16이 아니다.
+    REQUIRE(renderer.SetPassScissor({0, 0, 8, 8}, &error));
+    REQUIRE(renderer.ResetPassScissor(&error));
+
+    const std::vector<molga::Vertex2D> full{
+        {0, 0, 0, 0, 0, 1, 0, 1},
+        {64, 0, 1, 0, 0, 1, 0, 1},
+        {64, 64, 1, 1, 0, 1, 0, 1},
+        {0, 64, 0, 1, 0, 1, 0, 1}};
+    {
+        molga::RenderPass logical(renderer, batch, &camera);
+        REQUIRE(renderer.SubmitBatch(full, key, nullptr, &error));
+    }
+    REQUIRE(renderer.EndTarget(&error));
+    REQUIRE(renderer.SubmitFrame(&error));
+
+    std::vector<std::uint8_t> pixels;
+    REQUIRE(host->Graphics().ReadbackRGBA8(target.ColorView(), {0, 0, 64, 64},
+                                           pixels, error));
+    // 성공 증인: 옛 뷰포트 안은 어느 구현에서도 그려진다.
+    const auto inside = Pixel(pixels, 64, 4, 4);
+    CHECK(Near(inside[1], 255));
+    // 그리고 그 밖도 그려져야 한다. 추적 값 갱신을 잃으면 되돌린 클립이
+    // 16x16이라 여기가 지운 색 그대로 남는다.
+    const auto widened = Pixel(pixels, 64, 40, 40);
+    CHECK(Near(widened[1], 255));
+    CHECK(Near(widened[0], 0));
 }
 
 TEST_CASE("SDL_GPU pixel readback is top-left RGBA with bounded tolerance") {
@@ -687,7 +1105,7 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
     molga::RenderSystem2D::Get().Init();
     molga::GameOutputRenderer output;
 
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     auto cameraObject = std::make_shared<GameObject>("Camera");
     cameraObject->AddComponent<Transform>(0.0f, 0.0f);
     Camera* camera = cameraObject->AddComponent<Camera>();
@@ -695,7 +1113,7 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
     camera->SetPixelPerfect(true);
     camera->SetPixelZoom(1);
     camera->SetBackgroundColor(Color::Black());
-    objects.push_back(cameraObject);
+    objects.Add(cameraObject);
 
     const auto addPixel = [&](float x, float y, const Color& color) {
         auto object = std::make_shared<GameObject>("Pixel");
@@ -703,7 +1121,7 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
         auto* sprite = object->AddComponent<SpriteRenderer>();
         sprite->SetSize(1.0f, 1.0f);
         sprite->SetColor(color);
-        objects.push_back(std::move(object));
+        objects.Add(std::move(object));
     };
     addPixel(0.0f, 0.0f, Color::Red());
     addPixel(1.0f, 0.0f, Color::Green());
@@ -756,20 +1174,20 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
     REQUIRE(croppedPixels.size() == 4U);
     CHECK(IsColor(Pixel(croppedPixels, 1, 0, 0), 255, 255, 255));
 
-    std::vector<std::shared_ptr<GameObject>> uiOnly;
+    World uiOnly;
     auto canvasObject = std::make_shared<GameObject>("Canvas");
     canvasObject->AddComponent<UICanvas>()->SetReferenceResolution({2.0f, 2.0f});
     auto* canvasRect = canvasObject->AddComponent<RectTransform>();
     canvasRect->SetAnchors({0.0f, 0.0f}, {1.0f, 1.0f});
     canvasRect->SetSizeDelta({0.0f, 0.0f});
-    uiOnly.push_back(canvasObject);
+    uiOnly.Add(canvasObject);
     auto imageObject = std::make_shared<GameObject>("Full UI Image");
     auto* imageRect = imageObject->AddComponent<RectTransform>();
     imageRect->SetAnchors({0.0f, 0.0f}, {1.0f, 1.0f});
     imageRect->SetSizeDelta({0.0f, 0.0f});
     imageObject->AddComponent<UIImage>()->SetTint(Color::Red());
     imageObject->SetParent(canvasObject.get());
-    uiOnly.push_back(imageObject);
+    uiOnly.Add(imageObject);
 
     molga::RenderTarget uiTarget;
     REQUIRE(uiTarget.Init(2, 2, &error));
@@ -803,7 +1221,7 @@ TEST_CASE("SDL_GPU composes split PIP cameras and camera-local culling") {
     molga::RenderTarget target;
     REQUIRE(target.Init(8, 4, &error));
 
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     const auto base = AddOutputCamera(
         objects, "Primary Split", CameraOutputRole::Primary,
         {0.0f, 0.0f, 0.5f, 0.75f}, 0, Color::Red());
@@ -858,7 +1276,7 @@ TEST_CASE("SDL_GPU composes split PIP cameras and camera-local culling") {
     const auto deeperPixels = ReadTarget(*host, target, error);
     CHECK(IsColor(Pixel(deeperPixels, 8, 3, 1), 0, 255, 0));
 
-    std::vector<std::shared_ptr<GameObject>> culledObjects;
+    World culledObjects;
     const auto layerOne = AddOutputCamera(
         culledObjects, "Layer One", CameraOutputRole::Secondary,
         {0.0f, 0.0f, 0.5f, 1.0f}, 0, Color::Black());
@@ -888,7 +1306,7 @@ TEST_CASE("SDL_GPU composes split PIP cameras and camera-local culling") {
     CHECK(IsColor(Pixel(culledPixels, 4, 1, 1), 0, 0, 0));
     CHECK(IsColor(Pixel(culledPixels, 4, 3, 1), 0, 0, 0));
 
-    std::vector<std::shared_ptr<GameObject>> fallbackObjects;
+    World fallbackObjects;
     const auto fallbackCamera = AddOutputCamera(
         fallbackObjects, "Missing PostFX Profile", CameraOutputRole::Primary,
         {0.0f, 0.0f, 0.5f, 1.0f}, 0, Color::Green());
@@ -1157,7 +1575,7 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     molga::RenderSystem2D::Get().Init();
 
     molga::GameOutputRenderer output;
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     const auto litCamera = AddOutputCamera(
         objects, "Lit Primary", CameraOutputRole::Primary,
         {0.0f, 0.0f, 0.5f, 1.0f}, 0, Color::Black());
@@ -1178,14 +1596,14 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     REQUIRE(light->SetRadius(100.0f));
     REQUIRE(light->SetHeight(0.0f));
     REQUIRE(light->SetFalloff(1.0f));
-    objects.push_back(lightObject);
+    objects.Add(lightObject);
 
     auto spriteObject = std::make_shared<GameObject>("White Receiver");
     spriteObject->AddComponent<Transform>(0.0f, 0.0f);
     auto* sprite = spriteObject->AddComponent<SpriteRenderer>();
     sprite->SetSize(1.0f, 1.0f);
     sprite->SetColor(Color::White());
-    objects.push_back(spriteObject);
+    objects.Add(spriteObject);
 
     molga::RenderTarget splitTarget;
     REQUIRE(splitTarget.Init(4, 1, &error));
@@ -1234,7 +1652,7 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     CHECK_FALSE(disabled.lightingApplied);
     CHECK(output.CachedLightingPipelineCount() == 0U);
 
-    std::vector<std::shared_ptr<GameObject>> shadowObjects;
+    World shadowObjects;
     const auto shadowCamera = AddOutputCamera(
         shadowObjects, "Shadow Camera", CameraOutputRole::Primary,
         {0, 0, 1, 1}, 0, Color::Black());
@@ -1250,7 +1668,7 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     REQUIRE(shadowLight->SetHeight(32.0f));
     REQUIRE(shadowLight->SetFalloff(1.0f));
     shadowLight->SetCastsShadows(true);
-    shadowObjects.push_back(shadowLightObject);
+    shadowObjects.Add(shadowLightObject);
 
     auto largeReceiver = std::make_shared<GameObject>("Large Receiver");
     largeReceiver->AddComponent<Transform>(0.0f, 0.0f);
@@ -1258,13 +1676,13 @@ TEST_CASE("SDL_GPU lighting is camera-local and hard shadows mask receivers") {
     largeSprite->SetSize(8.0f, 4.0f);
     largeSprite->SetColor(Color::White());
     largeSprite->SetLightingMode(SpriteLightingMode2D::Lit);
-    shadowObjects.push_back(largeReceiver);
+    shadowObjects.Add(largeReceiver);
 
     auto occluderObject = std::make_shared<GameObject>("Occluder");
     occluderObject->AddComponent<Transform>(3.0f, 2.0f);
     auto* occluder = occluderObject->AddComponent<ShadowOccluder2D>();
     REQUIRE(occluder->SetBox(Vector2::Zero(), {1.0f, 2.0f}));
-    shadowObjects.push_back(occluderObject);
+    shadowObjects.Add(occluderObject);
 
     molga::GameOutputRenderer shadowOutput;
     molga::RenderTarget shadowTarget;
@@ -1314,10 +1732,15 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     REQUIRE(host);
 
     TextureManager::Get().Clear();
-    const fs::path root = fs::temp_directory_path() /
-        "molga_sdlgpu_authored_normal";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to; the project root is never
+    // derived by stripping "Assets" off a scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("authored-normal");
     std::error_code filesystemError;
-    fs::remove_all(root, filesystemError);
     fs::create_directories(root / "Assets");
     const std::string diffuseGuid = "1234567890abcdef1234567890abcdef";
     const std::string normalGuid = "abcdef1234567890abcdef1234567890";
@@ -1343,7 +1766,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     REQUIRE(renderer.Init(&error));
     molga::RenderSystem2D::Get().Init();
 
-    std::vector<std::shared_ptr<GameObject>> objects;
+    World objects;
     const auto camera = AddOutputCamera(
         objects, "Normal Camera", CameraOutputRole::Primary,
         {0, 0, 1, 1}, 0, Color::Black());
@@ -1358,7 +1781,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     REQUIRE(light->SetRadius(10.0f));
     REQUIRE(light->SetHeight(0.0f));
     REQUIRE(light->SetFalloff(1.0f));
-    objects.push_back(lightObject);
+    objects.Add(lightObject);
 
     auto receiverObject = std::make_shared<GameObject>("Normal Receiver");
     auto* receiverTransform = receiverObject->AddComponent<Transform>(0, 0);
@@ -1367,7 +1790,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     receiver->SetSize(1.0f, 1.0f);
     receiver->SetLightingMode(SpriteLightingMode2D::Lit);
     receiver->SetNormalMapGuid(normalGuid);
-    objects.push_back(receiverObject);
+    objects.Add(receiverObject);
 
     molga::GameOutputRenderer output;
     molga::RenderTarget target;
@@ -1399,7 +1822,7 @@ TEST_CASE("SDL_GPU authored normals follow sprite rotation and UV flip") {
     CHECK(flipped[1] < 8);
     CHECK(flipped[2] < 8);
 
-    objects.clear();
+    objects.Clear();
     molga::RenderSystem2D::Get().Shutdown();
     TextureManager::Get().Clear();
     molga::AssetDatabase::Get().Clear();
@@ -1422,10 +1845,15 @@ TEST_CASE("SDL_GPU renders tilemap chunks and particle emitter geometry") {
     REQUIRE(renderer.Init(&error));
     molga::RenderSystem2D::Get().Init();
 
-    const fs::path root = fs::temp_directory_path() /
-        "molga_sdlgpu_tilemap_particle";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to; the project root is never
+    // derived by stripping "Assets" off a scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("tilemap-particle");
     std::error_code filesystemError;
-    fs::remove_all(root, filesystemError);
     fs::create_directories(root / "Assets");
     const fs::path tilesPath = root / "Assets" / "tiles.ppm";
     WritePpm(tilesPath, 4, 2, {
@@ -1568,6 +1996,389 @@ TEST_CASE("SDL_GPU renders tilemap chunks and particle emitter geometry") {
     molga::RenderSystem2D::Get().Shutdown();
 }
 
+// ── Task 6.3: 프로덕션 GPU teardown 순서 ─────────────────────────────────────
+// Task 6.2 Step 8b의 계약은 "idle이 증명되고 반납 큐가 비워진 다음에만
+// 텍스트/atlas GPU 자원을 부순다"이다. 그 계약이 Renderer::Shutdown 안에서만
+// 참이고 진입점에서 거짓이던 것이 Task 6.2가 6.3에 넘긴 선결 조건이었다.
+//
+// 이제 두 진입점(src/main.cpp, src/runtime_main.cpp)은
+// ShutdownRendererThenTextGpuResources 하나만 부르므로, 순서는 그 함수 한
+// 곳에서만 바뀔 수 있다. 아래 두 케이스가 그 한 곳을 양쪽에서 붙든다.
+
+TEST_CASE("production shutdown releases text GPU pages only after proven idle") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU text teardown order";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    ShutdownStageLog log;
+    TextShutdownStageLog textStages;
+    TextRendererErrorLog errors;
+    Renderer renderer;
+    std::string error;
+    REQUIRE_MESSAGE(renderer.Init(&error), error);
+    TextRenderer text;
+    // 텍스트 서비스가 실제로 서 있어야 그 파괴가 사건이 된다. 준비된 런타임이
+    // 없으면 Init이 거절하고, 그때 text_services_destroyed는 "부술 것이 없다"를
+    // 뜻하게 되어 순서가 아무것도 말하지 않는다.
+    molga::text::VectorTextDiagnosticSink initSink;
+    REQUIRE(text.Init(molga::AssetDatabase::Get(), initSink));
+    SubmittedGlyphPageFixture submitted(*host, renderer, text);
+    REQUIRE(errors.ErrorCount() == 0U);
+
+    molga::text::VectorTextDiagnosticSink shutdownSink;
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, host->Graphics().Generation(), shutdownSink));
+
+    // renderer 쪽이 실제로 idle을 증명하고 반납 큐를 비운 다음 자기 GPU
+    // 자원을 부수는 순서로 지나갔다.
+    CHECK(log.stages == std::vector<std::string>{"idle-wait-proven",
+                                                 "retirement-drained",
+                                                 "gpu-resources-destroyed"});
+    // 그리고 그 뒤에 atlas가 해제되었다. 이 해제는 제출된 프레임이 토큰을
+    // 놓은 뒤에만 성립하므로(아래 반대편 케이스가 그것을 보여 준다), 0이라는
+    // 값 자체가 "텍스트 teardown이 drain 뒤에 왔다"의 증거다.
+    CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 0U);
+    CHECK(text.GlyphAtlas().ResidentPageCount() == 0U);
+    CHECK_FALSE(text.GlyphAtlas().IsPageResident(submitted.pageIdentity));
+    // 올바른 순서는 아무것도 보고하지 않는다. 아래 반대편 케이스가 정확히 한
+    // 건을 요구하므로, 이 0이 그 1의 짝이다.
+    CHECK(errors.ErrorCount() == 0U);
+    CHECK(shutdownSink.Diagnostics().empty());
+    // Step 7f: atlas가 먼저 비워지고 그다음 텍스트 서비스가 파괴된다. 이 두
+    // 사건 다음에야 guard의 종결 u_cleanup이 도는데, 그 세 번째 자리는
+    // test_text_runtime_dependencies의 진입점 unwind 케이스가 붙든다: 두
+    // 진입점 모두 이 함수를 guard가 사는 범위 안에서만 부른다.
+    CHECK(textStages.stages ==
+          std::vector<std::string>{"atlas_cleared", "text_services_destroyed"});
+}
+
+// 반대편. 순서를 되돌리면 — 텍스트/atlas teardown이 renderer의 idle 증명과
+// 반납 drain보다 먼저 오면 — atlas는 해제를 거절하고 page는 그대로 남는다.
+// 이 케이스가 없으면 위 케이스의 0은 "해제가 언제 불려도 성공한다"와 구별되지
+// 않으므로 순서를 아무것도 증명하지 못한다.
+TEST_CASE("text GPU teardown before the renderer drain is refused, not silent") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU text teardown order reversed";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    TextShutdownStageLog textStages;
+    TextRendererErrorLog errors;
+    Renderer renderer;
+    std::string error;
+    REQUIRE_MESSAGE(renderer.Init(&error), error);
+    TextRenderer text;
+    molga::text::VectorTextDiagnosticSink initSink;
+    REQUIRE(text.Init(molga::AssetDatabase::Get(), initSink));
+    SubmittedGlyphPageFixture submitted(*host, renderer, text);
+    REQUIRE(errors.ErrorCount() == 0U);
+
+    // 되돌린 순서: 제출된 프레임이 아직 page를 붙들고 있는데 텍스트가 먼저
+    // 내려간다.
+    //
+    // Task 8.2: 거절의 보고 자리가 옮겨졌다. ShutdownAfterGpuIdle은 자기
+    // 사유를 진단 sink로 내고(호출자가 프레임 sink를 이미 들고 있다),
+    // Log::Error는 그 위의 공유 함수가 남긴다. 두 자리 모두 여기서 붙든다.
+    molga::text::VectorTextDiagnosticSink refusedSink;
+    CHECK_FALSE(text.ShutdownAfterGpuIdle(refusedSink));
+    CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 1U);
+    CHECK(text.GlyphAtlas().ResidentPageCount() == 1U);
+    CHECK(text.GlyphAtlas().IsPageResident(submitted.pageIdentity));
+    // 거절은 조용하지 않다. 진입점 두 곳은 어떤 테스트도 컴파일하지 않으므로,
+    // 그쪽에서 순서가 뒤집혔을 때 남는 유일한 실행 시 증거가 이 진단이다.
+    REQUIRE(refusedSink.Diagnostics().size() == 1U);
+    CHECK(refusedSink.Diagnostics().front().code ==
+          molga::text::TextDiagnosticCode::ReferenceInvalid);
+    CHECK(refusedSink.Diagnostics().front().message.find(
+              "submitted atlas pages were still held") != std::string::npos);
+    // Step 7f: 거절된 teardown은 아무것도 부수지 않는다. 두 표식 중 하나라도
+    // 남으면 그것은 "거절했다고 말하면서 이미 절반을 부쉈다"는 뜻이다.
+    CHECK(textStages.stages.empty());
+
+    // 그리고 공유 함수를 통해 거절되면 Log::Error 한 줄이 함께 남는다. 진입점
+    // 두 곳이 부르는 것은 이 함수이므로, 그쪽의 실행 시 증거는 이 한 줄이다.
+    molga::text::VectorTextDiagnosticSink wrapperSink;
+    Renderer stillBusy;
+    REQUIRE_MESSAGE(stillBusy.Init(&error), error);
+    CHECK_FALSE(
+        ShutdownRendererThenTextGpuResources(stillBusy, text, host->Graphics().Generation(), wrapperSink));
+    CHECK(errors.ErrorCount() == 1U);
+    CHECK(errors.LastErrorMessage().find("after the renderer proved idle") !=
+          std::string::npos);
+
+    // 그리고 올바른 순서를 밟으면 같은 page가 풀린다. 거절이 영구적인 고장이
+    // 아니라 순서의 함수라는 것이 이 두 줄이다.
+    renderer.Shutdown();
+    molga::text::VectorTextDiagnosticSink orderedSink;
+    CHECK(text.ShutdownAfterGpuIdle(orderedSink));
+    CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 0U);
+    CHECK(text.GlyphAtlas().ResidentPageCount() == 0U);
+    // 그리고 그 성공은 두 번째 보고를 남기지 않는다.
+    CHECK(errors.ErrorCount() == 1U);
+    CHECK(orderedSink.Diagnostics().empty());
+    // 성공한 다음에야 두 표식이 순서대로 나온다.
+    CHECK(textStages.stages ==
+          std::vector<std::string>{"atlas_cleared", "text_services_destroyed"});
+}
+
+// ── Task 6.3 Step 4: 붙듦의 유일한 프로덕션 호출 지점 ────────────────────────
+// test_render_queue는 SubmitVisibleCommands를 받아 적는 대역으로 인스턴스화해
+// "제출 직전"이라는 순서를 붙든다. 그런데 그 루프를 실제로 부르는 곳은
+// RenderSystem2D::Render 한 줄뿐이고, 그 한 줄이 붙듦 없는 예전 인라인 루프로
+// 되돌아가도 대역 쪽 단언은 하나도 움직이지 않는다 — RenderQueue →
+// RenderSystem2D::Render → Renderer::RetainUntilFrameComplete 라는 이음매에
+// 증인이 없기 때문이다. 이 케이스가 그 이음매를 진짜 장치 위에서 통째로 지난다.
+TEST_CASE("RenderSystem2D hands a drawn text command's page to the active frame") {
+    WindowConfig config;
+    config.title = "Molga SDL_GPU submitted page retention";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    Renderer renderer;
+    std::string error;
+    REQUIRE_MESSAGE(renderer.Init(&error), error);
+    molga::RenderSystem2D::Get().Init();
+    TextRenderer text;
+
+    molga::FontFace face;
+    REQUIRE_MESSAGE(face.LoadFromFile(MOLGA_TEST_KOREAN_FONT_PATH, &error),
+                    error);
+    const std::uint32_t glyphId = face.GlyphId(U'가');
+    REQUIRE(glyphId != 0U);
+
+    molga::GlyphAtlasKey key;
+    key.fontGuid = "submitted-page";
+    key.fontRevision = "0";
+    key.faceIndex = 0U;
+    key.pixelSize = 32U;
+    key.rasterScaleKey = 64U;
+    key.renderMode = molga::GlyphRenderMode::Monochrome;
+    key.glyphId = glyphId;
+
+    molga::text::VectorTextDiagnosticSink sink;
+    molga::GlyphHandle handle;
+    {
+        auto collection = text.BeginGlyphCollection(1);
+        handle = text.GlyphAtlas().GetGlyph(key, face, sink);
+    }
+    REQUIRE_FALSE(handle.proceduralTofu);
+    REQUIRE(handle.pageIdentity != 0U);
+    REQUIRE(handle.pageLifetime);
+    // 명령이 싣는 텍스처도 지분을 통해서만 꺼낸다. Task 8.2의 소비자가 하게
+    // 될 일과 같은 모양이어야 이 케이스가 그 경로를 대신 지키는 값이 있다.
+    Texture* page = molga::RetainedTexture(handle);
+    REQUIRE(page != nullptr);
+    REQUIRE(page->IsValid());
+
+    auto makeCommand = [&]() {
+        molga::RenderCommand command;
+        command.batchKey.shaderName = "batch";
+        command.batchKey.texture = page->Handle();
+        command.batchKey.textureSampler = page->Sampler();
+        command.batchKey.textureStableId = page->StableId();
+        command.batchKey.isBatchable = true;
+        command.isBatchableSprite = true;
+        const float uv[4][2] = {{0.0f, 0.0f}, {1.0f, 0.0f},
+                                {1.0f, 1.0f}, {0.0f, 1.0f}};
+        const float xy[4][2] = {{-8.0f, -8.0f}, {8.0f, -8.0f},
+                                {8.0f, 8.0f}, {-8.0f, 8.0f}};
+        for (std::size_t corner = 0U; corner < 4U; ++corner) {
+            molga::Vertex2D& vertex = command.vertices[corner];
+            vertex.x = xy[corner][0];
+            vertex.y = xy[corner][1];
+            vertex.u = uv[corner][0];
+            vertex.v = uv[corner][1];
+            vertex.r = 1.0f;
+            vertex.g = 1.0f;
+            vertex.b = 1.0f;
+            vertex.a = 1.0f;
+        }
+        command.resourceLifetimeIdentity = handle.pageIdentity;
+        command.resourceLifetime = handle.pageLifetime;
+        return command;
+    };
+
+    molga::RenderTarget target;
+    REQUIRE(target.Init(64, 64, &error));
+    REQUIRE(Acquire(*host, renderer, error));
+    REQUIRE(renderer.BeginTarget(target, {0, 0, 0, 1},
+                                 molga::LoadAction::Clear, &error));
+    Camera2D camera(64.0f, 64.0f);
+    Shader* batch = ShaderManager::Get().Get("batch");
+    REQUIRE(batch);
+    {
+        molga::RenderPass pass(renderer, batch, &camera);
+
+        // 컬링되어 그려지지 않는 명령은 아무것도 넘기지 않는다. 이 0이 없으면
+        // 아래 1은 "Render가 큐를 보기만 해도 붙든다"와 구별되지 않는다.
+        molga::RenderQueue culledQueue;
+        molga::RenderCommand culled = makeCommand();
+        culled.worldBounds = AABB(1000.0f, 1000.0f, 1.0f, 1.0f);
+        culledQueue.Submit(culled);
+        molga::RenderSystem2D::Get().Render(culledQueue, &renderer, &camera);
+        CHECK(renderer.ActiveFrameRetainedPageCount() == 0U);
+
+        molga::RenderQueue queue;
+        queue.Submit(makeCommand());
+        molga::RenderSystem2D::Get().Render(queue, &renderer, &camera);
+        CHECK(renderer.ActiveFrameRetainedPageCount() == 1U);
+    }
+    REQUIRE(renderer.EndTarget(&error));
+
+    // 개수만으로는 "어떤 page든 하나"와 구별되지 않는다. 이 테스트가 들고
+    // 있던 사본을 놓고도 이 page의 외부 지분이 살아 있다는 것이, 프레임이
+    // 붙든 것이 바로 이 page라는 증거다.
+    handle.pageLifetime.reset();
+    CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 1U);
+    CHECK(text.GlyphAtlas().IsPageResident(handle.pageIdentity));
+
+    REQUIRE_MESSAGE(renderer.SubmitFrame(&error), error);
+    molga::text::VectorTextDiagnosticSink shutdownSink;
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, host->Graphics().Generation(), shutdownSink));
+    CHECK(text.GlyphAtlas().LiveExternalPagePinCount() == 0U);
+    CHECK(text.GlyphAtlas().ResidentPageCount() == 0U);
+    molga::RenderSystem2D::Get().Shutdown();
+}
+
+// ── Task 11.2 close-out (I3): 장치 세대의 권위는 하나다 ────────────────────
+// 이 함수는 세대를 프로세스 전역 GraphicsDevice::Current()에서 **다시 읽지
+// 않는다**. 예전에는 두 개의 `if (device = Current())` 블록이 그 값을 스스로
+// 정했고 else가 없었다 — Current()가 널이거나 다른 장치를 가리키면 바인딩
+// teardown 전체가 조용히 사라지고, host는 살아 있는 기록 위에서 자기 장치를
+// 부순다. 그 침묵은 로그 한 줄도 남기지 않는다.
+//
+// 그래서 세대는 이제 호출자가 넘기고, 이 케이스가 그 값이 실제로 쓰이는지
+// 잰다: 그 세대의 살아 있는 외부 바인딩 토큰 하나가 teardown을 막아야 한다.
+// 0이나 남의 세대가 흘러들면 두 검사(4b의 계수와 DestroyRetiredBindings)가
+// 모두 건너뛰어지고 이 함수는 참을 돌려준다.
+TEST_CASE("text GPU teardown blocks on a live binding of the caller's device generation") {
+    WindowConfig config;
+    config.title = "Molga shutdown device generation authority";
+    config.width = 64;
+    config.height = 64;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    Renderer renderer;
+    std::string error;
+    REQUIRE_MESSAGE(renderer.Init(&error), error);
+    TextRenderer text;
+
+    molga::ui::TextureRuntimeBindingIdentity identity;
+    identity.deviceGeneration = host->Graphics().Generation();
+    identity.uploadGeneration = 1;
+    // 이 장치의 슬롯 범위 밖 인덱스다. 재는 것은 소유 회계이지 핸들 반납이
+    // 아니므로, 반납 자체가 무해한 no-op이어야 이 케이스가 진짜 텍스처를
+    // 부수지 않는다.
+    identity.texture = molga::detail::MakeTextureHandleForTest(1000003U, 1);
+    identity.sampler = molga::detail::MakeSamplerHandleForTest(1000003U, 1);
+    identity.lifetimeIdentity = 8191;
+    auto token = molga::TextureBindingRegistry::Get().Publish(identity);
+    REQUIRE(token != nullptr);
+    REQUIRE(molga::TextureBindingRegistry::Get().LiveRetainedBindingCount(
+                identity.deviceGeneration) == 1U);
+
+    molga::text::VectorTextDiagnosticSink blockedSink;
+    CHECK_FALSE(ShutdownRendererThenTextGpuResources(
+        renderer, text, host->Graphics().Generation(), blockedSink));
+
+    // 그리고 그 소유자를 놓으면 같은 순서가 통과한다 — 거절이 영구적인
+    // 고장이 아니라 소유의 함수라는 나머지 절반.
+    token.reset();
+    molga::text::VectorTextDiagnosticSink orderedSink;
+    CHECK(ShutdownRendererThenTextGpuResources(
+        renderer, text, host->Graphics().Generation(), orderedSink));
+    CHECK(molga::TextureBindingRegistry::Get().LiveRetainedBindingCount(
+              identity.deviceGeneration) == 0U);
+
+    molga::text::VectorTextDiagnosticSink shutdownSink;
+    CHECK(EngineShutdown(host, shutdownSink) == EngineShutdownStatus::Complete);
+}
+
+// ── Task 6.3: 진입점의 종료 순서와 수집 범위를 소스 텍스트로 붙든다 ──────────
+// src/main.cpp와 src/runtime_main.cpp는 molga_engine/molga_runtime만 컴파일
+// 한다. 어떤 테스트 바이너리도 이 둘을 링크하지 않으므로, Task 6.2가 넘긴 바로
+// 그 회귀 — renderer의 idle 증명보다 먼저 TextRenderer::Get().Shutdown()을
+// 부르는 것 — 를 되돌려도 위 케이스들은 전부 통과한다. 위 케이스들이 붙드는
+// 것은 공유 함수 하나이고, 그 함수를 부르는지는 붙들지 않는다.
+//
+// 진입점을 단위 테스트 가능하게 만드는 것은 이 태스크의 몫이 아니므로, 대신
+// 그 두 파일의 텍스트에 대고 세 가지를 요구한다. 리뷰어의 diff가 조용히
+// 되돌릴 수 없게 하는 것이 목적이다.
+TEST_CASE("the production entry points keep one shutdown order and one collection") {
+    namespace fs = std::filesystem;
+    const fs::path sourceRoot(MOLGA_ENGINE_SOURCE_ROOT);
+    for (const char* relative : {"src/main.cpp", "src/runtime_main.cpp"}) {
+        const fs::path path = sourceRoot / relative;
+        INFO("entry point " << path.string());
+        std::ifstream file(path, std::ios::binary);
+        REQUIRE(file.is_open());
+        const std::string source(
+            (std::istreambuf_iterator<char>(file)),
+            std::istreambuf_iterator<char>());
+        // 파일을 실제로 읽었다는 것부터 못 박는다. 경로가 어긋나면 아래
+        // "없다" 단언들이 빈 문자열 위에서 공짜로 참이 된다.
+        REQUIRE(source.size() > 1024U);
+
+        auto count = [&source](const std::string& needle) {
+            std::size_t total = 0U;
+            for (std::size_t at = source.find(needle); at != std::string::npos;
+                 at = source.find(needle, at + needle.size())) {
+                ++total;
+            }
+            return total;
+        };
+
+        // 1. 텍스트 GPU 자원 파괴는 공유 순서를 통해서만 일어난다.
+        CHECK(count("TextRenderer::Get().Shutdown()") == 0U);
+        // 2. Task 11.2 Step 7f/7g: 그 순서의 소유자는 host다. 진입점은 두 GPU
+        //    소비자의 이름을 host에 넘기고, 재시도할 수 있는 상태 반환형
+        //    종료를 부른다. 옛 void 오버로드는 남아 있으면 안 된다 — 그것을
+        //    부르는 곳은 막힌 종료 위에서 그냥 진행한다.
+        CHECK(count("RegisterGpuConsumers(") >= 1U);
+        CHECK(count("ShutdownEngineOrExit(host, ") >= 1U);
+        CHECK(count("EngineShutdown(host);") == 0U);
+        // 2b. Task 11.2 close-out: 아무것도 놓지 않는 재시도는 재시도가
+        //     아니다. 두 번째 EngineShutdown은 그 사이에 상태가 바뀌지
+        //     않았으므로 반드시 같은 답을 돌려주고, 관찰 가능한 유일한
+        //     차이는 같은 blocker 진단이 두 번 나가는 것이다. 그 자리를
+        //     되살리려면 놓는 코드와 함께여야 한다.
+        //
+        //     이 두 계수는 위의 >=1과 달리 짝을 세지 못한다. "등록 없이
+        //     종료에 도달하는 경로가 안전한가"는 소스 텍스트가 아니라
+        //     실행으로만 답할 수 있고, 그 답은
+        //     test_platform_sdl의 "engine shutdown tears down an
+        //     unregistered process text renderer"가 낸다.
+        CHECK(count("EngineShutdown(host, sink)") == 1U);
+        // 3. 그리고 공유 순서 함수를 진입점이 직접 부르지 않는다: 순서를
+        //    끼워 넣을 자리를 아는 것은 host뿐이다.
+        CHECK(count("ShutdownRendererThenTextGpuResources(*renderer") == 0U);
+        // 3. 프레임 루프의 수집 범위는 정확히 하나다. 지우면 0이 되고, 둘째를
+        //    열면 첫째가 아직 열려 있는 채로 std::logic_error가 난다.
+        CHECK(count("BeginGlyphCollection(") == 1U);
+        // 4. Task 11.1 A3: Step 3i가 Build에 넣은 두 의존물(편집 상태 제공자,
+        //    공유 TextLayoutService)의 주인은 진입점이다. 이 배선이 없으면
+        //    UILayoutSystem::Build는 프로덕션에 호출자가 하나도 없는 채로
+        //    남고, Task 11.2가 스냅샷으로 그리기 시작하는 날 두 진입점이
+        //    각자 다른 서비스를 집어 들 수 있다. 두 진입점 모두 정확히 한 번.
+        CHECK(count("UISystem::Get().InstallLayoutDependencies(") == 1U);
+        CHECK(count("TextRenderer::Get().LayoutService()") == 1U);
+        // 계수기 자신의 증인. 이 파일들이 확실히 담고 있는 문자열을 세지
+        // 못한다면 위의 0들은 계수기 고장으로도 참이 된다.
+        CHECK(count("TextRenderer") >= 1U);
+    }
+}
+
 TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") {
     namespace fs = std::filesystem;
     WindowConfig config;
@@ -1579,46 +2390,92 @@ TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") 
     auto host = EngineInit(config);
     REQUIRE(host);
 
-    const fs::path root = fs::temp_directory_path() /
-        "molga_sdlgpu_korean_font";
+    // Each case scans its own subtree of the one project root the singleton
+    // database's font artifact store is bound to; the project root is never
+    // derived by stripping "Assets" off a scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("korean-font");
     std::error_code filesystemError;
-    fs::remove_all(root, filesystemError);
     fs::create_directories(root / "Assets" / "Fonts");
-    fs::copy_file(fs::path(MOLGA_TEST_KOREAN_FONT_PATH),
-                  root / "Assets" / "Fonts" / "NotoSansKR-Regular.ttf",
+    const fs::path koreanFont =
+        root / "Assets" / "Fonts" / "NotoSansKR-Regular.otf";
+    fs::copy_file(fs::path(MOLGA_TEST_KOREAN_STATIC_FONT_PATH), koreanFont,
                   fs::copy_options::overwrite_existing);
+    // Task 8.2: 저작된 import 설정이 있어야 AssetDatabase가 검증된 불변
+    // 산출물을 발행하고, 산출물이 있어야 face가 묶인다. 레거시 codepoint
+    // atlas는 원본 경로에서 바이트를 직접 읽어 이 계약을 우회했다.
+    {
+        std::ofstream meta(koreanFont.string() + ".meta");
+        REQUIRE(meta.good());
+        meta << R"({
+  "guid": "cccccccccccccccccccccccccccccccc",
+  "importer": "FontImporter",
+  "importerVersion": 2,
+  "settings": {
+    "faceIndex": 0, "weight": 400, "stretchPercent": 100, "slant": "Upright",
+    "redistributableConfirmed": true, "licenseKind": "OFL-1.1",
+    "copyright": "test fixture provenance",
+    "licenseAssetGuid": "88888888888888888888888888888888"
+  }
+})";
+    }
     auto& database = molga::AssetDatabase::Get();
     database.Clear();
     database.ScanProject(root / "Assets");
     const std::string guid =
-        database.GuidForSource("Fonts/NotoSansKR-Regular.ttf");
+        database.GuidForSource("Fonts/NotoSansKR-Regular.otf");
     REQUIRE_FALSE(guid.empty());
 
     Renderer renderer;
     std::string error;
     REQUIRE(renderer.Init(&error));
     molga::RenderSystem2D::Get().Init();
+    molga::text::VectorTextDiagnosticSink textSink;
     TextRenderer& text = TextRenderer::Get();
-    text.Shutdown();
-    REQUIRE(text.Init());
-    text.InvalidateAllFonts();
+    CHECK(text.ShutdownAfterGpuIdle(textSink));
+    REQUIRE(text.Init(database, textSink));
+
+    // Task 6.3 Step 8: 프레임 번호가 정해진 뒤, 텍스트가 큐에 담기기 전에
+    // 이 프레임의 glyph 수집을 연다. 범위가 아래 제출과 픽셀 판독을 전부
+    // 덮으므로, 명령들이 page 토큰을 다 복사하기 전에 수집이 닫히지 않는다.
+    //
+    // optional인 이유는 정리 순서 때문이다: 수집이 열려 있는 동안
+    // ShutdownAfterGpuIdle은 (옳게도) atlas 해제를 거절한다.
+    std::optional<TextRenderer::GlyphCollectionScope> glyphCollection(
+        text.BeginGlyphCollection(1));
+
+    // ── Task 8.2 Step 7e: 정확한 Layout/CollectLayout 경로 ───────────────────
+    // 이 GUID는 schema 1의 폰트 지목이므로 레거시 단일 face 경로로 간다(Task
+    // 8.2 설계 개정). 폰트 GUID/픽셀 크기 단위의 atlas 계수기는 더 이상 증거가
+    // 아니다 — 아래는 셰이핑된 glyph-ID 명령이 0 아닌 page 정체성과 붙든
+    // 토큰을 함께 들고 나왔는지만 본다.
+    molga::text::TextLayoutRequest request;
+    request.utf8 = u8"한글 타이틀";
+    request.style.legacyFontGuid = guid;
+    request.style.shape.fontSize = molga::Fixed26_6::FromRaw(40 * 64);
+    request.diagnosticContext.componentType = "UILabel";
+    const auto layout = text.Layout(request, textSink);
+    REQUIRE(layout.has_value());
 
     molga::RenderQueue queue;
-    TextDrawParams params;
-    params.text = u8"한글 타이틀";
-    params.fontGuid = guid;
-    params.fontSizePx = 40.0f;
-    params.x = 4.0f;
-    params.y = 4.0f;
-    params.color = Color::Red();
-    text.CollectText(queue, params);
+    TextCollectContext collect;
+    collect.layoutToOutput.tx = 4.0f;
+    collect.layoutToOutput.ty = 4.0f;
+    collect.color = Color::Red();
+    text.CollectLayout(queue, **layout, collect, textSink);
     REQUIRE(queue.GetCommands().size() == 5U);
     for (const auto& command : queue.GetCommands()) {
         CHECK(command.batchKey.textureStableId != 0U);
         CHECK(command.batchKey.texture);
         CHECK(command.batchKey.textureSampler);
+        // Task 6.3의 계약: 텍스처를 든 명령은 자기 page의 이름과 지분도 든다.
+        CHECK(command.resourceLifetimeIdentity != 0U);
+        CHECK(static_cast<bool>(command.resourceLifetime));
     }
-    CHECK(text.GetAtlasPageCount(guid, 40) >= 1U);
+    CHECK(text.GlyphAtlas().Telemetry().uploads >= 5U);
 
     molga::RenderTarget target;
     REQUIRE(target.Init(256, 64, &error));
@@ -1659,11 +2516,17 @@ TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") 
             }
         }
     }
-    CHECK(coloredPixels == 1243U);
+    // Task 8.2 Step 7e: 이 네 값은 공유 파이프라인으로 옮기면서 다시 고정된
+    // 것이다. 두 가지가 함께 바뀌었다. (1) 세로 자리: 예전 경로는 y를 줄의
+    // 위쪽으로 썼고, 배치는 y를 배치 원점으로 쓴 뒤 그 안에 baseline을 둔다.
+    // (2) 폰트 파일: 가변 TTF는 static 전용 import 계약이 거절하므로 자격
+    // 트리와 같은 static OTF를 쓴다. 잉크 높이(24 -> 25)가 사실상 그대로인
+    // 것이 "같은 글자를 같은 크기로 그린다"의 증거이고, 달라진 것은 자리다.
+    CHECK(coloredPixels == 1756U);
     CHECK(minX == 5);
-    CHECK(minY == 13);
-    CHECK(maxX == 135);
-    CHECK(maxY == 37);
+    CHECK(minY == 27);
+    CHECK(maxX == 185);
+    CHECK(maxY == 52);
     INFO("Korean opaque probe=" << opaqueX << "," << opaqueY);
     CHECK(opaqueX >= 0);
     CHECK(opaqueY >= 0);
@@ -1678,7 +2541,146 @@ TEST_CASE("SDL_GPU Korean glyph atlas renders top-left through the batch path") 
     CHECK(Near(koreanProbe[3], 255, 5));
 
     queue.Clear();
-    text.Shutdown();
+    glyphCollection.reset();
+    // Task 8.2: 이제 제출된 명령이 atlas page 지분을 실제로 프레임에 넘기므로,
+    // 텍스트 teardown은 renderer가 idle을 증명하고 반납 큐를 비운 다음에만
+    // 성립한다. 프로덕션 진입점과 같은 함수를 쓴다.
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, host->Graphics().Generation(), textSink));
+    molga::RenderSystem2D::Get().Shutdown();
+    database.Clear();
+    fs::remove_all(root, filesystemError);
+}
+
+// ── Task 8.2 Step 5b/5c: 두부는 renderer의 흰 텍스처로 실제로 그려진다 ───────
+// 절차적 두부 명령은 molga::TextureHandle{}을 그대로 들고 나간다. 그 핸들을
+// renderer 소유의 흰 텍스처로 묶는 것이 sprite 경로이고, 그래야 atlas 예산이
+// 0인 화면에서도 없는 grapheme마다 "그릴 수 있는" 명령이 하나씩 남는다.
+//
+// 그 묶음은 헤드리스에서 관찰되지 않는다: 장치가 없으면 유효한 핸들도 무효한
+// 핸들도 똑같이 널이라, 어느 쪽으로 굳혀도 단언이 움직이지 않는다. 그래서 이
+// 케이스만 진짜 장치 위에서 픽셀을 읽는다.
+TEST_CASE("SDL_GPU saturated tofu draws as solid color through the white fallback") {
+    namespace fs = std::filesystem;
+    WindowConfig config;
+    config.title = "Molga SDL_GPU tofu white fallback";
+    config.width = 128;
+    config.height = 64;
+    config.visible = false;
+    config.graphicsValidation = true;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("tofu-white");
+    std::error_code filesystemError;
+    fs::create_directories(root / "Assets" / "Fonts");
+    const fs::path fontPath =
+        root / "Assets" / "Fonts" / "NotoSansKR-Regular.otf";
+    fs::copy_file(fs::path(MOLGA_TEST_KOREAN_STATIC_FONT_PATH), fontPath,
+                  fs::copy_options::overwrite_existing);
+    {
+        std::ofstream meta(fontPath.string() + ".meta");
+        REQUIRE(meta.good());
+        meta << R"({
+  "guid": "dededededededededededededededede",
+  "importer": "FontImporter",
+  "importerVersion": 2,
+  "settings": {
+    "faceIndex": 0, "weight": 400, "stretchPercent": 100, "slant": "Upright",
+    "redistributableConfirmed": true, "licenseKind": "OFL-1.1",
+    "copyright": "test fixture provenance",
+    "licenseAssetGuid": "88888888888888888888888888888888"
+  }
+})";
+    }
+    auto& database = molga::AssetDatabase::Get();
+    database.Clear();
+    database.ScanProject(root / "Assets");
+    const std::string guid =
+        database.GuidForSource("Fonts/NotoSansKR-Regular.otf");
+    REQUIRE_FALSE(guid.empty());
+
+    Renderer renderer;
+    std::string error;
+    REQUIRE(renderer.Init(&error));
+    molga::RenderSystem2D::Get().Init();
+    molga::text::VectorTextDiagnosticSink textSink;
+    TextRenderer& text = TextRenderer::Get();
+    CHECK(text.ShutdownAfterGpuIdle(textSink));
+    REQUIRE(text.Init(database, textSink));
+
+    molga::text::TextLayoutRequest request;
+    request.utf8 = u8"한글";
+    request.style.legacyFontGuid = guid;
+    request.style.shape.fontSize = molga::Fixed26_6::FromRaw(24 * 64);
+    request.diagnosticContext.componentType = "UILabel";
+    const auto layout = text.Layout(request, textSink);
+    REQUIRE(layout.has_value());
+
+    // 예산 0. 배치는 정상이고 face도 있지만 atlas가 page를 만들 수 없으므로
+    // GetGlyph가 절차적 두부를 돌려준다(Step 5b).
+    text.GlyphAtlas().SetResidentBudget(0);
+    molga::RenderQueue queue;
+    TextCollectContext collect;
+    collect.layoutToOutput.tx = 8.0f;
+    collect.layoutToOutput.ty = 8.0f;
+    collect.color = Color(0.0f, 1.0f, 0.0f, 1.0f);
+    {
+        auto scope = text.BeginGlyphCollection(1);
+        text.CollectLayout(queue, **layout, collect, textSink);
+    }
+    REQUIRE(queue.GetCommands().size() == 2U);
+    for (const auto& command : queue.GetCommands()) {
+        // 유효하지 않은 핸들 그대로. page 지분도 없다.
+        CHECK_FALSE(static_cast<bool>(command.batchKey.texture));
+        CHECK(command.batchKey.textureStableId == 0U);
+        CHECK(command.resourceLifetimeIdentity == 0U);
+        CHECK(command.isBatchableSprite);
+    }
+
+    molga::RenderTarget target;
+    REQUIRE(target.Init(128, 64, &error));
+    REQUIRE(Acquire(*host, renderer, error));
+    REQUIRE(renderer.BeginTarget(target, {0, 0, 0, 1},
+                                 molga::LoadAction::Clear, &error));
+    Camera2D camera(128.0f, 64.0f);
+    Shader* batch = ShaderManager::Get().Get("batch");
+    REQUIRE(batch);
+    {
+        molga::RenderPass pass(renderer, batch, &camera);
+        molga::RenderSystem2D::Get().Render(queue, &renderer, &camera);
+    }
+    REQUIRE(renderer.EndTarget(&error));
+    REQUIRE(renderer.SubmitFrame(&error));
+
+    const auto pixels = ReadTarget(*host, target, error);
+    REQUIRE(pixels.size() == 128U * 64U * 4U);
+    std::size_t greenPixels = 0;
+    std::size_t otherPixels = 0;
+    for (int y = 0; y < 64; ++y) {
+        for (int x = 0; x < 128; ++x) {
+            const auto pixel = Pixel(pixels, 128, x, y);
+            if (pixel[0] == 0U && pixel[1] == 0U && pixel[2] == 0U) continue;
+            if (Near(pixel[0], 0) && Near(pixel[1], 255, 5) &&
+                Near(pixel[2], 0) && Near(pixel[3], 255, 5)) {
+                ++greenPixels;
+            } else {
+                ++otherPixels;
+            }
+        }
+    }
+    // 두부는 꽉 찬 사각형이다. 흰 텍스처가 묶이지 않으면 아무것도 그려지지
+    // 않거나 정점 색이 무시된 다른 색이 나온다.
+    CHECK(greenPixels > 100U);
+    CHECK(otherPixels == 0U);
+
+    queue.Clear();
+    text.GlyphAtlas().SetResidentBudget(
+        molga::GlyphAtlasCache::DefaultResidentBudgetBytes);
+    CHECK(ShutdownRendererThenTextGpuResources(renderer, text, host->Graphics().Generation(), textSink));
     molga::RenderSystem2D::Get().Shutdown();
     database.Clear();
     fs::remove_all(root, filesystemError);

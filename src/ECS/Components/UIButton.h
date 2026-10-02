@@ -1,34 +1,37 @@
 #pragma once
 
-#include "ECS/Component.h"
+#include "ECS/Components/UIComponent.h"
 #include "Common/Types.h"
 
+#include <cstdint>
 #include <functional>
 
-class UIButton : public Component {
+class UIButton : public UIComponent {
 public:
     COMPONENT_TYPE(UIButton)
+
+    // RectTransform과 같은 이유로 표식이 없다: 저작 모양이 바뀐 적이 없어
+    // schema 1이 레거시 문서의 모양과 같다. hover/press/click은 런타임 상태라
+    // 저작 스키마에 들어가지 않으므로 이 버전이 덮는 대상도 아니다.
+    static constexpr std::uint32_t CurrentSchemaVersion = 1;
 
     void SetOnClick(std::function<void()> callback) { onClick_ = std::move(callback); }
     bool WasClickedThisFrame() const { return clickedThisFrame_; }
     bool IsHovered() const { return hovered_; }
     bool IsPressed() const { return pressed_; }
     bool IsInteractable() const { return interactable_; }
-    void SetInteractable(bool value) {
-        interactable_ = value;
-        if (!interactable_) ClearPointerState();
-    }
+    void SetInteractable(bool value);
 
     const Color& GetNormalColor() const { return normalColor_; }
     const Color& GetHoverColor() const { return hoverColor_; }
     const Color& GetPressedColor() const { return pressedColor_; }
     const Color& GetDisabledColor() const { return disabledColor_; }
-    void SetNormalColor(const Color& value) { normalColor_ = value; }
-    void SetHoverColor(const Color& value) { hoverColor_ = value; }
-    void SetPressedColor(const Color& value) { pressedColor_ = value; }
-    void SetDisabledColor(const Color& value) { disabledColor_ = value; }
+    void SetNormalColor(const Color& value);
+    void SetHoverColor(const Color& value);
+    void SetPressedColor(const Color& value);
+    void SetDisabledColor(const Color& value);
     int GetSortingOrder() const { return sortingOrder_; }
-    void SetSortingOrder(int value) { sortingOrder_ = value; }
+    void SetSortingOrder(int value);
     Color CurrentColor() const;
 
     // Called only by UISystem after topmost/capture arbitration.

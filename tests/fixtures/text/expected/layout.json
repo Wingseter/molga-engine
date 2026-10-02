@@ -1,0 +1,447 @@
+{
+  "final-line-fi": {
+    "clipped": false,
+    "ellipsized": false,
+    "intrinsicWidth": 540,
+    "intrinsicHeight": 1568,
+    "lines": [
+      {
+        "sourceBegin": 0,
+        "sourceEnd": 3,
+        "graphemeBegin": 0,
+        "graphemeEnd": 3,
+        "baseline": 410,
+        "advance": 331,
+        "ascent": 410,
+        "descent": 113,
+        "lineGap": 0,
+        "top": 0,
+        "bottom": 523,
+        "runs": [
+          {
+            "logicalRunId": 0,
+            "bidiLevel": 0,
+            "glyphs": [
+              {
+                "fontGuid": "44444444444444444444444444444444",
+                "fontRevision": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5:0",
+                "faceIndex": 0,
+                "glyphId": 1652,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 384,
+                "advanceX": 231,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 0,
+                "sourceEnd": 2,
+                "graphemeBegin": 0,
+                "graphemeEnd": 2,
+                "bidiLevel": 0,
+                "logicalRunId": 0,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 0,
+                "originY": 410,
+                "interiorCarets": [
+                  {
+                    "boundary": 1,
+                    "x": 116,
+                    "y": 410,
+                    "fromAdjustedGdef": true
+                  }
+                ]
+              },
+              {
+                "fontGuid": "44444444444444444444444444444444",
+                "fontRevision": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5:0",
+                "faceIndex": 0,
+                "glyphId": 3,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 384,
+                "advanceX": 100,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 2,
+                "sourceEnd": 3,
+                "graphemeBegin": 2,
+                "graphemeEnd": 3,
+                "bidiLevel": 0,
+                "logicalRunId": 0,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 231,
+                "originY": 410,
+                "interiorCarets": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "sourceBegin": 3,
+        "sourceEnd": 7,
+        "graphemeBegin": 3,
+        "graphemeEnd": 5,
+        "baseline": 933,
+        "advance": 540,
+        "ascent": 410,
+        "descent": 112,
+        "lineGap": 0,
+        "top": 523,
+        "bottom": 1045,
+        "runs": [
+          {
+            "logicalRunId": 1,
+            "bidiLevel": 1,
+            "glyphs": [
+              {
+                "fontGuid": "55555555555555555555555555555555",
+                "fontRevision": "a7fa16fffb27bedb060a0866267c29e9859aeb9c21cc33f5b3aaf6eb062eca85:0",
+                "faceIndex": 0,
+                "glyphId": 23,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 384,
+                "advanceX": 263,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 5,
+                "sourceEnd": 7,
+                "graphemeBegin": 4,
+                "graphemeEnd": 5,
+                "bidiLevel": 1,
+                "logicalRunId": 1,
+                "harfbuzzGlyphFlags": 1,
+                "originX": 0,
+                "originY": 933,
+                "interiorCarets": []
+              },
+              {
+                "fontGuid": "55555555555555555555555555555555",
+                "fontRevision": "a7fa16fffb27bedb060a0866267c29e9859aeb9c21cc33f5b3aaf6eb062eca85:0",
+                "faceIndex": 0,
+                "glyphId": 96,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 384,
+                "advanceX": 277,
+                "advanceY": 0,
+                "offsetX": -3,
+                "offsetY": 0,
+                "sourceBegin": 3,
+                "sourceEnd": 5,
+                "graphemeBegin": 3,
+                "graphemeEnd": 4,
+                "bidiLevel": 1,
+                "logicalRunId": 1,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 260,
+                "originY": 933,
+                "interiorCarets": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "sourceBegin": 7,
+        "sourceEnd": 10,
+        "graphemeBegin": 5,
+        "graphemeEnd": 8,
+        "baseline": 1455,
+        "advance": 540,
+        "ascent": 410,
+        "descent": 113,
+        "lineGap": 0,
+        "top": 1045,
+        "bottom": 1568,
+        "runs": [
+          {
+            "logicalRunId": 2,
+            "bidiLevel": 2,
+            "glyphs": [
+              {
+                "fontGuid": "44444444444444444444444444444444",
+                "fontRevision": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5:0",
+                "faceIndex": 0,
+                "glyphId": 20,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 384,
+                "advanceX": 220,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 8,
+                "sourceEnd": 9,
+                "graphemeBegin": 6,
+                "graphemeEnd": 7,
+                "bidiLevel": 2,
+                "logicalRunId": 2,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 0,
+                "originY": 1455,
+                "interiorCarets": []
+              },
+              {
+                "fontGuid": "44444444444444444444444444444444",
+                "fontRevision": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5:0",
+                "faceIndex": 0,
+                "glyphId": 21,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 384,
+                "advanceX": 220,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 9,
+                "sourceEnd": 10,
+                "graphemeBegin": 7,
+                "graphemeEnd": 8,
+                "bidiLevel": 2,
+                "logicalRunId": 2,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 220,
+                "originY": 1455,
+                "interiorCarets": []
+              }
+            ]
+          },
+          {
+            "logicalRunId": 1,
+            "bidiLevel": 1,
+            "glyphs": [
+              {
+                "fontGuid": "44444444444444444444444444444444",
+                "fontRevision": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5:0",
+                "faceIndex": 0,
+                "glyphId": 3,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 384,
+                "advanceX": 100,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 7,
+                "sourceEnd": 8,
+                "graphemeBegin": 5,
+                "graphemeEnd": 6,
+                "bidiLevel": 1,
+                "logicalRunId": 1,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 440,
+                "originY": 1455,
+                "interiorCarets": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "empty-lines-trailing": {
+    "clipped": false,
+    "ellipsized": false,
+    "intrinsicWidth": 654,
+    "intrinsicHeight": 2790,
+    "lines": [
+      {
+        "sourceBegin": 0,
+        "sourceEnd": 1,
+        "graphemeBegin": 0,
+        "graphemeEnd": 1,
+        "baseline": 1095,
+        "advance": 654,
+        "ascent": 1095,
+        "descent": 300,
+        "lineGap": 0,
+        "top": 0,
+        "bottom": 1395,
+        "runs": [
+          {
+            "logicalRunId": 0,
+            "bidiLevel": 0,
+            "glyphs": [
+              {
+                "fontGuid": "44444444444444444444444444444444",
+                "fontRevision": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5:0",
+                "faceIndex": 0,
+                "glyphId": 36,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 1024,
+                "advanceX": 654,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 0,
+                "sourceEnd": 1,
+                "graphemeBegin": 0,
+                "graphemeEnd": 1,
+                "bidiLevel": 0,
+                "logicalRunId": 0,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 0,
+                "originY": 1095,
+                "interiorCarets": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "sourceBegin": 2,
+        "sourceEnd": 2,
+        "graphemeBegin": 2,
+        "graphemeEnd": 2,
+        "baseline": 2490,
+        "advance": 0,
+        "ascent": 1095,
+        "descent": 300,
+        "lineGap": 0,
+        "top": 1395,
+        "bottom": 2790,
+        "runs": []
+      }
+    ]
+  },
+  "arabic-ellipsis-context": {
+    "clipped": false,
+    "ellipsized": true,
+    "intrinsicWidth": 1361,
+    "intrinsicHeight": 1081,
+    "lines": [
+      {
+        "sourceBegin": 0,
+        "sourceEnd": 8,
+        "graphemeBegin": 0,
+        "graphemeEnd": 4,
+        "baseline": 703,
+        "advance": 1361,
+        "ascent": 703,
+        "descent": 378,
+        "lineGap": 0,
+        "top": 0,
+        "bottom": 1081,
+        "runs": [
+          {
+            "logicalRunId": 0,
+            "bidiLevel": 1,
+            "glyphs": [
+              {
+                "fontGuid": "44444444444444444444444444444444",
+                "fontRevision": "b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5:0",
+                "faceIndex": 0,
+                "glyphId": 526,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 512,
+                "advanceX": 405,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 8,
+                "sourceEnd": 8,
+                "graphemeBegin": 4,
+                "graphemeEnd": 4,
+                "bidiLevel": 1,
+                "logicalRunId": 0,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 0,
+                "originY": 703,
+                "interiorCarets": []
+              }
+            ]
+          },
+          {
+            "logicalRunId": 0,
+            "bidiLevel": 1,
+            "glyphs": [
+              {
+                "fontGuid": "66666666666666666666666666666666",
+                "fontRevision": "ceea25b464a656dc3b26849bab9356740401af62aedf1bfa8b7f0d9b75925b1b:0",
+                "faceIndex": 0,
+                "glyphId": 770,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 512,
+                "advanceX": 248,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 6,
+                "sourceEnd": 8,
+                "graphemeBegin": 3,
+                "graphemeEnd": 4,
+                "bidiLevel": 1,
+                "logicalRunId": 0,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 405,
+                "originY": 703,
+                "interiorCarets": []
+              },
+              {
+                "fontGuid": "66666666666666666666666666666666",
+                "fontRevision": "ceea25b464a656dc3b26849bab9356740401af62aedf1bfa8b7f0d9b75925b1b:0",
+                "faceIndex": 0,
+                "glyphId": 705,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 512,
+                "advanceX": 307,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 2,
+                "sourceEnd": 6,
+                "graphemeBegin": 1,
+                "graphemeEnd": 3,
+                "bidiLevel": 1,
+                "logicalRunId": 0,
+                "harfbuzzGlyphFlags": 1,
+                "originX": 653,
+                "originY": 703,
+                "interiorCarets": [
+                  {
+                    "boundary": 2,
+                    "x": 807,
+                    "y": 703,
+                    "fromAdjustedGdef": true
+                  }
+                ]
+              },
+              {
+                "fontGuid": "66666666666666666666666666666666",
+                "fontRevision": "ceea25b464a656dc3b26849bab9356740401af62aedf1bfa8b7f0d9b75925b1b:0",
+                "faceIndex": 0,
+                "glyphId": 1083,
+                "missing": false,
+                "hasFaceResource": true,
+                "fontSize": 512,
+                "advanceX": 401,
+                "advanceY": 0,
+                "offsetX": 0,
+                "offsetY": 0,
+                "sourceBegin": 0,
+                "sourceEnd": 2,
+                "graphemeBegin": 0,
+                "graphemeEnd": 1,
+                "bidiLevel": 1,
+                "logicalRunId": 0,
+                "harfbuzzGlyphFlags": 0,
+                "originX": 960,
+                "originY": 703,
+                "interiorCarets": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

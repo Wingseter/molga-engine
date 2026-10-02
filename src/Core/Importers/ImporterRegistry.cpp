@@ -1,6 +1,7 @@
 #include "Core/Importers/ImporterRegistry.h"
 
 #include "Core/Importers/AudioImporter.h"
+#include "Core/Importers/FontFamilyImporter.h"
 #include "Core/Importers/FontImporter.h"
 #include "Core/Importers/PrefabImporter.h"
 #include "Core/Importers/PostProcessProfileImporter.h"
@@ -164,6 +165,9 @@ void ImporterRegistry::RegisterBuiltins() {
     Register(std::make_shared<AudioImporter>());
     Register(std::make_shared<PrefabImporter>());
     Register(std::make_shared<FontImporter>());
+    // ".fontfamily"만 잡는다. 폰트 바이트는 계속 FontImporter의 static/라이선스
+    // 검증을 지나야 하므로 두 importer의 확장자는 겹치지 않는다.
+    Register(std::make_shared<FontFamilyImporter>());
     Register(std::make_shared<PostProcessProfileImporter>());
     Register(std::make_shared<StructuredJsonImporter>(
         "AnimationClipImporter", 1, std::vector<std::string>{".animclip"},

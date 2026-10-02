@@ -45,19 +45,23 @@
 #include "Physics/PhysicsWorld.h"
 #include "Physics/Physics2D.h"
 #include "Core/GameConfig.h"
+#include "Assets/FontArtifactStore.h"
 #include "Core/AssetDatabase.h"
 #include "Core/PersistentStorage.h"
 #include "Core/PlayerPrefs.h"
 #include "Core/SaveSystem.h"
 #include "UI/UISystem.h"
 #include "Scripting/ScriptPackageLoader.h"
-#include "Rendering/FontFace.h"
-#include "Rendering/Utf8.h"
+#include "Common/Fixed26_6.h"
+#include "Text/TextLayoutTypes.h"
+#include "Text/TextDiagnostic.h"
+#include "Text/TextRuntimeDependencies.h"
 #include <nlohmann/json.hpp>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #if defined(__APPLE__)
@@ -68,6 +72,49 @@
 #include <sys/utsname.h>
 #endif
 
+
+
+namespace {
+
+// ── Task 11.2 Step 7f: 막힌 종료 위에서는 정상적으로 돌아가지 않는다 ─────────
+// 결과가 Complete가 아닌 동안 이 진입점은 돌아가지도, 진단 sink나 텍스트
+// 런타임 guard를 파괴하지도, host를 강제로 reset하지도 않는다. 아는 외부
+// 소유자를 놓고 같은 host로 다시 시도하되, 계속 막히면 소유자를 전부 든 채
+// 실패하는 종료 코드로 프로세스를 끝낸다 — std::_Exit은 소멸자도 atexit도
+// 돌리지 않으므로 ICU 종결 정리가 살아 있는 page 밑에서 돌지 않는다.
+[[noreturn]] void ExitShutdownBlocked(EngineShutdownStatus status) {
+    const char* reason = status == EngineShutdownStatus::GpuDrainFailed
+                             ? "the GPU idle/fence drain failed"
+                             : "an external GPU lifetime is still held";
+    std::fprintf(stderr,
+                 "ENGINE_SHUTDOWN_BLOCKED: %s; every owner is retained and no "
+                 "normal teardown or ICU cleanup runs\n",
+                 reason);
+    std::fflush(stderr);
+    std::_Exit(70);
+}
+
+// 한 번 시도하고, 막히면 소유자를 전부 든 채 실패하는 종료 코드로 끝낸다.
+//
+// 예전에는 여기서 EngineShutdown을 두 번 불렀다. 재시도처럼 읽혔지만
+// 재시도가 아니었다: 두 호출 사이에 **아무것도 놓지 않으므로** 단계 기계는
+// 멱등하게 같은 답을 돌려주고, 유일한 관찰 가능한 차이는 같은 blocker
+// 진단이 두 번 나가는 것이었다. 그 자리를 디버깅하는 사람은 중복된
+// blocker에서 시작해 그 사실을 스스로 유도해야 한다.
+//
+// 재시도가 의미를 갖는 것은 그 사이에 놓을 외부 소유자가 있을 때뿐이고, 이
+// 진입점에는 아직 그런 소유자가 없다(최신 UIFrameResult를 붙드는 자리는
+// Task 12.3이 만든다). 그 자리가 생기면 **놓는 코드와 함께** 두 번째 호출을
+// 여기 되살린다 — 놓는 코드 없는 재시도는 배선이 아니라 잡음이다.
+EngineShutdownStatus ShutdownEngineOrExit(
+    std::unique_ptr<EngineHost>& host,
+    molga::text::TextDiagnosticSink& sink) {
+    const EngineShutdownStatus status = EngineShutdown(host, sink);
+    if (status != EngineShutdownStatus::Complete) ExitShutdownBlocked(status);
+    return status;
+}
+
+} // namespace
 
 namespace {
 
@@ -392,7 +439,13 @@ struct KoreanTitleProbe {
     }
 };
 
-KoreanTitleProbe ProbeKoreanTitle(World& world) {
+// ── Task 8.2 Step 7e: 패키지된 시작 화면의 텍스트 증명 ───────────────────────
+// 폰트 GUID/codepoint 단위의 atlas 계수기는 증거가 아니다: 그 계수기는 셰이핑도
+// page 소유권도 보지 않으므로, 셰이핑이 통째로 빠져도 같은 값을 낸다. 그래서
+// 이 증명은 프로덕션과 정확히 같은 Layout/CollectLayout 경로를 지나 "셰이핑된
+// glyph-ID 명령이 0 아닌 page 정체성과 붙든 토큰과 함께 모였다"만 본다.
+KoreanTitleProbe ProbeKoreanTitle(World& world,
+                                  molga::text::TextDiagnosticSink& sink) {
     static constexpr const char* kExpectedTitle = u8"한글 타이틀 - 시작";
     KoreanTitleProbe result;
 
@@ -405,49 +458,73 @@ KoreanTitleProbe ProbeKoreanTitle(World& world) {
         }
     }
     if (!title) return result;
+    // 원문이 정확히 위 상수와 같다는 것이 곧 "한글이 보존되었다"이다.
     result.textPreserved = true;
 
-    const std::string& fontGuid = title->GetFontGuid();
-    const auto fontPath = molga::AssetDatabase::Get().AbsoluteSourcePath(fontGuid);
-    molga::FontFace face;
-    if (fontGuid.empty() || fontPath.empty() || !face.LoadFromFile(fontPath)) {
-        return result;
+    molga::text::TextLayoutRequest request;
+    request.utf8 = title->GetText();
+    // 저작된 family가 이기고, 없으면 schema 1의 폰트 지목이 레거시 단일 face
+    // 경로로 간다 — 패키지된 이 라벨이 정확히 그 경우다.
+    const UILabel::FontFamilyView family = title->ResolveFontFamilyView();
+    if (!family.familyGuid.empty()) {
+        request.style.fontFamilyGuid = family.familyGuid;
+    } else if (!family.faceFontGuids.empty()) {
+        request.style.legacyFontGuid = family.faceFontGuids.front();
     }
+    if (const auto fontSize =
+            molga::Fixed26_6::FromFloat(title->GetFontSizePx())) {
+        request.style.shape.fontSize = *fontSize;
+    }
+    request.style.analysis.locale = title->GetLocale();
+    request.style.analysis.baseDirection = title->GetBaseDirection();
+    request.style.wrap = title->GetWrapMode();
+    request.style.overflow = title->GetOverflowMode();
+    request.style.maxLines = title->GetMaxLines();
+    if (const auto spacing =
+            molga::Fixed26_6::FromFloat(title->GetLineSpacing())) {
+        request.style.lineSpacing = *spacing;
+    }
+    request.diagnosticContext.componentType = "UILabel";
 
-    int drawableCodepoints = 0;
-    bool sawHangul = false;
+    const auto layout = TextRenderer::Get().Layout(request, sink);
+    if (!layout) return result;
+
+    // 없는 glyph가 하나도 없다는 것이 "이 폰트가 이 글자들을 실제로 그린다"의
+    // 권한 있는 형태다. HasCodepoint/GlyphId 같은 검사용 seam은 셰이핑도
+    // fallback도 대신하지 못하므로 여기서 부르지 않는다.
+    int shapedGlyphs = 0;
     bool allGlyphsPresent = true;
-    for (const std::uint32_t codepoint : molga::DecodeUtf8(title->GetText())) {
-        if (codepoint == ' ' || codepoint == '\n' || codepoint == '\r' ||
-            codepoint == '\t') {
-            continue;
+    for (const molga::text::TextLine& line : (*layout)->lines) {
+        for (const molga::text::VisualRun& run : line.visualRuns) {
+            for (const molga::text::PositionedGlyph& positioned : run.glyphs) {
+                ++shapedGlyphs;
+                allGlyphsPresent =
+                    allGlyphsPresent && !positioned.glyph.missing;
+            }
         }
-        sawHangul = sawHangul || (codepoint >= 0xAC00U && codepoint <= 0xD7A3U);
-        allGlyphsPresent = allGlyphsPresent && face.HasGlyph(codepoint);
-        ++drawableCodepoints;
     }
-    result.fontGlyphsPresent = sawHangul && allGlyphsPresent && drawableCodepoints > 0;
+    result.fontGlyphsPresent = allGlyphsPresent && shapedGlyphs > 0;
 
     molga::RenderQueue proofQueue;
-    TextDrawParams params;
-    params.text = title->GetText();
-    params.fontGuid = fontGuid;
-    params.fontSizePx = title->GetFontSizePx();
-    params.lineSpacing = title->GetLineSpacing();
-    TextRenderer::Get().CollectText(proofQueue, params);
+    TextCollectContext collect;  // 항등 affine, 1배 래스터 정책
+    // 수집 범위를 열지 않는다. 프레임 수집은 프레임 루프의 것 하나뿐이고, 이
+    // 증명은 그 루프 밖에서 한 번 도는 시작 검사다. GlyphAtlasCache는 범위와
+    // 무관하게 page 정체성과 지분 토큰을 함께 내주므로, 아래 단언이 재는 것은
+    // 그대로 남는다 — 범위가 하는 일은 프레임 경계에서 pin 집합을 넘기는
+    // 것이지 지분을 만드는 것이 아니다.
+    TextRenderer::Get().CollectLayout(proofQueue, **layout, collect, sink);
     result.glyphQuads = static_cast<int>(proofQueue.GetCommands().size());
 
-    bool allQuadsUseAtlasTextures = !proofQueue.GetCommands().empty();
+    bool allQuadsRetainAtlasPages = !proofQueue.GetCommands().empty();
     for (const auto& command : proofQueue.GetCommands()) {
-        allQuadsUseAtlasTextures = allQuadsUseAtlasTextures &&
-                                   static_cast<bool>(command.batchKey.texture) &&
-                                   command.batchKey.isBatchable;
+        allQuadsRetainAtlasPages =
+            allQuadsRetainAtlasPages &&
+            static_cast<bool>(command.batchKey.texture) &&
+            command.batchKey.isBatchable &&
+            command.resourceLifetimeIdentity != 0U &&
+            static_cast<bool>(command.resourceLifetime);
     }
-    const int atlasPixelSize = std::max(
-        1, std::min(static_cast<int>(std::lround(title->GetFontSizePx())), 512));
-    result.atlasQuadsCollected = result.glyphQuads == drawableCodepoints &&
-        allQuadsUseAtlasTextures &&
-        TextRenderer::Get().GetAtlasPageCount(fontGuid, atlasPixelSize) > 0U;
+    result.atlasQuadsCollected = allQuadsRetainAtlasPages;
     return result;
 }
 
@@ -628,11 +705,116 @@ PackagedPhysicsProbe ProbePackagedStagePhysics(World& world) {
     return result;
 }
 
-}  // namespace
+// ── Text runtime lifetime ────────────────────────────────────────────────────
 
-int main(int argc, char* argv[]) {
-    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
-    RegisterBuiltinComponents();
+// A present-but-malformed seam value returns this instead of nullopt, so the
+// caller fails fast rather than falling through to a real application launch.
+constexpr int kTextSeamParseError = 2;
+
+// Test-only startup seam. --text-test-return-after-services=<code> returns
+// <code> from the scoped startup function immediately after the text lifetime
+// is established, so a test can observe the unwind order without a window.
+std::optional<int> ParseTextTestReturnAfterServices(int argc, char* argv[]) {
+    static constexpr std::string_view kFlag =
+        "--text-test-return-after-services=";
+    for (int index = 1; index < argc; ++index) {
+        const std::string_view argument(argv[index]);
+        if (argument.rfind(kFlag, 0) != 0) continue;
+        const std::string value(argument.substr(kFlag.size()));
+        try {
+            return std::stoi(value);
+        } catch (const std::exception&) {
+            // Present but unparseable is not the same as absent. Returning
+            // nullopt here would launch the real application instead of the
+            // seam, which in CI reads as a mystifying hang rather than a
+            // broken argument.
+            std::cerr << "Invalid --text-test-return-after-services value: "
+                      << value << '\n';
+            return kTextSeamParseError;
+        }
+    }
+    return std::nullopt;
+}
+
+void EmitTextLifetimeEvent(const char* event) {
+    std::cout << "MOLGA_TEXT_LIFETIME " << event << std::endl;
+}
+
+// Emits its event when destroyed, so declaration order alone fixes where the
+// event lands in the unwind sequence: a marker declared before an owner is
+// destroyed after that owner.
+class TextLifetimeScopeMarker {
+public:
+    TextLifetimeScopeMarker(bool enabled, const char* event)
+        : enabled_(enabled), event_(event) {}
+    TextLifetimeScopeMarker(const TextLifetimeScopeMarker&)            = delete;
+    TextLifetimeScopeMarker& operator=(const TextLifetimeScopeMarker&) = delete;
+    ~TextLifetimeScopeMarker() {
+        if (enabled_) EmitTextLifetimeEvent(event_);
+    }
+
+private:
+    bool        enabled_ = false;
+    const char* event_   = nullptr;
+};
+
+// Everything after PathService::InitFromExecutable runs inside this scope. The
+// text runtime lifetime guard is created first, ahead of SDL, the window, the
+// renderer, scripts, assets and scenes, and every one of those owners is
+// declared after it. Every return below — argument, window, renderer, script,
+// asset or scene failure — therefore unwinds them in reverse and releases all
+// text handles before guard shutdown and u_cleanup. std::exit, _Exit and
+// quick_exit are banned in this scope, and no cleanup callback may retain a
+// text resource past this function.
+int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
+                         int textSeamCode) {
+    const std::filesystem::path engineTextRoot =
+        PathService::Get().EngineResource("Engine/Text");
+    // Collected, not logged: Step 11 requires this process to print the stable
+    // code, the failed paths and the expected hash to stderr and return 4,
+    // where Step 10 has the editor log and keep its shell. The difference from
+    // src/main.cpp is required, not drift, and must survive any later
+    // extraction of the shared seam.
+    molga::text::VectorTextDiagnosticSink textDiagnostics;
+    std::optional<molga::text::TextRuntimeLifetimeGuard> textGuard =
+        molga::text::TextRuntimeLifetimeGuard::Create(
+            molga::text::TextDependencyConfig::FromEngineTextRoot(
+                engineTextRoot, /*packagedRuntime=*/false),
+            textDiagnostics);
+    if (!textGuard) {
+        for (const molga::text::TextDiagnostic& diagnostic :
+             textDiagnostics.Diagnostics()) {
+            std::cerr << molga::text::StableTextDiagnosticCode(diagnostic.code)
+                      << ": " << diagnostic.message << '\n'
+                      << "  remediation: " << diagnostic.remediation << '\n';
+        }
+        std::cerr << "  contract: "
+                  << (engineTextRoot / "text_dependency_contract.json") << '\n'
+                  << "  data: " << (engineTextRoot / "icudt78l.dat") << " ("
+                  << molga::text::kPackagedIcuDataBytes << " bytes, SHA-256 "
+                  << molga::text::kPackagedIcuDataSha256 << ")\n";
+        return 4;
+    }
+
+    // Named for what it observes, not for what follows it: this marker is
+    // destroyed immediately before the guard, so it marks the instant guard
+    // shutdown is about to begin, not its completion.
+    const TextLifetimeScopeMarker textGuardShutdownMarker(
+        textSeamRequested, "runtime_guard_shutdown_begins");
+
+    if (textSeamRequested) {
+        // Stands in for the text services every later milestone declares here:
+        // a client handle that must be gone before the guard shuts down.
+        const TextLifetimeScopeMarker textHandleMarker(
+            true, "last_text_handle_destroyed");
+        std::optional<molga::text::TextRuntimeClientHandle> textClient =
+            molga::text::TextRuntimeClientHandle::Acquire();
+        if (!textClient) {
+            std::cerr << "Text runtime is not ready; no client handle\n";
+            return 6;
+        }
+        return textSeamCode;
+    }
 
     const auto smoke = ParseRuntimeSmoke(argc, argv);
     if (!smoke) {
@@ -700,7 +882,7 @@ int main(int argc, char* argv[]) {
     std::string rendererError;
     if (!renderer->Init(&rendererError)) {
         std::cerr << "Renderer initialization failed: " << rendererError << '\n';
-        EngineShutdown(host);
+        ShutdownEngineOrExit(host, textDiagnostics);
         return -1;
     }
     molga::RenderSystem2D::Get().Init();
@@ -709,7 +891,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Renderer shader bundle has no default entry\n";
         molga::RenderSystem2D::Get().Shutdown();
         renderer.reset();
-        EngineShutdown(host);
+        ShutdownEngineOrExit(host, textDiagnostics);
         return -1;
     }
     SceneRuntime sceneRuntime(std::move(sceneCatalog));
@@ -727,12 +909,40 @@ int main(int argc, char* argv[]) {
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
         renderer.reset();
-        EngineShutdown(host);
+        ShutdownEngineOrExit(host, textDiagnostics);
         return 4;
     }
 
-    // Initialize text renderer
-    TextRenderer::Get().Init();
+    // ── Task 8.2 Step 3b/7f: 공유 텍스트 서비스 한 벌 ────────────────────────
+    // 텍스트 런타임 guard는 이 함수 맨 위에 이미 서 있다. database는 프로세스
+    // 소유의 그 권한이고, 바로 아래에서 봉인/프로젝트 폰트 산출물 저장소를
+    // 받는다 — 첫 폰트 요청보다 먼저다. 프로세스 인스턴스는 정적 저장 수명이
+    // 아니라 heap에 있고, 아래 ShutdownRendererThenTextGpuResources가 guard의
+    // u_cleanup 전에 부순다.
+    if (!TextRenderer::Get().Init(molga::AssetDatabase::Get(), textDiagnostics)) {
+        std::cerr << "Rendered text is unavailable: the shared text services "
+                     "could not be initialized." << std::endl;
+        for (const molga::text::TextDiagnostic& diagnostic :
+             textDiagnostics.Diagnostics()) {
+            std::cerr << molga::text::StableTextDiagnosticCode(diagnostic.code)
+                      << ": " << diagnostic.message << '\n';
+        }
+        molga::RenderSystem2D::Get().Shutdown();
+        ShaderManager::Get().Shutdown();
+        renderer.reset();
+        ShutdownEngineOrExit(host, textDiagnostics);
+        return 4;
+    }
+
+    // ── Task 11.1 Step 3i/A3: 배치의 두 의존물을 진입점이 소유한다 ─────────
+    // Build는 이제 편집 상태 제공자와 정확한 공유 TextLayoutService를 요구한다.
+    // 그 서비스는 TextRenderer가 초기화된 *뒤에야* 존재하므로 설치 지점은 바로
+    // 여기다. 진짜 제공자는 Task 14가 설치하고, 그때까지는 값이 비어 있음을
+    // 명시적으로 말하는 Empty 제공자가 그 자리를 지킨다 — 기본 인자로 숨기면
+    // 한 표면에서 빠뜨려도 컴파일이 통과한다.
+    UISystem::Get().InstallLayoutDependencies(
+        molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+        TextRenderer::Get().LayoutService());
 
     // Load asset catalog if present (runtime mode: read-only, no .meta creation)
     PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
@@ -740,15 +950,37 @@ int main(int argc, char* argv[]) {
     int assetCatalogRecords = 0;
     {
         auto catalogPath = PathService::Get().ExecutableDir() / "asset_catalog.json";
-        if (std::filesystem::exists(catalogPath)) {
+        // Step 4e: this is the development/package authority the runtime has
+        // today — the catalog beside the executable still carries authoring
+        // ProjectLibrary locators, so it loads in Project mode against a store
+        // rooted at that same directory. Task 17 replaces only this authority
+        // construction with the verified sealed-manifest store; the four
+        // argument call below does not change then.
+        const std::filesystem::path storageRoot =
+            PathService::Get().ExecutableDir();
+        std::string bindError;
+        const bool authorityBound =
+            molga::AssetDatabase::Get().FontArtifacts() != nullptr ||
+            molga::AssetDatabase::Get().BindFontArtifactStore(
+                std::make_shared<const molga::FontArtifactStore>(
+                    molga::FontArtifactStore::ForProject(storageRoot)),
+                &bindError);
+        if (!authorityBound) {
+            std::cerr << "Could not bind the runtime font artifact store: "
+                      << bindError << std::endl;
+        }
+        if (authorityBound && std::filesystem::exists(catalogPath)) {
+            std::string catalogError;
             assetCatalogLoaded = molga::AssetDatabase::Get().LoadCatalog(
-                catalogPath, PathService::Get().ExecutableDir());
+                catalogPath, storageRoot, molga::AssetCatalogMode::Project,
+                &catalogError);
             assetCatalogRecords = static_cast<int>(molga::AssetDatabase::Get().RecordCount());
             if (assetCatalogLoaded) {
                 std::cout << "Asset catalog loaded: " << assetCatalogRecords
                           << " records" << std::endl;
             } else {
-                std::cerr << "Failed to load asset catalog: " << catalogPath << std::endl;
+                std::cerr << "Failed to load asset catalog: " << catalogPath
+                          << ": " << catalogError << std::endl;
             }
         }
     }
@@ -768,11 +1000,14 @@ int main(int argc, char* argv[]) {
         }
         sceneRuntime.Shutdown();
         PlayerPrefs::Shutdown();
-        TextRenderer::Get().Shutdown();
+        // Task 6.3/8.2/11.2 Step 7f: 이 실패 경로도 같은 순서를 쓴다. 여기서
+        // 아직 제출된 프레임이 없다는 것은 사실이지만, 그것은 논증이지
+        // 구조가 아니다.
         molga::RenderSystem2D::Get().Shutdown();
         ShaderManager::Get().Shutdown();
+        host->RegisterGpuConsumers(renderer.get(), &TextRenderer::Get());
+        ShutdownEngineOrExit(host, textDiagnostics);
         renderer.reset();
-        EngineShutdown(host);
         return 4;
     }
 
@@ -782,7 +1017,7 @@ int main(int argc, char* argv[]) {
     // that its GUID-backed font can rasterize those codepoints into real atlas
     // quads. Merely finding a font file in the catalog is not sufficient.
     const KoreanTitleProbe koreanTitleProbe =
-        ProbeKoreanTitle(sceneRuntime.ActiveWorld());
+        ProbeKoreanTitle(sceneRuntime.ActiveWorld(), textDiagnostics);
 
     int renderedFrames = 0;
     std::vector<double> benchmarkCpuMilliseconds;
@@ -816,6 +1051,12 @@ int main(int argc, char* argv[]) {
         host->PollEvents();
         if (host->ShouldClose()) break;
         Time::Update();
+        // Task 6.3: 프레임 번호가 정해진 바로 다음, 어떤 텍스트도 큐에 담기기
+        // 전에 이 프레임의 glyph 수집을 연다. 어휘적 범위가 루프 본문 전체
+        // 이므로 아래의 모든 break가 이 안에서 일어나고, 수집은 명령들이 page
+        // 토큰을 다 복사한 뒤에야 닫힌다.
+        auto glyphCollection = TextRenderer::Get().BeginGlyphCollection(
+            static_cast<std::uint64_t>(Time::GetFrameCount()));
         float dt = Time::GetDeltaTime();
         World& world = sceneRuntime.ActiveWorld();
 
@@ -1003,10 +1244,10 @@ int main(int argc, char* argv[]) {
             MOLGA_PROFILE_SCOPE("GameOutput.Render", molga::ProfileCategory::Rendering);
             if (frameAvailable && framebufferSize.IsValid()) {
                 lastGameOutputResult = gameOutputRenderer->Render(
-                    world.Objects(),
+                    world,
                     {framebufferSize, configuredLogicalSize,
                      config.outputScaleMode},
-                    *renderer, shader);
+                    *renderer, shader, TextRenderer::Get(), textDiagnostics);
             }
         }
 
@@ -1311,12 +1552,42 @@ int main(int argc, char* argv[]) {
     sceneRuntime.Shutdown();
     UISystem::Get().ResetPointerCapture();
     PlayerPrefs::Shutdown();
-    TextRenderer::Get().Shutdown();
+    // Task 6.3/8.2 Step 7f: 텍스트/atlas GPU 자원은 renderer가 GPU idle을
+    // 증명하고 반납 큐를 비운 다음에만 파괴되고, 텍스트 서비스는 그 다음,
+    // guard의 종결 u_cleanup은 맨 마지막이다. 그 순서는 이 함수 한 곳에만
+    // 적혀 있다.
     gameOutputRenderer.reset();
     molga::RenderSystem2D::Get().Shutdown();
     ShaderManager::Get().Shutdown();
+    // Task 11.2 Step 7f/7g: 종료 순서의 소유자는 host다. 진입점은 두 GPU
+    // 소비자의 **이름만** 넘기고, 결과가 Complete가 아닌 동안에는 돌아가지
+    // 않는다.
+    host->RegisterGpuConsumers(renderer.get(), &TextRenderer::Get());
+    ShutdownEngineOrExit(host, textDiagnostics);
     renderer.reset();
-    EngineShutdown(host);
 
     return exitCode;
+}
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+    PathService::Get().InitFromExecutable(argc > 0 ? argv[0] : nullptr);
+    RegisterBuiltinComponents();
+
+    const std::optional<int> textSeam =
+        ParseTextTestReturnAfterServices(argc, argv);
+    const int code = RunRuntimeAfterPaths(argc, argv, textSeam.has_value(),
+                                          textSeam.value_or(0));
+
+    // The scoped function has returned, so the guard is destroyed. Gate on the
+    // terminal state itself: !IsReady() is also true for a process whose guard
+    // was never created, which would make this event prove nothing.
+    if (textSeam) {
+        if (molga::text::TextRuntimeDependencies::Get().WasTerminallyCleaned()) {
+            EmitTextLifetimeEvent("u_cleanup");
+        }
+        EmitTextLifetimeEvent("process_return");
+    }
+    return code;
 }

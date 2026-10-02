@@ -18,6 +18,43 @@ Color ReadColor(const nlohmann::json& j, const char* key, Color fallback) {
 }
 } // namespace
 
+void UIButton::SetInteractable(bool value) {
+    if (interactable_ == value) return;
+    interactable_ = value;
+    if (!interactable_) ClearPointerState();
+    Invalidate(UIInvalidation::Interaction);
+}
+
+void UIButton::SetNormalColor(const Color& value) {
+    if (normalColor_ == value) return;
+    normalColor_ = value;
+    Invalidate(UIInvalidation::Visual);
+}
+
+void UIButton::SetHoverColor(const Color& value) {
+    if (hoverColor_ == value) return;
+    hoverColor_ = value;
+    Invalidate(UIInvalidation::Visual);
+}
+
+void UIButton::SetPressedColor(const Color& value) {
+    if (pressedColor_ == value) return;
+    pressedColor_ = value;
+    Invalidate(UIInvalidation::Visual);
+}
+
+void UIButton::SetDisabledColor(const Color& value) {
+    if (disabledColor_ == value) return;
+    disabledColor_ = value;
+    Invalidate(UIInvalidation::Visual);
+}
+
+void UIButton::SetSortingOrder(int value) {
+    if (sortingOrder_ == value) return;
+    sortingOrder_ = value;
+    Invalidate(UIInvalidation::Visual);
+}
+
 Color UIButton::CurrentColor() const {
     if (!interactable_) return disabledColor_;
     if (pressed_) return pressedColor_;
@@ -36,6 +73,7 @@ void UIButton::ApplyPointerState(bool hovered, bool pressed, bool clicked) {
 }
 
 void UIButton::Serialize(nlohmann::json& j) const {
+    j["schemaVersion"] = CurrentSchemaVersion;
     j["interactable"] = interactable_;
     j["normalColor"] = ColorJson(normalColor_);
     j["hoverColor"] = ColorJson(hoverColor_);
@@ -45,11 +83,12 @@ void UIButton::Serialize(nlohmann::json& j) const {
 }
 
 void UIButton::Deserialize(const nlohmann::json& j) {
-    interactable_ = j.value("interactable", interactable_);
-    normalColor_ = ReadColor(j, "normalColor", normalColor_);
-    hoverColor_ = ReadColor(j, "hoverColor", hoverColor_);
-    pressedColor_ = ReadColor(j, "pressedColor", pressedColor_);
-    disabledColor_ = ReadColor(j, "disabledColor", disabledColor_);
-    sortingOrder_ = j.value("sortingOrder", sortingOrder_);
+    SetInteractable(j.value("interactable", interactable_));
+    SetNormalColor(ReadColor(j, "normalColor", normalColor_));
+    SetHoverColor(ReadColor(j, "hoverColor", hoverColor_));
+    SetPressedColor(ReadColor(j, "pressedColor", pressedColor_));
+    SetDisabledColor(ReadColor(j, "disabledColor", disabledColor_));
+    SetSortingOrder(j.value("sortingOrder", sortingOrder_));
+    // hover/press/click은 런타임 상태다. 저작 revision을 올리지 않는다.
     hovered_ = pressed_ = clickedThisFrame_ = false;
 }

@@ -7,3 +7,9 @@
 [submodule "external/SDL_shadercross"]
 	path = external/SDL_shadercross
 	url = https://github.com/libsdl-org/SDL_shadercross.git
+[submodule "external/harfbuzz"]
+	path = external/harfbuzz
+	url = https://github.com/harfbuzz/harfbuzz.git
+[submodule "external/icu"]
+	path = external/icu
+	url = https://github.com/unicode-org/icu.git

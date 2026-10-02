@@ -1,4 +1,5 @@
 #include "GameBuilder.h"
+#include "../Assets/FontArtifactStore.h"
 #include "../Core/PathConstants.h"
 #include "../Core/PathService.h"
 #include "../Core/BuildManifest.h"
@@ -6,6 +7,8 @@
 #include "../Core/PackageFinalizer.h"
 #include "../Core/GameConfig.h"
 #include "../Common/Sha256.h"
+#include "../Text/TextDiagnostic.h"
+#include "../Text/TextRuntimeDependencies.h"
 #include "../Core/ProjectSettings.h"
 #include "../Platform/Process.h"
 #include "../Systems/Input.h"
@@ -291,6 +294,15 @@ GameBuilder& GameBuilder::Get() {
     return instance;
 }
 
+namespace molga::detail {
+
+bool EmitAssetCatalogForTest(GameBuilder& builder,
+                             const std::string& outputPath) {
+    return builder.EmitAssetCatalog(outputPath);
+}
+
+}  // namespace molga::detail
+
 bool GameBuilder::Build(const BuildSettings& settings) {
     long long totalStart = molga::NowNanos();
 
@@ -315,8 +327,37 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         return false;
     }
 
-    if (Project::Get().IsOpen()) {
-        molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+    // Step 4f: BuildSettings::projectRoot is the canonical filesystem
+    // authority for a build. An editor-owned singleton keeps the store the
+    // editor bound; a standalone builder binds one once. A store rooted
+    // somewhere else is an explicit build failure rather than a silent build
+    // against a foreign artifact library.
+    if (settings.projectRoot.empty()) {
+        lastError = "No project root; cannot bind the font artifact authority.";
+        return false;
+    }
+    const fs::path buildProjectRoot = settings.projectRoot;
+    {
+        molga::AssetDatabase& database = molga::AssetDatabase::Get();
+        if (const molga::FontArtifactStore* bound = database.FontArtifacts()) {
+            if (!bound->IsProjectAuthorityFor(buildProjectRoot)) {
+                lastError = "The bound font artifact store does not belong to "
+                            "the project being built: " +
+                            buildProjectRoot.string();
+                return false;
+            }
+        } else {
+            std::string bindError;
+            if (!database.BindFontArtifactStore(
+                    std::make_shared<const molga::FontArtifactStore>(
+                        molga::FontArtifactStore::ForProject(buildProjectRoot)),
+                    &bindError)) {
+                lastError = "Could not bind the project font artifact store: " +
+                            bindError;
+                return false;
+            }
+        }
+        database.ScanProject(buildProjectRoot / "Assets");
     }
     {
         std::vector<fs::path> dependencyScenes;
@@ -486,6 +527,17 @@ bool GameBuilder::Build(const BuildSettings& settings) {
         }
         double ms = (molga::NowNanos() - t0) / 1.0e6;
         molga::ActiveReportSink().ReportTiming("Build: Copy placeholder resource", ms, "");
+    }
+
+    // Step: Copy the verified Engine/Text pair
+    {
+        long long t0 = molga::NowNanos();
+        if (!CopyTextRuntimeResources(stagingPathStr)) {
+            cleanupStaging();
+            return false;
+        }
+        double ms = (molga::NowNanos() - t0) / 1.0e6;
+        molga::ActiveReportSink().ReportTiming("Build: Copy text runtime resources", ms, "");
     }
 
     // Step 5: Generate game config
@@ -804,10 +856,19 @@ bool GameBuilder::CopyUserScripts(const std::string& outputPath, std::string& ou
 
 bool GameBuilder::EmitAssetCatalog(const std::string& outputPath) {
     try {
-        // Refresh AssetDatabase from the project's Assets/ so the catalog is current.
-        if (Project::Get().IsOpen()) {
-            molga::AssetDatabase::Get().ScanProject(Project::Get().GetAssetsPath());
+        // Refresh AssetDatabase from the project's Assets/ so the catalog is
+        // current. Build() already bound and verified the artifact authority
+        // for settings.projectRoot, and this private step is reachable only
+        // from there, so the scan root is that same verified project root.
+        const molga::FontArtifactStore* authority =
+            molga::AssetDatabase::Get().FontArtifacts();
+        if (authority == nullptr) {
+            lastError = "No font artifact store is bound; cannot emit the "
+                        "asset catalog.";
+            return false;
         }
+        const fs::path scanRoot = molga::AssetDatabase::Get().Root();
+        molga::AssetDatabase::Get().ScanProject(scanRoot);
 
         fs::path catalogPath = fs::path(outputPath) / "asset_catalog.json";
         if (!molga::AssetDatabase::Get().SaveCatalog(
@@ -815,11 +876,116 @@ bool GameBuilder::EmitAssetCatalog(const std::string& outputPath) {
             lastError = "Failed to write asset_catalog.json";
             return false;
         }
+
+        // ── Task 8.2: 검증된 폰트 산출물이 패키지 경계를 넘는다 ──────────────
+        // 패키지된 런타임은 폰트 바이트를 원본 .ttf 경로가 아니라 카탈로그의
+        // ProjectLibrary locator로만 연다(레거시 codepoint atlas가 쓰던 원본
+        // 경로 우회로는 Task 8.2가 지웠다). 그 locator는 실행 파일 옆을 뿌리로
+        // 해석되므로, 그 상대 경로에 바이트가 실제로 있어야 한다 — 없으면
+        // 패키지된 모든 텍스트가 두부가 된다.
+        //
+        // 참조된 폰트만 옮긴다. Library/Imported 전체를 복사하면 어떤 scene도
+        // 쓰지 않는 폰트가 배포물에 실린다.
+        const fs::path projectRoot = fs::path(Project::Get().GetPath());
+        for (const auto& [guid, record] : molga::AssetDatabase::Get().All()) {
+            if (!record.fontArtifact) continue;
+            const fs::path relative = record.fontArtifact->locator.relativePath;
+            if (relative.empty()) continue;
+            const fs::path source = projectRoot / relative;
+            const fs::path destination = fs::path(outputPath) / relative;
+            if (!fs::exists(source)) {
+                lastError = "Font artifact is missing from the project "
+                            "library: " + source.string();
+                return false;
+            }
+            fs::create_directories(destination.parent_path());
+            fs::copy_file(source, destination,
+                          fs::copy_options::overwrite_existing);
+        }
         return true;
     } catch (const std::exception& e) {
         lastError = "Failed to emit asset catalog: " + std::string(e.what());
         return false;
     }
+}
+
+// The packaged runtime verifies its Engine/Text pair before it does anything
+// else and returns 4 without one, so the package has to carry it. The source is
+// the editor's own staged root — the output of StageTextRuntimeResources.cmake
+// — and never a source-tree path, never resources/text/, never the working
+// directory: an executable directory that was never resolved fails the build
+// rather than letting a relative path find something beside the caller.
+//
+// This flat executable-directory copy is the development layout. Task 16.2
+// replaces it with Contents/Resources bundle staging plus the
+// TextRuntimeManifest, and switches packaged initialization to
+// packagedRuntime=true; it should extend this seam rather than add a second
+// staging path beside it.
+//
+// Fail-closed on every branch. A silently text-less package is exactly the
+// failure this milestone exists to prevent, so there is deliberately no
+// "copy if present" degradation.
+bool GameBuilder::CopyTextRuntimeResources(const std::string& outputPath) {
+    molga::text::VectorTextDiagnosticSink diagnostics;
+    const auto fail = [&diagnostics](std::string message,
+                                     std::string remediation) {
+        molga::text::TextDiagnostic diagnostic;
+        diagnostic.code        = molga::text::TextDiagnosticCode::DependencyInvalid;
+        diagnostic.severity    = molga::text::TextSeverity::Blocker;
+        diagnostic.subsystem   = "text-packaging";
+        diagnostic.message     = std::move(message);
+        diagnostic.remediation = std::move(remediation);
+        diagnostics.Report(std::move(diagnostic));
+        return false;
+    };
+
+    try {
+        const fs::path sourceRoot =
+            PathService::Get().EngineResource("Engine/Text");
+        if (sourceRoot.empty() || !sourceRoot.is_absolute()) {
+            fail("the executable directory was never resolved, so the verified "
+                 "Engine/Text root is the relative path " + sourceRoot.string(),
+                 "call PathService::InitFromExecutable before building a package");
+        } else {
+            const fs::path contractSource =
+                sourceRoot / "text_dependency_contract.json";
+            const fs::path dataSource = sourceRoot / "icudt78l.dat";
+            // Both halves to the same standard. Existence alone let a contract
+            // that the packaged player will refuse at startup be copied into a
+            // game, and the only symptom is that player's exit 4. The contract
+            // is checked first so a bad one costs no 33 MB hash.
+            if (molga::text::VerifyPackagedDependencyContractFile(
+                    contractSource, diagnostics) &&
+                molga::text::VerifyPackagedIcuDataFile(dataSource,
+                                                       diagnostics)) {
+                const fs::path destRoot = fs::path(outputPath) / "Engine" / "Text";
+                fs::create_directories(destRoot);
+                fs::copy_file(contractSource, destRoot / contractSource.filename(),
+                              fs::copy_options::overwrite_existing);
+                fs::copy_file(dataSource, destRoot / dataSource.filename(),
+                              fs::copy_options::overwrite_existing);
+                return true;
+            }
+        }
+    } catch (const std::exception& e) {
+        fail(std::string("could not stage the packaged Engine/Text pair: ") +
+                 e.what(),
+             "rebuild the editor and retry the package build");
+    }
+
+    // The typed record is the contract; lastError is how the build surfaces it.
+    lastError.clear();
+    for (const molga::text::TextDiagnostic& diagnostic : diagnostics.Diagnostics()) {
+        if (!lastError.empty()) lastError += "; ";
+        lastError += molga::text::StableTextDiagnosticCode(diagnostic.code);
+        lastError += ": " + diagnostic.message +
+                     " (remediation: " + diagnostic.remediation + ")";
+        // The record, not the accumulator: logging lastError here would repeat
+        // every earlier diagnostic on each line once more than one can appear.
+        Log::Error(diagnostic.subsystem, diagnostic.message);
+    }
+    if (lastError.empty()) lastError = "Failed to copy text runtime resources";
+    return false;
 }
 
 bool GameBuilder::CopyPlaceholderResource(const std::string& outputPath) {

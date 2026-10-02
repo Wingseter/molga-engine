@@ -7,13 +7,41 @@
 #include "Core/Profiling/ProfileScope.h"
 #include "Core/Profiling/ProfilerService.h"
 #include "Common/Log.h"
+#include "UI/UIRuntimeInvalidation.h"
 
 #include <algorithm>
+#include <atomic>
 #include <exception>
 #include <functional>
+#include <limits>
+#include <stdexcept>
+#include <type_traits>
 #include <unordered_set>
 
 namespace {
+
+// Task 9.1: 프로세스 전역 월드 세대 시퀀스. 하나의 원자값이 이 프로세스의
+// 모든 World 세대를 발급한다.
+std::atomic<std::uint64_t> gNextWorldGeneration{1};
+
+std::uint64_t AcquireWorldGeneration() {
+    std::uint64_t candidate =
+        gNextWorldGeneration.load(std::memory_order_relaxed);
+    for (;;) {
+        // 증가 전에 소진을 확인한다. fetch_add였다면 UINT64_MAX 다음이 0으로
+        // 감기고, 0은 "식별자 없음"이라서 죽은 식별자가 다시 살아난다.
+        if (candidate == 0 ||
+            candidate == std::numeric_limits<std::uint64_t>::max()) {
+            throw std::overflow_error("UI world generation exhausted");
+        }
+        if (gNextWorldGeneration.compare_exchange_weak(
+                candidate, candidate + 1,
+                std::memory_order_relaxed,
+                std::memory_order_relaxed)) {
+            return candidate;
+        }
+    }
+}
 
 class CallbackDispatchGuard {
 public:
@@ -29,28 +57,85 @@ private:
 
 } // namespace
 
+std::uint64_t WorldGenerationForTesting() {
+    return gNextWorldGeneration.load(std::memory_order_relaxed);
+}
+
+ScopedWorldGenerationForTesting::ScopedWorldGenerationForTesting(
+    std::uint64_t next)
+    : previous_(gNextWorldGeneration.exchange(next,
+                                              std::memory_order_relaxed)),
+      seeded_(next) {}
+
+ScopedWorldGenerationForTesting::~ScopedWorldGenerationForTesting() {
+    const std::uint64_t current =
+        gNextWorldGeneration.load(std::memory_order_relaxed);
+    // 훅 범위에서 아무것도 발급되지 않았다면(소진 경계값 0/UINT64_MAX가 그렇다)
+    // 직전 후보를 그대로 돌려놓는다. 반대로 무언가 발급됐다면 그 세대들은 살아
+    // 있을 수 있으므로 시퀀스를 뒤로 되감지 않는다 — 되감으면 프로덕션이 같은
+    // 값을 한 번 더 발급해 "재사용 없음"이 훅 하나로 깨진다.
+    //
+    // 남는 구멍 하나: 훅을 현재 후보보다 낮게 세우고 그 안에서 발급하면 이미
+    // 살아 있는 세대와 겹치는 값이 그 자리에서 나온다. 그건 복원으로 막을 수
+    // 없으니 세우지 말 것.
+    gNextWorldGeneration.store(
+        current == seeded_ ? previous_ : std::max(previous_, current),
+        std::memory_order_relaxed);
+}
+
+// 이동 생성자가 noexcept로 되돌아가면 세대 소진이 예외 대신 std::terminate가
+// 된다. 두 번째 단언이 없으면 이동 생성자를 삭제해도 첫 단언이 통과한다.
+static_assert(std::is_move_constructible<World>::value,
+              "World must stay move constructible");
+static_assert(!std::is_nothrow_move_constructible<World>::value,
+              "World move construction allocates a generation and can throw");
+
 World::World()
-    : physicsWorld(std::make_unique<PhysicsWorld>()),
+    : generation_(AcquireWorldGeneration()),
+      physicsWorld(std::make_unique<PhysicsWorld>()),
       scheduler(std::make_unique<Scheduler>(this)) {
 }
 
 World::~World() {
+    // 이 세대의 UI 런타임 캐시를 회수한다. Shutdown 전에 부른다 — 아래에서
+    // 내용이 사라져도 세대 번호는 그대로지만, 순서를 고정해 두는 편이 읽기 쉽다.
+    molga::ui::NotifyUIWorldReleased(generation_);
     Shutdown();
 }
 
-World::World(World&& other) noexcept
-    : World() {
+World::World(World&& other) {
+    // 기본 생성자로 위임하지 않는다. 위임하면 곧바로 버려질 세대를 한 번 더
+    // 발급해 이동 하나가 세 개를 소모하고, 쓰지도 않을 PhysicsWorld/Scheduler를
+    // 만들었다가 즉시 버린다. 모든 소유 상태는 other에서 온다. 아래 대입이
+    // 던지면 이 생성자는 완료되지 않으므로 other도 그대로 남는다.
     *this = std::move(other);
 }
 
-World& World::operator=(World&& other) noexcept {
+World& World::operator=(World&& other) {
     if (this == &other) return *this;
+    // 두 세대를 내용에 손대기 전에 확보한다. 확보가 던지면 어느 World도
+    // 바뀌지 않은 상태로 남는다.
+    const auto replacementGeneration = AcquireWorldGeneration();
+    const auto movedFromGeneration = AcquireWorldGeneration();
     // Dispatch and flush guards keep references to these fields. Moving either
     // World while a guard is live would reset state underneath it and can make
     // the outer callback continue on unrelated containers.
     if (IsLifecycleMutationActive() || other.IsLifecycleMutationActive()) {
-        return *this;
+        throw std::logic_error("cannot move a World during callbacks");
     }
+    // 두 세대가 여기서 은퇴한다: 덮어써지는 이쪽의 것과, 비워지는 저쪽의 것.
+    molga::ui::NotifyUIWorldReleased(generation_);
+    molga::ui::NotifyUIWorldReleased(other.generation_);
+    TransferOwnedStateFrom(std::move(other));
+    // 옮겨진 쪽에도 새 세대를 발행한다. 비워진 World가 다시 채워지더라도 예전
+    // 식별자가 되살아나지 않도록 하는 거절 장치다(물리/스케줄러까지 넘어갔으니
+    // 그 World 자체가 곧바로 구동 가능한 상태라는 뜻은 아니다).
+    generation_ = replacementGeneration;
+    other.generation_ = movedFromGeneration;
+    return *this;
+}
+
+void World::TransferOwnedStateFrom(World&& other) {
     Shutdown();
     objects_ = std::move(other.objects_);
     name_ = std::move(other.name_);
@@ -67,13 +152,18 @@ World& World::operator=(World&& other) noexcept {
     callbackDispatchDepth_ = 0;
     for (auto& object : objects_) if (object) object->SetWorld(this);
     for (auto& object : pendingAdds_) if (object) object->SetWorld(this);
+    // 컨테이너 이동 "대입"은 원본을 유효하되 미지정 상태로 남긴다 — 비어 있다는
+    // 보장이 없다. 나머지 필드를 전부 초기화하면서 이것만 표준 구현에 맡기면
+    // 옮겨진 World가 죽은 오브젝트를 계속 들고 있는 것처럼 보일 수 있다.
+    other.objects_.clear();
+    other.pendingAdds_.clear();
+    other.pendingDestroys_.clear();
     other.running_ = false;
     other.sceneRuntime_ = nullptr;
     other.flushingDeferred_ = false;
     other.flushDeferredRequested_ = false;
     other.shuttingDown_ = false;
     other.callbackDispatchDepth_ = 0;
-    return *this;
 }
 
 GameObject* World::Add(std::shared_ptr<GameObject> obj) {
@@ -81,7 +171,44 @@ GameObject* World::Add(std::shared_ptr<GameObject> obj) {
     obj->SetWorld(this);
     GameObject* raw = obj.get();
     objects_.push_back(std::move(obj));
+    // 오브젝트가 씬에 나타나는 것도 계층 변경이다. Canvas와 무관한 오브젝트는
+    // NotifyUIHierarchyChanged가 스스로 걸러낸다.
+    NotifyUIHierarchyChanged(raw);
     return raw;
+}
+
+GameObject* World::InsertAt(std::shared_ptr<GameObject> obj,
+                            std::size_t index) {
+    if (!obj || shuttingDown_) return nullptr;
+    obj->SetWorld(this);
+    GameObject* raw = obj.get();
+    index = std::min(index, objects_.size());
+    objects_.insert(objects_.begin() + static_cast<std::ptrdiff_t>(index),
+                    std::move(obj));
+    NotifyUIHierarchyChanged(raw);
+    return raw;
+}
+
+void World::RemoveByIds(const std::vector<unsigned int>& ids) {
+    if (ids.empty()) return;
+    // 지우기 전에 알린다. NotifyUIHierarchyChanged는 오브젝트의 부모 사슬을
+    // 읽어 Canvas 아래인지 판정하므로, 벡터에서 빠진 뒤에 부르면 판정 자체는
+    // 살아 있어도(명령이 undo용으로 shared_ptr을 붙들고 있다) "무엇이 사라졌나"를
+    // 말할 수 없다.
+    for (const auto& object : objects_) {
+        if (!object) continue;
+        if (std::find(ids.begin(), ids.end(), object->GetID()) != ids.end()) {
+            NotifyUIHierarchyChanged(object.get());
+        }
+    }
+    objects_.erase(
+        std::remove_if(objects_.begin(), objects_.end(),
+                       [&](const std::shared_ptr<GameObject>& object) {
+                           if (!object) return false;
+                           return std::find(ids.begin(), ids.end(),
+                                            object->GetID()) != ids.end();
+                       }),
+        objects_.end());
 }
 
 GameObject* World::FindById(unsigned int id) const {
@@ -129,7 +256,15 @@ std::vector<GameObject*> World::FindAllWithTag(const std::string& tag) const {
     return result;
 }
 
-void World::Clear() { Shutdown(); }
+void World::Clear() {
+    // 세대를 먼저 얻고 콘텐츠를 비우기 전에 발행한다. OnDestroy 콜백이 남아
+    // 있는 런타임 식별자로 이 World를 다시 해석하려 들면, 그 시점에 이미
+    // 세대가 달라 실패해야 한다.
+    const auto generation = AcquireWorldGeneration();
+    molga::ui::NotifyUIWorldReleased(generation_);
+    generation_ = generation;
+    Shutdown();
+}
 
 void World::Shutdown() noexcept {
     if (shuttingDown_) return;
@@ -268,14 +403,34 @@ std::unique_ptr<World> World::Clone() const {
 #include "ECS/Components/Transform.h"
 
 bool World::LoadFromFile(const std::string& path) {
-    bool success = SceneSerializer::LoadScene(path, objects_);
-    if (success) {
-        for (auto& o : objects_) {
-            if (o) o->SetWorld(this);
-        }
+    // 임시 벡터로 먼저 싣는다. DeserializeScene은 목적지를 즉시 비우므로,
+    // objects_에 바로 실으면 파싱 실패가 기존 씬을 지워 버린다. 실패한 로드는
+    // 내용도 세대도 그대로 두어야 살아 있는 식별자가 계속 유효하다.
+    std::vector<std::shared_ptr<GameObject>> loaded;
+    if (!SceneSerializer::LoadScene(path, loaded)) return false;
+    const auto generation = AcquireWorldGeneration();
+    molga::ui::NotifyUIWorldReleased(generation_);
+    objects_.swap(loaded);
+    generation_ = generation;
+    for (auto& o : objects_) {
+        if (o) o->SetWorld(this);
     }
-    return success;
+    return true;
 }
+void World::RepublishGenerationAfterExternalReplacement() {
+    // 에디터의 New/Open Scene은 Objects()를 통해 밖에서 내용을 통째로
+    // 교체하므로 LoadFromFile/Clear를 지나지 않는다. 세대를 그대로 두면
+    // 이전 씬의 기하 캐시 항목이 새 씬에 그대로 적중한다 — 오브젝트 id와
+    // 저작 revision은 씬이 달라도 겹칠 수 있고, 기하 키에는 그 둘을 넘어
+    // 실패로 닫을 네 번째 필드가 없다. 교체에 성공한 직후에만 부른다.
+    molga::ui::NotifyUIWorldReleased(generation_);
+    generation_ = AcquireWorldGeneration();
+    for (auto& object : objects_) {
+        if (object) object->SetWorld(this);
+    }
+    molga::ui::NotifyUISemanticMutation();
+}
+
 bool World::SaveToFile(const std::string& path) const {
     return SceneSerializer::SaveScene(path, objects_);
 }
@@ -418,6 +573,14 @@ void World::FlushDeferred(float dt) {
         }
 
         if (!subtreeIdSet.empty()) {
+            // 사라지는 오브젝트가 UI Canvas 서브트리에 닿아 있었다면 스냅샷이
+            // 달라진다. 벡터에서 지운 뒤에는 부모 사슬을 더 볼 수 없으므로
+            // 지우기 전에 판정한다.
+            for (const auto& object : objects_) {
+                if (object && subtreeIdSet.count(object->GetID()) != 0) {
+                    NotifyUIHierarchyChanged(object.get());
+                }
+            }
             auto removePredicate = [&](const std::shared_ptr<GameObject>& object) {
                 return !object || subtreeIdSet.count(object->GetID()) != 0;
             };

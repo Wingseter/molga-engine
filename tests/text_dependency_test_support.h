@@ -1,0 +1,120 @@
+#pragma once
+
+// Helpers shared by the translation units of test_text_dependencies:
+// test_text_dependencies.cpp (the fast provenance cases), text_make_recovery.cpp
+// (the generator-recovery proofs), text_harfbuzz_host_resolution.cpp, and the
+// text_dependency_authorities / text_recovery_tree pairs behind them.
+//
+// The six machine-local provenance macros are attached with
+// target_compile_definitions, so they are target-scoped and every translation
+// unit sees them; molga_attach_text_provenance_test stays the single caller and
+// test_text_dependencies stays the single target it accepts.
+//
+// Only what more than one of those needs lives here. Anything one file alone
+// uses stays in that file, so this header does not slowly become the place
+// every helper goes.
+
+#include "doctest.h"
+
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <string>
+#include <vector>
+
+#include <spawn.h>
+#include <sys/wait.h>
+
+#include "Common/Sha256.h"
+
+extern char** environ;
+
+namespace molga::text_test {
+
+inline std::filesystem::path SourceRoot() {
+    return std::filesystem::path(MOLGA_SOURCE_DIR);
+}
+inline std::filesystem::path BinaryRoot() {
+    return std::filesystem::path(MOLGA_BINARY_DIR);
+}
+
+// Component-wise containment, never a string-prefix test: /a/bc must not count
+// as living under /a/b.
+inline bool PathIsUnder(const std::filesystem::path& candidate,
+                        const std::filesystem::path& root) {
+    const auto a = std::filesystem::weakly_canonical(candidate);
+    const auto b = std::filesystem::weakly_canonical(root);
+    auto ai = a.begin();
+    auto bi = b.begin();
+    for (; bi != b.end(); ++ai, ++bi) {
+        if (ai == a.end() || *ai != *bi) return false;
+    }
+    return true;
+}
+
+inline std::string RequiredSha256File(const std::filesystem::path& path) {
+    std::string error;
+    const std::string digest = molga::Sha256File(path, &error);
+    // One assertion, not three. The recovery run calls this several hundred
+    // times, and a separate length check and hex check per call only restate
+    // that Sha256File's own output is well formed — they can fail for no other
+    // reason. Three assertions per call buried the run's real work under
+    // roughly a thousand copies of the same claim and made a failure listing
+    // harder to read, not easier.
+    //
+    // Parenthesized: doctest streams the first message operand with operator*,
+    // which binds tighter than the string concatenation.
+    const bool wellFormed =
+        error.empty() && digest.size() == 64 &&
+        digest.find_first_not_of("0123456789abcdef") == std::string::npos;
+    REQUIRE_MESSAGE(wellFormed,
+                    (path.string() + ": " + (error.empty() ? digest : error)));
+    return digest;
+}
+
+inline std::vector<std::string> ReadLines(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    REQUIRE_MESSAGE(input.good(), path.string());
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(input, line)) {
+        // Trailing whitespace would defeat suffix matching on build-log lines,
+        // and a build tool's progress output is not a place to be precious
+        // about it.
+        while (!line.empty() &&
+               std::isspace(static_cast<unsigned char>(line.back()))) {
+            line.pop_back();
+        }
+        lines.push_back(line);
+    }
+    return lines;
+}
+
+inline std::string ReadFileBytes(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input.good()) return {};
+    return std::string(std::istreambuf_iterator<char>(input),
+                       std::istreambuf_iterator<char>());
+}
+
+inline void WriteFileBytes(const std::filesystem::path& path,
+                           const std::string& bytes) {
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    REQUIRE(output.good());
+    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+inline int RunWithoutShell(const std::vector<std::string>& argv) {
+    std::vector<char*> raw;
+    raw.reserve(argv.size() + 1);
+    for (const auto& argument : argv) raw.push_back(const_cast<char*>(argument.c_str()));
+    raw.push_back(nullptr);
+    pid_t pid = 0;
+    if (posix_spawn(&pid, raw[0], nullptr, nullptr, raw.data(), environ) != 0) return -1;
+    int status = 0;
+    if (waitpid(pid, &status, 0) != pid) return -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+}  // namespace molga::text_test

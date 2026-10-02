@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
+#include <vector>
 
 // Resolves the per-user writable data directory shared by PlayerPrefs and
 // SaveSystem. Production code configures it once after loading game.json;
@@ -26,6 +28,18 @@ public:
     static bool AtomicWriteText(const std::filesystem::path& destination,
                                 const std::string& contents,
                                 std::string* errorOut = nullptr);
+
+    // Publishes content-addressed bytes that must never change once written.
+    // Unlike AtomicWriteText this never replaces an existing destination: a
+    // present file is accepted only when its size, SHA-256 and bytes already
+    // match, because any live consumer may already hold the old bytes open and
+    // an overwrite would silently change what a recorded hash refers to.
+    // Only the caller-owned temporary and lock are removed on failure.
+    static bool AtomicPublishImmutableBytes(
+        const std::filesystem::path& destination,
+        const std::vector<std::uint8_t>& bytes,
+        std::string_view expectedSha256,
+        std::string* errorOut = nullptr);
 
     // Test support. The override is the exact storage root (company/game are
     // intentionally not appended), making tests independent of the host OS.

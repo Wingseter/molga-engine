@@ -6,9 +6,14 @@
 #include "ECS/Components/Rigidbody2D.h"
 #include "ECS/Components/Transform.h"
 #include "Core/ProjectSettings.h"
+#include "Core/Scheduler.h"
 #include "Physics/PhysicsWorld.h"
+#include "Scripting/Script.h"
 #include "doctest.h"
+#include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 // Define a test component to track Start and OnDestroy calls
@@ -30,6 +35,17 @@ public:
 };
 
 namespace {
+
+// A script-owned timer is the only observable that depends on the scheduler's
+// World binding: Scheduler::Tick resolves the handle through the World it holds,
+// so a scheduler left pointing at the emptied source can never fire it.
+class MoveSchedulerProbe final : public Script {
+public:
+    SCRIPT_CLASS(MoveSchedulerProbe)
+
+    int fired = 0;
+    void ArmTimer() { Invoke([this] { ++fired; }, 1.0f); }
+};
 
 class RecursiveFlushDestroyer final : public Component {
 public:
@@ -139,18 +155,36 @@ public:
         GameObject* owner = GetGameObject();
         const unsigned int ownerId = owner ? owner->GetID() : 0;
 
-        *idleDestination = std::move(*source);  // busy source
+        // Task 9.1: a rejected move now reports std::logic_error instead of
+        // returning silently, because the caller must not mistake a refused
+        // scene replacement for a completed one. Only where the rejection is
+        // observed moved; every World still has to come out unchanged.
+        auto threwRejection = [](auto&& attempt) {
+            try {
+                attempt();
+            } catch (const std::logic_error&) {
+                return true;
+            } catch (...) {
+                return false;
+            }
+            return false;
+        };
+
         const bool sourceAssignmentRejected =
+            threwRejection([&] { *idleDestination = std::move(*source); }) &&
             source->FindById(ownerId) == owner &&
             idleDestination->FindById(destinationObjectId) != nullptr;
 
-        *source = std::move(*idleSource);  // busy destination
         const bool destinationAssignmentRejected =
+            threwRejection([&] { *source = std::move(*idleSource); }) &&
             source->FindById(ownerId) == owner &&
             idleSource->FindById(idleSourceObjectId) != nullptr;
 
-        World attemptedMoveConstruction(std::move(*source));
-        const bool constructionRejected = attemptedMoveConstruction.Objects().empty() &&
+        const bool constructionRejected =
+            threwRejection([&] {
+                World attemptedMoveConstruction(std::move(*source));
+                (void)attemptedMoveConstruction;
+            }) &&
             source->FindById(ownerId) == owner && source->IsDispatchingCallbacks();
 
         if (allMovesRejected) {
@@ -519,6 +553,46 @@ TEST_CASE("World Lifecycle: move operations reject busy source and destination W
     CHECK(world.FindById(moverId) == moverObject.get());
     CHECK(idleDestination.FindById(destinationObject->GetID()) == destinationObject.get());
     CHECK(idleSource.FindById(sourceObject->GetID()) == sourceObject.get());
+
+    // Success witness: every row above is satisfied by a move that always
+    // throws. The same operation between two idle Worlds must still transfer
+    // content and publish a fresh generation on both sides.
+    //
+    // Task 9.1 moved the field transfer and the owner/scheduler rebinding into
+    // World::TransferOwnedStateFrom. A line lost during that relocation is
+    // otherwise silent, so this witness pins each transferred piece: the object
+    // vector, the name, the object->world back-pointers, and the scheduler's
+    // world binding.
+    idleSource.SetName("Idle source scene");
+    auto* schedulerProbe = static_cast<MoveSchedulerProbe*>(
+        sourceObject->AddComponentRaw(new MoveSchedulerProbe()));
+    REQUIRE(schedulerProbe != nullptr);
+    schedulerProbe->ArmTimer();
+    REQUIRE(idleSource.GetScheduler()->ActiveTimerCount() == 1);
+
+    World idleTarget;
+    const std::uint64_t targetGenerationBefore = idleTarget.Generation();
+    const std::uint64_t sourceGenerationBefore = idleSource.Generation();
+    idleTarget = std::move(idleSource);
+    CHECK(idleTarget.FindById(sourceObject->GetID()) == sourceObject.get());
+    CHECK(idleSource.FindById(sourceObject->GetID()) == nullptr);
+    CHECK(idleTarget.Generation() != 0);
+    CHECK(idleSource.Generation() != 0);
+    CHECK(idleTarget.Generation() != targetGenerationBefore);
+    CHECK(idleSource.Generation() != sourceGenerationBefore);
+    CHECK(idleTarget.Generation() != idleSource.Generation());
+    CHECK(idleTarget.Name() == "Idle source scene");
+    // Without the SetWorld rebinding loop, every transferred object still
+    // points at the emptied source World, so GetWorld()-based lookups target
+    // the wrong scene. CaptureTarget cannot see this: it checks membership by
+    // pointer through FindById, never through the owner's world back-pointer.
+    CHECK(sourceObject->GetWorld() == &idleTarget);
+
+    // The scheduler resolves script-owned callbacks through the World it is
+    // bound to. If the rebinding is lost, the handle is resolved against the
+    // emptied source and the callback silently never fires.
+    idleTarget.Update(1.0f);
+    CHECK(schedulerProbe->fired == 1);
 }
 
 TEST_CASE("World Lifecycle: Destroy with delay") {

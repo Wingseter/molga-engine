@@ -63,6 +63,13 @@ void DeleteObjectCommand::Execute() {
         std::find(ids.begin(), ids.end(), Editor::Get().GetSelectedObject()->GetID()) != ids.end()) {
         Editor::Get().SetSelectedObject(nullptr);
     }
+    // 세계 벡터에서 빼는 것만으로는 부족하다. 명령이 undo를 위해 shared_ptr을
+    // 붙들고 있으므로 오브젝트는 살아 있고 parent/children 링크도 그대로다.
+    // 배치는 Canvas 뿌리를 world.Objects()에서 찾지만 그 아래로는
+    // GetChildren()으로 내려가므로, 떼어 내지 않으면 지운 자식이 계속 스냅샷
+    // 노드를 얻는다 — 지운 뒤에도 그려지고 클릭까지 받는다. Undo가 부모 링크를
+    // 복원하니 여기서 끊는 것이 정확히 대칭이다.
+    root->SetParent(nullptr);
     Editor::Get().RemoveObjectsByIds(ids);
 }
 

@@ -15,8 +15,13 @@
 
 class Camera;
 class GameObject;
+class World;
 class Renderer;
 class Shader;
+// Task 8.2 Step 7d: 게임 출력은 텍스트 권한을 스스로 찾지 않는다. 값으로 담지
+// 않으므로 선언만 있으면 되고, 그래서 이 헤더는 텍스트 헤더를 끌어오지 않는다.
+class TextRenderer;
+namespace molga::text { class TextDiagnosticSink; }
 
 namespace molga {
 
@@ -79,18 +84,30 @@ public:
     static Camera* FindMainCamera(
         const std::vector<std::shared_ptr<GameObject>>& objects);
 
+    // textRenderer/textDiagnostics는 이 프레임의 소유자가 해석한 그 하나다.
+    // 기본값이 없는 이유는 Step 1i와 같다: 기본값이 있으면 텍스트를 담은
+    // world가 권한 없이 그려질 수 있고, 그때 텍스트는 진단 하나 없이 화면에서만
+    // 사라진다.
+    // Task 10.2 Step 9d: 진짜 World를 받는다. UI 배치와 hit-test는 월드
+    // 세대로 런타임 식별자를 만들고 캐시 키를 잡으므로, 벡터만 받으면 그 값을
+    // 알 방법이 없어 세대 0을 지어내게 된다. 카메라/세계 순회만 world.Objects()를
+    // 유도한다.
     GameOutputResult Render(
-        const std::vector<std::shared_ptr<GameObject>>& objects,
+        World& world,
         const GameOutputRequest& request,
         Renderer& renderer,
-        Shader* spriteShader);
+        Shader* spriteShader,
+        TextRenderer& textRenderer,
+        molga::text::TextDiagnosticSink& textDiagnostics);
 
     // Compatibility entry point for the original direct Native path.
     static GameOutputResult Render(
-        const std::vector<std::shared_ptr<GameObject>>& objects,
+        World& world,
         PixelSize outputSize,
         Renderer& renderer,
-        Shader* spriteShader);
+        Shader* spriteShader,
+        TextRenderer& textRenderer,
+        molga::text::TextDiagnosticSink& textDiagnostics);
 
     PixelSize LogicalFramebufferSize() const {
         return {logicalFramebuffer_.Width(), logicalFramebuffer_.Height()};
@@ -108,10 +125,12 @@ public:
 
 private:
     GameOutputResult RenderLogical(
-        const std::vector<std::shared_ptr<GameObject>>& objects,
+        World& world,
         PixelSize logicalSize,
         Renderer& renderer,
-        Shader* spriteShader);
+        Shader* spriteShader,
+        TextRenderer& textRenderer,
+        molga::text::TextDiagnosticSink& textDiagnostics);
 
     RenderTarget logicalFramebuffer_;
     std::unordered_map<std::uint64_t, std::unique_ptr<PostProcessPipeline>>

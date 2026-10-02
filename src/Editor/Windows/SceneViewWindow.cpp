@@ -9,6 +9,7 @@
 #include "Rendering/RenderSystem2D.h"
 #include "Rendering/WorldRenderTraversal.h"
 #include "Rendering/CameraOutputLayout.h"
+#include "Core/World.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/PostProcessProfileResolver.h"
 #include "Rendering/LightingFrame2D.h"
@@ -106,13 +107,21 @@ SceneViewWindow::~SceneViewWindow() = default;
 void SceneViewWindow::SetSceneResources(
     Renderer* renderer,
     Shader*   spriteShader,
-    std::vector<std::shared_ptr<GameObject>>* objects)
+    World*    world,
+    TextRenderer* textRenderer,
+    molga::text::TextDiagnosticSink* textDiagnostics)
 {
-    renderer_     = renderer;
-    spriteShader_ = spriteShader;
-    gameObjects_  = objects;
+    renderer_        = renderer;
+    spriteShader_    = spriteShader;
+    world_           = world;
+    textRenderer_    = textRenderer;
+    textDiagnostics_ = textDiagnostics;
 
     InitGridShader();
+}
+
+std::vector<std::shared_ptr<GameObject>>* SceneViewWindow::Objects() const {
+    return world_ ? &world_->Objects() : nullptr;
 }
 
 // ── 초기화 ────────────────────────────────────────────────────────────────────
@@ -412,8 +421,8 @@ void SceneViewWindow::OnGUI() {
 
 void SceneViewWindow::RenderSceneToFBO(float vpW, float vpH) {
     std::shared_ptr<const molga::PostProcessProfile2D> profile;
-    if (preferences_.sceneView.fxEnabled && gameObjects_) {
-        Camera* mainCamera = molga::GameOutputRenderer::FindMainCamera(*gameObjects_);
+    if (preferences_.sceneView.fxEnabled && Objects()) {
+        Camera* mainCamera = molga::GameOutputRenderer::FindMainCamera(*Objects());
         if (mainCamera && mainCamera->IsPostProcessEnabled() &&
             !mainCamera->GetPostProcessProfileGuid().empty()) {
             const auto resolved = molga::PostProcessProfileResolver::Get().Resolve(
@@ -547,7 +556,10 @@ void SceneViewWindow::DrawGrid() {
 }
 
 void SceneViewWindow::DrawSprites() {
-    if (!renderer_ || !spriteShader_ || !gameObjects_) return;
+    if (!renderer_ || !spriteShader_ || !Objects()) return;
+    // Task 8.2 Step 7d: 텍스트 권한 없이 순회하지 않는다. 문맥 없는 순회
+    // 오버로드는 존재하지 않으므로 이 검사가 곧 컴파일러의 것이다.
+    if (!textRenderer_ || !textDiagnostics_) return;
 
     // Reset stats before drawing
     renderer_->ResetStats();
@@ -560,7 +572,7 @@ void SceneViewWindow::DrawSprites() {
     molga::RenderQueue queue;
     queue.SetViewBounds(activeCamera->GetViewBounds());
     Camera* previewCamera = preferences_.sceneView.litEnabled
-        ? molga::GameOutputRenderer::FindMainCamera(*gameObjects_) : nullptr;
+        ? molga::GameOutputRenderer::FindMainCamera(*Objects()) : nullptr;
     const auto collectOverride =
         [&](Component& component, molga::RenderQueue& target) {
             if (dynamic_cast<SpriteRenderer*>(&component)) ++fc.sprites;
@@ -589,12 +601,23 @@ void SceneViewWindow::DrawSprites() {
         };
     {
         MOLGA_PROFILE_SCOPE("RenderQueue.Collect", molga::ProfileCategory::Rendering);
+        // 에디터 카메라의 world-to-physical 배율 하나가 이 프레임의 래스터
+        // 정책이다. 줌을 바꾸면 같은 글자가 새 해상도로 다시 래스터된다.
+        WorldRenderCollectionContext textContext;
+        textContext.textRenderer = textRenderer_;
+        textContext.textDiagnostics = textDiagnostics_;
+        if (const auto policy = TextRasterPolicy::FromWorldPixelsPerUnit(
+                static_cast<double>(activeCamera->GetZoom()),
+                *textDiagnostics_)) {
+            textContext.baseTextRasterPolicy = *policy;
+        }
         if (previewCamera) {
             molga::CollectWorldRender(
-                *gameObjects_, queue, previewCamera->GetCullingMask(),
-                collectOverride);
+                *Objects(), queue, previewCamera->GetCullingMask(),
+                textContext, collectOverride);
         } else {
-            molga::CollectWorldRender(*gameObjects_, queue, collectOverride);
+            molga::CollectWorldRender(*Objects(), queue, textContext,
+                                      collectOverride);
         }
     }
 
@@ -615,7 +638,7 @@ void SceneViewWindow::DrawSprites() {
         } else {
             const molga::LightingFrame2D frame =
                 molga::LightingFrame2D::Build(
-                    *gameObjects_, *previewCamera, size, activeCamera);
+                    *Objects(), *previewCamera, size, activeCamera);
             if (frame.discardedLightCount > 0 &&
                 lightingWarnings_.insert("light-budget").second) {
                 Log::Warn(
@@ -714,9 +737,22 @@ void SceneViewWindow::DrawSprites() {
 // ── 입력 처리 ─────────────────────────────────────────────────────────────────
 
 void SceneViewWindow::DrawUI(float vpW, float vpH) {
-    if (!renderer_ || !spriteShader_ || !gameObjects_) return;
+    if (!renderer_ || !spriteShader_ || !Objects()) return;
+    if (!textRenderer_ || !textDiagnostics_) return;
     molga::RenderQueue queue;
-    UISystem::Get().CollectRender(*gameObjects_, {vpW, vpH}, queue);
+    // Scene View의 UI 층은 패널 픽셀에 1:1로 그려진다.
+    TextRasterPolicy uiPolicy;
+    const molga::PixelSize uiPixels{static_cast<int>(vpW),
+                                    static_cast<int>(vpH)};
+    if (const auto derived = TextRasterPolicy::FromUiScale(
+            molga::FixedSize{
+                molga::Fixed26_6::FromRaw(uiPixels.width * 64),
+                molga::Fixed26_6::FromRaw(uiPixels.height * 64)},
+            uiPixels, *textDiagnostics_)) {
+        uiPolicy = *derived;
+    }
+    UISystem::Get().CollectRender(*world_, {vpW, vpH}, queue,
+                                  *textRenderer_, *textDiagnostics_, uiPolicy);
     if (queue.GetCommands().empty()) return;
 
     Camera2D uiCamera(vpW, vpH);
@@ -726,7 +762,7 @@ void SceneViewWindow::DrawUI(float vpW, float vpH) {
 
 void SceneViewWindow::DrawCameraOutputGizmos(ImVec2 panelPos,
                                               ImVec2 panelSize) {
-    if (!gameObjects_ || gameObjects_->empty() || panelSize.x <= 0.0f ||
+    if (!Objects() || Objects()->empty() || panelSize.x <= 0.0f ||
         panelSize.y <= 0.0f) {
         return;
     }
@@ -738,7 +774,7 @@ void SceneViewWindow::DrawCameraOutputGizmos(ImVec2 panelPos,
             logicalSize = {window.width, window.height};
     }
     const molga::CameraOutputLayout layout =
-        molga::CameraOutputLayout::Build(*gameObjects_, logicalSize);
+        molga::CameraOutputLayout::Build(*Objects(), logicalSize);
     if (layout.Entries().empty()) return;
 
     static constexpr ImU32 colors[] = {
@@ -1151,7 +1187,7 @@ void SceneViewWindow::HandleInput(ImVec2 panelPos, ImVec2 panelSize) {
 // ── Frame All (F키) ───────────────────────────────────────────────────────────
 
 void SceneViewWindow::FrameAll(ImVec2 panelSize) {
-    if (!gameObjects_ || gameObjects_->empty()) {
+    if (!Objects() || Objects()->empty()) {
         // 오브젝트 없으면 원점으로 리셋
         editorCamera_->SetPosition(-panelSize.x * 0.5f, -panelSize.y * 0.5f);
         editorCamera_->SetZoom(1.f);
@@ -1162,7 +1198,7 @@ void SceneViewWindow::FrameAll(ImVec2 panelSize) {
     float maxX = -1e9f, maxY = -1e9f;
     int   count = 0;
 
-    for (auto& obj : *gameObjects_) {
+    for (auto& obj : *Objects()) {
         if (!obj || !obj->IsActive()) continue;
         if (auto* tr = obj->GetComponent<Transform>()) {
             auto pos = tr->GetPosition();
@@ -1243,11 +1279,11 @@ molga::ViewportCamera SceneViewWindow::ViewportCam() const {
 }
 
 void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
-    if (!gameObjects_) return;
+    if (!Objects()) return;
     ImVec2 m = ImGui::GetMousePos();
 
     if (GameObject* ui = UISystem::Get().HitTest(
-            *gameObjects_, {panelSize.x, panelSize.y},
+            *world_, {panelSize.x, panelSize.y},
             {m.x - panelPos.x, m.y - panelPos.y})) {
         if (ImGui::GetIO().KeyShift) {
             Editor::Get().GetSelection().Add(
@@ -1266,7 +1302,7 @@ void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
     std::vector<molga::PickCandidate> cands;
     std::uint64_t sceneSubmission = 0;
     molga::ForEachWorldRenderComponent(
-        *gameObjects_, [&](Component& component) {
+        *Objects(), [&](Component& component) {
             const std::uint64_t componentSubmission = sceneSubmission++;
             auto* sprite = dynamic_cast<SpriteRenderer*>(&component);
             if (!sprite) return;
@@ -1299,7 +1335,7 @@ void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
 }
 
 void SceneViewWindow::DrawSelectionOutline(ImVec2 panelPos, ImVec2 panelSize) {
-    if (!gameObjects_) return;
+    if (!Objects()) return;
     auto& sel = Editor::Get().GetSelection();
     if (!sel.HasSelection()) return;
     ImDrawList* dl = ImGui::GetWindowDrawList();

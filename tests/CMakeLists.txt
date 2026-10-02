@@ -14,6 +14,38 @@ function(molga_add_test TEST_NAME TEST_SOURCE)
     set_tests_properties(${TEST_NAME} PROPERTIES LABELS "unit")
 endfunction()
 
+# ── One text runtime resource root for every session-backed test ─────────────
+# Step 9f: exactly one staged Engine/Text pair serves every test executable in
+# this directory. It is never derived from the working directory or from an
+# application target directory.
+molga_define_text_runtime_resource_stage(molga_text_test_runtime_resources
+    "${CMAKE_CURRENT_BINARY_DIR}/Engine/Text")
+
+# Session-backed text test: one process, one ICU lifetime, initialized once in
+# main and cleaned up once immediately before the process returns. It links the
+# header-only doctest interface and never doctest_main, so text_doctest_main.cpp
+# is the executable's only main. Every session-backed ready test is a normal
+# HarfBuzz/ICU consumer, so the helper attaches the normal text dependencies
+# itself; a later explicit call to the same helper is the property-guarded
+# no-op. A direct-ICU-only or not-ready process must use a different helper.
+function(molga_add_text_test target_name source_name)
+    add_executable("${target_name}"
+        "${source_name}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/text_doctest_main.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/TextRuntimeTestSession.cpp")
+    target_link_libraries("${target_name}" PRIVATE
+        molga_core doctest molga_warnings)
+    target_include_directories("${target_name}" PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_definitions("${target_name}" PRIVATE
+        MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text")
+    add_dependencies("${target_name}" molga_text_test_runtime_resources)
+    molga_attach_text_dependencies("${target_name}")
+    set_target_properties("${target_name}" PROPERTIES ENABLE_EXPORTS ON)
+    add_test(NAME "${target_name}" COMMAND "${target_name}")
+    set_tests_properties("${target_name}" PROPERTIES LABELS "unit;text-runtime")
+endfunction()
+
 molga_add_test(test_types             test_types.cpp)
 molga_add_test(test_guid              test_guid.cpp)
 molga_add_test(test_asset_meta        test_asset_meta.cpp)
@@ -38,11 +70,374 @@ target_sources(test_asset_watcher PRIVATE
 molga_add_test(test_create_sprite_from_asset test_create_sprite_from_asset.cpp)
 target_sources(test_create_sprite_from_asset PRIVATE
     ${CMAKE_SOURCE_DIR}/src/Editor/Commands/CreateSpriteFromAssetCommand.cpp)
-molga_add_test(test_text              test_text.cpp)
-molga_add_test(test_font              test_font.cpp)
+# Task 8.2 Step 0/1g: test_text now drives the production shared-text pipeline,
+# so it needs the same one-session-per-process ICU lifetime every other ready
+# text test uses. MOLGA_TEXT_INTER_FONT is the hot-reload fixture's replacement
+# face; the test never discovers a host font.
+molga_add_text_test(test_text         test_text.cpp)
+# ── Task 11.3 gate note: 이것은 실패가 아니라 시간 상한이다 ───────────────────
+# test_text는 29/29를 통과하면서 이 기계에서 **63.7초**가 걸린다 — CMakePresets의
+# 전역 60초 상한 바로 위다. 상한에 걸터앉아 있으므로 기계 부하에 따라 통과와
+# Timeout 사이를 오간다(Task 11.3의 전체 스위트 실행에서 60.03초에 잘렸고,
+# 곧바로 단독 실행에서는 29/29 통과했다). Task 11.2가 test_ui_render_clip에
+# 세운 선례와 같은 처리다: 재는 것을 시계에 맞춰 줄이는 것은 재는 것을 지우는
+# 일이므로, 이 실행 파일에만 자기 상한을 준다.
+#
+# 이 파일도 이 시험도 Task 11.3이 건드리지 않았다. 63.7초는 이 태스크가 만든
+# 값이 아니라 물려받은 값이며, 진짜 원인(왜 텍스트 스위트가 1분을 넘는가)은
+# 워크로드 게이트를 세우는 **Task 18.3**의 것이다.
+set_tests_properties(test_text PROPERTIES TIMEOUT 600)
+target_compile_definitions(test_text PRIVATE MOLGA_TEXT_INTER_FONT="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf")
+target_compile_definitions(test_text PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+molga_add_text_test(test_font         test_font.cpp)
 target_compile_definitions(test_font PRIVATE
     MOLGA_TEST_FONT_PATH="${CMAKE_SOURCE_DIR}/assets/fonts/Inter-Regular.ttf"
-    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
+    # Task 8.2: 위 NotoSansKR-Regular.ttf는 가변 폰트(fvar)라 Task 4의 static
+    # 전용 import 계약을 통과하지 못한다. 셰이핑 경로를 지나는 케이스는 자격
+    # 트리와 같은 static OTF를 쓴다 — 가변 폰트는 저작 자체가 거절되므로,
+    # 그것으로 셰이핑을 재면 재는 것이 셰이핑이 아니라 거절이 된다.
+    MOLGA_TEST_KOREAN_STATIC_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansKR-Regular.otf"
+    # Task 8.2 Step 8a.1: HasCodepoint/GlyphId가 셰이핑/레이아웃/렌더 소비자에
+    # 없다는 주장은 그 파일들의 소스 텍스트로만 관찰된다.
+    MOLGA_ENGINE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+molga_add_test(test_text_dependencies test_text_dependencies.cpp)
+# One executable, five translation units. Compile definitions are target-scoped,
+# so every source added here inherits all six provenance macros from the single
+# molga_attach_text_provenance_test call below — which hard-fails for any target
+# name but this one, so a second executable is not an option here.
+target_sources(test_text_dependencies PRIVATE
+    text_dependency_authorities.cpp
+    text_recovery_tree.cpp
+    text_make_recovery.cpp
+    text_harfbuzz_host_resolution.cpp)
+molga_attach_text_provenance_test(test_text_dependencies)
+
+# Step 3.1b: the raw-ICU repair wrapper only has a job to do under the Make
+# generator, and proving it needs a from-scratch nested ICU build in a
+# throwaway tree — minutes, not the seconds the `unit` sweep budgets. So the
+# heavy cases carry doctest's skip decorator and are reached only here, through
+# a second entry on the same executable. --no-skip lifts the decorator, and the
+# selector is the suite the cases declare themselves into rather than a prose
+# title prefix, which would couple this entry to how a case happens to be named.
+add_test(NAME test_text_make_recovery
+         COMMAND test_text_dependencies --no-skip
+                 "--test-suite=text-make-recovery")
+set_tests_properties(test_text_make_recovery PROPERTIES
+    LABELS "text-recovery"
+    RUN_SERIAL TRUE
+    TIMEOUT 1800
+    # A filter that stopped matching would leave this entry running zero test
+    # cases and still exiting 0 — a green no-op. FAIL_REGULAR_EXPRESSION is
+    # ANDed with the exit code, unlike PASS_REGULAR_EXPRESSION, which replaces
+    # it, so the exit code still decides everything else.
+    FAIL_REGULAR_EXPRESSION "test cases: +0 ")
+
+molga_add_test(test_text_runtime_dependencies test_text_runtime_dependencies.cpp)
+
+# ── Step 9h: the fresh-process ICU lifetime child ────────────────────────────
+# One observation per process, because a successful ICU lifetime is terminal.
+# The probe owns no root and no path compile definition and is not a CTest of
+# its own: the parent below hands it both immutable roots as literal argv.
+add_executable(molga_text_runtime_probe
+    text_runtime_probe_main.cpp
+    TextRuntimeDependenciesTestAccess.cpp)
+target_link_libraries(molga_text_runtime_probe PRIVATE molga_core molga_warnings)
+target_include_directories(molga_text_runtime_probe PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+molga_attach_text_dependencies(molga_text_runtime_probe)
+
+# The header claims this companion links only into the probe. That was true by
+# convention alone; detail::InstallIcuRuntimeApi is a normal exported symbol, so
+# nothing stopped a later target from listing the source. Assert it, in the same
+# configure-time style as molga_text_audit_macro_scope.
+function(molga_text_require_source_only_in expected_target source_name)
+    get_property(expected_sources TARGET "${expected_target}" PROPERTY SOURCES)
+    set(found FALSE)
+    foreach(source IN LISTS expected_sources)
+        get_filename_component(source_leaf "${source}" NAME)
+        if(source_leaf STREQUAL source_name)
+            set(found TRUE)
+        endif()
+    endforeach()
+    if(NOT found)
+        message(FATAL_ERROR
+            "${expected_target} must compile ${source_name}")
+    endif()
+    foreach(other_target ${ARGN})
+        if(NOT TARGET "${other_target}")
+            continue()
+        endif()
+        get_property(other_sources TARGET "${other_target}" PROPERTY SOURCES)
+        foreach(source IN LISTS other_sources)
+            get_filename_component(source_leaf "${source}" NAME)
+            if(source_leaf STREQUAL source_name)
+                message(FATAL_ERROR
+                    "${source_name} is test-only and must not be compiled into "
+                    "${other_target}")
+            endif()
+        endforeach()
+    endforeach()
+endfunction()
+molga_text_require_source_only_in(molga_text_runtime_probe
+    "TextRuntimeDependenciesTestAccess.cpp"
+    molga_core molga_engine molga_runtime
+    test_text_runtime_dependencies test_text_runtime_session)
+
+# The parent owns the probe executable and both immutable roots. It receives the
+# portable contract path and the verification barrier, and deliberately no
+# build-lock, source or binary macro. It keeps its existing doctest main and
+# never initializes a text session of its own.
+molga_attach_text_portable_contract_consumer(test_text_runtime_dependencies)
+target_compile_definitions(test_text_runtime_dependencies PRIVATE
+    MOLGA_TEXT_RUNTIME_PROBE="$<TARGET_FILE:molga_text_runtime_probe>"
+    MOLGA_TEXT_RUNTIME_FIXTURE_ROOT="${CMAKE_CURRENT_BINARY_DIR}/Engine/Text"
+    MOLGA_TEXT_ENGINE_DEV_TEXT_ROOT="$<TARGET_FILE_DIR:molga_engine>/Engine/Text")
+# The first three own the child and the two roots its cases name. The two
+# development executables and the runtime's own staged root are here because
+# the startup-seam case runs both binaries as subprocesses, so building this
+# test alone has to produce them too.
+add_dependencies(test_text_runtime_dependencies
+    molga_text_runtime_probe
+    molga_text_test_runtime_resources
+    molga_engine_text_runtime_resources
+    molga_runtime_text_runtime_resources
+    molga_engine
+    molga_runtime)
+# Launches application subprocesses, so it does not share the runner with the
+# other smoke entries.
+set_tests_properties(test_text_runtime_dependencies PROPERTIES RUN_SERIAL TRUE)
+
+# Milestone 3: signed 26.6 fixed point and, later in this file, byte-preserving
+# Unicode decode/analysis. Session-backed like the other text-runtime tests
+# even though Task 3.1 itself has no ICU dependency, because later tasks in
+# this same executable do.
+molga_add_text_test(test_unicode_text test_unicode_text.cpp)
+
+# Task 3.3 Step 1k, mandated verbatim by the task: the analysis cases compare
+# resolved item scripts against ICU's own USCRIPT_* constants, so this target
+# includes <unicode/uscript.h> itself.
+#
+# Be clear about what this call does not do. The ICU include path and both
+# static archives already arrive here through the molga_text_harfbuzz link that
+# molga_add_text_test attached, exactly as they arrive at
+# test_text_runtime_session, which never calls this helper — verified against
+# the generated compile and link flags, which are identical for the two targets.
+# So the attach records the intent "this target uses ICU directly" and is not
+# what makes the header resolvable. Keep it because the step names it, and do
+# not copy it elsewhere expecting it to repair a missing include.
+molga_attach_direct_icu_consumer(test_unicode_text)
+target_sources(test_unicode_text PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/UnicodeTextAnalyzerTestAccess.cpp")
+
+# Step 1f/1k: the fresh-process not-ready observation. Deliberately generic
+# molga_add_test — no staged Engine/Text root, no session main — so the process
+# begins and stays in NeverInitialized and the analyzer's ready gate is the only
+# thing it can be observing. It is NOT marked RUN_SERIAL: the lifecycle state it
+# reads is one-way and private to its own process, so nothing it does can race
+# another test executable.
+molga_add_test(test_unicode_not_ready test_unicode_not_ready.cpp)
+target_sources(test_unicode_not_ready PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/UnicodeTextAnalyzerTestAccess.cpp")
+target_include_directories(test_unicode_not_ready PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Task 4.1 Step 1e: the font-asset fixture contract. Every path below comes
+# from tests/fixtures/text/font_manifest.json — the locked Task 1 corpus — so
+# no case can discover a host font, and the variable Korean TTF stays
+# rejection-only. This target is session-backed because the common main brings
+# up the staged ICU runtime before any importer/resource case executes.
+molga_add_text_test(test_font_assets test_font_assets.cpp)
+target_compile_definitions(test_font_assets PRIVATE
+    MOLGA_TEXT_LATIN_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSans-Regular.ttf"
+    MOLGA_TEXT_ARABIC_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansArabic-Regular.ttf"
+    MOLGA_TEXT_CJK_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansKR-Regular.otf"
+    MOLGA_TEXT_VARIABLE_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
+    MOLGA_TEXT_LATIN_SHA256="b85c38ecea8a7cfb39c24e395a4007474fa5a4fc864f6ee33309eb4948d232d5"
+    MOLGA_TEXT_PRIMARY_FAMILY="${CMAKE_SOURCE_DIR}/tests/fixtures/text/families/primary.fontfamily"
+    MOLGA_TEXT_FAMILY_FIXTURE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/families"
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
+# Task 5.1 Step 3c: the resolver qualification root. TextQualificationAssetTree.h
+# supplies all six font, two license, and five family source/sidecar pairs
+# beneath this one root, so no individual path macro and no host-font discovery
+# remains for family resolution.
+molga_add_text_test(test_font_family test_font_family.cpp)
+target_compile_definitions(test_font_family PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
+# Task 5.2 Step 1a: the shaping qualification root and the pinned reference
+# record. Both paths are defined after target creation, on the target
+# molga_add_text_test just made — that helper has already performed the
+# idempotent normal dependency attach, so HarfBuzz and its ICU transitives are
+# on this target's include and link lines already.
+molga_add_text_test(test_text_shaping test_text_shaping.cpp)
+target_compile_definitions(test_text_shaping PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"
+    MOLGA_TEXT_EXPECTED_SHAPING="${CMAKE_SOURCE_DIR}/tests/fixtures/text/expected/shaping.json")
+
+# Step 1g: the fresh-process not-ready shaping observation. Deliberately
+# generic molga_add_test — no staged Engine/Text root, no session main, no
+# qualification root — so the process begins and stays in NeverInitialized and
+# the shaper's ready gate is the only thing it can be observing. Process exit
+# supplies the isolation; nothing here stops or restores a runtime. It is NOT
+# marked RUN_SERIAL for the same reason test_unicode_not_ready is not: the
+# lifecycle state it reads is one-way and private to its own process.
+molga_add_test(test_text_shaping_not_ready test_text_shaping_not_ready.cpp)
+
+# Task 6.1 Step 1i: the glyph atlas. It reaches no ICU or HarfBuzz object of its
+# own, but it is registered through the same session helper as its neighbours so
+# a later case that does — a shaped run driving the atlas — cannot be the first
+# one to discover that this executable has no staged runtime. The qualification
+# root is the only path it needs: the fixture wraps one committed single-face
+# font in a ttcf header to reach a non-zero face index.
+molga_add_text_test(test_glyph_atlas test_glyph_atlas.cpp)
+target_compile_definitions(test_glyph_atlas PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
+# ── Task 6.2 Step 1d: the renderer-shutdown child ────────────────────────────
+# 실패한 GPU idle wait는 프로세스를 죽이므로 부모 안에서는 관찰할 수 없다.
+# molga_text_runtime_probe와 같은 모양의 전용 child다: CTest 항목이 아니고,
+# 자기 root를 유도하지 않으며, 부모가 넘긴 리터럴 argv만 읽는다. 폰트만은
+# 매크로로 받는다 — 커밋된 자격 트리의 face 하나여야 host font 탐색이 끼어들
+# 여지가 없기 때문이다.
+add_executable(molga_gpu_retirement_probe
+    gpu_retirement_shutdown_probe_main.cpp)
+target_link_libraries(molga_gpu_retirement_probe PRIVATE molga_core molga_warnings)
+target_include_directories(molga_gpu_retirement_probe PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(molga_gpu_retirement_probe PRIVATE
+    MOLGA_GPU_RETIREMENT_PROBE_FONT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSans-Regular.ttf")
+molga_attach_text_dependencies(molga_gpu_retirement_probe)
+
+# Task 6.2: fence 기반 반납. 이웃들과 같은 세션 헬퍼로 등록한다 — 여기서
+# ICU/HarfBuzz 객체를 직접 만들지는 않지만, atlas page를 다루는 실행 파일이
+# 스테이징된 런타임 없이 서 있는 상태를 만들지 않기 위해서다(test_glyph_atlas와
+# 같은 이유). 진짜 SDL_GPU 장치를 열고 child 프로세스를 띄우므로 GPU 라벨을
+# 달고 직렬로 돈다.
+molga_add_text_test(test_gpu_retirement test_gpu_retirement.cpp)
+target_compile_definitions(test_gpu_retirement PRIVATE
+    MOLGA_GPU_RETIREMENT_PROBE="$<TARGET_FILE:molga_gpu_retirement_probe>")
+add_dependencies(test_gpu_retirement molga_gpu_retirement_probe)
+set_tests_properties(test_gpu_retirement PROPERTIES
+    LABELS "unit;text-runtime;gpu;sdlgpu"
+    RUN_SERIAL TRUE)
+
+# Task 7.1 Step 1h: the layout-cache behaviour test. It reaches no ICU or
+# HarfBuzz object of its own — a cache lookup that did would defeat the whole
+# point of the warm request index — but it reads the ICU/HarfBuzz creation
+# counters to prove exactly that, and those live in molga_core alongside the
+# runtime. Registered through the same session helper as its neighbours for the
+# same reason test_glyph_atlas is: the helper owns normal dependency
+# attachment, and no case here may be the first to discover a missing staged
+# runtime. It needs no qualification root — every key and payload is built from
+# literal values, so no font, family or fixture tree can drift underneath it.
+molga_add_text_test(test_text_cache test_text_cache.cpp)
+
+# Task 7.1 Step 1i: the public-header isolation probe, deliberately its own
+# executable and its own translation unit. Its `#ifdef HB_H` / `#ifdef
+# HB_BUFFER_CLUSTER_LEVEL_MONOTONE_CHARACTERS` checks are only meaningful if
+# nothing else in the same TU has already pulled HarfBuzz in, so it must not
+# share a target with test_text_cache or any other text test. No second attach
+# call: molga_add_text_test has already done it, and the property guard would
+# make a repeat a no-op anyway.
+molga_add_text_test(test_text_cache_header test_text_cache_header.cpp)
+
+# Task 7.2 Step 1i: authoritative paragraph layout. Registered through the same
+# session helper as its neighbours and relying on its owned dependency attach —
+# no case here initializes ICU/HarfBuzz from a fixture-local root or calls the
+# attach helper a second time. It needs the committed qualification tree (real
+# faces are the only way a final line can be shaped at all) and the reviewed
+# canonical expectation beside it.
+molga_add_text_test(test_text_layout test_text_layout.cpp)
+target_compile_definitions(test_text_layout PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"
+    MOLGA_TEXT_EXPECTED_LAYOUT="${CMAKE_SOURCE_DIR}/tests/fixtures/text/expected/layout.json")
+
+# The fresh-process not-ready layout observation. Deliberately generic
+# molga_add_test — no staged Engine/Text root, no session main, no qualification
+# root — so the process begins and stays in NeverInitialized and the layout
+# service's ready gate is the only thing it can be observing. Process exit
+# supplies the isolation; nothing here stops or restores a runtime. It is NOT
+# marked RUN_SERIAL for the same reason test_text_shaping_not_ready is not: the
+# lifecycle state it reads is one-way and private to its own process.
+molga_add_test(test_text_layout_not_ready test_text_layout_not_ready.cpp)
+
+molga_add_text_test(test_text_runtime_session test_text_runtime_session.cpp)
+
+# ── Step 9g.1: normal text attachment happens exactly once ───────────────────
+# molga_add_text_test already attached the normal dependencies. This second,
+# deliberately redundant call is the legacy/explicit case the property guard
+# turns into a no-op, and the assertions below prove it perturbed nothing: not
+# the static archive order, not the definition set, not the barrier edge.
+molga_attach_text_dependencies(test_text_runtime_session)
+
+function(molga_text_require_single_list_item target_name property_name expected)
+    get_property(items TARGET "${target_name}" PROPERTY "${property_name}")
+    set(found 0)
+    foreach(item IN LISTS items)
+        if(item STREQUAL expected)
+            math(EXPR found "${found} + 1")
+        endif()
+    endforeach()
+    if(NOT found EQUAL 1)
+        message(FATAL_ERROR
+            "${target_name}.${property_name} must contain exactly one "
+            "${expected}, found ${found}")
+    endif()
+endfunction()
+
+foreach(attached_property MOLGA_TEXT_DEPENDENCIES_ATTACHED
+                          MOLGA_TEXT_VERIFICATION_BARRIER_ATTACHED)
+    get_property(attached_value TARGET test_text_runtime_session
+                 PROPERTY "${attached_property}")
+    if(NOT attached_value STREQUAL "TRUE")
+        message(FATAL_ERROR
+            "test_text_runtime_session.${attached_property} is "
+            "'${attached_value}', expected TRUE")
+    endif()
+endforeach()
+molga_text_require_single_list_item(test_text_runtime_session
+    LINK_LIBRARIES molga_text_harfbuzz)
+molga_text_require_single_list_item(test_text_runtime_session
+    LINK_LIBRARIES molga_text_rasterizer)
+molga_text_require_single_list_item(test_text_runtime_session
+    COMPILE_DEFINITIONS U_STATIC_IMPLEMENTATION)
+molga_text_require_single_list_item(test_text_runtime_session
+    MANUALLY_ADDED_DEPENDENCIES molga_text_dependencies_ready)
+
+get_property(session_portable_contract TARGET test_text_runtime_session
+             PROPERTY MOLGA_TEXT_PORTABLE_CONTRACT_ATTACHED)
+if(session_portable_contract)
+    message(FATAL_ERROR
+        "test_text_runtime_session must not receive the portable contract path")
+endif()
+foreach(forbidden_macro MOLGA_TEXT_DEPENDENCY_CONTRACT
+                        ${MOLGA_TEXT_MACHINE_LOCAL_MACROS})
+    molga_text_count_macro(count test_text_runtime_session "${forbidden_macro}")
+    if(NOT count EQUAL 0)
+        message(FATAL_ERROR
+            "test_text_runtime_session must not define ${forbidden_macro}, "
+            "found ${count}")
+    endif()
+endforeach()
+
+# Step 11b: standalone symbol probes. Deliberately not molga_add_test, whose
+# implicit molga_core link would mask a broken direct dependency helper.
+add_executable(test_text_harfbuzz_link test_text_harfbuzz_link.cpp)
+target_link_libraries(test_text_harfbuzz_link PRIVATE doctest_main molga_warnings)
+molga_attach_text_dependencies(test_text_harfbuzz_link)
+set_target_properties(test_text_harfbuzz_link PROPERTIES ENABLE_EXPORTS ON)
+add_test(NAME test_text_harfbuzz_link COMMAND test_text_harfbuzz_link)
+
+add_executable(test_text_icu_link test_text_icu_link.cpp)
+target_link_libraries(test_text_icu_link PRIVATE doctest_main molga_warnings)
+molga_attach_direct_icu_consumer(test_text_icu_link)
+set_target_properties(test_text_icu_link PROPERTIES ENABLE_EXPORTS ON)
+add_test(NAME test_text_icu_link COMMAND test_text_icu_link)
+set_tests_properties(test_text_harfbuzz_link test_text_icu_link
+                     PROPERTIES LABELS "unit")
 molga_add_test(test_log_message      test_log_message.cpp)
 molga_add_test(test_log_sinks        test_log_sinks.cpp)
 target_include_directories(test_log_sinks PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -86,9 +481,22 @@ molga_add_test(test_game_view         test_game_view.cpp)
 molga_add_test(test_camera_output_layout test_camera_output_layout.cpp)
 molga_add_test(test_post_process      test_post_process.cpp)
 molga_add_test(test_lighting_2d       test_lighting_2d.cpp)
-molga_add_test(test_rendering_sdlgpu  test_rendering_sdlgpu.cpp)
+# Task 8.2 Step 0: the GPU text proofs now collect real shaped glyph commands,
+# so this executable needs the shared one-session ICU lifetime too. Every
+# property below is the one molga_add_test used to leave behind, re-applied
+# after target creation: the gpu;sdlgpu;pixel label is what the CI filters on.
+molga_add_text_test(test_rendering_sdlgpu  test_rendering_sdlgpu.cpp)
 target_compile_definitions(test_rendering_sdlgpu PRIVATE
-    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf")
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text"
+    MOLGA_TEST_KOREAN_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/fonts/NotoSansKR-Regular.ttf"
+    # Task 8.2: 위 파일은 가변 폰트(fvar)라 Task 4의 static 전용 import 계약이
+    # 거절한다. 셰이핑 파이프라인을 지나는 픽셀 오라클은 자격 트리와 같은
+    # static OTF를 쓴다.
+    MOLGA_TEST_KOREAN_STATIC_FONT_PATH="${CMAKE_SOURCE_DIR}/tests/fixtures/text/fonts/NotoSansKR-Regular.otf"
+    # Task 6.3: src/main.cpp와 src/runtime_main.cpp는 어떤 테스트 바이너리도
+    # 컴파일하지 않는다. 그 두 진입점의 종료 순서/수집 범위는 소스 텍스트로만
+    # 붙들 수 있으므로, 그 텍스트가 어디 있는지를 여기서 알려 준다.
+    MOLGA_ENGINE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 if(MOLGA_MARROW_SUPPORT)
     target_compile_definitions(test_rendering_sdlgpu PRIVATE
         MOLGA_MARROW_FIXTURE_DIR="${MOLGA_MARROW_DIR}/assets/fixtures")
@@ -121,7 +529,19 @@ add_test(
         -P "${CMAKE_SOURCE_DIR}/tests/test_shader_bundle_tool.cmake")
 set_tests_properties(test_shader_bundle_tool PROPERTIES
     LABELS "unit;shader-bundle")
+# Task 8.2: this target is named for GameBuilder but did not compile it, so the
+# packaged-font stage — including the fail-fast that stops a package shipping
+# tofu — had no unit-level cover at all.
 molga_add_test(test_game_builder      test_game_builder.cpp)
+target_sources(test_game_builder PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/Editor/GameBuilder.cpp
+    ${CMAKE_SOURCE_DIR}/src/Editor/Project.cpp
+    ${CMAKE_SOURCE_DIR}/src/Platform/Process.cpp
+    ${CMAKE_SOURCE_DIR}/src/Scripting/ScriptCompiler.cpp
+)
+target_include_directories(test_game_builder PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_game_builder PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 molga_add_test(test_package_finalizer test_package_finalizer.cpp)
 
 molga_add_test(test_profile_scope     test_profile_scope.cpp)
@@ -226,8 +646,104 @@ target_include_directories(test_runtime_script_package_loader PRIVATE "${CMAKE_C
 molga_add_test(test_storage test_storage.cpp)
 target_include_directories(test_storage PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-molga_add_test(test_ui test_ui.cpp)
+# Task 9.1: scene references and runtime UI identities are plain value types —
+# no ICU/HarfBuzz object is constructed here, so this stays a molga_add_test
+# target rather than a session-backed one.
+molga_add_test(test_ui_identity test_ui_identity.cpp)
+
+# Task 9.2: authored UI component schemas are plain value/JSON contracts. No
+# ICU or HarfBuzz object is constructed here, so this stays a molga_add_test
+# target rather than a session-backed one.
+molga_add_test(test_ui_components test_ui_components.cpp)
+target_compile_definitions(test_ui_components PRIVATE MOLGA_UI_COMPONENT_TESTING)
+
+# Task 10.1: checked fixed-point geometry is a plain value contract. No ICU or
+# HarfBuzz object is constructed here, so this stays a molga_add_test target.
+molga_add_test(test_ui_fixed test_ui_fixed.cpp)
+
+# Task 10.2 Step 1: every layout-bearing fixture constructs a TextLayoutService,
+# which needs the one process-wide ICU lifetime that only a session-backed
+# executable owns. Both targets therefore go through molga_add_text_test — which
+# already performs the idempotent molga_attach_text_dependencies, supplies the
+# single MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT resource root, and links
+# text_doctest_main instead of doctest_main. A second explicit attach or a
+# second main would give the process two text runtimes.
+molga_add_text_test(test_ui_snapshot test_ui_snapshot.cpp)
+molga_add_text_test(test_ui_layout test_ui_layout.cpp)
+# SetAuthoredRevisionForTesting is the only way to reach the revision-exhaustion
+# boundary without authoring 2^64 times; the macro adds no member and no virtual,
+# so this target sees the same UIComponent layout molga_core was built with.
+target_compile_definitions(test_ui_layout PRIVATE MOLGA_UI_COMPONENT_TESTING)
+target_include_directories(test_ui_layout PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+# Step 4j의 네 게시 경계(폰트 face 바이트, family fallback/style map, 확정된
+# 텍스트 배치, 검증된 텍스처 내용 SHA)는 전부 실제 카탈로그와 실제 폰트
+# 바이트를 지나야 관찰된다. 알림 함수를 테스트가 직접 부르면 훅을 통째로
+# 지워도 스위트가 초록이므로, 이 픽스처 트리가 그 경계를 프로덕션 입구로
+# 바꿔 준다.
+target_compile_definitions(test_ui_layout PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
+# Task 11.1 Step 1: the render/clip fixture builds immutable TextLayouts and a
+# TextLayoutService, so it needs the one process-wide ICU lifetime that only a
+# session-backed executable owns. molga_add_text_test already performs the
+# idempotent molga_attach_text_dependencies, supplies the single
+# MOLGA_TEXT_TEST_ENGINE_TEXT_ROOT resource root, and links text_doctest_main
+# instead of doctest_main; a second explicit attach or a second main would give
+# the process two text runtimes.
+molga_add_text_test(test_ui_render_clip test_ui_render_clip.cpp)
+target_include_directories(test_ui_render_clip PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+# ── Task 11.2: 이 실행 파일에는 4096회 fence 계약이 들어 있다 ────────────────
+# Step 2e의 재업로드 churn 케이스 하나가 4096번의 GPU 프레임 제출과 그만큼의
+# WaitIdle을 지난다(그 4096은 계약의 일부다: 낮추면 "상한이 있다"와 "천천히
+# 자란다"가 구별되지 않는다). 그 한 케이스만으로도 CMakePresets의 전역 60초
+# 상한을 넘으므로, 상한을 낮추는 대신 이 실행 파일에만 자기 상한을 준다 —
+# 계약을 시간에 맞추는 것은 계약을 지우는 것이다.
+set_tests_properties(test_ui_render_clip PROPERTIES TIMEOUT 600)
+# Real font bytes and a real catalog: the sprite/label payloads are only
+# observable through the production publishing entry points.
+target_compile_definitions(test_ui_render_clip PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+
+# Task 11.3: every scroll fixture builds a real snapshot through
+# UILayoutSystem::Build, which takes a TextLayoutService — and that needs the
+# one process-wide ICU lifetime only a session-backed executable owns. The
+# label-diagnostic case additionally needs real font bytes and a real catalog,
+# because the payload limiter is only observable through the production
+# publishing entry point.
+molga_add_text_test(test_ui_scroll test_ui_scroll.cpp)
+target_include_directories(test_ui_scroll PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui_scroll PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+# Step 2e의 스크롤 절반은 4096번의 의미 미스를 요구한다(그 4096은 계약의
+# 일부다: 낮추면 "상한이 있다"와 "천천히 자란다"가 구별되지 않는다). 프리셋의
+# 전역 60초 상한을 넘길 수 있으므로 이 실행 파일에만 자기 상한을 준다 —
+# 계약을 시간에 맞추는 것은 계약을 지우는 것이다.
+set_tests_properties(test_ui_scroll PROPERTIES TIMEOUT 600)
+
+# Task 12.1: every planning fixture builds a real snapshot through
+# UILayoutSystem::Build, which takes a TextLayoutService — and that needs the
+# one process-wide ICU lifetime only a session-backed executable owns. The
+# text-input stage targets additionally need real font bytes and a real
+# catalog: a UITextInput only claims a rendered label through the production
+# publishing entry point, and without that claim `textInputTarget` never
+# appears in a hit record — the stage-target table would then assert nothing.
+molga_add_text_test(test_ui_input test_ui_input.cpp)
+target_include_directories(test_ui_input PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui_input PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+# Every case builds its own real snapshot on a fresh per-case asset tree (one
+# NotoSans face plus a test-written single-face family), because a process-wide
+# text runtime would outlive ShutdownAfterTests() and carry cache history across
+# cases. In Debug that isolation costs tens of seconds, and Task 12.2 adds more
+# cases to this file, so the preset's global 60 s cap cannot hold it. As with
+# test_ui_scroll: fitting the contract to the clock would erase the contract.
+set_tests_properties(test_ui_input PROPERTIES TIMEOUT 600)
+
+# Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
+molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
 
 molga_add_test(test_editor_undo_dirty test_editor_undo_dirty.cpp)
 target_sources(test_editor_undo_dirty PRIVATE
@@ -277,3 +793,62 @@ target_compile_definitions(test_runtime_script_package_loader PRIVATE
     DUMMY_MISSING_API_PATH="$<TARGET_FILE:dummy_missing_api_lib>"
     DUMMY_MISMATCH_API_PATH="$<TARGET_FILE:dummy_mismatch_api_lib>"
 )
+
+# Step 1k: the analyzer test seam is test-only, asserted rather than assumed.
+# molga::text::detail::ExchangeAnalysisGenerationState is an ordinary exported
+# symbol, so nothing but this check stops a product target from listing the
+# companion and gaining the power to renumber or reset an analysis generation.
+# molga_text_require_source_only_in above takes exactly one owning target, and
+# this companion has two, so it counts occurrences instead.
+function(molga_text_count_source out_var target_name source_name)
+    get_property(target_sources_list TARGET "${target_name}" PROPERTY SOURCES)
+    set(count 0)
+    foreach(source IN LISTS target_sources_list)
+        get_filename_component(source_leaf "${source}" NAME)
+        if(source_leaf STREQUAL source_name)
+            math(EXPR count "${count} + 1")
+        endif()
+    endforeach()
+    set(${out_var} ${count} PARENT_SCOPE)
+endfunction()
+
+foreach(seam_target test_unicode_text test_unicode_not_ready)
+    molga_text_count_source(seam_count "${seam_target}"
+        "UnicodeTextAnalyzerTestAccess.cpp")
+    if(NOT seam_count EQUAL 1)
+        message(FATAL_ERROR
+            "${seam_target} must compile UnicodeTextAnalyzerTestAccess.cpp "
+            "exactly once, found ${seam_count}")
+    endif()
+endforeach()
+# "zero times in every product target" is asked of every target, so this walks
+# the targets the build actually defines instead of a hand-kept list that a new
+# executable would silently escape. The root directory's targets are all defined
+# before add_subdirectory(tests), and this check sits at the end of this file, so
+# both directories are complete here; a target added after this point, or one
+# defined under external/, is not covered.
+set(molga_text_seam_owners test_unicode_text test_unicode_not_ready)
+set(molga_text_scanned_targets "")
+foreach(scan_dir "${CMAKE_SOURCE_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
+    get_property(scan_targets DIRECTORY "${scan_dir}"
+        PROPERTY BUILDSYSTEM_TARGETS)
+    list(APPEND molga_text_scanned_targets ${scan_targets})
+endforeach()
+list(LENGTH molga_text_scanned_targets molga_text_scanned_count)
+if(molga_text_scanned_count LESS 10)
+    message(FATAL_ERROR
+        "the test-only seam audit scanned only ${molga_text_scanned_count} "
+        "targets, which means it is no longer looking where the targets are")
+endif()
+foreach(scanned_target IN LISTS molga_text_scanned_targets)
+    if(scanned_target IN_LIST molga_text_seam_owners)
+        continue()
+    endif()
+    molga_text_count_source(seam_count "${scanned_target}"
+        "UnicodeTextAnalyzerTestAccess.cpp")
+    if(NOT seam_count EQUAL 0)
+        message(FATAL_ERROR
+            "UnicodeTextAnalyzerTestAccess.cpp is test-only and must not be "
+            "compiled into ${scanned_target}")
+    endif()
+endforeach()

@@ -64,6 +64,9 @@ set(SDLSHADERCROSS_INSTALL OFF CACHE BOOL "" FORCE)
 set(SDLSHADERCROSS_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory(external/SDL_shadercross EXCLUDE_FROM_ALL)
 
+# ── Pinned static text dependencies (ICU4C + HarfBuzz) ───────────────────────
+include(${CMAKE_SOURCE_DIR}/cmake/TextDependencies.cmake)
+
 # ── ImGui library ──────────────────────────────────────────────────────────────
 set(IMGUI_DIR ${CMAKE_SOURCE_DIR}/external/imgui)
 add_library(imgui
@@ -89,6 +92,7 @@ set(ENGINE_SOURCES
     src/Rendering/ShaderManager.cpp
     src/Rendering/Material.cpp
     src/Rendering/Texture.cpp
+    src/Rendering/TextureBindingRegistry.cpp
     src/Rendering/Sprite.cpp
     src/Rendering/Renderer.cpp
     src/Rendering/RenderSystem2D.cpp
@@ -108,6 +112,7 @@ set(ENGINE_SOURCES
     src/Rendering/Utf8.cpp
     src/Rendering/FontFace.cpp
     src/Rendering/FontAtlas.cpp
+    src/Rendering/GpuRetirementQueue.cpp
     src/Core/MolgaTime.cpp
     src/Systems/Input.cpp
     src/Rendering/Camera2D.cpp
@@ -122,11 +127,19 @@ set(ENGINE_SOURCES
     src/Physics/Box2DBackend.cpp
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
+    src/UI/UIInputRouter.cpp
+    src/UI/UILayoutSnapshot.cpp
+    src/UI/UILayoutSystem.cpp
+    src/UI/UIRenderCollector.cpp
+    src/UI/UIRuntimeIdentity.cpp
+    src/UI/UIRuntimeInvalidation.cpp
+    src/UI/UIScrollSystem.cpp
     src/UI/UISystem.cpp
     src/Systems/Audio.cpp
     src/Core/Scene.cpp
     src/Systems/Particle.cpp
     src/ECS/Component.cpp
+    src/ECS/SceneObjectRef.cpp
     src/ECS/BuiltinComponents.cpp
     src/ECS/GameObject.cpp
     src/ECS/Components/Transform.cpp
@@ -139,6 +152,14 @@ set(ENGINE_SOURCES
     src/ECS/Components/UIImage.cpp
     src/ECS/Components/UILabel.cpp
     src/ECS/Components/UIButton.cpp
+    src/ECS/Components/UILayoutElement.cpp
+    src/ECS/Components/UILayoutGroup.cpp
+    src/ECS/Components/UIContentSizeFitter.cpp
+    src/ECS/Components/UIMask.cpp
+    src/ECS/Components/UIScrollView.cpp
+    src/ECS/Components/UISelectable.cpp
+    src/ECS/Components/UITextInput.cpp
+    src/ECS/Components/UIAccessibility.cpp
     src/ECS/Components/ParticleSystem.cpp
     src/ECS/Components/BoxCollider2D.cpp
     src/ECS/Components/CircleCollider2D.cpp
@@ -171,6 +192,7 @@ set(ENGINE_SOURCES
     src/Common/StdoutSink.cpp
     src/Common/FileSink.cpp
     src/Common/SmokeReportSink.cpp
+    src/Common/Fixed26_6.cpp
     src/Core/PathService.cpp
     src/Core/TextureManager.cpp
     src/Core/Profiling/ProfilerService.cpp
@@ -188,6 +210,9 @@ set(ENGINE_SOURCES
     src/Editor/Properties/EditorPropertyDescriptor.cpp
     src/Editor/GameViewLayout.cpp
     src/Editor/EditorPreferences.cpp
+    src/Assets/FontAsset.cpp
+    src/Assets/FontArtifactStore.cpp
+    src/Assets/FontFamilyAsset.cpp
     src/Core/AssetDatabase.cpp
     src/Core/AssetDependencyValidator.cpp
     src/Core/SpriteResolver.cpp
@@ -197,7 +222,18 @@ set(ENGINE_SOURCES
     src/Core/Importers/AudioImporter.cpp
     src/Core/Importers/PrefabImporter.cpp
     src/Core/Importers/FontImporter.cpp
+    src/Core/Importers/FontFamilyImporter.cpp
     src/Core/Importers/PostProcessProfileImporter.cpp
+    src/Text/FontFamilyResolver.cpp
+    src/Text/FontRepository.cpp
+    src/Text/TextDiagnostic.cpp
+    src/Text/TextHitTesting.cpp
+    src/Text/TextLayoutCache.cpp
+    src/Text/TextLayoutService.cpp
+    src/Text/TextShapingService.cpp
+    src/Text/TextRuntimeDependencies.cpp
+    src/Text/UnicodeTextBuffer.cpp
+    src/Text/UnicodeAnalysis.cpp
 )
 
 # ── Marrow skeletal animation dependency check ───────────────────────────────
@@ -217,6 +253,7 @@ endif()
 
 # ── molga_core static library ──────────────────────────────────────────────────
 add_library(molga_core STATIC ${ENGINE_SOURCES})
+molga_attach_text_dependencies(molga_core)
 target_include_directories(molga_core PUBLIC
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/external/stb
@@ -302,6 +339,7 @@ set(EDITOR_SOURCES
 
 # ── Main editor executable ─────────────────────────────────────────────────────
 add_executable(molga_engine src/main.cpp ${EDITOR_SOURCES})
+molga_stage_text_runtime_resources(molga_engine)
 target_link_libraries(molga_engine PRIVATE molga_core imgui)
 
 add_executable(molga_migrate src/Tools/InputMigrator.cpp)
@@ -357,6 +395,7 @@ set_target_properties(molga_engine PROPERTIES ENABLE_EXPORTS ON)
 
 # ── Runtime executable ─────────────────────────────────────────────────────────
 add_executable(molga_runtime src/runtime_main.cpp)
+molga_stage_text_runtime_resources(molga_runtime)
 target_link_libraries(molga_runtime PRIVATE molga_core)
 target_link_libraries(molga_runtime PRIVATE molga_warnings)
 add_dependencies(molga_runtime molga_shader_bundle)
@@ -387,6 +426,11 @@ add_custom_command(TARGET molga_runtime POST_BUILD
 # ── Testing ────────────────────────────────────────────────────────────────────
 enable_testing()
 add_subdirectory(tests)
+
+# Step 11c: machine-local provenance macros must not reach product targets.
+molga_text_audit_macro_scope(
+    molga_core molga_engine molga_runtime
+    test_text_harfbuzz_link test_text_icu_link)
 
 add_test(
     NAME smoke_end_to_end

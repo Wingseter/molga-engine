@@ -1,4 +1,5 @@
 #include "Editor/Properties/EditorPropertyDescriptor.h"
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/ProjectSettings.h"
 #include "ECS/Component.h"
@@ -9,6 +10,7 @@
 #include "ECS/Components/ShadowOccluder2D.h"
 #include "ECS/Components/SpriteRenderer.h"
 #include "ECS/Components/TilemapRenderer.h"
+#include "ECS/Components/UILayoutGroup.h"
 #include "Scripting/Script.h"
 #include "doctest.h"
 #include <algorithm>
@@ -546,12 +548,14 @@ TEST_CASE("mixed world sorting descriptors merge missing options and batch apply
 
 TEST_CASE("typed asset descriptors reject missing failed and wrong importer GUIDs") {
     namespace fs = std::filesystem;
-    const fs::path root = fs::temp_directory_path() /
-        "molga_editor_property_descriptor_assets";
-    std::error_code error;
-    fs::remove_all(root, error);
-    fs::create_directories(root, error);
-    REQUIRE_FALSE(error);
+    // The scanned subtree lives under the one project root the singleton
+    // database's artifact store owns; the project root is never derived by
+    // stripping "Assets" off the scan path.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const fs::path root = authority.AssetsCaseRoot("property-descriptor");
 
     const std::string prefabGuid = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     {
@@ -587,5 +591,48 @@ TEST_CASE("typed asset descriptors reject missing failed and wrong importer GUID
     CHECK(script.prefab.guid.empty());
 
     database.Clear();
-    fs::remove_all(root, error);
+    std::error_code removeError;
+    fs::remove_all(root, removeError);
+}
+
+// 저작 스키마를 가진 UI 컴포넌트는 계약 밖 값을 typed 예외로 거절한다(트리에서
+// 처음으로 Deserialize가 던지는 컴포넌트들이다). 인스펙터의 열거 필드는 자유
+// 입력 문자열이고 DragFloat은 0 아래로 끌 수 있으므로, 그 예외가 여기서 새면
+// 오타 한 번이나 한 번의 드래그가 에디터를 죽인다.
+TEST_CASE("an out-of-contract UI value is refused instead of thrown") {
+    UILayoutGroup group;
+    std::vector<Component*> components{&group};
+    const auto descriptors = molga::DescribeEditorProperties(group);
+
+    const auto& spacing = Find(descriptors, "spacingX");
+    std::size_t changed = 0;
+    CHECK_NOTHROW(changed = molga::ApplyEditorPropertyValue(spacing, components, -1.0));
+    CHECK(changed == 0u);
+    CHECK(group.SpacingX() == doctest::Approx(0.0f));
+
+    const auto& mode = Find(descriptors, "mode");
+    CHECK_NOTHROW(changed = molga::ApplyEditorPropertyValue(
+                      mode, components, std::string{"Gird"}));
+    CHECK(changed == 0u);
+    CHECK(group.Mode() == UILayoutMode::Horizontal);
+
+    // 성공 증인: 계약 안의 값은 그대로 실린다. 이 줄이 없으면 "언제나 거절"하는
+    // 구현도 위를 통과한다.
+    CHECK(molga::ApplyEditorPropertyValue(spacing, components, 5.0) == 1u);
+    CHECK(group.SpacingX() == doctest::Approx(5.0f));
+    CHECK(molga::ApplyEditorPropertyValue(mode, components,
+                                          std::string{"Grid"}) == 1u);
+    CHECK(group.Mode() == UILayoutMode::Grid);
+
+    // 인스펙터의 정수 필드는 std::int64_t를 넣는다. nlohmann이 그것을
+    // number_integer로 담으므로, 저장 형식으로 부호를 판정하는 읽기는 완전히
+    // 유효한 값을 전부 거절한다.
+    const auto& constraintCount = Find(descriptors, "constraintCount");
+    CHECK(molga::ApplyEditorPropertyValue(constraintCount, components,
+                                          std::int64_t{3}) == 1u);
+    CHECK(group.ConstraintCount() == 3u);
+    CHECK_NOTHROW(changed = molga::ApplyEditorPropertyValue(
+                      constraintCount, components, std::int64_t{0}));
+    CHECK(changed == 0u);
+    CHECK(group.ConstraintCount() == 3u);
 }

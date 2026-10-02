@@ -11,6 +11,16 @@
 
 class World;
 
+// Task 10.2 Step 4i: 계층 변경이 활성 UI Canvas 서브트리를 바꿀 수 있을 때만
+// 집계 의미 세대를 올린다. 성공한 변경 뒤에 정확히 한 번 부른다 —
+// 실패한 재부모나 값이 그대로인 SetActive에서 부르면 UI 캐시가 매 프레임
+// 미스가 되고, 그 손해는 진단 없이 성능으로만 드러난다.
+//
+// alsoAffected에는 옛 부모처럼 그 변경으로 함께 달라지는 노드를 넘긴다.
+// 새 위치만 보면 Canvas 밖으로 빠져나가는 이동을 놓친다.
+void NotifyUIHierarchyChanged(const GameObject* object,
+                              const GameObject* alsoAffected = nullptr);
+
 class GameObject {
 public:
     explicit GameObject(const std::string& name = "GameObject");
@@ -121,6 +131,15 @@ public:
 
     // Get all components (returns vector of raw pointers for iteration)
     std::vector<Component*> GetComponents() const;
+
+    // 런타임 타입 id로 컴포넌트 하나를 찾는다. GetComponents()는 벡터를 값으로
+    // 돌려주므로 타입 하나를 고르자고 부르면 조회마다 힙 할당이 생기고, 그
+    // 할당 가능성 때문에 noexcept인 호출자가 모든 예외를 삼켜야 한다. 한 타입에
+    // 컴포넌트는 최대 하나이므로(중복 추가는 거부된다) 맵 조회로 충분하다.
+    Component* FindComponentByTypeId(size_t typeId) const {
+        auto it = componentMap.find(typeId);
+        return it == componentMap.end() ? nullptr : it->second.get();
+    }
 
     // Hierarchy
     GameObject* GetParent() const { return parent; }

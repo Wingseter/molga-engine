@@ -1,3 +1,4 @@
+#include "Assets/FontArtifactStore.h"
 #include "Core/AssetDatabase.h"
 #include "Core/AssetDependencyValidator.h"
 #include "Core/SpriteResolver.h"
@@ -7,13 +8,24 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
+using molga::AssetCatalogMode;
 using molga::AssetDatabase;
 using molga::AssetRecord;
 namespace fs = std::filesystem;
+
+// Every catalog fixture states its project/storage root explicitly and binds
+// the matching artifact authority before it scans or loads.
+static void BindProjectStore(AssetDatabase& db, const fs::path& projectRoot) {
+    std::string error;
+    REQUIRE_MESSAGE(db.BindFontArtifactStore(
+        std::make_shared<const molga::FontArtifactStore>(
+            molga::FontArtifactStore::ForProject(projectRoot)), &error), error);
+}
 
 static fs::path MakeCatalogProject() {
     fs::path root = fs::temp_directory_path() / "molga_catalog_test";
@@ -27,6 +39,7 @@ static fs::path MakeCatalogProject() {
 TEST_CASE("SaveCatalog writes JSON with all records") {
     fs::path root = MakeCatalogProject();
     AssetDatabase db;
+    BindProjectStore(db, root);
     db.ScanProject(root / "Assets");
 
     CHECK(db.RecordCount() == 2);
@@ -57,6 +70,7 @@ TEST_CASE("SaveCatalog writes JSON with all records") {
 TEST_CASE("LoadCatalog restores records and allows GUID lookup") {
     fs::path root = MakeCatalogProject();
     AssetDatabase scanDb;
+    BindProjectStore(scanDb, root);
     scanDb.ScanProject(root / "Assets");
 
     std::string playerGuid = scanDb.GuidForSource("Assets/Textures/player.png");
@@ -67,7 +81,8 @@ TEST_CASE("LoadCatalog restores records and allows GUID lookup") {
 
     // Load into a fresh database
     AssetDatabase loadDb;
-    REQUIRE(loadDb.LoadCatalog(catalogPath, root));
+    BindProjectStore(loadDb, root);
+    REQUIRE(loadDb.LoadCatalog(catalogPath, root, AssetCatalogMode::Project));
 
     CHECK(loadDb.RecordCount() == 2);
 
@@ -97,19 +112,56 @@ TEST_CASE("LoadCatalog restores records and allows GUID lookup") {
 TEST_CASE("Clear removes all records") {
     fs::path root = MakeCatalogProject();
     AssetDatabase db;
+    BindProjectStore(db, root);
     db.ScanProject(root / "Assets");
     CHECK(db.RecordCount() == 2);
 
     db.Clear();
     CHECK(db.RecordCount() == 0);
     CHECK(db.GuidForSource("Assets/Textures/player.png").empty());
+    // Clear() drops records and scan state, never the immutable binding.
+    CHECK(db.FontArtifacts() != nullptr);
+    CHECK(db.FontArtifacts()->IsProjectAuthorityFor(root));
 
     fs::remove_all(root);
 }
 
 TEST_CASE("LoadCatalog returns false for missing file") {
     AssetDatabase db;
-    CHECK_FALSE(db.LoadCatalog("/tmp/nonexistent_catalog.json", "/tmp"));
+    BindProjectStore(db, "/tmp");
+    CHECK_FALSE(db.LoadCatalog("/tmp/nonexistent_catalog.json", "/tmp", AssetCatalogMode::Project));
+}
+
+TEST_CASE("A catalog load without a matching artifact authority is refused") {
+    const fs::path root = MakeCatalogProject();
+    AssetDatabase source;
+    BindProjectStore(source, root);
+    source.ScanProject(root / "Assets");
+    const fs::path catalog = root / "asset_catalog.json";
+    REQUIRE(source.SaveCatalog(catalog));
+
+    // Unbound: the catalog names font locators nobody is authorised to read.
+    AssetDatabase unbound;
+    std::string unboundError;
+    CHECK_FALSE(unbound.LoadCatalog(catalog, root, AssetCatalogMode::Project,
+                                    &unboundError));
+    CHECK_FALSE(unboundError.empty());
+    CHECK(unbound.RecordCount() == 0);
+
+    // Mismatched mode: a project store cannot stand in for a sealed package.
+    AssetDatabase mismatched;
+    BindProjectStore(mismatched, root);
+    std::string modeError;
+    CHECK_FALSE(mismatched.LoadCatalog(catalog, root,
+                                       AssetCatalogMode::SealedPackage,
+                                       &modeError));
+    CHECK_FALSE(modeError.empty());
+    CHECK(mismatched.RecordCount() == 0);
+    // The same catalog and root load once the mode matches the bound store.
+    CHECK(mismatched.LoadCatalog(catalog, root, AssetCatalogMode::Project));
+    CHECK(mismatched.RecordCount() == 2);
+
+    fs::remove_all(root);
 }
 
 TEST_CASE("Path normalization: foo.png, Assets/foo.png, and backslash resolve consistently") {
@@ -119,6 +171,7 @@ TEST_CASE("Path normalization: foo.png, Assets/foo.png, and backslash resolve co
     { std::ofstream(root / "Assets" / "foo.png") << "img"; }
 
     AssetDatabase db;
+    BindProjectStore(db, root);
     db.ScanProject(root / "Assets");
 
     std::string guid1 = db.GuidForSource("foo.png");
@@ -150,7 +203,8 @@ TEST_CASE("Catalog v1 remains readable with v2 fields defaulted") {
     { std::ofstream(catalog) << v1.dump(2); }
 
     AssetDatabase db;
-    REQUIRE(db.LoadCatalog(catalog, root));
+    BindProjectStore(db, root);
+    REQUIRE(db.LoadCatalog(catalog, root, AssetCatalogMode::Project));
     const AssetRecord* record = db.Find(guid);
     REQUIRE(record != nullptr);
     CHECK(record->settings.empty());
@@ -197,7 +251,8 @@ TEST_CASE("Catalog v2 round-trips settings dependencies metadata and failures") 
     { std::ofstream(input) << v2.dump(2); }
 
     AssetDatabase db;
-    REQUIRE(db.LoadCatalog(input, root));
+    BindProjectStore(db, root);
+    REQUIRE(db.LoadCatalog(input, root, AssetCatalogMode::Project));
     const AssetRecord* clip = db.Find(clipGuid);
     REQUIRE(clip != nullptr);
     CHECK(clip->settings["custom"] == 7);
@@ -209,7 +264,8 @@ TEST_CASE("Catalog v2 round-trips settings dependencies metadata and failures") 
     REQUIRE(db.SaveCatalog(output));
 
     AssetDatabase loaded;
-    REQUIRE(loaded.LoadCatalog(output, root));
+    BindProjectStore(loaded, root);
+    REQUIRE(loaded.LoadCatalog(output, root, AssetCatalogMode::Project));
     const AssetRecord* roundTrip = loaded.Find(clipGuid);
     REQUIRE(roundTrip != nullptr);
     CHECK(roundTrip->settings == clip->settings);
@@ -247,7 +303,8 @@ TEST_CASE("SpriteResolver computes top-left UV pivot and PPU without GL") {
     const fs::path catalog = root / "catalog.json";
     { std::ofstream(catalog) << catalogJson.dump(2); }
     AssetDatabase db;
-    REQUIRE(db.LoadCatalog(catalog, root));
+    BindProjectStore(db, root);
+    REQUIRE(db.LoadCatalog(catalog, root, AssetCatalogMode::Project));
 
     const auto resolved = molga::SpriteResolver::ResolveMetadata(
         {textureGuid, sliceGuid}, db);
@@ -302,7 +359,8 @@ TEST_CASE("Dependency validator reports missing and type-mismatched scene refere
     const fs::path catalog = root / "catalog.json";
     { std::ofstream(catalog) << catalogJson.dump(2); }
     AssetDatabase db;
-    REQUIRE(db.LoadCatalog(catalog, root));
+    BindProjectStore(db, root);
+    REQUIRE(db.LoadCatalog(catalog, root, AssetCatalogMode::Project));
 
     const fs::path missingScene = root / "missing.scene";
     { std::ofstream(missingScene) << nlohmann::json({
@@ -412,7 +470,8 @@ TEST_CASE("Dependency validator detects recursive prefab cycles") {
     const fs::path catalog = root / "catalog.json";
     { std::ofstream(catalog) << catalogJson.dump(2); }
     AssetDatabase db;
-    REQUIRE(db.LoadCatalog(catalog, root));
+    BindProjectStore(db, root);
+    REQUIRE(db.LoadCatalog(catalog, root, AssetCatalogMode::Project));
 
     const auto result = molga::AssetDependencyValidator::ValidateAssetRoots({aGuid}, db);
     CHECK_FALSE(result.Ok());

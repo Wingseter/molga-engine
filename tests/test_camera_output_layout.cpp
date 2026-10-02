@@ -1,5 +1,6 @@
 #include "ECS/Component.h"
 #include "ECS/Components/Camera.h"
+#include "ECS/Components/TextRenderer2D.h"
 #include "ECS/Components/Transform.h"
 #include "ECS/GameObject.h"
 #include "Rendering/CameraOutputLayout.h"
@@ -15,6 +16,22 @@
 #include <vector>
 
 namespace {
+
+// ── Task 8.2 Step 7d: 널 텍스트 권한을 쓸 자격 ───────────────────────────────
+// NonTextOnlyForTesting()은 널 renderer/sink를 담는다. 그것을 받은 순회는
+// 텍스트 컴포넌트를 만나면 아무 명령도 만들지 않으므로, "이 world에 텍스트가
+// 없다"를 먼저 증명하지 않고 쓰면 사라진 텍스트가 통과로 읽힌다. 그 증명이
+// 여기 있고, 아래 순회는 전부 이 함수를 지나서만 문맥을 얻는다.
+WorldRenderCollectionContext NonTextWorld(
+    const std::vector<std::shared_ptr<GameObject>>& objects) {
+    for (const auto& object : objects) {
+        if (!object) continue;
+        for (Component* component : object->GetComponents()) {
+            REQUIRE(dynamic_cast<TextRenderer2D*>(component) == nullptr);
+        }
+    }
+    return WorldRenderCollectionContext::NonTextOnlyForTesting();
+}
 
 struct CameraFixture {
     std::shared_ptr<GameObject> object;
@@ -241,19 +258,21 @@ TEST_CASE("World render culling masks normalize invalid layers to zero") {
     CHECK_FALSE(molga::WorldRenderLayerMatchesMask(5, std::uint32_t{1}));
 
     molga::RenderQueue queue;
-    molga::CollectWorldRender(objects, queue, std::uint32_t{1} << 5);
+    const WorldRenderCollectionContext textContext = NonTextWorld(objects);
+    molga::CollectWorldRender(objects, queue, std::uint32_t{1} << 5,
+                              textContext);
     CHECK(layerFive->collections == 1);
     CHECK(negative->collections == 0);
     CHECK(tooLarge->collections == 0);
     CHECK(layerZero->collections == 0);
 
-    molga::CollectWorldRender(objects, queue, std::uint32_t{1});
+    molga::CollectWorldRender(objects, queue, std::uint32_t{1}, textContext);
     CHECK(layerFive->collections == 1);
     CHECK(negative->collections == 1);
     CHECK(tooLarge->collections == 1);
     CHECK(layerZero->collections == 1);
 
-    molga::CollectWorldRender(objects, queue);
+    molga::CollectWorldRender(objects, queue, textContext);
     CHECK(layerFive->collections == 2);
     CHECK(negative->collections == 2);
     CHECK(tooLarge->collections == 2);

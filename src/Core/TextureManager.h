@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <memory>
@@ -31,6 +32,15 @@ public:
     // Unload all textures
     void Clear();
 
+    // ── Task 11.2 Step 7g: 그 장치 세대의 바인딩에 대한 엔진 소유를 놓는다 ──
+    // 두 강한 소유자를 함께 놓아야 한다: UI 등록부의 기록과 Texture 자신이
+    // 든 수명 토큰. 하나만 놓으면 "만료되지 않은 토큰 = 진짜 외부 소유자"가
+    // 성립하지 않고, 종료가 엔진 자신의 캐시 때문에 영원히 막힌다.
+    //
+    // 돌려주는 값은 실제로 놓은 텍스처 수다. 관찰자가 없으면 아무것도 놓지
+    // 않는 구현과 구별되지 않는다.
+    std::size_t ReleaseBindings(std::uint64_t deviceGeneration);
+
     // Get texture count
     size_t GetCount() const { return textures.size(); }
 
@@ -39,6 +49,25 @@ private:
     TextureManager(const TextureManager&) = delete;
     TextureManager& operator=(const TextureManager&) = delete;
 
+    // 캐시 키가 그 파일의 저작 GUID. 언로드할 때 어떤 GUID의 바인딩 기록을
+    // 놓아야 하는지 알아야 한다 — 놓지 않으면 UI 등록부가 수명 토큰의 강한
+    // 소유자로 남아 그 핸들이 영원히 반납되지 않는다.
+    std::unordered_map<std::string, std::string> guidByKey;
     std::unordered_map<std::string, std::unique_ptr<Texture>> textures;
     static std::string CacheKey(const std::string& path);
+    // 절대 경로 하나의 저작 GUID. 없으면 빈 문자열.
+    static std::string GuidForPath(const std::string& absolutePath,
+                                   const std::string& authoredPath);
+    // ── Task 11.1 Step 5c: 저작 GUID와 런타임 바인딩을 잇는 유일한 자리 ─────
+    // Texture는 GUID를 모르고(경로로만 만들어진다), AssetDatabase는 GPU 핸들을
+    // 모른다(헤드리스 import 시점에는 장치가 없다). 둘을 함께 아는 곳은 이
+    // 캐시뿐이므로 guid → 바인딩 게시는 여기서 일어난다. 이것이 없으면
+    // UILayoutSystem::Build의 소비자는 프로덕션에서 언제나 빈 손이고, 모든
+    // UIImage가 missing-texture 페이로드로 게시된다.
+    //
+    // 성공적으로 게시했으면 참. 장치가 없어 바인딩이 아직 없거나 GUID를
+    // 해석하지 못하면 거짓이다.
+    bool PublishRuntimeBinding(const std::string& textureGuid,
+                               const Texture& texture);
+    void RetireBinding(const std::string& cacheKey);
 };

@@ -1,3 +1,4 @@
+#include "AssetDatabaseTestAuthority.h"
 #include "Core/AssetDatabase.h"
 #include "Core/SceneSerializer.h"
 #include "Core/World.h"
@@ -357,10 +358,14 @@ TEST_CASE("Animator2D and authored SpriteRef round-trip through scene, prefab, a
 }
 
 TEST_CASE("Animator2D resolves controller and clips by asset GUID") {
-    const std::filesystem::path root =
-        std::filesystem::temp_directory_path() / "molga-animation-assets";
-    std::filesystem::remove_all(root);
-    std::filesystem::create_directories(root);
+    // The singleton database binds one artifact authority per process, so this
+    // case takes its own subtree of that one project root instead of inventing
+    // a second root the store would not own.
+    auto& authority = test_support::AssetDatabaseTestAuthority::Get();
+    std::string bindError;
+    REQUIRE_MESSAGE(authority.Bind(molga::AssetDatabase::Get(), &bindError),
+                    bindError);
+    const std::filesystem::path root = authority.AssetsCaseRoot("animator-guid");
 
     const auto clip = MakeClip(true, {{SliceA, 0.25f}});
     std::string error;

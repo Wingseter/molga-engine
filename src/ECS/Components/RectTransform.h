@@ -1,13 +1,21 @@
 #pragma once
 
-#include "ECS/Component.h"
+#include "ECS/Components/UIComponent.h"
 #include "Common/Types.h"
+
+#include <cstdint>
 
 class UICanvas;
 
-class RectTransform : public Component {
+class RectTransform : public UIComponent {
 public:
     COMPONENT_TYPE(RectTransform)
+
+    // 이 컴포넌트의 저작 모양은 한 번도 바뀐 적이 없다. schema 1이 곧 레거시
+    // 문서의 모양이므로, UILabel/UICanvas가 쓰는 LoadedSchema 표식이 여기서는
+    // 필요 없다 — 키가 없는 문서의 기본값 1이 이미 현재 형식이다. 표식을 두면
+    // 디스크의 모든 문서가 영원히 legacy로 읽혀 키를 끝내 쓰지 못한다.
+    static constexpr std::uint32_t CurrentSchemaVersion = 1;
 
     const Vector2& GetAnchorMin() const { return anchorMin_; }
     const Vector2& GetAnchorMax() const { return anchorMax_; }
@@ -19,8 +27,8 @@ public:
     void SetAnchorMax(const Vector2& value);
     void SetAnchors(const Vector2& minimum, const Vector2& maximum);
     void SetPivot(const Vector2& value);
-    void SetAnchoredPosition(const Vector2& value) { anchoredPosition_ = value; }
-    void SetSizeDelta(const Vector2& value) { sizeDelta_ = value; }
+    void SetAnchoredPosition(const Vector2& value);
+    void SetSizeDelta(const Vector2& value);
 
     // Resolves a logical rectangle from a parent logical rectangle.
     AABB ResolveIn(const AABB& parentRect) const;

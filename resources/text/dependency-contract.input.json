@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "description": "Portable input identities for the vendored text dependency build. Records only repo-relative source identities and approved hashes; it carries no compiler, build result, or absolute path.",
+  "harfbuzz": {
+    "commit": "ab5ecbb83985034a76214ac0b2b833dcd590d774",
+    "version": "14.3.1",
+    "sourcePath": "external/harfbuzz",
+    "libraries": [
+      "harfbuzz"
+    ],
+    "options": {
+      "icu": true,
+      "coretext": false,
+      "cairo": false,
+      "freetype": false,
+      "graphite2": false,
+      "glib": false,
+      "gobject": false,
+      "introspection": false,
+      "utils": false,
+      "subset": false,
+      "raster": false,
+      "vector": false,
+      "gpu": false,
+      "sharedLibs": false
+    }
+  },
+  "icu": {
+    "commit": "21d1eb0f306e1141c10931e914dfc038c06121da",
+    "version": "78.3",
+    "sourcePath": "external/icu",
+    "libraries": [
+      "icui18n",
+      "icuuc"
+    ],
+    "options": {
+      "staticImplementation": true,
+      "shared": false,
+      "tools": false,
+      "tests": false,
+      "samples": false,
+      "extras": false,
+      "icuio": false,
+      "layoutex": false
+    }
+  },
+  "icuData": {
+    "member": "icudt78l.dat",
+    "path": "resources/text/icudt78l.dat",
+    "archiveSha256": "982619632b78887f1895b063e96e8c3cc7f99283337c8abbd05aa71635de613c",
+    "sha256": "d5cf2a40dccbe471781ec7af85693bff542ff12f0b670c9630c4e72d60714b8b",
+    "bytes": 33107232
+  },
+  "rasterizer": {
+    "path": "external/text/rasterizer/imstb_truetype.h",
+    "origin": "imgui@b48d1afbe8ee8b238e2961dc363a949dd7304e23:imstb_truetype.h",
+    "sha256": "c51a0f7e7ea760f2366bd3752635ec58e21fccfec4a832501639990ba6ce0528"
+  },
+  "licenses": [
+    {
+      "component": "HarfBuzz",
+      "path": "resources/licenses/HarfBuzz.txt",
+      "sha256": "ba8f810f2455c2f08e2d56bb49b72f37fcf68f1f4fade38977cfd7372050ad64"
+    },
+    {
+      "component": "ICU4C",
+      "path": "resources/licenses/ICU.txt",
+      "sha256": "e55522d81edc687a341a4411e0776e54ca654e90147f354a90458aaced4116af"
+    },
+    {
+      "component": "stb_truetype",
+      "path": "resources/licenses/StbTrueType.txt",
+      "sha256": "7587efcca32db8f95bf5860dea6dfa4be410ee723e1964db3689c8ddf2a2e4a9"
+    },
+    {
+      "component": "Inter",
+      "path": "assets/fonts/Inter-v4.0-OFL.txt",
+      "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
+    }
+  ]
+}

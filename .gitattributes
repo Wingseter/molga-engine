@@ -1,3 +1,6 @@
 *.dll filter=lfs diff=lfs merge=lfs -text
 *.lib filter=lfs diff=lfs merge=lfs -text
 ui_images/*.png filter=lfs diff=lfs merge=lfs -text
+resources/text/*.dat filter=lfs diff=lfs merge=lfs -text
+tests/fixtures/text/fonts/*.ttf filter=lfs diff=lfs merge=lfs -text
+tests/fixtures/text/fonts/*.otf filter=lfs diff=lfs merge=lfs -text

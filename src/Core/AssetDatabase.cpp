@@ -1,5 +1,10 @@
 #include "Core/AssetDatabase.h"
+
+#include "UI/UILayoutSystem.h"
+#include "UI/UIRuntimeInvalidation.h"
+#include "Common/Sha256.h"
 #include "Core/AssetMeta.h"
+#include "Assets/FontArtifactStore.h"
 #include "Common/Log.h"
 #include "Core/Guid.h"
 #include "Core/Importers/PrefabImporter.h"
@@ -11,13 +16,15 @@
 #include "Core/TextureImportSettings.h"
 #include "Core/PathService.h"
 #include "Core/TextureManager.h"
-#include "Rendering/TextRenderer.h"
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <sstream>
+#include <utility>
 
 namespace molga {
 
@@ -43,9 +50,450 @@ static std::string ComputeFileHash(const std::filesystem::path& path) {
     return out.str();
 }
 
+namespace {
+
+// TextSeverity의 안정 문자열. 숫자 enum을 저장하면 값 순서를 바꾸는 순간
+// 과거 카탈로그의 심각도가 조용히 다른 값으로 재해석된다.
+const char* StableTextSeverity(molga::text::TextSeverity severity) {
+    switch (severity) {
+        case molga::text::TextSeverity::Info:    return "Info";
+        case molga::text::TextSeverity::Warning: return "Warning";
+        case molga::text::TextSeverity::Error:   return "Error";
+        case molga::text::TextSeverity::Blocker: return "Blocker";
+    }
+    return "Error";
+}
+
+std::optional<molga::text::TextSeverity> ParseStableTextSeverity(
+    const std::string& value) {
+    if (value == "Info")    return molga::text::TextSeverity::Info;
+    if (value == "Warning") return molga::text::TextSeverity::Warning;
+    if (value == "Error")   return molga::text::TextSeverity::Error;
+    if (value == "Blocker") return molga::text::TextSeverity::Blocker;
+    return std::nullopt;
+}
+
+nlohmann::json DiagnosticToJson(const molga::text::TextDiagnostic& diagnostic) {
+    return nlohmann::json{
+        {"code", molga::text::StableTextDiagnosticCode(diagnostic.code)},
+        {"severity", StableTextSeverity(diagnostic.severity)},
+        {"subsystem", diagnostic.subsystem},
+        {"message", diagnostic.message},
+        {"remediation", diagnostic.remediation},
+        {"assetGuid", diagnostic.assetGuid},
+        {"sceneObjectId", diagnostic.sceneObjectId},
+        {"componentType", diagnostic.componentType},
+        {"sourceByteBegin", diagnostic.sourceByteRange.begin},
+        {"sourceByteEnd", diagnostic.sourceByteRange.end}};
+}
+
+bool ReadJsonString(const nlohmann::json& parent, const char* key,
+                    std::string& out) {
+    const auto found = parent.find(key);
+    if (found == parent.end() || !found->is_string()) return false;
+    out = found->get<std::string>();
+    return true;
+}
+
+bool ReadJsonUnsigned32(const nlohmann::json& parent, const char* key,
+                        std::uint32_t& out) {
+    const auto found = parent.find(key);
+    if (found == parent.end() || !found->is_number_unsigned()) return false;
+    const std::uint64_t value = found->get<std::uint64_t>();
+    if (value > 0xFFFFFFFFULL) return false;
+    out = static_cast<std::uint32_t>(value);
+    return true;
+}
+
+// Step 3b: 알 수 없는/숫자/별칭 코드는 그 진단만 조용히 버리는 것이 아니라
+// record 전체를 거절한다. 진단 하나가 사라지면 나중 패키지 검증이 "깨끗한
+// 캐시 적중"으로 오해하기 때문이다.
+bool DiagnosticFromJson(const nlohmann::json& value,
+                        molga::text::TextDiagnostic& out,
+                        std::string& errorOut) {
+    if (!value.is_object()) {
+        errorOut = "import diagnostic is not an object";
+        return false;
+    }
+    std::string code;
+    if (!ReadJsonString(value, "code", code)) {
+        errorOut = "unknown diagnostic code: the code field is missing or "
+                   "is not a stable code string";
+        return false;
+    }
+    const auto parsedCode = molga::text::ParseStableTextDiagnosticCode(code);
+    if (!parsedCode) {
+        errorOut = "unknown diagnostic code: " + code;
+        return false;
+    }
+    std::string severity;
+    if (!ReadJsonString(value, "severity", severity)) {
+        errorOut = "import diagnostic severity is missing";
+        return false;
+    }
+    const auto parsedSeverity = ParseStableTextSeverity(severity);
+    if (!parsedSeverity) {
+        errorOut = "unknown diagnostic severity: " + severity;
+        return false;
+    }
+    out.code = *parsedCode;
+    out.severity = *parsedSeverity;
+    if (!ReadJsonString(value, "subsystem", out.subsystem) ||
+        !ReadJsonString(value, "message", out.message) ||
+        !ReadJsonString(value, "remediation", out.remediation) ||
+        !ReadJsonString(value, "assetGuid", out.assetGuid) ||
+        !ReadJsonString(value, "componentType", out.componentType)) {
+        errorOut = "import diagnostic is missing a required text field";
+        return false;
+    }
+    if (!ReadJsonUnsigned32(value, "sceneObjectId", out.sceneObjectId) ||
+        !ReadJsonUnsigned32(value, "sourceByteBegin",
+                            out.sourceByteRange.begin) ||
+        !ReadJsonUnsigned32(value, "sourceByteEnd", out.sourceByteRange.end)) {
+        errorOut = "import diagnostic is missing a required numeric field";
+        return false;
+    }
+    return true;
+}
+
+constexpr const char* kFontArtifactKeys[] = {
+    "sourceSha256", "artifactStorage", "artifactRelativePath",
+    "artifactSha256", "artifactByteSize"};
+
+// Step 4b: 폰트 locator는 다섯 필드가 전부 있거나 전부 없어야 한다. 일부만
+// 살아남은 locator는 "검증된 불변 바이트"라는 계약 자체를 깨뜨린다.
+bool FontArtifactFromJson(const nlohmann::json& record,
+                          molga::AssetCatalogMode mode,
+                          std::optional<molga::VerifiedFontArtifact>& out,
+                          std::string& errorOut) {
+    std::size_t present = 0;
+    for (const char* key : kFontArtifactKeys) {
+        if (record.find(key) != record.end()) ++present;
+    }
+    if (present == 0U) {
+        out.reset();
+        return true;
+    }
+    if (present != std::size(kFontArtifactKeys)) {
+        errorOut = "font artifact record is missing part of its locator";
+        return false;
+    }
+
+    molga::VerifiedFontArtifact artifact;
+    std::string storage;
+    std::string relativePath;
+    if (!ReadJsonString(record, "sourceSha256", artifact.sourceSha256) ||
+        !ReadJsonString(record, "artifactSha256", artifact.artifactSha256) ||
+        !ReadJsonString(record, "artifactStorage", storage) ||
+        !ReadJsonString(record, "artifactRelativePath", relativePath)) {
+        errorOut = "font artifact locator field is not a string";
+        return false;
+    }
+    const auto byteSize = record.find("artifactByteSize");
+    if (!byteSize->is_number_unsigned() ||
+        byteSize->get<std::uint64_t>() == 0U) {
+        errorOut = "font artifact byte size must be a positive integer";
+        return false;
+    }
+    artifact.byteSize = byteSize->get<std::uint64_t>();
+
+    if (!molga::IsLowercaseSha256(artifact.sourceSha256) ||
+        !molga::IsLowercaseSha256(artifact.artifactSha256)) {
+        errorOut = "font artifact SHA-256 is not lowercase hexadecimal";
+        return false;
+    }
+    if (artifact.sourceSha256 != artifact.artifactSha256) {
+        // 산출물은 원본의 파생물이 아니라 같은 바이트의 사본이므로, 두 SHA가
+        // 다르면 어느 쪽도 권한으로 삼을 수 없다.
+        errorOut = "font artifact and source SHA-256 must be identical";
+        return false;
+    }
+    const auto parsedStorage = molga::ParseStableFontArtifactStorage(storage);
+    if (!parsedStorage) {
+        errorOut = "unknown font artifact storage: " + storage;
+        return false;
+    }
+    const molga::FontArtifactStorage required =
+        mode == molga::AssetCatalogMode::Project
+            ? molga::FontArtifactStorage::ProjectLibrary
+            : molga::FontArtifactStorage::PackagedResource;
+    if (*parsedStorage != required) {
+        errorOut = "font artifact storage " + storage +
+                   " is not accepted by this catalog mode";
+        return false;
+    }
+
+    std::string normalized;
+    if (!molga::NormalizeFontArtifactRelativePath(relativePath, normalized)) {
+        errorOut = "font artifact path is not a safe relative path: " +
+                   relativePath;
+        return false;
+    }
+    if (*parsedStorage == molga::FontArtifactStorage::ProjectLibrary) {
+        if (normalized !=
+            molga::FontArtifactRelativePath(artifact.artifactSha256)) {
+            errorOut = "project font artifact path is not its own content "
+                       "address: " + normalized;
+            return false;
+        }
+    } else if (normalized.rfind("Assets/", 0) != 0U) {
+        errorOut = "packaged font artifact path is outside Assets/: " +
+                   normalized;
+        return false;
+    }
+    artifact.locator.storage = *parsedStorage;
+    artifact.locator.relativePath = std::filesystem::path(normalized);
+    out = artifact;
+    return true;
+}
+
+// 이 GUID가 실제로 "발행한" 것의 지문. 다시 스캔했을 때 이 문자열이 같으면
+// 어떤 소비자도 다시 만들 이유가 없다.
+//
+// contentRevision은 의도적으로 빠진다. 그 값은 recursive_directory_iterator
+// 순서에서 나오는 서수라서(Task 4.2 amendment) 같은 바이트에도 달라질 수 있고,
+// 여기 넣으면 아무것도 바뀌지 않은 재스캔이 세대를 올려 캐시된 리소스를 통째로
+// 버리게 만든다. hash/진단/실패 요약도 발행된 정체성이 아니라 상태이므로 뺀다.
+nlohmann::json PublishedImportFingerprint(const molga::AssetRecord& record) {
+    nlohmann::json identity;
+    identity["importer"] = record.importer;
+    identity["importerVersion"] = record.importerVersion;
+    identity["settings"] = record.settings;
+    nlohmann::json metadata = record.metadata;
+    if (metadata.is_object()) {
+        const auto font = metadata.find("font");
+        if (font != metadata.end() && font->is_object()) {
+            font->erase("contentRevision");
+        }
+    }
+    identity["metadata"] = std::move(metadata);
+    if (record.fontArtifact) {
+        identity["artifactStorage"] = molga::StableFontArtifactStorage(
+            record.fontArtifact->locator.storage);
+        identity["artifactRelativePath"] =
+            record.fontArtifact->locator.relativePath.generic_string();
+        identity["sourceSha256"] = record.fontArtifact->sourceSha256;
+        identity["artifactSha256"] = record.fontArtifact->artifactSha256;
+        identity["artifactByteSize"] = record.fontArtifact->byteSize;
+    }
+    // dump()로 문자열을 만들지 않는다. metadata에는 CJK 폰트의 coverage처럼
+    // 수천 항목짜리 배열이 들어 있고, 이 함수는 추적 대상 애셋마다 두 번 불린다.
+    return identity;
+}
+
+bool TracksContentGeneration(const std::string& importer) {
+    return importer == "FontImporter" || importer == "FontFamilyImporter";
+}
+
+// Task 10.2 Step 4d/4j: 저작된 텍스처 GUID가 "지금 실제로 담고 있는 바이트"를
+// UI에 알린다. 카탈로그가 GUID → 원본 바이트의 유일한 권한이므로 발행도 여기서
+// 한다. TextureManager는 경로로 색인되고 살아 있는 GraphicsDevice가 있어야만
+// 무언가를 담으므로, 그쪽에서 발행하면 헤드리스 편집 세션과 import 시점에는
+// 정체성이 아예 없다.
+//
+// 내용 SHA와 거기서 유도한 안정 ID만 쓴다. AssetRecord::hash는 64bit FNV라
+// 충돌이 실제로 가능하고, 프로세스 지역 import/upload 순번은 같은 내용을 다시
+// 열기만 해도 달라져 warm 캐시를 통째로 무력화한다.
+std::uint64_t StableIdFromSha256(const std::string& sha256Hex) {
+    std::uint64_t id = 0;
+    for (std::size_t index = 0; index < 16U && index < sha256Hex.size(); ++index) {
+        const char digit = sha256Hex[index];
+        std::uint64_t value = 0;
+        if (digit >= '0' && digit <= '9') value = static_cast<std::uint64_t>(digit - '0');
+        else if (digit >= 'a' && digit <= 'f') value = static_cast<std::uint64_t>(digit - 'a') + 10U;
+        else if (digit >= 'A' && digit <= 'F') value = static_cast<std::uint64_t>(digit - 'A') + 10U;
+        else return 0;
+        id = (id << 4) | value;
+    }
+    // 0은 "정체성 없음"이라 안정 ID로 쓸 수 없다. 앞 16자리가 전부 0인 SHA는
+    // 사실상 나오지 않지만, 그 경우에도 유효한 값을 돌려주어야 소비자가 0을
+    // 특별 취급하지 않아도 된다.
+    return id == 0 ? 1U : id;
+}
+
+// 성공적으로 import된 텍스처의 원본 바이트를 해싱해 발행한다. 같은 내용을 다시
+// 스캔하면 Publish가 거짓을 돌려주므로 의미 세대는 움직이지 않는다.
+void PublishTextureContentIdentity(const std::string& guid,
+                                   const std::filesystem::path& absPath) {
+    std::string hashError;
+    const std::string sha256 = molga::Sha256File(absPath, &hashError);
+    // 읽지 못한 바이트는 검증된 내용이 아니다. 직전 정체성을 그대로 두는 것이
+    // 옳다 — 비어 있는 SHA를 발행하면 서로 다른 두 텍스처가 같은 정체성을 갖게
+    // 된다.
+    if (sha256.empty()) return;
+    molga::ui::UITextureContentIdentity identity;
+    identity.contentSha256 = sha256;
+    identity.contentStableId = StableIdFromSha256(sha256);
+    molga::ui::UITextureContentRegistry::Get().Publish(guid, identity);
+}
+
+} // namespace
+
+nlohmann::json AssetRecordToJson(const AssetRecord& record) {
+    nlohmann::json out;
+    out["guid"] = record.guid;
+    out["sourcePath"] = record.sourcePath;
+    out["importer"] = record.importer;
+    out["importerVersion"] = record.importerVersion;
+    out["artifactPath"] = record.artifactPath;
+    out["hash"] = record.hash;
+    out["width"] = record.textureWidth;
+    out["height"] = record.textureHeight;
+    out["settings"] = record.settings;
+    out["dependencies"] = record.dependencies;
+    out["metadata"] = record.metadata;
+    out["importFailed"] = record.importFailed;
+    out["importError"] = record.importError;
+    out["generated"] = record.generated;
+    nlohmann::json diagnostics = nlohmann::json::array();
+    for (const molga::text::TextDiagnostic& diagnostic :
+         record.importDiagnostics) {
+        diagnostics.push_back(DiagnosticToJson(diagnostic));
+    }
+    out["importDiagnostics"] = std::move(diagnostics);
+    if (record.fontArtifact) {
+        out["sourceSha256"] = record.fontArtifact->sourceSha256;
+        out["artifactStorage"] =
+            StableFontArtifactStorage(record.fontArtifact->locator.storage);
+        out["artifactRelativePath"] =
+            record.fontArtifact->locator.relativePath.generic_string();
+        out["artifactSha256"] = record.fontArtifact->artifactSha256;
+        out["artifactByteSize"] = record.fontArtifact->byteSize;
+    }
+    return out;
+}
+
+std::optional<AssetRecord> AssetRecordFromJson(const nlohmann::json& record,
+                                               std::string& errorOut,
+                                               AssetCatalogMode mode) {
+    errorOut.clear();
+    if (!record.is_object()) {
+        errorOut = "asset record is not an object";
+        return std::nullopt;
+    }
+    AssetRecord out;
+    out.guid = record.value("guid", std::string{});
+    out.sourcePath = record.value("sourcePath", std::string{});
+    out.importer = record.value("importer", std::string{});
+    out.importerVersion = record.value("importerVersion", 1);
+    out.artifactPath = record.value("artifactPath", std::string{});
+    out.hash = record.value("hash", std::string{});
+    out.textureWidth = record.value("width", 0);
+    out.textureHeight = record.value("height", 0);
+    if (record.contains("settings") && record["settings"].is_object()) {
+        out.settings = record["settings"];
+    }
+    if (record.contains("dependencies") && record["dependencies"].is_array()) {
+        out.dependencies = record["dependencies"].get<std::vector<std::string>>();
+    }
+    if (record.contains("metadata") && record["metadata"].is_object()) {
+        out.metadata = record["metadata"];
+    }
+    out.importFailed = record.value("importFailed", false);
+    out.importError = record.value("importError", std::string{});
+    out.generated = record.value("generated", false);
+
+    if (!Guid::IsValid(out.guid)) {
+        errorOut = "asset record guid is invalid: " + out.guid;
+        return std::nullopt;
+    }
+    if (out.sourcePath.empty()) {
+        errorOut = "asset record source path is empty";
+        return std::nullopt;
+    }
+
+    const auto diagnostics = record.find("importDiagnostics");
+    if (diagnostics != record.end()) {
+        if (!diagnostics->is_array()) {
+            errorOut = "importDiagnostics is not an array";
+            return std::nullopt;
+        }
+        if (diagnostics->size() > kMaxImportDiagnosticsPerRecord) {
+            errorOut = "asset record carries more import diagnostics than the "
+                       "catalog bound allows";
+            return std::nullopt;
+        }
+        for (const auto& value : *diagnostics) {
+            molga::text::TextDiagnostic diagnostic;
+            if (!DiagnosticFromJson(value, diagnostic, errorOut)) {
+                return std::nullopt;
+            }
+            out.importDiagnostics.push_back(std::move(diagnostic));
+        }
+    }
+    if (!FontArtifactFromJson(record, mode, out.fontArtifact, errorOut)) {
+        return std::nullopt;
+    }
+    return out;
+}
+
+void ApplyImportResultToRecord(const ImportResult& result, AssetRecord& record) {
+    record.importFailed = !result.success;
+    record.artifactPath = result.artifactPath;
+    record.dependencies = result.dependencies;
+    record.metadata = result.metadata;
+    if (result.width > 0)  record.textureWidth  = result.width;
+    if (result.height > 0) record.textureHeight = result.height;
+
+    record.importDiagnostics = result.importDiagnostics;
+    if (record.importDiagnostics.size() > kMaxImportDiagnosticsPerRecord) {
+        record.importDiagnostics.resize(kMaxImportDiagnosticsPerRecord);
+    }
+    for (molga::text::TextDiagnostic& diagnostic : record.importDiagnostics) {
+        // 이미 채워진 GUID는 건드리지 않는다. importer는 자기 자신이 아닌
+        // 다른 애셋(예: license 애셋)을 가리키는 진단도 낼 수 있다.
+        if (diagnostic.assetGuid.empty()) diagnostic.assetGuid = record.guid;
+    }
+
+    record.importError = result.error;
+    if (record.importError.empty() && !record.importDiagnostics.empty()) {
+        // legacy 필드는 사람이 읽는 호환 요약으로만 남는다. 기계 판독은
+        // importDiagnostics를 본다.
+        std::string summary;
+        for (const molga::text::TextDiagnostic& diagnostic :
+             record.importDiagnostics) {
+            if (!summary.empty()) summary += "; ";
+            summary += molga::text::StableTextDiagnosticCode(diagnostic.code);
+            summary += ": ";
+            summary += diagnostic.message;
+        }
+        record.importError = std::move(summary);
+    }
+}
+
 AssetDatabase& AssetDatabase::Get() {
     static AssetDatabase instance;
     return instance;
+}
+
+bool AssetDatabase::BindFontArtifactStore(
+    std::shared_ptr<const FontArtifactStore> store, std::string* errorOut) {
+    if (!store) {
+        if (errorOut) *errorOut = "font artifact store must not be null";
+        return false;
+    }
+    if (fontArtifacts_) {
+        // 이미 발행된 record/레이아웃이 이 store의 바이트를 신뢰하고 있으므로
+        // 교체는 조용한 정체성 변경이 된다. Clear()도 이 바인딩은 지우지 않는다.
+        if (errorOut) {
+            *errorOut = "a font artifact store is already bound for this "
+                        "asset database";
+        }
+        return false;
+    }
+    fontArtifacts_ = std::move(store);
+    if (errorOut) errorOut->clear();
+    return true;
+}
+
+const FontArtifactStore* AssetDatabase::FontArtifacts() const noexcept {
+    return fontArtifacts_.get();
+}
+
+std::uint64_t AssetDatabase::ContentGeneration(
+    const std::string& guid) const noexcept {
+    const auto found = contentGenerations_.find(guid);
+    return found == contentGenerations_.end() ? 0U : found->second;
 }
 
 std::string AssetDatabase::NormalizeRel(const std::filesystem::path& rel) {
@@ -130,13 +578,36 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
     rec.hash = ComputeFileHash(absPath);
 
     ImportResult res = RunImporter(meta.importer, absPath.string(), meta.settings);
-    rec.importFailed = !res.success;
-    rec.importError = res.error;
-    rec.artifactPath = res.artifactPath;
-    rec.dependencies = std::move(res.dependencies);
-    rec.metadata = std::move(res.metadata);
-    if (res.width > 0)  rec.textureWidth  = res.width;
-    if (res.height > 0) rec.textureHeight = res.height;
+
+    // Step 7e: 성공한 폰트 import는 카탈로그 record보다 먼저 검증된 불변
+    // 산출물을 확보한다. 산출물 확보에 실패하면 record도 발행하지 않고
+    // contentGeneration도 올리지 않으므로, 직전 세대가 그대로 권한으로 남는다.
+    std::optional<VerifiedFontArtifact> artifact;
+    if (res.success && rec.importer == "FontImporter" &&
+        res.metadata.contains("font")) {
+        molga::text::VectorTextDiagnosticSink sink;
+        if (fontArtifacts_) {
+            artifact = fontArtifacts_->Publish(
+                absPath, res.metadata["font"].value("sourceSha256",
+                                                    std::string{}), sink);
+        }
+        for (const molga::text::TextDiagnostic& diagnostic :
+             sink.Diagnostics()) {
+            res.importDiagnostics.push_back(diagnostic);
+        }
+        if (!artifact) {
+            res.success = false;
+            if (res.error.empty()) {
+                res.error = "could not publish the immutable font artifact";
+            }
+        } else {
+            res.metadata["font"]["contentRevision"] = contentGeneration_ + 1U;
+        }
+    }
+
+    ApplyImportResultToRecord(res, rec);
+    rec.fontArtifact = artifact;
+    if (artifact) ++contentGeneration_;
 
     const auto duplicate = byGuid_.find(rec.guid);
     if (duplicate != byGuid_.end() && duplicate->second.sourcePath != rec.sourcePath) {
@@ -145,19 +616,102 @@ void AssetDatabase::IndexOne(const std::filesystem::path& absPath) {
         duplicate->second.importFailed = true;
         duplicate->second.importError = "duplicate asset guid also used by " + rec.sourcePath;
     }
+
+    // Step 7: 성공적으로 발행된 record의 정체성이 실제로 달라진 뒤에만 그
+    // GUID의 세대를 올린다. 첫 발행은 비교 대상이 없으므로 세대를 움직이지
+    // 않는다 — 그래야 카탈로그에서 되살린 재시작이 "내용이 바뀐 것"으로
+    // 보이지 않는다.
+    //
+    // 중복 GUID 검사 뒤에 온다. 그 검사가 rec.importFailed를 켜므로, 앞에
+    // 두면 실패로 끝날 record가 세대를 먼저 발행하고 — 되돌릴 지점도 없이 —
+    // 마지막 정상 리소스를 무효화시킨다.
+    if (TracksContentGeneration(rec.importer) && !rec.importFailed) {
+        if (const AssetRecord* previous = PreviouslyPublished(rec.guid)) {
+            if (PublishedImportFingerprint(*previous) !=
+                PublishedImportFingerprint(rec)) {
+                ++contentGenerations_[rec.guid];
+                // Task 10.2 Step 4j: face 바이트와 family의 fallback 순서/스타일
+                // 표가 실제로 달라졌을 때만 UI 의미 epoch을 올린다. 이 자리여야
+                // 하는 이유: artifact는 FontImporter에서만 채워지므로 위쪽
+                // `if (artifact)`는 .fontfamily 자산에서 절대 실행되지 않고,
+                // family의 fallback 순서를 바꿔도 UI가 옛 순서로 계속 그려진다.
+                // TracksContentGeneration은 FontImporter와 FontFamilyImporter를
+                // 모두 포함하고, 위 fingerprint 비교가 "성공적인 불변 교체"만
+                // 통과시킨다(실패/무변경 reload는 여기 오지 않는다).
+                molga::ui::NotifyUISemanticMutation();
+            }
+        }
+    }
+
+    // Task 10.2 Step 4j: 검증된 텍스처 내용 SHA의 교체도 같은 의미 epoch을
+    // 움직인다. 중복 GUID 검사 뒤에 오는 이유는 폰트 쪽과 같다: 실패로 끝날
+    // record가 정체성을 먼저 발행하면 안 된다. Publish가 실제 변경만 참으로
+    // 판정하므로, 바이트가 그대로인 재스캔은 세대를 움직이지 않는다.
+    if (rec.importer == "TextureImporter" && !rec.importFailed) {
+        // rec.hash는 바로 위에서 같은 파일을 통째로 읽어 만든 값이다. 그것이
+        // 그대로면 바이트도 그대로이므로 두 번째 전체 읽기 + SHA는 순수한
+        // 낭비다 — 수천 장짜리 프로젝트에서 새로 고침마다 눈에 띈다. 이미
+        // 발행된 정체성이 있고 해시가 같을 때만 건너뛴다: 정체성이 아직 없으면
+        // (첫 스캔, 또는 이전에 읽지 못한 파일) 반드시 발행해야 한다.
+        const AssetRecord* previous = PreviouslyPublished(rec.guid);
+        const bool bytesUnchanged =
+            previous != nullptr && previous->hash == rec.hash &&
+            molga::ui::UITextureContentRegistry::Get().Find(rec.guid)
+                .has_value();
+        if (!bytesUnchanged) PublishTextureContentIdentity(rec.guid, absPath);
+    }
+
     sourceToGuid_[rec.sourcePath] = rec.guid;
     byGuid_[rec.guid] = std::move(rec);
 }
 
+const AssetRecord* AssetDatabase::PreviouslyPublished(
+    const std::string& guid) const {
+    if (const AssetRecord* current = Find(guid)) return current;
+    if (!scanPrevious_) return nullptr;
+    const auto found = scanPrevious_->find(guid);
+    return found == scanPrevious_->end() ? nullptr : &found->second;
+}
+
 void AssetDatabase::ScanProject(const std::filesystem::path& assetRoot) {
-    if (this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateAllFonts();
-    }
+    // Task 8.2 Step 8d: 여기서 렌더러를 직접 무효화하던 통로는 지워졌다.
+    // 발행에 성공한 폰트/family 기록은 아래에서 Task 4의 content generation을
+    // 올리고, 그 값은 이미 resolver/layout/resource 캐시 정체성의 일부다 —
+    // 다음 요청이 스스로 갈리므로 Core가 Rendering으로 손을 뻗을 이유가 없다.
     assetRoot_ = assetRoot;
     catalogPackageRoot_ = false;
+    // 스캔은 byGuid_를 통째로 다시 세우므로, 그 자리에서 "직전 발행"을 찾으면
+    // 언제나 비어 있다. 옮겨 둔 스냅샷이 없으면 바이트가 실제로 바뀐 재스캔도
+    // 세대를 올리지 못한다.
+    const std::unordered_map<std::string, AssetRecord> previousScan =
+        std::move(byGuid_);
     byGuid_.clear();
     sourceToGuid_.clear();
+    // 스캔은 프로젝트 전체를 다시 세우므로 content generation도 이 스캔 안에서만
+    // 의미가 있다. 프로세스 수명 동안 계속 올라가면 같은 프로젝트를 두 번
+    // 스캔하기만 해도 asset_catalog.json이 달라지고 — GameBuilder는 빌드마다
+    // 두 번 스캔한다 — 재현 가능한 빌드가 성립하지 않는다. 정체성은 이
+    // 카운터가 아니라 artifactSha256가 진다.
+    contentGeneration_ = 0U;
+    if (!fontArtifacts_) {
+        // 바인딩 없이 스캔하면 폰트 애셋이 어떤 바이트 권한에 게시되어야
+        // 하는지 알 수 없다. 조용히 권한 없는 record를 만드느니 스캔 자체를
+        // 거절한다.
+        Log::Error("AssetDatabase",
+                   "scan refused: bind a font artifact store with "
+                   "BindFontArtifactStore(FontArtifactStore::ForProject(root)) "
+                   "before ScanProject");
+        return;
+    }
     if (assetRoot_.empty() || !std::filesystem::exists(assetRoot_)) return;
+
+    // previousScan은 이 함수의 지역 변수다. 어떤 경로로 빠져나가든 멤버가 그
+    // 주소를 들고 남지 않도록 묶어 둔다.
+    struct ScanPreviousScope {
+        AssetDatabase& database;
+        ~ScanPreviousScope() { database.scanPrevious_ = nullptr; }
+    } scanPreviousScope{*this};
+    scanPrevious_ = &previousScan;
 
     try {
         for (const auto& e : std::filesystem::recursive_directory_iterator(assetRoot_)) {
@@ -288,6 +842,12 @@ bool AssetDatabase::TryReimport(const std::string& guid, std::string* errorOut) 
         AssetRecord& failed = byGuid_[guid];
         failed.importFailed = true;
         failed.importError = result.error;
+        // metadata/artifact는 마지막 성공 상태를 유지한다. 실패에서 바뀌는
+        // 것은 진단 상태뿐이므로 기계 판독 진단도 함께 갱신한다.
+        failed.importDiagnostics = result.importDiagnostics;
+        if (failed.importDiagnostics.size() > kMaxImportDiagnosticsPerRecord) {
+            failed.importDiagnostics.resize(kMaxImportDiagnosticsPerRecord);
+        }
         if (errorOut) *errorOut = result.error;
         // Runtime consumers continue using the last successfully uploaded
         // Texture object. Only the diagnostic state changes on failure.
@@ -297,6 +857,10 @@ bool AssetDatabase::TryReimport(const std::string& guid, std::string* errorOut) 
     IndexOne(source);
     AssetRecord* refreshed = const_cast<AssetRecord*>(Find(guid));
     if (!refreshed || refreshed->importFailed) {
+        // record만 직전 상태로 되돌린다. 세대는 되감을 필요가 없다: IndexOne은
+        // 실패로 끝난 record에 대해서는 세대를 올리지 않으므로 여기 도달한
+        // 시점의 세대는 이미 직전 값 그대로다. 되감으면 오히려 옛 세대로 캐시된
+        // 리소스가 다시 최신처럼 보이는 창이 생긴다.
         byGuid_[guid] = previous;
         if (errorOut) *errorOut = refreshed ? refreshed->importError
                                             : "reimport changed asset guid";
@@ -315,9 +879,6 @@ bool AssetDatabase::TryReimport(const std::string& guid, std::string* errorOut) 
             if (errorOut) *errorOut = reloadError;
             return false;
         }
-    }
-    if (previous.importer == "FontImporter" && this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateFont(guid);
     }
     if (errorOut) errorOut->clear();
     return true;
@@ -359,14 +920,8 @@ void AssetDatabase::OnSourceRemoved(const std::filesystem::path& rel) {
     std::string key = GetCanonicalPathStatic(absPath, assetRoot_);
     auto it = sourceToGuid_.find(key);
     if (it == sourceToGuid_.end()) return;
-    const std::string guid = it->second;
-    const auto record = byGuid_.find(guid);
-    const bool isFont = record != byGuid_.end() && record->second.importer == "FontImporter";
     byGuid_.erase(it->second);
     sourceToGuid_.erase(it);
-    if (isFont && this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateFont(guid);
-    }
 }
 
 void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
@@ -384,11 +939,7 @@ void AssetDatabase::OnSourceRenamed(const std::filesystem::path& oldRel,
     sourceToGuid_[newKey] = guid;
     auto recIt = byGuid_.find(guid);
     if (recIt != byGuid_.end()) {
-        const bool isFont = recIt->second.importer == "FontImporter";
         recIt->second.sourcePath = newKey;
-        if (isFont && this == &AssetDatabase::Get()) {
-            TextRenderer::Get().InvalidateFont(guid);
-        }
     }
 }
 
@@ -419,22 +970,11 @@ bool AssetDatabase::SaveCatalog(
                                        excludedSourcePrefix) == 0) {
                 continue;
             }
-            nlohmann::json r;
-            r["guid"] = rec.guid;
-            r["sourcePath"] = rec.sourcePath;
-            r["importer"] = rec.importer;
-            r["importerVersion"] = rec.importerVersion;
-            r["artifactPath"] = rec.artifactPath;
-            r["hash"] = ComputeFileHash(AbsoluteSourcePath(rec.guid));
-            r["width"] = rec.textureWidth;
-            r["height"] = rec.textureHeight;
-            r["settings"] = rec.settings;
-            r["dependencies"] = rec.dependencies;
-            r["metadata"] = rec.metadata;
-            r["importFailed"] = rec.importFailed;
-            r["importError"] = rec.importError;
-            r["generated"] = rec.generated;
-            recordsJson.push_back(r);
+            // 해시만 저장 시점 기준으로 갱신하고, 나머지 정규 표현은
+            // LoadCatalog이 읽는 바로 그 함수를 통과시킨다.
+            AssetRecord refreshed = rec;
+            refreshed.hash = ComputeFileHash(AbsoluteSourcePath(rec.guid));
+            recordsJson.push_back(AssetRecordToJson(refreshed));
         }
         j["records"] = recordsJson;
         return PersistentStorage::AtomicWriteText(path, j.dump(2));
@@ -443,76 +983,81 @@ bool AssetDatabase::SaveCatalog(
     }
 }
 
-bool AssetDatabase::LoadCatalog(const std::filesystem::path& path, const std::filesystem::path& packageRoot) {
-    Clear();
-    assetRoot_ = packageRoot;
-    catalogPackageRoot_ = true;
-    
-    if (!std::filesystem::exists(path)) {
+bool AssetDatabase::LoadCatalog(const std::filesystem::path& catalogPath,
+                               const std::filesystem::path& storageRoot,
+                               AssetCatalogMode mode,
+                               std::string* errorOut) {
+    const auto reject = [&](std::string message) {
+        Clear();
+        assetRoot_ = storageRoot;
+        catalogPackageRoot_ = true;
+        if (errorOut) *errorOut = std::move(message);
         return false;
+    };
+
+    Clear();
+    assetRoot_ = storageRoot;
+    catalogPackageRoot_ = true;
+    if (errorOut) errorOut->clear();
+
+    if (!fontArtifacts_) {
+        return reject("no font artifact store is bound for this asset database");
     }
-    
+    const FontArtifactStorage required =
+        mode == AssetCatalogMode::Project
+            ? FontArtifactStorage::ProjectLibrary
+            : FontArtifactStorage::PackagedResource;
+    if (fontArtifacts_->Storage() != required) {
+        // 카탈로그의 신뢰 경계와 바인딩된 바이트 권한이 다르면, 어느 쪽 폰트
+        // locator를 신뢰해야 하는지에 대해 두 답이 생긴다.
+        return reject("the bound font artifact store does not match the "
+                      "requested catalog mode");
+    }
+    if (!std::filesystem::exists(catalogPath)) {
+        return reject("asset catalog does not exist: " + catalogPath.string());
+    }
+
     try {
-        std::ifstream file(path);
-        if (!file.is_open()) return false;
+        std::ifstream file(catalogPath);
+        if (!file.is_open()) {
+            return reject("could not open the asset catalog: " +
+                          catalogPath.string());
+        }
         nlohmann::json j;
         file >> j;
-        
+
         const int schemaVersion = j.value("schemaVersion", 1);
         if (schemaVersion < 1 || schemaVersion > 2 ||
             !j.contains("records") || !j["records"].is_array()) {
-            return false;
+            return reject("unsupported asset catalog schema");
         }
-        if (j.contains("records") && j["records"].is_array()) {
-            for (const auto& r : j["records"]) {
-                AssetRecord rec;
-                rec.guid = r.value("guid", "");
-                rec.sourcePath = r.value("sourcePath", "");
-                rec.importer = r.value("importer", "");
-                rec.importerVersion = r.value("importerVersion", 1);
-                rec.artifactPath = r.value("artifactPath", "");
-                rec.hash = r.value("hash", "");
-                rec.textureWidth = r.value("width", 0);
-                rec.textureHeight = r.value("height", 0);
-                if (schemaVersion >= 2) {
-                    if (r.contains("settings") && r["settings"].is_object())
-                        rec.settings = r["settings"];
-                    if (r.contains("dependencies") && r["dependencies"].is_array())
-                        rec.dependencies = r["dependencies"].get<std::vector<std::string>>();
-                    if (r.contains("metadata") && r["metadata"].is_object())
-                        rec.metadata = r["metadata"];
-                    rec.importFailed = r.value("importFailed", false);
-                    rec.importError = r.value("importError", std::string{});
-                    rec.generated = r.value("generated", false);
-                }
-
-                if (!Guid::IsValid(rec.guid) || rec.sourcePath.empty() ||
-                    sourceToGuid_.count(rec.sourcePath) != 0 || byGuid_.count(rec.guid) != 0) {
-                    Clear();
-                    assetRoot_ = packageRoot;
-                    catalogPackageRoot_ = true;
-                    return false;
-                }
-                
-                sourceToGuid_[rec.sourcePath] = rec.guid;
-                byGuid_[rec.guid] = std::move(rec);
+        for (const auto& r : j["records"]) {
+            std::string recordError;
+            auto rec = AssetRecordFromJson(r, recordError, mode);
+            if (!rec || sourceToGuid_.count(rec->sourcePath) != 0 ||
+                byGuid_.count(rec->guid) != 0) {
+                return reject(rec ? "duplicate asset record: " + rec->sourcePath
+                                  : recordError);
             }
+            sourceToGuid_[rec->sourcePath] = rec->guid;
+            byGuid_[rec->guid] = std::move(*rec);
         }
         return true;
+    } catch (const std::exception& error) {
+        return reject(std::string("could not read the asset catalog: ") +
+                      error.what());
     } catch (...) {
-        Clear();
-        assetRoot_ = packageRoot;
-        catalogPackageRoot_ = true;
-        return false;
+        return reject("could not read the asset catalog");
     }
 }
 
 void AssetDatabase::Clear() {
-    if (this == &AssetDatabase::Get()) {
-        TextRenderer::Get().InvalidateAllFonts();
-    }
     byGuid_.clear();
     sourceToGuid_.clear();
+    // 세대는 지금 버리는 카탈로그 안에서만 의미가 있다. 남겨 두면 프로젝트 A가
+    // 올려 둔 세대가, 같은 GUID를 .meta로 물려받은 프로젝트 B의 전혀 다른
+    // 폰트에 그대로 붙어 옛 캐시가 최신으로 보인다.
+    contentGenerations_.clear();
     catalogPackageRoot_ = false;
 }
 

@@ -5,6 +5,7 @@
 #include "Editor/EditorConstants.h"
 #include "Editor/ImGuiTextureBridge.h"
 #include "Editor/Project.h"
+#include "Core/World.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/Renderer.h"
 #include "Systems/Input.h"
@@ -38,10 +39,14 @@ GameViewWindow::~GameViewWindow() {
 void GameViewWindow::SetSceneResources(
     Renderer* renderer,
     Shader* spriteShader,
-    std::vector<std::shared_ptr<GameObject>>* objects) {
+    World* world,
+    TextRenderer* textRenderer,
+    molga::text::TextDiagnosticSink* textDiagnostics) {
     renderer_ = renderer;
     spriteShader_ = spriteShader;
-    gameObjects_ = objects;
+    world_ = world;
+    textRenderer_ = textRenderer;
+    textDiagnostics_ = textDiagnostics;
 }
 
 molga::PixelSize GameViewWindow::RequestedOutputSize() const {
@@ -174,11 +179,12 @@ void GameViewWindow::OnGUI() {
     }
 
     logicalOutput_ = RequestedLogicalSize();
-    if (outputTarget_.IsValid() && renderer_ && spriteShader_ && gameObjects_) {
+    if (outputTarget_.IsValid() && renderer_ && spriteShader_ && world_ &&
+        textRenderer_ && textDiagnostics_) {
         const molga::GameOutputResult result = outputRenderer_.Render(
-            *gameObjects_,
+            *world_,
             {activeOutput_, logicalOutput_, RequestedScaleMode(), &outputTarget_},
-            *renderer_, spriteShader_);
+            *renderer_, spriteShader_, *textRenderer_, *textDiagnostics_);
         presentation_ = result.presentation;
         hasOutputCamera_ = result.cameraLayout.HasRenderableCamera();
         auto& renderStats = Editor::Get().RenderStats();
@@ -294,7 +300,7 @@ void GameViewWindow::LoseInputFocus() {
 
 void GameViewWindow::ProcessPlayInput() {
     if (!isOpen || !inputFocused_ || !imageValid_ || platformViewportId_ == 0 ||
-        !ImGui::GetCurrentContext() || !gameObjects_ || !activeOutput_.IsValid()) {
+        !ImGui::GetCurrentContext() || !world_ || !activeOutput_.IsValid()) {
         if (inputFocused_) LoseInputFocus();
         else {
             Input::ReleaseAll();
@@ -343,7 +349,7 @@ void GameViewWindow::ProcessPlayInput() {
         nativeWindow, mappedX, mappedY, logicalPixel.has_value());
     const molga::CameraOutputLayout cameraLayout =
         molga::CameraOutputLayout::Build(
-            *gameObjects_, inputPresentation.logicalSize);
+            world_->Objects(), inputPresentation.logicalSize);
     if (logicalPixel) {
         const auto cameraPointer = cameraLayout.LogicalToTopmost(*logicalPixel);
         if (cameraPointer) {
@@ -361,7 +367,7 @@ void GameViewWindow::ProcessPlayInput() {
     const bool pointerValid = logicalPixel.has_value();
     if (!pointerValid) UISystem::Get().ResetPointerCapture();
     UISystem::Get().ProcessInput(
-        *gameObjects_,
+        *world_,
         {static_cast<float>(inputPresentation.logicalSize.width),
          static_cast<float>(inputPresentation.logicalSize.height)},
         {{mappedX, mappedY}, pointerValid && rawDown,
