@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <utility>
 #include <variant>
 
@@ -1760,6 +1761,53 @@ bool ObjectIsInteractionEligible(GameObject& object) {
     return eligible;
 }
 
+// ── 포인터 소유 (사용자 결정 2026-10-01) ───────────────────────────────────
+// 포인터 사건을 받을 수 있는 컴포넌트를 가진 오브젝트인가. 지금 상호작용
+// 가능한지와 **무관하다** — 꺼진 버튼도 여기서는 "있다". 사건은 처음 만나는
+// 이런 오브젝트에서 결정되고, 그것이 꺼져 있으면 흡수된다.
+//
+// UITextInput도 넣는다. 빼면 클릭 가능한 행 안의 입력창을 누를 때 사건이 그
+// 입력창을 지나쳐 행을 활성화한다 — 흡수 규칙이 막으려는 바로 그 일이다.
+bool ObjectIsActionCapable(GameObject& object) {
+    return EnabledComponent<UIButton>(object) != nullptr ||
+           EnabledComponent<UISelectable>(object) != nullptr ||
+           EnabledComponent<UITextInput>(object) != nullptr;
+}
+
+// 이 표면에 실제로 게시된 동작 기록 하나. 포인터 소유는 이 표만 본다.
+struct PublishedPointerRecord {
+    UIFrozenTarget target;
+    bool interactable = false;
+};
+
+// 상호작용 불가 기록의 주인. 자기 오브젝트부터 캔버스 뿌리까지 걸으며 처음
+// 만나는 동작 가능 오브젝트가 결정한다:
+//  * 자기 자신이면 — 이 기록은 상호작용 불가이므로 — 흡수(주인 없음);
+//  * 조상이고 상호작용 가능하며 이 스냅샷에 기록이 **게시되어** 있으면 그
+//    기록이 주인;
+//  * 조상이지만 꺼져 있거나 게시되지 않았으면 흡수/가림(주인 없음). 더 위로
+//    가지 않는다 — 꺼진 Delete 버튼이 자기 행을 활성화하면 안 된다.
+// 아무것도 없으면 가림(주인 없음).
+std::optional<UIFrozenTarget> ResolvePointerOwner(
+    GameObject& start,
+    const std::map<unsigned int, PublishedPointerRecord>& published) {
+    for (GameObject* candidate = &start; candidate;
+         candidate = candidate->GetParent()) {
+        if (ObjectIsActionCapable(*candidate)) {
+            if (candidate == &start) return std::nullopt;
+            const auto it = published.find(candidate->GetID());
+            if (it == published.end() || !it->second.interactable) {
+                return std::nullopt;
+            }
+            return it->second.target;
+        }
+        // 캔버스 뿌리 위는 UI가 아니다. 거기 붙은 버튼은 이 표면의 주인이
+        // 될 수 없다.
+        if (IsCanvasRoot(*candidate)) break;
+    }
+    return std::nullopt;
+}
+
 } // namespace
 
 namespace {
@@ -3135,6 +3183,10 @@ UISnapshotPtr UILayoutSystem::Build(
     std::vector<UITextInputImeGeometrySnapshot> textInputImeGeometry;
     std::uint64_t nextSubmission = 0;
     bool submissionOverflowed = false;
+    // 게시된 동작 기록을 오브젝트 id로. 노드는 draw order 오름차순으로 걷고
+    // 조상의 형제 경로는 자손의 접두사라 먼저 오므로, 자손의 주인을 풀 때 그
+    // 조상의 기록(게시되었다면)은 이미 여기 있다.
+    std::map<unsigned int, PublishedPointerRecord> publishedPointerRecords;
 
     const auto isSuppressedLabelObject = [&suppressedLabelObjectIds](
                                              unsigned int objectId) {
@@ -3492,9 +3544,11 @@ UISnapshotPtr UILayoutSystem::Build(
             }
             hit.focusable = hit.focusTarget.has_value();
             hit.acceptsTextInput = hit.textInputTarget.has_value();
-            // 안쪽에서 바깥쪽으로. 순서 자체가 계약이다 — 스크롤 입력은
-            // 가장 안쪽부터 변위를 소비한다.
-            for (GameObject* ancestor = object->GetParent(); ancestor;
+            // 자기 자신부터 바깥쪽으로(self-or-ancestor). 순서 자체가 계약이다
+            // — 스크롤 입력은 가장 안쪽부터 변위를 소비한다. 자기 오브젝트가
+            // 스크롤 뷰이면 그 뷰가 첫 항이다: 부모부터 걸으면 스크롤 뷰의 배경
+            // 위 휠이 그 뷰가 아니라 바깥 뷰를 스크롤한다.
+            for (GameObject* ancestor = object; ancestor;
                  ancestor = ancestor->GetParent()) {
                 auto* scroll = EnabledComponent<UIScrollView>(*ancestor);
                 if (!scroll) continue;
@@ -3542,6 +3596,15 @@ UISnapshotPtr UILayoutSystem::Build(
                         UISelectable::CurrentSchemaVersion);
                 }
             }
+            // ── 포인터 소유 ───────────────────────────────────────────────
+            // 상호작용 가능한 기록은 자기 자신이 주인이다(비워 둔다).
+            if (!hit.interactable) {
+                hit.pointerOwner =
+                    ResolvePointerOwner(*object, publishedPointerRecords);
+            }
+            publishedPointerRecords[objectId] = PublishedPointerRecord{
+                UIFrozenTarget{hit.target, hit.canonicalTarget},
+                hit.interactable};
             hitTargets.push_back(std::move(hit));
         }
 

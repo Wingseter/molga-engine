@@ -55,24 +55,30 @@ const UIHitTargetSnapshot* TopmostRouteAt(const UISnapshot& n,
     return nullptr;
 }
 
-// ── 포인터 동작 대상 정책 (컨트롤러 결정, Task 12.1 라운드 3) ───────────────
-// 그 점 아래에서 **상호작용 가능한** 맨 위 기록이다. 상호작용 불가 기록 — 버튼
-// 위의 라벨, 꺼 둔 버튼의 배경 이미지 — 은 포인터 동작 대상 선택에서 투명하다.
+// ── 포인터 동작 대상 (사용자 결정 2026-10-01) ───────────────────────────────
+// 그 점 아래의 **맨 위** 기록이 결정한다. 상호작용 가능하면 그 기록이다.
+// 아니면 게시 시각에 얼려 둔 주인(가장 가까운 동작 가능 조상이 상호작용
+// 가능하고 게시되었을 때만 있다)을 따른다. 주인이 없으면 사건은 가려진다 —
+// 모달의 배경은 그 뒤의 버튼을 막는다.
 //
-// 이것은 오늘의 공개 동작을 그대로 지키는 선택이다: 레거시
-// UISystem::ProcessInput은 상호작용 가능한 버튼만 보므로, 에디터 기본 Button
-// 프리셋(버튼 전체를 거의 덮는 자식 Label)을 눌러도 버튼이 눌린다. 맨 위
-// 기록에서 멈추면 그 버튼은 가장자리에서만 눌리고, 그 회귀는 Task 12.3이 실제
-// 입력을 PlanNext로 넘기는 순간 에디터와 런타임에 함께 나타난다.
-//
-// 더 나은 모델(가장 가까운 상호작용 가능 조상으로 보내고, 없으면 가린다)은
-// 공개 동작을 바꾸므로 사용자 승인을 기다린다. 바꿀 자리는 이 함수 하나다.
+// 이 함수가 조상을 스스로 추론하지 않는 이유: 그러려면 draw order 키의
+// 형제 경로 접두사를 조상 관계로 읽어야 하고, 그러면 draw order 구성이 바뀌는
+// 순간 포인터 라우팅이 조용히 바뀐다. 무엇을 얼리는지는 게시(subplan 03)가
+// 정한다.
+const UIHitTargetSnapshot* RouteForActionTarget(
+    const UISnapshot& n, const UIRuntimeTargetIdentity& target) noexcept;
+
 const UIHitTargetSnapshot* PointerActionRouteAt(
     const UISnapshot& n, molga::FixedPoint point) noexcept {
-    for (auto it = n.hitTargets.rbegin(); it != n.hitTargets.rend(); ++it) {
-        if (it->interactable && RouteContains(*it, point)) return &(*it);
-    }
-    return nullptr;
+    const UIHitTargetSnapshot* topmost = TopmostRouteAt(n, point);
+    if (!topmost) return nullptr;
+    if (topmost->interactable) return topmost;
+    if (!topmost->pointerOwner) return nullptr;
+    const UIHitTargetSnapshot* owner =
+        RouteForActionTarget(n, topmost->pointerOwner->runtimeTarget);
+    // 게시가 보장하지만 믿지 않는다: 주인 기록이 없거나 상호작용 불가이면
+    // 가린다(fail closed).
+    return owner && owner->interactable ? owner : nullptr;
 }
 
 const UIHitTargetSnapshot* RouteForActionTarget(
@@ -481,15 +487,17 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
                 result.visualDirty = true;
                 if (button) button->ApplyPointerState(true, true, false);
             } else {
-                // 클릭 판정은 **스냅샷 N**의 사각형과 클립으로 한다. 살아
-                // 있는 컴포넌트의 기하를 다시 읽으면 콜백이 방금 옮겨 놓은
-                // 사각형으로 판정하게 된다.
+                // 클릭 판정은 Unity 규칙이다: 놓은 점이 **스냅샷 N** 위에서 이
+                // 잡힌 식별자로 라우팅될 때만 클릭이다. 대상 자신의 사각형으로
+                // 판정하면 버튼 밖으로 넘친 라벨은 눌리되 영원히 클릭되지
+                // 않는다. 살아 있는 컴포넌트의 기하는 다시 읽지 않는다 — 콜백이
+                // 방금 옮겨 놓은 사각형으로 판정하게 된다.
                 bool inside = false;
                 if (planned.event.logicalPointValid) {
-                    const UIHitTargetSnapshot* route =
-                        RouteForActionTarget(n, stageTarget->runtimeTarget);
-                    inside = route != nullptr &&
-                             RouteContains(*route, planned.event.logicalPoint);
+                    const UIHitTargetSnapshot* releasedOver =
+                        PointerActionRouteAt(n, planned.event.logicalPoint);
+                    inside = releasedOver != nullptr &&
+                             releasedOver->target == stageTarget->runtimeTarget;
                 }
                 result.actionMask = UIEventActionBit(UIEventAction::Release);
                 if (inside) {

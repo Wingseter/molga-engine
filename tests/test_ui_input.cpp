@@ -112,6 +112,17 @@ constexpr unsigned int kDisabledOverlayId = 19; //   그 위의 꺼진 버튼 + 
 constexpr unsigned int kScrollItemId = 20;      // 스크롤 내용 안의 이미지 항목
 constexpr unsigned int kScrollItemLabelId = 21; //   그 위의 평범한 라벨
 constexpr unsigned int kScrollOverlayId = 22;   // 스크롤 목록 위를 덮는 장식
+// 포인터 소유 수정안의 모양들. 각각 올바른 모델과 틀린 모델이 갈리도록 골랐다.
+constexpr unsigned int kBlockerId = 23;          // 버튼들 위의 장식(동작 조상 없음)
+constexpr unsigned int kOverflowButtonId = 24;   // 60x40 버튼
+constexpr unsigned int kOverflowLabelId = 25;    //   오른쪽으로 60 px 넘치는 라벨
+constexpr unsigned int kRowId = 26;              // 클릭 가능한 목록 행
+constexpr unsigned int kDeleteButtonId = 27;     //   그 안의 꺼진 "Delete" 버튼
+constexpr unsigned int kDeleteLabelId = 28;      //     그 버튼의 라벨
+constexpr unsigned int kRectlessButtonId = 29;   // RectTransform 없는 버튼
+constexpr unsigned int kOrphanLabelId = 31;      //   그 자식 라벨(게시됨)
+constexpr unsigned int kRowInputId = 32;         // 행 안의 입력창(selectable 없음)
+constexpr unsigned int kRowToggleId = 33;        // 행 안의 꺼진 selectable + 이미지
 
 FixedSize RawSize(std::int32_t width, std::int32_t height) {
     return FixedSize{Fixed26_6::FromRaw(width), Fixed26_6::FromRaw(height)};
@@ -477,6 +488,78 @@ public:
         AddOffsetRect(*decoration, 280.0f, 20.0f, 20.0f, 20.0f);
         REQUIRE(decoration->AddComponent<UIImage>() != nullptr);
 
+        // 안쪽 스크롤 뷰포트의 배경. 뷰포트 자신이 hit 기록을 갖게 되고, 그
+        // 기록의 스크롤 사슬은 뷰 자신에서 시작해야 한다(self-or-ancestor).
+        REQUIRE(innerScroll->AddComponent<UIImage>() != nullptr);
+
+        // 상호작용 가능한 버튼들(high/low) 위를 덮는 장식. 조상 가운데 동작
+        // 가능한 오브젝트가 없으므로 누름과 hover를 **가린다**. 버튼 위에 있어야
+        // 가림이 투명과 갈린다 — 아래에 아무것도 없으면 두 모델이 같은 답을 낸다.
+        GameObject* blocker = AddObject(world_, kBlockerId, canvas);
+        AddOffsetRect(*blocker, 50.0f, 50.0f, 30.0f, 30.0f);
+        REQUIRE(blocker->AddComponent<UIImage>() != nullptr);
+
+        // 자기 버튼 밖으로 넘치는 라벨. 넘친 부분 위의 누름은 버튼의 것이고,
+        // 거기서 놓아도 클릭이다(놓은 점이 **같은 주인**으로 라우팅되면 클릭).
+        // 라벨이 버튼에 딱 맞으면 사각형 판정과 라우팅 판정이 같은 답을 낸다.
+        GameObject* overflow = AddObject(world_, kOverflowButtonId, canvas);
+        AddOffsetRect(*overflow, 300.0f, 500.0f, 60.0f, 40.0f);
+        overflowButton_ = overflow->AddComponent<UIButton>();
+        REQUIRE(overflowButton_ != nullptr);
+        overflowButton_->SetOnClick([this] { ++overflowClicks_; });
+        GameObject* overflowLabel = AddObject(world_, kOverflowLabelId, overflow);
+        AddOffsetRect(*overflowLabel, 0.0f, 0.0f, 120.0f, 40.0f);
+        AddLabel(*overflowLabel, "long label");
+
+        // 클릭 가능한 행 안의 꺼진 Delete 버튼과 그 라벨. 라벨 위의 누름은 꺼진
+        // 버튼에서 **흡수**되어야 하고 행을 활성화하면 안 된다. 행이 상호작용
+        // 가능해야 흡수가 가림과 갈린다.
+        GameObject* row = AddObject(world_, kRowId, canvas);
+        AddOffsetRect(*row, 400.0f, 560.0f, 200.0f, 60.0f);
+        rowButton_ = row->AddComponent<UIButton>();
+        REQUIRE(rowButton_ != nullptr);
+        rowButton_->SetOnClick([this] { ++rowClicks_; });
+        GameObject* deleteButton = AddObject(world_, kDeleteButtonId, row);
+        AddOffsetRect(*deleteButton, 140.0f, 10.0f, 50.0f, 40.0f);
+        deleteButton_ = deleteButton->AddComponent<UIButton>();
+        REQUIRE(deleteButton_ != nullptr);
+        deleteButton_->SetInteractable(false);
+        deleteButton_->SetOnClick([this] { ++deleteClicks_; });
+        // 꺼진 버튼 자신도 배경 이미지로 기록을 낸다. 라벨이 가장자리 10 px를
+        // 남기므로 그 가장자리에서는 버튼 자신의 기록이 맨 위다 — 거기서
+        // "자기 자신에서 흡수"가 "조상으로 올라감"과 갈린다(행이 상호작용
+        // 가능하므로).
+        REQUIRE(deleteButton->AddComponent<UIImage>() != nullptr);
+        GameObject* deleteLabel = AddObject(world_, kDeleteLabelId, deleteButton);
+        AddStretchRect(*deleteLabel, 10.0f, 10.0f);
+        AddLabel(*deleteLabel, "Delete");
+        // 행 안의 입력창. selectable이 없으므로 상호작용 불가 기록이지만
+        // UITextInput은 동작 가능 컴포넌트다 — 누름은 거기서 흡수되고 행을
+        // 활성화하지 않는다.
+        GameObject* rowInput = AddObject(world_, kRowInputId, row);
+        AddOffsetRect(*rowInput, 10.0f, 10.0f, 50.0f, 40.0f);
+        REQUIRE(rowInput->AddComponent<UITextInput>() != nullptr);
+        // 행 안의 꺼진 selectable(배경 이미지로 기록을 낸다). UISelectable도
+        // 동작 가능 컴포넌트이므로 여기서 흡수된다.
+        GameObject* rowToggle = AddObject(world_, kRowToggleId, row);
+        AddOffsetRect(*rowToggle, 70.0f, 10.0f, 40.0f, 40.0f);
+        REQUIRE(rowToggle->AddComponent<UIImage>() != nullptr);
+        auto* toggle = rowToggle->AddComponent<UISelectable>();
+        REQUIRE(toggle != nullptr);
+        toggle->SetInteractable(false);
+
+        // 게시되지 않은 동작 가능 조상. 클립으로 떨어진 노드는 서브트리 전체가
+        // 떨어지므로(ComputeClips) "조상은 떨어지고 자손은 게시된다"는 클립으로
+        // 만들 수 없다. 도달 가능한 모양은 RectTransform이 없는 버튼이다: 노드가
+        // 아니므로 기록이 없고, 그 자식 라벨은 캔버스 노드 아래에 게시된다.
+        GameObject* rectless = AddObject(world_, kRectlessButtonId, canvas);
+        rectlessButton_ = rectless->AddComponent<UIButton>();
+        REQUIRE(rectlessButton_ != nullptr);
+        rectlessButton_->SetOnClick([this] { ++rectlessClicks_; });
+        GameObject* orphan = AddObject(world_, kOrphanLabelId, rectless);
+        AddOffsetRect(*orphan, 0.0f, 520.0f, 100.0f, 40.0f);
+        AddLabel(*orphan, "orphan");
+
         Rebuild();
     }
 
@@ -559,6 +642,20 @@ public:
     UIRuntimeTargetIdentity UnderButtonIdentity() const {
         return IdentityOf(*underButton_);
     }
+    UIRuntimeTargetIdentity OverflowButtonIdentity() const {
+        return IdentityOf(*overflowButton_);
+    }
+    UIRuntimeTargetIdentity RowButtonIdentity() const {
+        return IdentityOf(*rowButton_);
+    }
+    UIRuntimeTargetIdentity RectlessButtonIdentity() const {
+        return IdentityOf(*rectlessButton_);
+    }
+    UIButton& PresetButton() { return *presetButton_; }
+    int OverflowClicks() const noexcept { return overflowClicks_; }
+    int RowClicks() const noexcept { return rowClicks_; }
+    int DeleteClicks() const noexcept { return deleteClicks_; }
+    int RectlessClicks() const noexcept { return rectlessClicks_; }
     int PresetButtonClicks() const noexcept { return presetClicks_; }
     int UnderButtonClicks() const noexcept { return underClicks_; }
     int DisabledButtonClicks() const noexcept { return disabledClicks_; }
@@ -800,6 +897,14 @@ private:
     UIButton* presetButton_ = nullptr;
     UIButton* underButton_ = nullptr;
     UIButton* disabledButton_ = nullptr;
+    UIButton* overflowButton_ = nullptr;
+    UIButton* rowButton_ = nullptr;
+    UIButton* deleteButton_ = nullptr;
+    UIButton* rectlessButton_ = nullptr;
+    int overflowClicks_ = 0;
+    int rowClicks_ = 0;
+    int deleteClicks_ = 0;
+    int rectlessClicks_ = 0;
     int lowClicks_ = 0;
     int highClicks_ = 0;
     int comboClicks_ = 0;
@@ -2308,6 +2413,10 @@ TEST_CASE("a press on the editor button preset's label clicks the button") {
     REQUIRE(button != nullptr);
     REQUIRE(button->interactable);
     REQUIRE(HitRecordContains(*button, onLabel));
+    // 게시된 계약: 라벨 기록의 주인은 버튼 기록이다(정규 키까지).
+    REQUIRE(topmost->pointerOwner.has_value());
+    CHECK(topmost->pointerOwner->runtimeTarget == f.PresetButtonIdentity());
+    CHECK(topmost->pointerOwner->canonicalTarget == button->canonicalTarget);
 
     auto state = f.InitialPlanningState();
     const auto plans = f.ProjectAll(
@@ -2326,7 +2435,10 @@ TEST_CASE("a press on the editor button preset's label clicks the button") {
     CHECK(f.PresetButtonClicks() == 1);
 }
 
-TEST_CASE("a disabled button's background over an enabled button passes the press through") {
+// 포인터 소유 (사용자 결정): 이 오버레이의 오브젝트는 꺼진 UIButton을 가진다 —
+// 동작 가능 오브젝트이지만 상호작용 불가이므로 사건은 **거기서 흡수**된다.
+// 12.1의 임시 규칙(상호작용 가능한 기록까지 투명)에서는 아래 버튼이 눌렸다.
+TEST_CASE("a disabled button's background over an enabled button absorbs the press") {
     UIFrozenInputFixture f;
     const auto n = f.BuildSnapshot();
     const FixedPoint point = PxPoint(10.0f, 410.0f);
@@ -2336,19 +2448,28 @@ TEST_CASE("a disabled button's background over an enabled button passes the pres
     REQUIRE(topmost != nullptr);
     REQUIRE(topmost->canonicalTarget.sceneObjectId == kDisabledOverlayId);
     REQUIRE_FALSE(topmost->interactable);
+    // 아래에는 상호작용 가능한 버튼이 정말로 있다. 없으면 흡수와 투명이 같은
+    // 답(대상 없음)을 낸다.
     const auto* under = FindHit(*n, f.UnderButtonIdentity());
     REQUIRE(under != nullptr);
     REQUIRE(under->interactable);
+    REQUIRE(HitRecordContains(*under, point));
+    // 게시된 계약: 주인이 없다.
+    CHECK_FALSE(topmost->pointerOwner.has_value());
 
     auto state = f.InitialPlanningState();
     const auto plans = f.ProjectAll(
-        *n, {f.PointerDown(710, point), f.PointerUp(711, point)}, state);
+        *n, {f.PointerMove(709, point), f.PointerDown(710, point),
+             f.PointerUp(711, point)},
+        state);
     for (const auto& plan : plans) {
-        REQUIRE(plan.targetFromSnapshotN.has_value());
-        CHECK(*plan.targetFromSnapshotN == f.UnderButtonIdentity());
+        CHECK(plan.surfaceEligible);
+        CHECK_FALSE(plan.targetFromSnapshotN);
         (void)f.Router().HandleEvent(f.World(), *n, plan, f.Diagnostics());
     }
-    CHECK(f.UnderButtonClicks() == 1);
+    CHECK_FALSE(state.hovered.has_value());
+    CHECK_FALSE(state.pointerCapture.has_value());
+    CHECK(f.UnderButtonClicks() == 0);
     CHECK(f.DisabledButtonClicks() == 0);
     CHECK_FALSE(f.DisabledButton().IsPressed());
 }
@@ -2741,4 +2862,358 @@ TEST_CASE("a stamped text plan freezes its input's scroll chain") {
         state);
     REQUIRE(outside.targetFromSnapshotN);
     CHECK(outside.ScrollTargetCount() == 0);
+}
+
+// ── 포인터 소유 수정안 (사용자 결정 2026-10-01) ─────────────────────────────
+namespace {
+
+void DispatchAll(UIFrozenInputFixture& f, const UISnapshot& n,
+                 const std::vector<PlannedUIEvent>& plans) {
+    for (const auto& plan : plans) {
+        (void)f.Router().HandleEvent(f.World(), n, plan, f.Diagnostics());
+    }
+}
+
+}  // namespace
+
+TEST_CASE("a decorative record with no action-capable ancestor blocks press and hover") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint point = PxPoint(60.0f, 60.0f);
+    const auto* topmost = TopmostRecordAt(*n, point, nullptr);
+    REQUIRE(topmost != nullptr);
+    REQUIRE(topmost->canonicalTarget.sceneObjectId == kBlockerId);
+    REQUIRE_FALSE(topmost->interactable);
+    CHECK_FALSE(topmost->pointerOwner.has_value());
+    // 아래에는 상호작용 가능한 버튼이 있다 — 가림이 투명과 갈리는 자리다.
+    const auto* high = FindHit(*n, f.HighButtonIdentity());
+    REQUIRE(high != nullptr);
+    REQUIRE(high->interactable);
+    REQUIRE(HitRecordContains(*high, point));
+
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerMove(900, point), f.PointerDown(901, point),
+             f.PointerUp(902, point)},
+        state);
+    for (const auto& plan : plans) CHECK_FALSE(plan.targetFromSnapshotN);
+    CHECK_FALSE(state.hovered.has_value());
+    CHECK_FALSE(state.pointerCapture.has_value());
+    DispatchAll(f, *n, plans);
+    CHECK(f.HighButtonClicks() == 0);
+    CHECK(f.LowButtonClicks() == 0);
+    CHECK_FALSE(f.HighButton().IsPressed());
+}
+
+// 클릭 판정은 Unity 규칙이다: 놓은 점이 **잡힌 식별자로 라우팅되면** 클릭이다.
+// 자기 사각형 안인지로 판정하면 버튼 밖으로 넘친 라벨은 눌리되 영원히 클릭되지
+// 않는다.
+TEST_CASE("a label overflowing its button presses and clicks that button") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const auto owner = f.OverflowButtonIdentity();
+    const FixedPoint overflowPart = PxPoint(400.0f, 510.0f);
+    const auto* button = FindHit(*n, owner);
+    REQUIRE(button != nullptr);
+    // 전제: 그 점은 버튼 사각형 **밖**이고 라벨 기록 위다.
+    REQUIRE_FALSE(HitRecordContains(*button, overflowPart));
+    const auto* topmost = TopmostRecordAt(*n, overflowPart, nullptr);
+    REQUIRE(topmost != nullptr);
+    REQUIRE(topmost->canonicalTarget.sceneObjectId == kOverflowLabelId);
+    REQUIRE(topmost->pointerOwner.has_value());
+    CHECK(topmost->pointerOwner->runtimeTarget == owner);
+
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(910, overflowPart), f.PointerUp(911, overflowPart)},
+        state);
+    for (const auto& plan : plans) {
+        REQUIRE(plan.targetFromSnapshotN);
+        CHECK(*plan.targetFromSnapshotN == owner);
+    }
+    DispatchAll(f, *n, plans);
+    CHECK(f.OverflowClicks() == 1);
+
+    // 대조군: 잡힌 채로 **다른 주인**(행) 위에서 놓으면 놓기는 배달되되 클릭은
+    // 아니다. 이것이 없으면 "잡혀 있으면 언제나 클릭"도 위를 통과한다.
+    auto other = f.InitialPlanningState();
+    const auto elsewhere = f.ProjectAll(
+        *n, {f.PointerDown(912, overflowPart),
+             f.PointerUp(913, PxPoint(450.0f, 600.0f))},
+        other);
+    REQUIRE(elsewhere[1].targetFromSnapshotN);
+    CHECK(*elsewhere[1].targetFromSnapshotN == owner);
+    (void)f.Router().HandleEvent(f.World(), *n, elsewhere[0], f.Diagnostics());
+    const auto release =
+        f.Router().HandleEvent(f.World(), *n, elsewhere[1], f.Diagnostics());
+    CHECK(release.callbackDelivered);
+    CHECK((release.actionMask & UIEventActionBit(UIEventAction::Release)) != 0);
+    CHECK((release.actionMask & UIEventActionBit(UIEventAction::Click)) == 0);
+    CHECK(f.OverflowClicks() == 1);
+    CHECK(f.RowClicks() == 0);
+}
+
+// 흡수 규칙: 처음 만나는 동작 가능 오브젝트가 꺼진 버튼이면 사건은 거기서
+// 끝난다. 그 위의 클릭 가능한 행이 활성화되면 안 된다.
+TEST_CASE("a disabled button absorbs its label's press even under a clickable row") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onDelete = PxPoint(560.0f, 590.0f);
+    const auto* topmost = TopmostRecordAt(*n, onDelete, nullptr);
+    REQUIRE(topmost != nullptr);
+    REQUIRE(topmost->canonicalTarget.sceneObjectId == kDeleteLabelId);
+    CHECK_FALSE(topmost->pointerOwner.has_value());
+    // 할아버지 행은 상호작용 가능하고 그 점을 덮는다. 꺼진 조상을 지나쳐
+    // 올라가는 구현은 정확히 이 행을 고른다.
+    const auto* row = FindHit(*n, f.RowButtonIdentity());
+    REQUIRE(row != nullptr);
+    REQUIRE(row->interactable);
+    REQUIRE(HitRecordContains(*row, onDelete));
+
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerMove(920, onDelete), f.PointerDown(921, onDelete),
+             f.PointerUp(922, onDelete)},
+        state);
+    for (const auto& plan : plans) CHECK_FALSE(plan.targetFromSnapshotN);
+    CHECK_FALSE(state.hovered.has_value());
+    DispatchAll(f, *n, plans);
+    CHECK(f.RowClicks() == 0);
+    CHECK(f.DeleteClicks() == 0);
+
+    // 꺼진 버튼 **자신의** 기록(라벨이 남긴 가장자리). 자기 오브젝트가 동작
+    // 가능하고 상호작용 불가이므로 자기 자신에서 흡수된다. 자기 자신을 건너뛰고
+    // 부모부터 걷는 구현은 여기서 행을 고른다.
+    const FixedPoint onMargin = PxPoint(545.0f, 575.0f);
+    const auto* own = TopmostRecordAt(*n, onMargin, nullptr);
+    REQUIRE(own != nullptr);
+    REQUIRE(own->canonicalTarget.sceneObjectId == kDeleteButtonId);
+    REQUIRE_FALSE(own->interactable);
+    REQUIRE(HitRecordContains(*row, onMargin));
+    CHECK_FALSE(own->pointerOwner.has_value());
+    auto marginState = f.InitialPlanningState();
+    const auto marginPlans = f.ProjectAll(
+        *n, {f.PointerDown(925, onMargin), f.PointerUp(926, onMargin)},
+        marginState);
+    for (const auto& plan : marginPlans) CHECK_FALSE(plan.targetFromSnapshotN);
+    DispatchAll(f, *n, marginPlans);
+    CHECK(f.RowClicks() == 0);
+
+    // 대조군: 행 자신의 영역은 클릭된다.
+    auto rowState = f.InitialPlanningState();
+    const auto rowPlans = f.ProjectAll(
+        *n, {f.PointerDown(923, PxPoint(520.0f, 615.0f)),
+             f.PointerUp(924, PxPoint(520.0f, 615.0f))},
+        rowState);
+    REQUIRE(rowPlans[0].targetFromSnapshotN);
+    CHECK(*rowPlans[0].targetFromSnapshotN == f.RowButtonIdentity());
+    DispatchAll(f, *n, rowPlans);
+    CHECK(f.RowClicks() == 1);
+}
+
+// UITextInput도 동작 가능 컴포넌트다. 빼면 행 안의 입력창을 누를 때 사건이
+// 그 입력창을 지나쳐 행을 활성화한다.
+TEST_CASE("a text input inside a clickable row absorbs its own press") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onInput = PxPoint(420.0f, 580.0f);
+    const auto* topmost = TopmostRecordAt(*n, onInput, nullptr);
+    REQUIRE(topmost != nullptr);
+    REQUIRE(topmost->canonicalTarget.sceneObjectId == kRowInputId);
+    REQUIRE_FALSE(topmost->interactable);
+    CHECK_FALSE(topmost->pointerOwner.has_value());
+    const auto* row = FindHit(*n, f.RowButtonIdentity());
+    REQUIRE(row != nullptr);
+    REQUIRE(HitRecordContains(*row, onInput));
+
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(970, onInput), f.PointerUp(971, onInput)}, state);
+    for (const auto& plan : plans) CHECK_FALSE(plan.targetFromSnapshotN);
+    DispatchAll(f, *n, plans);
+    CHECK(f.RowClicks() == 0);
+}
+
+// 라우터는 게시된 링크를 믿되 확인한다: N이 지킬 수 없는 주인 링크 — 기록이
+// 없거나 상호작용 불가인 주인 — 는 따라가지 않는다(fail closed). 게시가 그런
+// 링크를 만들지 않으므로, 실제 스냅샷을 복사해 한 필드만 바꾼다.
+TEST_CASE("a pointer owner link that snapshot N cannot honour is not followed") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onLabel = PxPoint(100.0f, 330.0f);
+    const auto* label = TopmostRecordAt(*n, onLabel, nullptr);
+    REQUIRE(label != nullptr);
+    REQUIRE(label->pointerOwner.has_value());
+    const auto labelIndex =
+        static_cast<std::size_t>(label - n->hitTargets.data());
+
+    // 대조군: 원본은 버튼으로 간다.
+    auto baseline = f.InitialPlanningState();
+    const auto routed = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(), f.PointerDown(980, onLabel), baseline);
+    REQUIRE(routed.targetFromSnapshotN);
+    CHECK(*routed.targetFromSnapshotN == f.PresetButtonIdentity());
+
+    // (a) 주인 기록이 상호작용 불가로 게시된 스냅샷.
+    UISnapshot disabledOwner = *n;
+    for (auto& hit : disabledOwner.hitTargets) {
+        if (hit.target == f.PresetButtonIdentity()) hit.interactable = false;
+    }
+    auto a = f.InitialPlanningState();
+    CHECK_FALSE(f.Router()
+                    .PlanNext(disabledOwner, f.SurfaceWindowId(),
+                              f.PointerDown(981, onLabel), a)
+                    .targetFromSnapshotN);
+
+    // (b) 주인 링크가 N에 없는 식별자를 가리키는 스냅샷.
+    UISnapshot danglingOwner = *n;
+    danglingOwner.hitTargets[labelIndex].pointerOwner->runtimeTarget =
+        f.RectlessButtonIdentity();
+    auto b = f.InitialPlanningState();
+    CHECK_FALSE(f.Router()
+                    .PlanNext(danglingOwner, f.SurfaceWindowId(),
+                              f.PointerDown(982, onLabel), b)
+                    .targetFromSnapshotN);
+}
+
+// 게시되지 않은 동작 가능 조상은 주인이 아니다(fail closed). 클립으로 떨어진
+// 노드는 서브트리 전체가 떨어지므로, 도달 가능한 모양은 RectTransform이 없는
+// 버튼이다.
+TEST_CASE("an action-capable ancestor with no published record is not linked") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onOrphan = PxPoint(10.0f, 530.0f);
+    REQUIRE(FindHit(*n, f.RectlessButtonIdentity()) == nullptr);
+    const auto* topmost = TopmostRecordAt(*n, onOrphan, nullptr);
+    REQUIRE(topmost != nullptr);
+    REQUIRE(topmost->canonicalTarget.sceneObjectId == kOrphanLabelId);
+    REQUIRE_FALSE(topmost->interactable);
+    CHECK_FALSE(topmost->pointerOwner.has_value());
+
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(930, onOrphan), f.PointerUp(931, onOrphan)}, state);
+    for (const auto& plan : plans) CHECK_FALSE(plan.targetFromSnapshotN);
+    DispatchAll(f, *n, plans);
+    CHECK(f.RectlessClicks() == 0);
+}
+
+TEST_CASE("hover over a decorative child hovers its owner") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    // 넘친 부분 — 주인 버튼의 사각형 밖이다. 투명 규칙이었다면 대상이 없다.
+    auto state = f.InitialPlanningState();
+    const auto hover = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(), f.PointerMove(940, PxPoint(400.0f, 510.0f)),
+        state);
+    REQUIRE(hover.targetFromSnapshotN);
+    CHECK(*hover.targetFromSnapshotN == f.OverflowButtonIdentity());
+    CHECK(state.hovered == f.OverflowButtonIdentity());
+    CHECK_FALSE(state.pointerCapture.has_value());
+}
+
+// self-or-ancestor: 스크롤 뷰의 배경 위 휠은 그 뷰 자신을 스크롤한다.
+TEST_CASE("a scroll view's own background scrolls itself") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const auto inner = f.ScrollIdentity(kInnerScrollId);
+    const auto outer = f.ScrollIdentity(kOuterScrollId);
+    const FixedPoint onViewport = PxPoint(290.0f, 90.0f);
+    const auto* topmost = TopmostRecordAt(*n, onViewport, nullptr);
+    REQUIRE(topmost != nullptr);
+    REQUIRE(topmost->canonicalTarget.sceneObjectId == kInnerScrollId);
+    // 게시된 계약: 뷰 자신이 첫 항이다.
+    REQUIRE(topmost->scrollTargets.size() == 2);
+    CHECK(topmost->scrollTargets[0].runtimeTarget == inner);
+    CHECK(topmost->scrollTargets[1].runtimeTarget == outer);
+
+    auto state = f.InitialPlanningState();
+    const auto own = f.ProjectAll(
+        *n, {f.PointerMove(950, onViewport), f.Scroll(951, 0, -64)}, state);
+    REQUIRE(own[1].ScrollTargetCount() == 2);
+    CHECK(own[1].TargetFor(UIEventStage::Scroll, 0)->runtimeTarget == inner);
+    CHECK(own[1].TargetFor(UIEventStage::Scroll, 1)->runtimeTarget == outer);
+
+    // 그 안의 내용도 여전히 같은 뷰를 먼저 스크롤한다.
+    auto contentState = f.InitialPlanningState();
+    const auto content = f.ProjectAll(
+        *n, {f.PointerMove(952, PxPoint(260.0f, 10.0f)), f.Scroll(953, 0, -64)},
+        contentState);
+    REQUIRE(content[1].ScrollTargetCount() == 2);
+    CHECK(content[1].TargetFor(UIEventStage::Scroll, 0)->runtimeTarget == inner);
+}
+
+// 주인은 정규 JSON에 정규 키로만 나타나고, 같은 저작 씬은 실행이 달라도 같은
+// 바이트를 낸다. 두 픽스처는 서로 다른 인스턴스 id와 세대를 받는다.
+TEST_CASE("pointerOwner in canonical JSON is stable and carries no runtime id") {
+    UIFrozenInputFixture first;
+    UIFrozenInputFixture second;
+    const auto a = first.BuildSnapshot();
+    const auto b = second.BuildSnapshot();
+    REQUIRE(first.PresetButtonIdentity() != second.PresetButtonIdentity());
+    const std::string jsonA = molga::ui::StableLayoutSnapshotJson(*a);
+    const std::string jsonB = molga::ui::StableLayoutSnapshotJson(*b);
+    CHECK(jsonA == jsonB);
+    // 라벨 기록의 주인이 정규 키로 들어 있다.
+    const std::string expectedOwner =
+        std::string(R"("pointerOwner":{"sceneObjectId":)") +
+        std::to_string(kPresetButtonId) +
+        R"(,"componentTypeName":"UIButton","componentSchemaVersion":1})";
+    CHECK(jsonA.find(expectedOwner) != std::string::npos);
+    for (const char* forbidden :
+         {"runtimeTarget", "componentInstanceId", "worldGeneration",
+          "componentRuntimeTypeId"}) {
+        CAPTURE(forbidden);
+        CHECK(jsonA.find(forbidden) == std::string::npos);
+    }
+}
+
+// 소유권만 바뀌어도 낡은 스냅샷이 돌아오면 안 된다. 라벨은 그대로이고 그 주인
+// 버튼의 상호작용 여부만 바뀐다.
+TEST_CASE("an ownership change alone is never served a stale snapshot") {
+    UIFrozenInputFixture f;
+    const FixedPoint onLabel = PxPoint(100.0f, 330.0f);
+    const auto before = f.BuildSnapshot();
+    const auto* labelBefore = TopmostRecordAt(*before, onLabel, nullptr);
+    REQUIRE(labelBefore != nullptr);
+    REQUIRE(labelBefore->pointerOwner.has_value());
+
+    f.PresetButton().SetInteractable(false);
+    const auto absorbed = f.Rebuild();
+    const auto* labelAbsorbed = TopmostRecordAt(*absorbed, onLabel, nullptr);
+    REQUIRE(labelAbsorbed != nullptr);
+    REQUIRE(labelAbsorbed->canonicalTarget.sceneObjectId == kPresetLabelId);
+    CHECK_FALSE(labelAbsorbed->pointerOwner.has_value());
+    auto state = f.InitialPlanningState();
+    const auto press = f.Router().PlanNext(*absorbed, f.SurfaceWindowId(),
+                                           f.PointerDown(960, onLabel), state);
+    CHECK_FALSE(press.targetFromSnapshotN);
+
+    f.PresetButton().SetInteractable(true);
+    const auto restored = f.Rebuild();
+    const auto* labelRestored = TopmostRecordAt(*restored, onLabel, nullptr);
+    REQUIRE(labelRestored != nullptr);
+    REQUIRE(labelRestored->pointerOwner.has_value());
+    CHECK(labelRestored->pointerOwner->runtimeTarget == f.PresetButtonIdentity());
+}
+
+TEST_CASE("a disabled selectable inside a clickable row absorbs its own press") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onToggle = PxPoint(480.0f, 580.0f);
+    const auto* topmost = TopmostRecordAt(*n, onToggle, nullptr);
+    REQUIRE(topmost != nullptr);
+    REQUIRE(topmost->canonicalTarget.sceneObjectId == kRowToggleId);
+    REQUIRE_FALSE(topmost->interactable);
+    CHECK_FALSE(topmost->pointerOwner.has_value());
+    const auto* row = FindHit(*n, f.RowButtonIdentity());
+    REQUIRE(row != nullptr);
+    REQUIRE(HitRecordContains(*row, onToggle));
+
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(990, onToggle), f.PointerUp(991, onToggle)}, state);
+    for (const auto& plan : plans) CHECK_FALSE(plan.targetFromSnapshotN);
+    DispatchAll(f, *n, plans);
+    CHECK(f.RowClicks() == 0);
 }

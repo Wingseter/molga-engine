@@ -16,7 +16,7 @@
 - Preserve unrelated worktree changes. Before each task run `git status --short --branch`; stage only that task's named files.
 - This plan starts only after `03-ui-layout-rendering.md` passes its Exit Contract. It consumes semantic cached `UISnapshot` values with concrete render/hit records, full runtime identities, `UIPhysicalTransform`, fixed scroll state, and immutable text layouts.
 - Snapshot N is the sole authority for target planning, hit order, visibility, parent clip, focus eligibility, and interactability. A callback may publish at most one render snapshot N+1; no event is re-hit-tested or retargeted against N+1.
-- `UIHitTargetSnapshot`/`PlannedUIEvent` preserve their source-compatible action target and also freeze optional `focusTarget`, optional `textInputTarget`, and `scrollTargets` in inner-to-outer order as complete `UIFrozenTarget` values. `TargetFor(stage,ordinal)` is the only stage-target accessor.
+- `UIHitTargetSnapshot`/`PlannedUIEvent` preserve their source-compatible action target and also freeze optional `focusTarget`, optional `textInputTarget`, `scrollTargets` (self-or-ancestor) in inner-to-outer order, and — on a non-interactable record — an optional `pointerOwner`, as complete `UIFrozenTarget` values. Pointer press, hover and release route through `pointerOwner`; a click fires only when the release point routes to the captured identity. *(Amended 2026-10-01.)* `TargetFor(stage,ordinal)` is the only stage-target accessor.
 - `UISystem::ProcessFrame` owns the one and only loop over `UIFrameInput::orderedEvents`. `UIInputRouter`, `UIFocusSystem`, `UIScrollSystem`, and `UITextInputSystem` expose one-event `HandleEvent` methods and never accept or walk an event vector.
 - Whole-batch planning sequentially projects focus/capture/navigation changes in `UIPlanningState` using snapshot N only. Later pointer/key/gamepad events in the same native batch see those projected policy transitions, but pre-ingested text/edit events stay on their stamped runtime owner. No projected target observes callbacks, authored mutation, or N+1 geometry.
 - Preserve strict native order across pointer, key, gamepad, scroll, editing, and commit events. Do not maintain a second text queue and do not implement a text-only drain.
@@ -74,7 +74,8 @@ struct UIHitTargetSnapshot {
     UIStableComponentKey canonicalTarget;
     std::optional<UIFrozenTarget> focusTarget;
     std::optional<UIFrozenTarget> textInputTarget;
-    std::vector<UIFrozenTarget> scrollTargets;
+    std::vector<UIFrozenTarget> scrollTargets;      // self-or-ancestor, inner-to-outer
+    std::optional<UIFrozenTarget> pointerOwner;     // amended 2026-10-01
     UIDrawOrderKey order;
     molga::FixedRect logicalRect;
     std::optional<molga::FixedRect> logicalClip;
@@ -758,6 +759,106 @@ added, so `cmake --preset asan|ubsan` had to run before the targets existed ther
 `tests/test_ui_layout.cpp`, which carry the inherited-defect, G1 and canvas-gate work;
 they are committed with this task. `.serena/project.yml` is unrelated tool state and is
 not staged.
+
+#### Amendment — pointer ownership (2026-10-01, user decision)
+
+**Decision.** The user approved the standard pointer model: a press, release or hover
+on a decorative hit record routes to its nearest interactable ancestor, and is
+**occluded** when there is none — so a modal's background blocks clicks to whatever is
+behind it. This replaces 12.1's interim rule (topmost *interactable* record, i.e.
+transparent-to-interactable, which preserved legacy behaviour but let every click pass
+through a modal's background). The plan was silent on pass-through; Global Constraints
+were amended accordingly (subplan 03 line 29, subplan 04 line 19 and the Prerequisite
+Contract's `UIHitTargetSnapshot` shape).
+
+**The rule, as implemented.** A non-interactable record's `pointerOwner` is computed at
+**hit publication**, walking up from the record's *own* object. The first object
+carrying an enabled `UIButton`, `UISelectable` or `UITextInput` decides:
+- interactable **and** published in N → it owns the event;
+- present but non-interactable (a disabled button), or unpublished → the event is
+  **absorbed** there and the walk never continues past it — a disabled "Delete" button
+  inside a clickable list row must not activate the row. This Unity-semantics detail was
+  the controller's resolution within the approved model;
+- nothing found up to the canvas root → **occluded**.
+An interactable record owns itself and its field stays empty. `target` and
+`canonicalTarget` remain the record's own component — reusing the owner's identity
+there would make two records share one action target and make capture-based click
+arbitration ambiguous. The router (`PointerActionRouteAt`) takes the topmost record,
+uses it if interactable, otherwise follows `pointerOwner` and fails closed unless the
+owner exists in N and is interactable; press, hover and release all use this function.
+
+**Why at publication and not in the router.** The router could infer ancestry from
+`UIDrawOrderKey::siblingPath` prefixes with no shape change, but that gives a draw-order
+key a routing meaning: any later change to how draw order is composed would silently
+change pointer routing. Subplan 03 owns what a hit record freezes.
+
+**Click arbitration changed with it.** A captured release clicks iff
+`PointerActionRouteAt(N, releasePoint)` resolves to the captured identity (Unity's rule).
+The old rect-containment check would have let a press through a label that overflows its
+button press the button but never click it.
+
+**Scroll targets are now self-or-ancestor** — the record's own object first when it is a
+scroll view — so a wheel over a scroll view's own background scrolls that view instead
+of the next one out.
+
+**Mutation evidence: 92 mutations, 91 killed, 1 equivalent.** Every 12.1 mutation was
+re-run against the new code, plus 19 new ones for the amendment (link never computed,
+unpublished ancestor linked, disabled ancestor passed through, own object passed
+through, each action-capable kind dropped, 12.1's transparency rule restored, link
+followed unchecked, arbitration reverted to rect containment, self scroll entry dropped,
+`pointerOwner` dropped from or leaking a runtime id into canonical JSON, the published
+map never filled). The survivor, quoted from the implementer:
+
+> P13 removes the `IsCanvasRoot` break from `ResolvePointerOwner`, so the ownership walk
+> may continue above the canvas root. It survives because it is an equivalent mutant.
+> The walk only links an ancestor whose record is in `publishedPointerRecords`, and that
+> map holds only records published for this surface. Those come exclusively from nodes
+> gathered beneath a canvas root. An ancestor of a canvas root is never gathered: it
+> cannot lie inside any canvas root's subtree, because the canvas below it would then
+> have an enabled canvas ancestor and would not be a root. So it can never have a
+> published record. ... Every path above the root therefore produces the result the break
+> produces. The break stays as an early exit that states the rule ("up to the canvas
+> root"). It is unobservable by construction, not untested.
+
+**Three places the controller's brief was wrong, caught by the implementer.** "An
+ancestor N dropped for an empty clip" cannot exist — `ComputeClips` drops whole subtrees —
+so the reachable unpublished case (an action-capable ancestor with no enabled
+RectTransform) is tested instead. The brief named both `ObjectIsInteractionEligible`
+(UIButton and UISelectable only) and an explicit list including `UITextInput`; the
+explicit list was followed, so a text input inside a clickable row absorbs its own press.
+And "nothing public changes" holds at runtime but not for bytes: canonical JSON of
+scroll-view records changes.
+
+**Canonical JSON.** Every hit-record entry gains `pointerOwner` right after
+`"interactable"`: the owner's canonical key, or `null`. Any future golden bytes that
+contain hit records must include it. `pointerOwner` is in canonical bytes but in no cache
+key, which is correct today because every ownership input (an ancestor's interactable or
+enabled state, attach/detach, re-parenting, sibling order, activity) advances
+`semanticDirtyGeneration`, and hit records are rebuilt on every full-snapshot miss.
+**Hazard for any future partial rebuild:** an ancestor's interactable flip changes a
+*descendant's* record, so an "interaction-only" rebuild would have to re-derive
+`pointerOwner` for the whole subtree. The test `an ownership change alone is never served
+a stale snapshot` guards it.
+
+**Carried forward.**
+- **Task 12.2 Step 6** (router-owned press/click tables): the hovered owner can differ
+  from the topmost record; click is "release routes to the captured identity"; a
+  captured route that N marks non-interactable is not delivered.
+- **Task 12.2 Step 7** (scroll handlers walk `TargetFor(Scroll, n)`): the first target may
+  now be the hit record's own scroll view; key, gamepad and text plans copy the focus
+  route's chain, so a focused scroll view lists itself first.
+- **Task 12.3 (R6):** arbitration now runs a full `PointerActionRouteAt` on whatever
+  snapshot it is given, so passing N rather than N+1 matters more than before.
+- **Task 14.1:** a bare `UITextInput` with no `UISelectable` is action-capable but never
+  interactable, so it absorbs presses and cannot own them. Pair inputs with a selectable,
+  or extend `ObjectIsInteractionEligible` to `UITextInput` — the owner rule already
+  counts it as action-capable, so that needs no router change.
+- **Task 15.3:** a scroll view receives wheel events only where something publishes a
+  hit record; a bare viewport (`UIMask` + `UIScrollView`, no graphic) publishes nothing,
+  so a wheel over its empty area reaches whatever is behind. That matches Unity, where a
+  ScrollRect needs a raycast target. The editor's ScrollView preset must therefore
+  include a background image, which is authoring-preset policy.
+- **Task 13.2 (R10)** still stands: the router ignores which mouse button was pressed.
 
 ### Task 12.2: Add full-identity focus, capture, navigation, and one-event scrolling
 

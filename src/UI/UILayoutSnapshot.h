@@ -176,11 +176,27 @@ struct UIHitTargetSnapshot {
     UIStableComponentKey canonicalTarget;
     std::optional<UIFrozenTarget> focusTarget;
     std::optional<UIFrozenTarget> textInputTarget;
+    // 자기 자신부터 바깥쪽으로(self-or-ancestor). 이 기록의 오브젝트가 스크롤
+    // 뷰이면 그 뷰가 첫 항이다 — 스크롤 뷰의 배경 위 휠이 그 뷰 자신을
+    // 스크롤한다.
     std::vector<UIFrozenTarget> scrollTargets;
     UIDrawOrderKey order;
     molga::FixedRect logicalRect;
     std::optional<molga::FixedRect> logicalClip;
     bool interactable = false;
+    // ── 포인터 소유 (사용자 결정 2026-10-01) ────────────────────────────────
+    // 이 기록 위의 누름/놓기/hover가 누구의 것인가. 상호작용 가능한 기록은
+    // 자기 자신이 주인이므로 비어 있다. 상호작용 불가 기록은 자기 오브젝트부터
+    // 위로 걸어 **처음 만나는** 동작 가능 오브젝트(UIButton/UISelectable/
+    // UITextInput)가 결정한다: 그것이 상호작용 가능하고 이 스냅샷에 게시된
+    // 기록을 가지면 그 기록이 주인이고, 상호작용 불가(꺼진 버튼)이면 사건은
+    // 거기서 흡수되며 더 위로 가지 않는다. 캔버스 뿌리까지 아무것도 없으면
+    // 비어 있다 — 사건은 가려진다.
+    //
+    // 게시 시각에 얼린다. 라우터가 siblingPath 접두사로 조상을 추론할 수도
+    // 있지만, 그러면 draw order 키가 라우팅 의미를 떠안아 draw order 구성이
+    // 바뀌는 순간 포인터 라우팅이 조용히 바뀐다.
+    std::optional<UIFrozenTarget> pointerOwner;
     bool focusable = false;
     bool acceptsTextInput = false;
     UINavigationSnapshot navigation;

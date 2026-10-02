@@ -325,6 +325,8 @@ std::string StableLayoutSnapshotJson(const UISnapshot& snapshot) {
         entry["logicalRect"] = RectJson(hit.logicalRect);
         entry["logicalClip"] = OptionalRectJson(hit.logicalClip);
         entry["interactable"] = hit.interactable;
+        // scrollTargets와 같은 규칙이다: 정규 키만, 런타임 정체성은 없다.
+        entry["pointerOwner"] = OptionalFrozenTargetJson(hit.pointerOwner);
         entry["focusable"] = hit.focusable;
         entry["acceptsTextInput"] = hit.acceptsTextInput;
         entry["navigation"] = NavigationJson(hit.navigation);

@@ -495,6 +495,9 @@ molga::ui::UISnapshot MakePayloadSnapshot() {
     hit.logicalRect = RectRaw(64, 128, 192, 256);
     hit.logicalClip = RectRaw(448, 512, 576, 640);
     hit.interactable = true;
+    // 직렬화기 시험이다. 게시는 상호작용 가능한 기록의 주인을 비워 두지만,
+    // 여기서는 필드가 어떻게 나가는지만 본다.
+    hit.pointerOwner = FrozenTarget(22, "UIButton", 1);
     hit.focusable = true;
     hit.acceptsTextInput = false;
     hit.navigation.mode = UINavigationMode::Explicit;
@@ -542,7 +545,8 @@ TEST_CASE("payload JSON carries canonical keys and no runtime binding") {
          {"canonicalSource", "componentTypeName", "componentSchemaVersion",
           "reservedCommandSpan", "stableSubmissionIndex", "siblingPath",
           "textureGuid", "textureContentSha256", "textureContentStableId",
-          "focusTarget", "textInputTarget", "scrollTargets", "navigation",
+          "focusTarget", "textInputTarget", "scrollTargets", "pointerOwner",
+          "navigation",
           "renderedLabel", "placeholderLabel", "Explicit", "sprite", "solid"}) {
         CAPTURE(present);
         CHECK(json.find(present) != std::string::npos);
@@ -579,6 +583,7 @@ TEST_CASE("payload JSON is byte-identical across binding and edit history") {
     rerouted.renderItems[0].source = Identity(999);
     rerouted.hitTargets[0].target = Identity(999);
     rerouted.hitTargets[0].focusTarget->runtimeTarget = Identity(999);
+    rerouted.hitTargets[0].pointerOwner->runtimeTarget = Identity(999);
     rerouted.hitTargets[0].navigation.explicitTargets[0] = Identity(999);
     rerouted.textInputImeGeometry[0].focused = false;
     // ── Task 11.1 Q3 ────────────────────────────────────────────────────────
@@ -660,6 +665,12 @@ TEST_CASE("payload JSON is byte-identical across binding and edit history") {
           }));
     CHECK(base != mutated([](molga::ui::UISnapshot& s) {
               s.hitTargets[0].interactable = false;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].pointerOwner = std::nullopt;
+          }));
+    CHECK(base != mutated([](molga::ui::UISnapshot& s) {
+              s.hitTargets[0].pointerOwner->canonicalTarget.sceneObjectId = 999;
           }));
     CHECK(base != mutated([](molga::ui::UISnapshot& s) {
               s.hitTargets[0].focusable = false;
