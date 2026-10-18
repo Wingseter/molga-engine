@@ -12,6 +12,13 @@ class TextDiagnosticSink;
 
 namespace molga::ui {
 
+// 점 아래에서 가장 위에 그려진 hit 기록 하나(상호작용 여부와 무관). 게시된
+// hitTargets의 정확한 역순을 보고, 점이 사각형과 이미 조상과 교집합인 클립
+// 안에 있어야 한다(먼 경계는 열려 있다). 라우터의 스크롤 대상 선택과 Scene View
+// 선택이 이 규칙 한 벌을 함께 쓴다.
+const UIHitTargetSnapshot* TopmostHitRecordAt(const UISnapshot& snapshot,
+                                              molga::FixedPoint point) noexcept;
+
 // 순서 있는 배치를 스냅샷 N에 대해 계획하고, 계획 하나를 발송한다.
 //
 // **이벤트 벡터를 받는 API가 없다.** 배치를 도는 루프는 프레임 orchestrator

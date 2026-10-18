@@ -7,6 +7,7 @@
 #include "UI/UIInputEvent.h"
 #include "UI/UIInputRouter.h"
 #include "UI/UIInteractionState.h"
+#include "UI/UIRenderCollector.h"
 
 #include <cstdint>
 #include <memory>
@@ -40,17 +41,24 @@ public:
     // press; release clicks exactly once when still inside the captured rect.
     void ProcessInput(World& world, const Vector2& viewportSize,
                       const UIPointerState& pointer);
-    // ── Task 8.2 Step 6/6a: 라벨은 공유 파이프라인으로만 그려진다 ──────────
-    // renderer/sink/래스터 정책을 바깥 소유자가 건넨다. 기본값을 가진 오버로드도
-    // sink 없는 오버로드도 만들지 않는다: 그런 오버로드가 하나라도 있으면 UI가
-    // TextRenderer::Get()을 스스로 부르는 경로가 다시 생기고, 그 순간 UI와
-    // 월드가 서로 다른 서비스를 볼 수 있게 된다.
-    void CollectRender(World& world, const Vector2& viewportSize,
+    // ── Task 12.3 Step 5: UI는 게시된 스냅샷으로만 그려진다 ─────────────────
+    // 스냅샷과 물리 변환을 호출자가 건넨다. 월드를 다시 읽는 오버로드는 없다 —
+    // 그런 경로가 하나라도 있으면 화면이 스냅샷과 갈리고, 그 차이는 스냅샷을
+    // 다시 지어야만 보인다. 래스터 정책은 변환이 정하므로 인자로 받지 않는다.
+    // renderer/sink는 바깥 소유자가 건넨 그 하나다(Task 8.2): UI가 스스로
+    // TextRenderer::Get()을 찾는 경로를 만들지 않는다.
+    void CollectRender(const molga::ui::UISnapshot& snapshot,
+                       const molga::ui::UIPhysicalTransform& transform,
                        molga::RenderQueue& queue, TextRenderer& textRenderer,
-                       molga::text::TextDiagnosticSink& textDiagnostics,
-                       const TextRasterPolicy& rasterPolicy);
-    GameObject* HitTest(World& world, const Vector2& viewportSize,
-                        const Vector2& point) const;
+                       molga::text::TextDiagnosticSink& textDiagnostics);
+    // Scene View 선택: 같은 스냅샷에서 맨 위의 hit 기록(그린 순서의 역순, 점이
+    // 사각형과 클립 안)을 고르고, 그 기록의 오브젝트를 돌려준다. 없으면 nullptr.
+    GameObject* PickObject(World& world, const molga::ui::UISnapshot& snapshot,
+                           molga::FixedPoint logicalPoint) const;
+    // 관찰 seam: 가장 최근 수집 하나의 회계.
+    std::uint64_t RenderCollectorDroppedItemCountForTesting() const noexcept;
+    std::uint64_t RenderCollectorSubmittedItemCountForTesting() const noexcept;
+
     void ResetPointerCapture();
 
     // ── Task 10.2 Step 9a: 프로덕션 배치의 유일한 입구 ──────────────────────
@@ -148,6 +156,7 @@ private:
 
     // ── Task 12.3 Step 4: 프레임 오케스트레이터가 소유하는 상태 ─────────────
     // 라우터/포커스는 데이터 멤버가 없는 규칙 묶음이다. 상태는 표면 표에 산다.
+    molga::ui::UIRenderCollector renderCollector_;
     molga::ui::UIInputRouter inputRouter_;
     molga::ui::UIFocusSystem focusSystem_;
     // 표면별 "마지막으로 끝까지 처리한" 네이티브 시퀀스/tick 인덱스. 재생과 역행을

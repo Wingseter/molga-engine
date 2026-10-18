@@ -471,6 +471,11 @@ PlannedUIEvent UIInputRouter::PlanNext(const UISnapshot& n,
     return plan;
 }
 
+const UIHitTargetSnapshot* TopmostHitRecordAt(const UISnapshot& snapshot,
+                                              molga::FixedPoint point) noexcept {
+    return TopmostRouteAt(snapshot, point);
+}
+
 // ── Step 6a: 발송 시각의 완전한 식별자 해석 ─────────────────────────────────
 //
 // hover/pressed/click의 권위는 이 함수 하나다(R7). UIButton은 자기 상태를 갖지

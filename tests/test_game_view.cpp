@@ -216,6 +216,38 @@ TEST_CASE("GameView maps panel through target presentation to logical pixels") {
     CHECK(logicalLast->y == 179);
 }
 
+// Task 12.3 Step 5: UI 스냅샷의 논리 뷰포트는 출력 배치가 정한 논리 크기다. Native
+// 모드에서는 요청한 논리 크기가 아니라 대상 크기가 논리 크기이므로, 두 소유자가
+// 같은 계산을 쓰지 않으면 UI가 한 번 더 늘어나거나 줄어든다.
+TEST_CASE("the UI logical viewport follows the presentation layout") {
+    const auto native = molga::GameOutputRenderer::UiLogicalViewport(
+        molga::GameOutputScaleMode::Native, {320, 180}, {800, 600});
+    REQUIRE(native.has_value());
+    CHECK(native->width.Raw() == 800 * 64);
+    CHECK(native->height.Raw() == 600 * 64);
+
+    const auto fit = molga::GameOutputRenderer::UiLogicalViewport(
+        molga::GameOutputScaleMode::IntegerFit, {320, 180}, {800, 600});
+    REQUIRE(fit.has_value());
+    CHECK(fit->width.Raw() == 320 * 64);
+    CHECK(fit->height.Raw() == 180 * 64);
+
+    // 잘리는 대상(작은 프레임버퍼)에서도 논리 크기는 요청 그대로다.
+    const auto cropped = molga::GameOutputRenderer::UiLogicalViewport(
+        molga::GameOutputScaleMode::IntegerFit, {320, 180}, {160, 90});
+    REQUIRE(cropped.has_value());
+    CHECK(cropped->width.Raw() == 320 * 64);
+
+    // 유효하지 않은 크기는 값을 지어내지 않는다.
+    CHECK_FALSE(molga::GameOutputRenderer::UiLogicalViewport(
+        molga::GameOutputScaleMode::Native, {320, 180}, {0, 600}).has_value());
+    CHECK_FALSE(molga::GameOutputRenderer::UiLogicalViewport(
+        molga::GameOutputScaleMode::IntegerFit, {0, 180}, {800, 600}).has_value());
+    // 64배가 int32를 넘는 크기도 마찬가지다.
+    CHECK_FALSE(molga::GameOutputRenderer::UiLogicalViewport(
+        molga::GameOutputScaleMode::Native, {320, 180}, {40'000'000, 600}).has_value());
+}
+
 TEST_CASE("Resolution presets resolve build and custom dimensions") {
     CHECK((ResolveResolutionPreset(ResolutionPreset::BuildResolution,
                                    {1234, 567}, {77, 55}) == PixelSize{1234, 567}));

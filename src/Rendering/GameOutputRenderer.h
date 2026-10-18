@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Common/Fixed26_6.h"
 #include "Rendering/RenderTarget.h"
 #include "Rendering/CameraOutputLayout.h"
 #include "Rendering/OutputPresentationLayout.h"
@@ -8,6 +9,7 @@
 #include "Rendering/LightingPipeline2D.h"
 
 #include <memory>
+#include <optional>
 #include <cstdint>
 #include <unordered_map>
 #include <vector>
@@ -22,6 +24,7 @@ class Shader;
 // 않으므로 선언만 있으면 되고, 그래서 이 헤더는 텍스트 헤더를 끌어오지 않는다.
 class TextRenderer;
 namespace molga::text { class TextDiagnosticSink; }
+namespace molga::ui { struct UISnapshot; }
 
 namespace molga {
 
@@ -75,12 +78,24 @@ struct GameOutputRequest {
     // Null presents to the acquired main-window swapchain. Editor Game View
     // supplies its private render target explicitly.
     RenderTarget* destination = nullptr;
+    // Task 12.3 Step 5: UI 층은 프레임 소유자가 게시한 스냅샷 하나만 그린다. 소유하지
+    // 않는다 — 소유자가 그 프레임이 끝날 때까지 UISnapshotPtr를 쥐고 있다. null이면
+    // UI 층이 없다. 스냅샷의 논리 뷰포트는 UiLogicalViewport()와 같아야 한다.
+    const molga::ui::UISnapshot* uiSnapshot = nullptr;
 };
 
 // The sole game-output path used by both the standalone player and Game View.
 // The caller owns the current render target (swapchain or offscreen texture).
 class GameOutputRenderer {
 public:
+    // 이 요청의 UI 스냅샷이 가져야 하는 논리 뷰포트(26.6). 출력 배치가 정한 논리 크기를
+    // 쓴다: Native 모드에서는 요청한 논리 크기가 아니라 대상 크기가 논리 크기다. 두
+    // 프레임 소유자(Game View, 런타임)가 같은 계산을 쓰도록 한 곳에 둔다. 유효하지
+    // 않거나 26.6로 담기지 않으면 nullopt.
+    static std::optional<FixedSize> UiLogicalViewport(
+        GameOutputScaleMode scaleMode, PixelSize logicalSize,
+        PixelSize targetSize);
+
     static Camera* FindMainCamera(
         const std::vector<std::shared_ptr<GameObject>>& objects);
 
@@ -100,7 +115,8 @@ public:
         TextRenderer& textRenderer,
         molga::text::TextDiagnosticSink& textDiagnostics);
 
-    // Compatibility entry point for the original direct Native path.
+    // Compatibility entry point for the original direct Native path. It carries no
+    // UI snapshot, so it draws no UI layer.
     static GameOutputResult Render(
         World& world,
         PixelSize outputSize,
@@ -127,6 +143,7 @@ private:
     GameOutputResult RenderLogical(
         World& world,
         PixelSize logicalSize,
+        const molga::ui::UISnapshot* uiSnapshot,
         Renderer& renderer,
         Shader* spriteShader,
         TextRenderer& textRenderer,

@@ -8,6 +8,7 @@
 // ComponentFactory.h touches GameObject members inline, so the definition has
 // to arrive first.
 #include "ECS/GameObject.h"
+#include "UI/UIInteractionState.h"
 #include "ECS/ComponentFactory.h"
 #include "ECS/SceneObjectRef.h"
 #include "ECS/Components/RectTransform.h"
@@ -2086,6 +2087,29 @@ TEST_CASE("a UI document written before the schema version still loads") {
     // 상호작용 불가 버튼은 비활성 색을 쓴다. 네 색이 서로 다른 값이므로 이
     // 검사는 색 한 쌍이 뒤바뀐 구현을 걸러 낸다.
     CHECK(button.CurrentColor() == Color{0.8125f, 0.875f, 0.9375f, 1.0f});
+}
+
+// Task 12.3 Step 5: 색 선택은 표를 읽지 않는 순수 함수 하나다. CurrentColor는
+// 그 함수에 any-surface 상태를 먹일 뿐이다(공개 API는 유지).
+TEST_CASE("UIButton::ColorFor picks disabled, pressed, hover and normal in that order") {
+    UIButton button;
+    button.SetNormalColor(Color{0.1f, 0.1f, 0.1f, 1.0f});
+    button.SetHoverColor(Color{0.2f, 0.2f, 0.2f, 1.0f});
+    button.SetPressedColor(Color{0.3f, 0.3f, 0.3f, 1.0f});
+    button.SetDisabledColor(Color{0.4f, 0.4f, 0.4f, 1.0f});
+    using molga::ui::UIButtonPointerState;
+
+    CHECK(button.ColorFor(UIButtonPointerState{}) == button.GetNormalColor());
+    CHECK(button.ColorFor(UIButtonPointerState{true, false, false}) == button.GetHoverColor());
+    CHECK(button.ColorFor(UIButtonPointerState{false, true, false}) == button.GetPressedColor());
+    // 눌림이 hover보다 앞선다.
+    CHECK(button.ColorFor(UIButtonPointerState{true, true, false}) == button.GetPressedColor());
+    // 클릭 가장자리는 색에 영향이 없다.
+    CHECK(button.ColorFor(UIButtonPointerState{false, false, true}) == button.GetNormalColor());
+
+    button.SetInteractable(false);
+    CHECK(button.ColorFor(UIButtonPointerState{true, true, true}) == button.GetDisabledColor());
+    CHECK(button.ColorFor(UIButtonPointerState{}) == button.GetDisabledColor());
 }
 
 // ── 정규 토큰 표 전체 ────────────────────────────────────────────────────────

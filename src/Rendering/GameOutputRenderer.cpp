@@ -6,6 +6,7 @@
 #include "ECS/Components/Camera.h"
 #include "ECS/GameObject.h"
 #include "Rendering/Camera2D.h"
+#include "Rendering/GraphicsDevice.h"
 #include "Rendering/LightingFrame2D.h"
 #include "Rendering/LightingPipeline2D.h"
 #include "Rendering/PostProcessProfileResolver.h"
@@ -20,6 +21,7 @@
 #include "UI/UISystem.h"
 
 #include <algorithm>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -103,28 +105,59 @@ bool DrawPreparedWorldLayer(PreparedWorldLayer2D& prepared,
     return renderer.EndTarget(&error);
 }
 
-bool RenderUiLayer(World& world,
+// 논리 프레임버퍼 크기를 26.6 논리 뷰포트로. 64배가 int32에 담기지 않으면 지어내지 않는다.
+std::optional<FixedSize> PixelsToLogicalViewport(PixelSize size) {
+    constexpr int kMaxPixels = 0x7fffffff / 64;
+    if (size.width <= 0 || size.height <= 0 || size.width > kMaxPixels ||
+        size.height > kMaxPixels) {
+        return std::nullopt;
+    }
+    return FixedSize{Fixed26_6::FromRaw(size.width * 64),
+                     Fixed26_6::FromRaw(size.height * 64)};
+}
+
+bool RenderUiLayer(const molga::ui::UISnapshot* snapshot,
                    PixelSize logicalSize, RenderTarget& target,
                    Renderer& renderer, Shader* spriteShader,
                    TextRenderer& textRenderer,
                    molga::text::TextDiagnosticSink& textDiagnostics,
                    std::string& error) {
+    // 스냅샷이 없으면 UI 층도 없다.
+    if (snapshot == nullptr) return true;
+    const std::optional<FixedSize> expected = PixelsToLogicalViewport(logicalSize);
+    if (!expected || snapshot->logicalViewport != *expected) {
+        // 다른 크기로 지은 스냅샷을 이 프레임버퍼에 그리면 UI가 늘어나거나 줄어든다.
+        // 조용히 왜곡해 그리느니 진단을 남기고 그리지 않는다.
+        molga::text::TextDiagnostic diagnostic;
+        diagnostic.code = molga::text::TextDiagnosticCode::LayoutInvalid;
+        diagnostic.severity = molga::text::TextSeverity::Error;
+        diagnostic.subsystem = "ui.render";
+        diagnostic.message =
+            "the UI snapshot's logical viewport differs from the output's "
+            "logical framebuffer size, so the UI layer was not drawn";
+        diagnostic.remediation =
+            "build the snapshot with GameOutputRenderer::UiLogicalViewport()";
+        textDiagnostics.Report(std::move(diagnostic));
+        return true;
+    }
+
     RenderQueue queue;
     // UI는 논리 프레임버퍼에 그려지고 그 다음에 정수 배로 확대된다. 그러므로
     // 이 층의 물리 픽셀은 논리 크기 그대로다 — 확대 뒤 화면 픽셀로 정책을
-    // 잡으면 논리 버퍼에 담기지도 않을 해상도로 래스터하게 된다.
-    TextRasterPolicy uiPolicy;
-    if (const auto derived = TextRasterPolicy::FromUiScale(
-            FixedSize{Fixed26_6::FromRaw(logicalSize.width * 64),
-                      Fixed26_6::FromRaw(logicalSize.height * 64)},
-            logicalSize, textDiagnostics)) {
-        uiPolicy = *derived;
+    // 잡으면 논리 버퍼에 담기지도 않을 해상도로 래스터하게 된다. 래스터 정책은
+    // 수집기가 이 변환에서 정한다.
+    molga::ui::UIPhysicalTransform transform;
+    transform.logicalViewport = FixedRect{
+        Fixed26_6::FromRaw(0), Fixed26_6::FromRaw(0), expected->width,
+        expected->height};
+    transform.physicalViewport = PixelRectU32{
+        0U, 0U, static_cast<std::uint32_t>(logicalSize.width),
+        static_cast<std::uint32_t>(logicalSize.height)};
+    if (const GraphicsDevice* device = GraphicsDevice::Current()) {
+        transform.deviceGeneration = device->Generation();
     }
-    UISystem::Get().CollectRender(
-        world,
-        {static_cast<float>(logicalSize.width),
-         static_cast<float>(logicalSize.height)},
-        queue, textRenderer, textDiagnostics, uiPolicy);
+    UISystem::Get().CollectRender(*snapshot, transform, queue, textRenderer,
+                                  textDiagnostics);
     if (queue.GetCommands().empty()) return true;
     if (!renderer.BeginTarget(target, {0, 0, 0, 1}, LoadAction::Load, &error)) {
         return false;
@@ -204,9 +237,18 @@ Camera* GameOutputRenderer::FindMainCamera(
     return selected;
 }
 
+std::optional<FixedSize> GameOutputRenderer::UiLogicalViewport(
+    GameOutputScaleMode scaleMode, PixelSize logicalSize, PixelSize targetSize) {
+    const OutputPresentationLayout presentation =
+        OutputPresentationLayout::Calculate(scaleMode, logicalSize, targetSize);
+    if (!presentation.IsValid()) return std::nullopt;
+    return PixelsToLogicalViewport(presentation.logicalSize);
+}
+
 GameOutputResult GameOutputRenderer::RenderLogical(
     World& world,
-    PixelSize logicalSize, Renderer& renderer, Shader* spriteShader,
+    PixelSize logicalSize, const molga::ui::UISnapshot* uiSnapshot,
+    Renderer& renderer, Shader* spriteShader,
     TextRenderer& textRenderer,
     molga::text::TextDiagnosticSink& textDiagnostics) {
     GameOutputResult result;
@@ -435,7 +477,7 @@ GameOutputResult GameOutputRenderer::RenderLogical(
         result.cameraResults.push_back(cameraResult);
     }
 
-    if (!RenderUiLayer(world, logicalSize, logicalFramebuffer_, renderer,
+    if (!RenderUiLayer(uiSnapshot, logicalSize, logicalFramebuffer_, renderer,
                        spriteShader, textRenderer, textDiagnostics, error)) {
         Log::Warn("GameOutput", "UI pass failed: " + error);
     }
@@ -489,8 +531,8 @@ GameOutputResult GameOutputRenderer::Render(
         return result;
     }
     const OutputPresentationLayout presentation = result.presentation;
-    result = RenderLogical(world, logicalSize, renderer, spriteShader,
-                           textRenderer, textDiagnostics);
+    result = RenderLogical(world, logicalSize, request.uiSnapshot, renderer,
+                           spriteShader, textRenderer, textDiagnostics);
     result.presentation = presentation;
 
     ColorAttachmentDescriptor destination =

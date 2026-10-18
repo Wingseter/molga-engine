@@ -21,6 +21,8 @@
 #include "Rendering/FontFace.h"
 #include "Core/World.h"
 #include "Rendering/GameOutputRenderer.h"
+#include "UI/UISystem.h"
+#include "UI/UITextInputVisualState.h"
 #include "Rendering/PostProcessPipeline.h"
 #include "Rendering/PostProcessProfile2D.h"
 #include "Rendering/RenderTarget.h"
@@ -79,7 +81,7 @@ bool RenderOutputFrame(
     World& objects,
     molga::RenderTarget& target, molga::PixelSize logicalSize,
     molga::GameOutputScaleMode scaleMode, molga::GameOutputResult& result,
-    std::string& error) {
+    std::string& error, const molga::ui::UISnapshot* uiSnapshot = nullptr) {
     if (!Acquire(host, renderer, error)) return false;
     // Task 8.2 Step 7d: 게임 출력은 이 프레임의 텍스트 권한을 인자로 받는다.
     // 프로덕션과 같은 하나의 프로세스 renderer를 쓴다 — 여기서 두 번째
@@ -87,7 +89,8 @@ bool RenderOutputFrame(
     static molga::text::VectorTextDiagnosticSink textSink;
     result = output.Render(
         objects,
-        {{target.Width(), target.Height()}, logicalSize, scaleMode, &target},
+        {{target.Width(), target.Height()}, logicalSize, scaleMode, &target,
+         uiSnapshot},
         renderer, ShaderManager::Get().Get("default"), TextRenderer::Get(),
         textSink);
     if (!result.presented) {
@@ -1192,9 +1195,21 @@ TEST_CASE("SDL_GPU IntegerFit preserves texels bars crop and UI-after-world") {
     molga::RenderTarget uiTarget;
     REQUIRE(uiTarget.Init(2, 2, &error));
     molga::GameOutputResult uiResult;
+    // Task 12.3 Step 5: UI 층은 프레임 소유자가 짓는 스냅샷 하나로만 그려진다.
+    // 스냅샷이 없으면 이 장면은 UI를 그리지 않는다.
+    molga::text::VectorTextDiagnosticSink uiSink;
+    UISystem::Get().InstallLayoutDependencies(
+        molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+        TextRenderer::Get().LayoutService());
+    const auto uiViewport = molga::GameOutputRenderer::UiLogicalViewport(
+        molga::GameOutputScaleMode::Native, {2, 2}, {2, 2});
+    REQUIRE(uiViewport.has_value());
+    const molga::ui::UISnapshotPtr uiSnapshot = UISystem::Get().BuildLayout(
+        uiOnly, host->WindowId(), *uiViewport, uiSink);
+    REQUIRE(uiSnapshot != nullptr);
     REQUIRE(RenderOutputFrame(*host, renderer, output, uiOnly, uiTarget, {2, 2},
                               molga::GameOutputScaleMode::Native,
-                              uiResult, error));
+                              uiResult, error, uiSnapshot.get()));
     CHECK(uiResult.mainCamera == nullptr);
     const auto uiPixels = ReadTarget(*host, uiTarget, error);
     REQUIRE(uiPixels.size() == 2U * 2U * 4U);

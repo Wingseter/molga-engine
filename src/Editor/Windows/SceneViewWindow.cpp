@@ -11,6 +11,7 @@
 #include "Rendering/CameraOutputLayout.h"
 #include "Core/World.h"
 #include "Rendering/GameOutputRenderer.h"
+#include "Rendering/GraphicsDevice.h"
 #include "Rendering/PostProcessProfileResolver.h"
 #include "Rendering/LightingFrame2D.h"
 #include "Core/Profiling/ProfileScope.h"
@@ -143,6 +144,15 @@ void SceneViewWindow::OnGUI() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin(title.c_str(), &isOpen, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
+
+    // UI 표면 키의 창. SDL 플랫폼 핸들이 곧 창 id다(GameViewWindow와 같은 규칙).
+    {
+        const ImGuiViewport* viewport = ImGui::GetWindowViewport();
+        platformWindow_ = viewport && viewport->PlatformHandle
+            ? static_cast<molga::WindowId>(
+                  reinterpret_cast<std::intptr_t>(viewport->PlatformHandle))
+            : 0;
+    }
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     float  vpW   = avail.x;
@@ -736,23 +746,47 @@ void SceneViewWindow::DrawSprites() {
 
 // ── 입력 처리 ─────────────────────────────────────────────────────────────────
 
+molga::ui::UISnapshotPtr SceneViewWindow::BuildUiSnapshot(float vpW, float vpH) {
+    if (!world_ || !textDiagnostics_) return nullptr;
+    // 패널 픽셀에 1:1로 놓이는 논리 뷰포트. 26.6 raw(정수 픽셀 * 64)가 int32에
+    // 담기는 범위에서만 지어낸다.
+    constexpr int kMaxPixels = 0x7fffffff / 64;
+    const int pixelsW = static_cast<int>(vpW);
+    const int pixelsH = static_cast<int>(vpH);
+    if (pixelsW <= 0 || pixelsH <= 0 || pixelsW > kMaxPixels ||
+        pixelsH > kMaxPixels) {
+        return nullptr;
+    }
+    const molga::FixedSize viewport{molga::Fixed26_6::FromRaw(pixelsW * 64),
+                                    molga::Fixed26_6::FromRaw(pixelsH * 64)};
+    return UISystem::Get().BuildLayout(*world_, platformWindow_, viewport,
+                                       *textDiagnostics_);
+}
+
 void SceneViewWindow::DrawUI(float vpW, float vpH) {
     if (!renderer_ || !spriteShader_ || !Objects()) return;
     if (!textRenderer_ || !textDiagnostics_) return;
-    molga::RenderQueue queue;
-    // Scene View의 UI 층은 패널 픽셀에 1:1로 그려진다.
-    TextRasterPolicy uiPolicy;
-    const molga::PixelSize uiPixels{static_cast<int>(vpW),
-                                    static_cast<int>(vpH)};
-    if (const auto derived = TextRasterPolicy::FromUiScale(
-            molga::FixedSize{
-                molga::Fixed26_6::FromRaw(uiPixels.width * 64),
-                molga::Fixed26_6::FromRaw(uiPixels.height * 64)},
-            uiPixels, *textDiagnostics_)) {
-        uiPolicy = *derived;
+    // Scene View의 UI 층은 패널 픽셀에 1:1로 그려진다. 이 표면은 입력을 처리하지
+    // 않으므로 버튼은 기본 색으로 그려진다.
+    const molga::ui::UISnapshotPtr snapshot = BuildUiSnapshot(vpW, vpH);
+    if (!snapshot) return;
+
+    const int pixelsW = static_cast<int>(vpW);
+    const int pixelsH = static_cast<int>(vpH);
+    molga::ui::UIPhysicalTransform transform;
+    transform.logicalViewport = molga::FixedRect{
+        molga::Fixed26_6::FromRaw(0), molga::Fixed26_6::FromRaw(0),
+        snapshot->logicalViewport.width, snapshot->logicalViewport.height};
+    transform.physicalViewport = molga::PixelRectU32{
+        0U, 0U, static_cast<std::uint32_t>(pixelsW),
+        static_cast<std::uint32_t>(pixelsH)};
+    if (const molga::GraphicsDevice* device = molga::GraphicsDevice::Current()) {
+        transform.deviceGeneration = device->Generation();
     }
-    UISystem::Get().CollectRender(*world_, {vpW, vpH}, queue,
-                                  *textRenderer_, *textDiagnostics_, uiPolicy);
+
+    molga::RenderQueue queue;
+    UISystem::Get().CollectRender(*snapshot, transform, queue, *textRenderer_,
+                                  *textDiagnostics_);
     if (queue.GetCommands().empty()) return;
 
     Camera2D uiCamera(vpW, vpH);
@@ -1282,17 +1316,23 @@ void SceneViewWindow::HandlePick(ImVec2 panelPos, ImVec2 panelSize) {
     if (!Objects()) return;
     ImVec2 m = ImGui::GetMousePos();
 
-    if (GameObject* ui = UISystem::Get().HitTest(
-            *world_, {panelSize.x, panelSize.y},
-            {m.x - panelPos.x, m.y - panelPos.y})) {
-        if (ImGui::GetIO().KeyShift) {
-            Editor::Get().GetSelection().Add(
-                ui->GetID(), molga::SelectionSource::SceneView);
-        } else {
-            Editor::Get().GetSelection().Select(
-                ui->GetID(), molga::SelectionSource::SceneView);
+    // UI 선택: 그릴 때 쓴 것과 같은 스냅샷에서 맨 위의 hit 기록을 고른다.
+    const auto pointX = molga::Fixed26_6::FromFloat(m.x - panelPos.x);
+    const auto pointY = molga::Fixed26_6::FromFloat(m.y - panelPos.y);
+    if (const molga::ui::UISnapshotPtr snapshot =
+            BuildUiSnapshot(panelSize.x, panelSize.y);
+        snapshot && pointX && pointY) {
+        if (GameObject* ui = UISystem::Get().PickObject(
+                *world_, *snapshot, molga::FixedPoint{*pointX, *pointY})) {
+            if (ImGui::GetIO().KeyShift) {
+                Editor::Get().GetSelection().Add(
+                    ui->GetID(), molga::SelectionSource::SceneView);
+            } else {
+                Editor::Get().GetSelection().Select(
+                    ui->GetID(), molga::SelectionSource::SceneView);
+            }
+            return;
         }
-        return;
     }
 
     float wx, wy;

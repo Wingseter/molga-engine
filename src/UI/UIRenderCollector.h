@@ -42,9 +42,8 @@ public:
     // 그 순간부터 **살아 있는 월드의 새 사실이 하나도 보고되지 않는다**.
     // UILayoutSystem::OnWorldReleased가 같은 이유로 자기 예산을 비운다.
     //
-    // 프로세스 배선(molga::ui::NotifyUIWorldReleased -> 이 함수)은 이
-    // 수집기의 소유자를 만드는 **Task 12.3**의 몫이다. 오늘 이 클래스는
-    // 소유자가 없고, 소유자 없는 등록은 등록이 아니다.
+    // 프로세스 배선: molga::ui::NotifyUIWorldReleased -> UISystem::
+    // OnWorldReleased -> 이 함수. 소유자는 UISystem이다(Task 12.3 Step 5).
     void OnWorldReleased(std::uint64_t worldGeneration);
 
     // ── 관찰 seam ──────────────────────────────────────────────────────────

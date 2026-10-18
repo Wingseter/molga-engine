@@ -82,13 +82,17 @@ bool UIButton::IsPressed() const {
                                 .pressed;
 }
 
-Color UIButton::CurrentColor() const {
+Color UIButton::ColorFor(const molga::ui::UIButtonPointerState& state) const noexcept {
     if (!interactable_) return disabledColor_;
-    const auto state = molga::ui::UIInteractionStateTable::Get()
-                           .ButtonStateAnySurface(RuntimeIdentity());
     if (state.pressed) return pressedColor_;
     if (state.hovered) return hoverColor_;
     return normalColor_;
+}
+
+Color UIButton::CurrentColor() const {
+    if (!interactable_) return disabledColor_;
+    return ColorFor(molga::ui::UIInteractionStateTable::Get()
+                        .ButtonStateAnySurface(RuntimeIdentity()));
 }
 
 void UIButton::ClearRuntimePointerState() {

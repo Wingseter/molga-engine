@@ -8,6 +8,8 @@
 #include "Editor/EditorPreferences.h"
 #include "Rendering/PostProcessPipeline.h"
 #include "Rendering/LightingPipeline2D.h"
+#include "Platform/Window.h"
+#include "UI/UILayoutSnapshot.h"
 #include <imgui.h>
 #include <memory>
 #include <vector>
@@ -69,6 +71,9 @@ private:
     TextRenderer* textRenderer_ = nullptr;
     molga::text::TextDiagnosticSink* textDiagnostics_ = nullptr;
 
+    // 이 패널이 놓인 플랫폼 창(UI 표면 키). OnGUI가 매 프레임 정한다.
+    molga::WindowId platformWindow_ = 0;
+
     // Scene View 전용 오프스크린 타깃
     molga::RenderTarget sceneTarget_;
     molga::PostProcessPipeline postProcessPipeline_;
@@ -120,6 +125,10 @@ private:
     void DrawGrid();
     void DrawSprites();
     void DrawUI(float vpW, float vpH);
+    // Task 12.3 Step 5: 그리기와 선택이 같은 스냅샷을 쓴다. 변경이 없으면 UISystem의
+    // 캐시가 같은 포인터를 돌려주므로 두 번 부르는 것은 한 번 부르는 것과 같다.
+    // 이 창은 스냅샷을 쥐고 있지 않는다(장치 종료를 막을 수 있는 수명 토큰을 든다).
+    molga::ui::UISnapshotPtr BuildUiSnapshot(float vpW, float vpH);
     void DrawCameraOutputGizmos(ImVec2 panelPos, ImVec2 panelSize);
     bool DrawLightingHandles(ImVec2 panelPos, ImVec2 panelSize);
     void CancelLightingHandleDrag();

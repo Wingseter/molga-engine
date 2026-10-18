@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <functional>
 
+namespace molga::ui { struct UIButtonPointerState; }
+
 class UIButton : public UIComponent {
 public:
     COMPONENT_TYPE(UIButton)
@@ -36,8 +38,11 @@ public:
     void SetDisabledColor(const Color& value);
     int GetSortingOrder() const { return sortingOrder_; }
     void SetSortingOrder(int value);
-    // 저작 색 + 표의 hover/pressed(어느 표면이든).
+    // 저작 색 + 표의 hover/pressed(어느 표면이든). ColorFor에 any-surface 상태를
+    // 먹인 것이다.
     Color CurrentColor() const;
+    // 표를 읽지 않는 순수 선택: 상호작용 불가 > 눌림 > hover > 기본.
+    Color ColorFor(const molga::ui::UIButtonPointerState& state) const noexcept;
 
     // ── 레거시 포인터 경로(UISystem::ProcessInput) 전용 어댑터 ──────────────
     // 입력 라우터는 이것을 부르지 않는다. 예약 표면 {0, worldGeneration}에 쓰고,

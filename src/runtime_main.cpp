@@ -1245,11 +1245,25 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         {
             MOLGA_PROFILE_SCOPE("GameOutput.Render", molga::ProfileCategory::Rendering);
             if (frameAvailable && framebufferSize.IsValid()) {
+                // Task 12.3 Step 5: UI는 이번 프레임의 스냅샷 하나로만 그려진다. 입력이
+                // 아직 레거시(Step 7)라 스크립트 Update 뒤, 그리기 직전에 짓는다 — 그래서
+                // Update가 바꾼 UI는 예전처럼 같은 프레임에 보인다. 이 루프 본문 안에서만
+                // 쥐므로 장치 종료를 막는 수명 토큰을 프레임 밖으로 들고 나가지 않는다.
+                molga::ui::UISnapshotPtr uiRenderSnapshot;
+                if (const auto uiViewport =
+                        molga::GameOutputRenderer::UiLogicalViewport(
+                            config.outputScaleMode, configuredLogicalSize,
+                            framebufferSize)) {
+                    uiRenderSnapshot = UISystem::Get().BuildLayout(
+                        world, host->WindowId(), *uiViewport, textDiagnostics);
+                }
+                molga::GameOutputRequest outputRequest{
+                    framebufferSize, configuredLogicalSize,
+                    config.outputScaleMode};
+                outputRequest.uiSnapshot = uiRenderSnapshot.get();
                 lastGameOutputResult = gameOutputRenderer->Render(
-                    world,
-                    {framebufferSize, configuredLogicalSize,
-                     config.outputScaleMode},
-                    *renderer, shader, TextRenderer::Get(), textDiagnostics);
+                    world, outputRequest, *renderer, shader,
+                    TextRenderer::Get(), textDiagnostics);
             }
         }
 

@@ -1,6 +1,7 @@
 #include "doctest.h"
 
 #include "Core/SceneSerializer.h"
+#include "Common/Fixed26_6.h"
 #include "Core/World.h"
 #include "ECS/BuiltinComponents.h"
 #include "ECS/Components/RectTransform.h"
@@ -8,11 +9,13 @@
 #include "ECS/Components/UICanvas.h"
 #include "ECS/Components/UIImage.h"
 #include "ECS/Components/UILabel.h"
+#include "ECS/Components/UIMask.h"
 #include "ECS/GameObject.h"
 #include "UI/UISystem.h"
 #include "UI/UILayoutSystem.h"
 #include "UI/UIRuntimeIdentity.h"
 #include "UI/UIRuntimeInvalidation.h"
+#include "UI/UITextInputVisualState.h"
 
 #include "Assets/FontArtifactStore.h"
 #include "Core/AssetDatabase.h"
@@ -216,29 +219,12 @@ TEST_CASE("UI ignores disabled canvases and inactive ancestors") {
     UISystem::Get().ProcessInput(
         world, {800.0f, 600.0f}, {{400.0f, 300.0f}, true, true, false, true});
     CHECK_FALSE(button->IsPressed());
-    CHECK(UISystem::Get().HitTest(world, {800.0f, 600.0f}, {400.0f, 300.0f}) == nullptr);
 
     canvas->GetComponent<UICanvas>()->SetEnabled(true);
     canvas->SetActive(false);
     UISystem::Get().ProcessInput(
         world, {800.0f, 600.0f}, {{400.0f, 300.0f}, true, true, false, true});
     CHECK_FALSE(button->IsPressed());
-    CHECK(UISystem::Get().HitTest(world, {800.0f, 600.0f}, {400.0f, 300.0f}) == nullptr);
-}
-
-TEST_CASE("UI hit testing selects only visible UI components") {
-    World world;
-    auto canvas = MakeCanvas(world);
-    CHECK(UISystem::Get().HitTest(world, {800.0f, 600.0f}, {400.0f, 300.0f}) == nullptr);
-
-    auto image = std::make_shared<GameObject>("Image");
-    auto* rect = image->AddComponent<RectTransform>();
-    rect->SetAnchors({0.5f, 0.5f}, {0.5f, 0.5f});
-    rect->SetSizeDelta({100.0f, 100.0f});
-    image->AddComponent<UIImage>();
-    image->SetParent(canvas.get());
-    world.Add(image);
-    CHECK(UISystem::Get().HitTest(world, {800.0f, 600.0f}, {400.0f, 300.0f}) == image.get());
 }
 
 TEST_CASE("UIButton disabling clears transient pointer state") {
@@ -682,6 +668,42 @@ std::shared_ptr<GameObject> MakeLabel(World& world, GameObject* parent,
     return object;
 }
 
+// Task 12.3 Step 5: UI는 스냅샷으로만 그려진다. 월드 -> BuildLayout -> 스냅샷 ->
+// CollectRender(스냅샷, 변환)이 전부다.
+constexpr molga::WindowId kRenderSurface = 10;
+
+molga::FixedSize PixelsAsFixed(int width, int height) {
+    return molga::FixedSize{molga::Fixed26_6::FromRaw(width * 64),
+                            molga::Fixed26_6::FromRaw(height * 64)};
+}
+
+molga::ui::UISnapshotPtr BuildUiSnapshot(
+    World& world, TextRenderer& renderer,
+    molga::text::TextDiagnosticSink& sink, int width = 800, int height = 600) {
+    UISystem::Get().InstallLayoutDependencies(
+        molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
+        renderer.LayoutService());
+    return UISystem::Get().BuildLayout(world, kRenderSurface,
+                                       PixelsAsFixed(width, height), sink);
+}
+
+// 논리 뷰포트 한 장을 물리 뷰포트에 그린다. 수집기는 장치 세대가 0이 아니기만
+// 요구하고, 스프라이트가 없는 이 시험들에는 진짜 장치가 필요 없다.
+molga::ui::UIPhysicalTransform UiTransform(int logicalWidth, int logicalHeight,
+                                           int physicalWidth, int physicalHeight,
+                                           std::uint64_t deviceGeneration = 7) {
+    molga::ui::UIPhysicalTransform transform;
+    transform.logicalViewport = molga::FixedRect{
+        molga::Fixed26_6::FromRaw(0), molga::Fixed26_6::FromRaw(0),
+        molga::Fixed26_6::FromRaw(logicalWidth * 64),
+        molga::Fixed26_6::FromRaw(logicalHeight * 64)};
+    transform.physicalViewport = molga::PixelRectU32{
+        0U, 0U, static_cast<std::uint32_t>(physicalWidth),
+        static_cast<std::uint32_t>(physicalHeight)};
+    transform.deviceGeneration = deviceGeneration;
+    return transform;
+}
+
 }  // namespace
 
 TEST_CASE("UISystem collects labels through the shared text renderer") {
@@ -705,11 +727,13 @@ TEST_CASE("UISystem collects labels through the shared text renderer") {
     auto canvas = MakeCanvas(world);
     MakeLabel(world, canvas.get(), "Ag", kUiPrimaryFamilyGuid);
 
+    const auto snapshot = BuildUiSnapshot(world, renderer, sink);
+    REQUIRE(snapshot != nullptr);
     molga::RenderQueue queue;
     {
         auto scope = renderer.BeginGlyphCollection(1);
-        UISystem::Get().CollectRender(world, {800.0f, 600.0f}, queue, renderer,
-                                      sink, TextRasterPolicy{});
+        UISystem::Get().CollectRender(*snapshot, UiTransform(800, 600, 800, 600),
+                                      queue, renderer, sink);
     }
     // 두 grapheme, 두 명령. 그리고 그 명령들은 atlas page를 실제로 붙들고
     // 있으므로 셰이핑과 래스터를 정말로 지났다.
@@ -765,11 +789,14 @@ TEST_CASE("a rendered label publishes its intrinsic size to layout") {
         return molga::ui::UIRuntimeInvalidationClock::Current()
             .semanticDirtyGeneration;
     };
+    // 고유 크기는 이제 배치(BuildLayout)가 게시한다. 그리기는 읽기만 한다.
     const auto collect = [&] {
+        const auto snapshot = BuildUiSnapshot(world, renderer, sink);
+        REQUIRE(snapshot != nullptr);
         molga::RenderQueue queue;
         auto scope = renderer.BeginGlyphCollection(1);
-        UISystem::Get().CollectRender(world, {800.0f, 600.0f}, queue, renderer,
-                                      sink, TextRasterPolicy{});
+        UISystem::Get().CollectRender(*snapshot, UiTransform(800, 600, 800, 600),
+                                      queue, renderer, sink);
     };
 
     // 배치를 지나기 전에는 아무도 게시하지 않았다.
@@ -839,11 +866,13 @@ TEST_CASE("a UILabel with no font reaches tofu and a typed diagnostic") {
     auto canvas = MakeCanvas(world);
     MakeLabel(world, canvas.get(), "Ag", "missing-family");
 
+    const auto snapshot = BuildUiSnapshot(world, renderer, sink);
+    REQUIRE(snapshot != nullptr);
     molga::RenderQueue queue;
     {
         auto scope = renderer.BeginGlyphCollection(1);
-        UISystem::Get().CollectRender(world, {800.0f, 600.0f}, queue, renderer,
-                                      sink, TextRasterPolicy{});
+        UISystem::Get().CollectRender(*snapshot, UiTransform(800, 600, 800, 600),
+                                      queue, renderer, sink);
     }
     REQUIRE(queue.GetCommands().size() == 2U);
     for (const molga::RenderCommand& command : queue.GetCommands()) {
@@ -925,9 +954,12 @@ TEST_CASE("UI label glyphs land at the rect the label's RectTransform names") {
     const Vector2 viewport{800.0f, 600.0f};
     std::uint64_t frame = 0;
     const auto collect = [&](molga::RenderQueue& queue) {
+        // 라벨을 옮길 때마다 새 스냅샷이다: 배치가 rect를 읽는 유일한 자리다.
+        const auto snapshot = BuildUiSnapshot(world, f.renderer, f.sink);
+        REQUIRE(snapshot != nullptr);
         auto scope = f.renderer.BeginGlyphCollection(++frame);
-        UISystem::Get().CollectRender(world, viewport, queue, f.renderer,
-                                      f.sink, TextRasterPolicy{});
+        UISystem::Get().CollectRender(*snapshot, UiTransform(800, 600, 800, 600),
+                                      queue, f.renderer, f.sink);
     };
 
     // 원점에서 떨어진 rect. 이 값이 0이면 아래 등식은 아무것도 말하지 않는다.
@@ -1002,26 +1034,28 @@ TEST_CASE("UI text rasterizes at the policy the caller supplies") {
     auto canvas = MakeCanvas(world);
     MakeLabel(world, canvas.get(), "Ag", kUiPrimaryFamilyGuid);
 
-    const Vector2 viewport{800.0f, 600.0f};
+    const auto snapshot = BuildUiSnapshot(world, f.renderer, f.sink);
+    REQUIRE(snapshot != nullptr);
     std::uint64_t frame = 0;
-    const auto collectAt = [&](const TextRasterPolicy& policy) {
+    // 정책은 변환에서 나온다: 논리 800x600을 물리 W x H에 그리면 배율은 W/800이다.
+    const auto collectAt = [&](int physicalWidth, int physicalHeight) {
         molga::RenderQueue queue;
         {
             auto scope = f.renderer.BeginGlyphCollection(++frame);
-            UISystem::Get().CollectRender(world, viewport, queue, f.renderer,
-                                          f.sink, policy);
+            UISystem::Get().CollectRender(
+                *snapshot, UiTransform(800, 600, physicalWidth, physicalHeight),
+                queue, f.renderer, f.sink);
         }
         REQUIRE(queue.GetCommands().size() == 2U);
         return f.renderer.GlyphAtlas().LastUploadedKeyForTest();
     };
 
     // MakeLabel의 24px: 24*64 * 64 / 4096 = 24.
-    const molga::GlyphAtlasKey at1x = collectAt(TextRasterPolicy{});
+    const molga::GlyphAtlasKey at1x = collectAt(800, 600);
     CHECK(at1x.pixelSize == 24);
 
-    TextRasterPolicy hiDpi;
-    hiDpi.rasterScaleKey = 128;  // 2x
-    const molga::GlyphAtlasKey at2x = collectAt(hiDpi);
+    // 2x 물리 뷰포트(800x600 논리 -> 1600x1200).
+    const molga::GlyphAtlasKey at2x = collectAt(1600, 1200);
     // 24*64 * 128 / 4096 = 48. 정책을 무시하는 구현은 여기서도 24를 낸다.
     CHECK(at2x.pixelSize == 48);
     // 같은 glyph의 두 래스터 높이다. 다른 glyph를 본 것이 아니다.
@@ -1030,4 +1064,148 @@ TEST_CASE("UI text rasterizes at the policy the caller supplies") {
     // 설계 결정 2: 배율 자리는 두 경우 모두 항등원이다.
     CHECK(at1x.rasterScaleKey == 64);
     CHECK(at2x.rasterScaleKey == 64);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 12.3 Step 5: 스냅샷 위의 선택과 수집기 소유권
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace {
+molga::FixedPoint FixedPointPx(int x, int y) {
+    return molga::FixedPoint{molga::Fixed26_6::FromRaw(x * 64),
+                             molga::Fixed26_6::FromRaw(y * 64)};
+}
+
+std::shared_ptr<GameObject> MakeImage(World& world, GameObject* parent,
+                                      float width, float height) {
+    auto object = std::make_shared<GameObject>("Image");
+    auto* rect = object->AddComponent<RectTransform>();
+    rect->SetAnchors({0.5f, 0.5f}, {0.5f, 0.5f});
+    rect->SetPivot({0.5f, 0.5f});
+    rect->SetSizeDelta({width, height});
+    object->AddComponent<UIImage>();
+    object->SetParent(parent);
+    world.Add(object);
+    return object;
+}
+}  // namespace
+
+TEST_CASE("UI hit testing selects only visible UI components") {
+    UiTextFixture f;
+    World world;
+    auto canvas = MakeCanvas(world);
+    const auto pick = [&](int x, int y) -> GameObject* {
+        const auto snapshot = BuildUiSnapshot(world, f.renderer, f.sink);
+        REQUIRE(snapshot != nullptr);
+        return UISystem::Get().PickObject(world, *snapshot, FixedPointPx(x, y));
+    };
+
+    // 캔버스 뿌리만 있는 장면: 뿌리 사각형은 시각적 대상이 아니다.
+    CHECK(pick(400, 300) == nullptr);
+
+    // 가운데 100x100 이미지: [350,450) x [250,350).
+    auto image = MakeImage(world, canvas.get(), 100.0f, 100.0f);
+    CHECK(pick(400, 300) == image.get());
+    CHECK(pick(350, 250) == image.get());
+    CHECK(pick(449, 349) == image.get());
+    // 먼 경계는 열린 쪽이다: 맞닿은 두 위젯 사이의 픽셀이 양쪽에 속하지 않는다.
+    CHECK(pick(450, 300) == nullptr);
+    CHECK(pick(400, 350) == nullptr);
+    CHECK(pick(349, 300) == nullptr);
+
+    // 겹침: 나중 형제가 위에 그려지므로 맨 위가 선택된다(그린 순서의 역순).
+    auto upper = MakeImage(world, canvas.get(), 100.0f, 100.0f);
+    CHECK(pick(400, 300) == upper.get());
+    // 그린 순서의 계약은 캔버스 정렬 > 형제 경로 > 컴포넌트 정렬 순이다. 선택은 그
+    // 정확한 역순이므로 컴포넌트 정렬 순서가 형제 순서를 이기지 못한다(예전 즉시 경로의
+    // 선택과 다른 점이다: 화면에 그려지는 순서와 선택이 갈리지 않게 한다).
+    image->GetComponent<UIImage>()->SetSortingOrder(5);
+    CHECK(pick(400, 300) == upper.get());
+    // 꺼진 위쪽 컴포넌트는 뒤의 것을 가리지 않는다.
+    image->GetComponent<UIImage>()->SetSortingOrder(0);
+    upper->GetComponent<UIImage>()->SetEnabled(false);
+    CHECK(pick(400, 300) == image.get());
+    upper->GetComponent<UIImage>()->SetEnabled(true);
+
+    // 버튼과 라벨도 선택 대상이다.
+    auto button = MakeButton(world, canvas.get(), "Button", 3);
+    CHECK(pick(400, 300) == button.get());
+    button->GetComponent<UIButton>()->SetEnabled(false);
+    CHECK(pick(400, 300) != button.get());
+
+    // 마스크 부모가 자르는 바깥은 선택되지 않는다: 자식은 300x300이지만 부모 마스크는
+    // 100x100이다. 클립은 이미 조상과 교집합이다.
+    auto panel = std::make_shared<GameObject>("Panel");
+    auto* panelRect = panel->AddComponent<RectTransform>();
+    panelRect->SetAnchors({0.0f, 0.0f}, {0.0f, 0.0f});
+    panelRect->SetPivot({0.0f, 0.0f});
+    panelRect->SetAnchoredPosition({0.0f, 0.0f});
+    panelRect->SetSizeDelta({100.0f, 100.0f});
+    panel->AddComponent<UIMask>()->SetClipsDescendants(true);
+    panel->SetParent(canvas.get());
+    world.Add(panel);
+    auto wide = MakeImage(world, panel.get(), 300.0f, 300.0f);
+    wide->GetComponent<RectTransform>()->SetAnchors({0.0f, 0.0f}, {0.0f, 0.0f});
+    wide->GetComponent<RectTransform>()->SetPivot({0.0f, 0.0f});
+    CHECK(pick(50, 50) == wide.get());
+    CHECK(pick(150, 50) == nullptr);
+
+    // 꺼진 캔버스와 비활성 조상은 아무것도 선택하지 않는다.
+    canvas->GetComponent<UICanvas>()->SetEnabled(false);
+    CHECK(pick(50, 50) == nullptr);
+    canvas->GetComponent<UICanvas>()->SetEnabled(true);
+    CHECK(pick(50, 50) == wide.get());
+    canvas->SetActive(false);
+    CHECK(pick(50, 50) == nullptr);
+}
+
+TEST_CASE("world release reclaims the render collector's fact budget") {
+    UiTextFixture f;
+    World world;
+    auto canvas = MakeCanvas(world);
+    MakeLabel(world, canvas.get(), "Ag", kUiPrimaryFamilyGuid);
+    MakeImage(world, canvas.get(), 100.0f, 100.0f);
+    const auto snapshot = BuildUiSnapshot(world, f.renderer, f.sink);
+    REQUIRE(snapshot != nullptr);
+    REQUIRE_FALSE(snapshot->renderItems.empty());
+
+    const auto renderErrors = [&] {
+        std::size_t count = 0;
+        for (const auto& diagnostic : f.sink.Diagnostics()) {
+            if (diagnostic.subsystem == "ui.render") ++count;
+        }
+        return count;
+    };
+    const auto collectWithoutDevice = [&] {
+        molga::RenderQueue queue;
+        UISystem::Get().CollectRender(*snapshot, UiTransform(800, 600, 800, 600, 0),
+                                      queue, f.renderer, f.sink);
+        CHECK(queue.GetCommands().empty());
+    };
+
+    collectWithoutDevice();
+    CHECK(renderErrors() == 1);
+    CHECK(UISystem::Get().RenderCollectorDroppedItemCountForTesting() ==
+          snapshot->renderItems.size());
+    CHECK(UISystem::Get().RenderCollectorSubmittedItemCountForTesting() == 0);
+    // 같은 사실은 한 번만 보고한다.
+    collectWithoutDevice();
+    CHECK(renderErrors() == 1);
+
+    // 월드 세대가 은퇴하면 수집기의 기억도 놓인다: 같은 사실이 다시 보고된다.
+    UISystem::Get().OnWorldReleased(world.Generation());
+    collectWithoutDevice();
+    CHECK(renderErrors() == 2);
+
+    // 장치가 있으면 그린다.
+    molga::RenderQueue queue;
+    {
+        auto scope = f.renderer.BeginGlyphCollection(1);
+        UISystem::Get().CollectRender(*snapshot, UiTransform(800, 600, 800, 600),
+                                      queue, f.renderer, f.sink);
+    }
+    CHECK_FALSE(queue.GetCommands().empty());
+    CHECK(UISystem::Get().RenderCollectorSubmittedItemCountForTesting() ==
+          snapshot->renderItems.size());
+    CHECK(UISystem::Get().RenderCollectorDroppedItemCountForTesting() == 0);
 }

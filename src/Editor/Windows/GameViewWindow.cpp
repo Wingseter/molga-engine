@@ -181,10 +181,22 @@ void GameViewWindow::OnGUI() {
     logicalOutput_ = RequestedLogicalSize();
     if (outputTarget_.IsValid() && renderer_ && spriteShader_ && world_ &&
         textRenderer_ && textDiagnostics_) {
+        // Task 12.3 Step 5: UI 층은 이번 프레임의 스냅샷 하나로만 그려진다. 입력 경로는
+        // 아직 레거시(Step 6)라 이 표면은 그리기 전용이다. 스냅샷은 이 호출이 끝날
+        // 때까지만 쥔다 — 프레임을 넘겨 쥐면 장치 종료를 막는 수명 토큰을 든다.
+        molga::ui::UISnapshotPtr uiSnapshot;
+        if (const auto uiViewport = molga::GameOutputRenderer::UiLogicalViewport(
+                RequestedScaleMode(), logicalOutput_, activeOutput_)) {
+            uiSnapshot = UISystem::Get().BuildLayout(
+                *world_, ViewportWindowId(ImGui::GetWindowViewport()), *uiViewport,
+                *textDiagnostics_);
+        }
+        molga::GameOutputRequest request{activeOutput_, logicalOutput_,
+                                         RequestedScaleMode(), &outputTarget_};
+        request.uiSnapshot = uiSnapshot.get();
         const molga::GameOutputResult result = outputRenderer_.Render(
-            *world_,
-            {activeOutput_, logicalOutput_, RequestedScaleMode(), &outputTarget_},
-            *renderer_, spriteShader_, *textRenderer_, *textDiagnostics_);
+            *world_, request, *renderer_, spriteShader_, *textRenderer_,
+            *textDiagnostics_);
         presentation_ = result.presentation;
         hasOutputCamera_ = result.cameraLayout.HasRenderableCamera();
         auto& renderStats = Editor::Get().RenderStats();
