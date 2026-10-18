@@ -486,6 +486,9 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // Project selection loop (if no project loaded yet)
     while (!host->ShouldClose() && !projectLoaded) {
         host->PollEvents();
+        // Task 12.3: 배치를 가져가지 않으면 다음 폴링이 거절된다. UI 소비자가
+        // 이 자리를 대신하기 전까지는 버린다.
+        (void)host->TakeNativeInputBatch();
         if (host->ShouldClose()) break;
 
         molga::BeginFrameResult acquired = host->BeginFrame();
@@ -555,6 +558,8 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
         // Main editor loop
         while (!host->ShouldClose()) {
             host->PollEvents();
+            // Task 12.3: 소비자가 생기기 전까지 버린다(안 가져가면 폴링이 막힌다).
+            (void)host->TakeNativeInputBatch();
             if (host->ShouldClose()) break;
             Time::Update();
             // Task 6.3: 프레임 번호가 정해진 바로 다음, 어떤 텍스트도 큐에

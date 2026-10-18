@@ -16,8 +16,12 @@
 #include "Systems/Input.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <iostream>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 
 namespace {
@@ -76,6 +80,13 @@ struct EngineHost::Impl {
     SDL_JoystickID gamepadId = 0;
     bool closeRequested = false;
     NativeEventObserver eventObserver;
+
+    // ── Task 12.3 Step 1: take-once 네이티브 입력 배치 ──────────────────────
+    // 가져가지 않은 배치가 있는 동안 폴링은 거절된다. 처음 상태는 "가져감"이다.
+    molga::platform::NativeInputBatch pendingBatch;
+    bool batchTaken = true;
+    bool untakenReported = false;
+    bool sequenceExhaustionReported = false;
 };
 
 namespace {
@@ -137,6 +148,145 @@ void OpenFirstGamepad(EngineHost::Impl& impl) {
     SDL_free(gamepads);
 }
 
+
+} // namespace
+
+namespace molga {
+namespace detail {
+
+std::optional<molga::platform::NativeInputEvent> TranslateNativeInputEvent(
+    const void* rawSdlEvent, std::uint64_t sequence,
+    const NativeTranslateContext& context) noexcept {
+    if (rawSdlEvent == nullptr) return std::nullopt;
+    const SDL_Event& event = *static_cast<const SDL_Event*>(rawSdlEvent);
+    using molga::platform::NativeInputEvent;
+    using molga::platform::NativeInputEventKind;
+
+    NativeInputEvent native;
+    native.sequence = sequence;
+    native.timestampNanoseconds = event.common.timestamp;
+    native.nativeType = event.type;
+
+    switch (event.type) {
+        case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        case SDL_EVENT_WINDOW_FOCUS_LOST:
+            native.kind = NativeInputEventKind::WindowFocus;
+            native.windowId = event.window.windowID;
+            native.active = event.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
+            return native;
+        case SDL_EVENT_MOUSE_MOTION:
+            native.kind = NativeInputEventKind::PointerMotion;
+            native.windowId = event.motion.windowID;
+            native.x = event.motion.x;
+            native.y = event.motion.y;
+            return native;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP: {
+            const Input::MouseButton button = ToMouseButton(event.button.button);
+            if (button == Input::MouseButton::Unknown) return std::nullopt;
+            native.kind = NativeInputEventKind::PointerButton;
+            native.windowId = event.button.windowID;
+            native.x = event.button.x;
+            native.y = event.button.y;
+            native.control = static_cast<std::uint32_t>(button);
+            native.active = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+            return native;
+        }
+        case SDL_EVENT_MOUSE_WHEEL: {
+            native.kind = NativeInputEventKind::Scroll;
+            native.windowId = event.wheel.windowID;
+            // SDL의 뒤집힘 규칙은 여기서 정확히 한 번 적용한다.
+            const float sign = event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED
+                                   ? -1.0f : 1.0f;
+            native.deltaX = sign * event.wheel.x;
+            native.deltaY = sign * event.wheel.y;
+            native.x = event.wheel.mouse_x;
+            native.y = event.wheel.mouse_y;
+            return native;
+        }
+        case SDL_EVENT_KEY_DOWN:
+        case SDL_EVENT_KEY_UP:
+            native.kind = NativeInputEventKind::Key;
+            native.windowId = event.key.windowID;
+            native.control = static_cast<std::uint32_t>(event.key.scancode);
+            // 이벤트가 든 수정자만 복사한다. 살아 있는 키보드 상태는 읽지 않는다.
+            native.keyModifiers.shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
+            native.keyModifiers.control = (event.key.mod & SDL_KMOD_CTRL) != 0;
+            native.keyModifiers.alt = (event.key.mod & SDL_KMOD_ALT) != 0;
+            native.keyModifiers.gui = (event.key.mod & SDL_KMOD_GUI) != 0;
+            native.active = event.type == SDL_EVENT_KEY_DOWN;
+            return native;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+        case SDL_EVENT_GAMEPAD_BUTTON_UP: {
+            if (context.gamepadInstanceId == 0 ||
+                event.gbutton.which != context.gamepadInstanceId) {
+                return std::nullopt;
+            }
+            const Input::GamepadButton button = ToGamepadButton(event.gbutton.button);
+            if (button == Input::GamepadButton::Unknown) return std::nullopt;
+            native.kind = NativeInputEventKind::GamepadButton;
+            native.windowId = context.gamepadWindowId;
+            native.control = static_cast<std::uint32_t>(button);
+            native.active = event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+            return native;
+        }
+        case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+            if (context.gamepadInstanceId == 0 ||
+                event.gaxis.which != context.gamepadInstanceId) {
+                return std::nullopt;
+            }
+            const Input::GamepadAxis axis = ToGamepadAxis(event.gaxis.axis);
+            if (axis == Input::GamepadAxis::Unknown) return std::nullopt;
+            native.kind = NativeInputEventKind::GamepadAxis;
+            native.windowId = context.gamepadWindowId;
+            native.control = static_cast<std::uint32_t>(axis);
+            native.axisValue = NormalizeGamepadAxis(axis, event.gaxis.value);
+            return native;
+        }
+        default:
+            return std::nullopt;
+    }
+}
+
+} // namespace detail
+} // namespace molga
+
+namespace {
+
+// 폴링 직전의 창별 씨앗. 배치의 어떤 이벤트보다 앞선 값이어야 하므로 폴링 전에 만든다.
+void BuildSurfaceStarts(molga::platform::NativeInputBatch& batch) {
+    int count = 0;
+    SDL_Window** windows = SDL_GetWindows(&count);
+    if (!windows) return;
+    SDL_Window* mouseFocus = SDL_GetMouseFocus();
+    for (int i = 0; i < count; ++i) {
+        SDL_Window* window = windows[i];
+        molga::platform::NativeSurfaceBatchStart start;
+        start.windowId = SDL_GetWindowID(window);
+        start.nativeWindowFocused =
+            (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+        if (window == mouseFocus) {
+            float x = 0.0f;
+            float y = 0.0f;
+            SDL_GetMouseState(&x, &y);
+            // 창 점 -> 창 물리 픽셀. 비유한/범위 밖이면 유효하지 않다.
+            const double density = SDL_GetWindowPixelDensity(window);
+            const double px = std::floor(static_cast<double>(x) * density);
+            const double py = std::floor(static_cast<double>(y) * density);
+            constexpr double kMin = static_cast<double>(std::numeric_limits<std::int32_t>::min());
+            constexpr double kMax = static_cast<double>(std::numeric_limits<std::int32_t>::max());
+            if (std::isfinite(px) && std::isfinite(py) && px >= kMin &&
+                px <= kMax && py >= kMin && py <= kMax) {
+                start.pointerWindowPixelX = static_cast<std::int32_t>(px);
+                start.pointerWindowPixelY = static_cast<std::int32_t>(py);
+                start.pointerWindowPixelValid = true;
+            }
+        }
+        batch.surfaceStarts.push_back(start);
+    }
+    SDL_free(windows);
+}
+
 } // namespace
 
 EngineHost::EngineHost(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -179,9 +329,43 @@ EngineHost::~EngineHost() {
 
 void EngineHost::PollEvents() {
     if (!impl_) return;
+    // 앞 배치를 가져가지 않았다. Input 상태도 SDL 큐도 건드리지 않는다.
+    if (!impl_->batchTaken) {
+        if (!impl_->untakenReported) {
+            impl_->untakenReported = true;
+            Log::Warn("EngineHost",
+                      "PollEvents was called while the previous native input "
+                      "batch was never taken; call TakeNativeInputBatch() once "
+                      "per poll");
+        }
+        return;
+    }
+    impl_->pendingBatch = {};
+    BuildSurfaceStarts(impl_->pendingBatch);
     Input::BeginFrame();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        // 메타데이터(시퀀스)를 먼저 만든다. UI가 보지 않는 종류도 시퀀스는 쓴다.
+        const std::optional<std::uint64_t> sequence =
+            molga::platform::AcquireNativeInputSequence();
+        std::optional<molga::platform::NativeInputEvent> native;
+        if (sequence) {
+            molga::detail::NativeTranslateContext context;
+            context.gamepadInstanceId = static_cast<std::uint32_t>(impl_->gamepadId);
+            if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN ||
+                event.type == SDL_EVENT_GAMEPAD_BUTTON_UP ||
+                event.type == SDL_EVENT_GAMEPAD_AXIS_MOTION) {
+                SDL_Window* focus = SDL_GetKeyboardFocus();
+                context.gamepadWindowId = focus ? SDL_GetWindowID(focus) : 0;
+            }
+            native = molga::detail::TranslateNativeInputEvent(&event, *sequence, context);
+        } else if (!impl_->sequenceExhaustionReported) {
+            impl_->sequenceExhaustionReported = true;
+            Log::Error("EngineHost",
+                       "the native input sequence is exhausted; input events "
+                       "are no longer ordered and polling stops");
+        }
+
         if (impl_->eventObserver) impl_->eventObserver(&event);
 
         switch (event.type) {
@@ -265,7 +449,22 @@ void EngineHost::PollEvents() {
             default:
                 break;
         }
+
+        // Input에 먹인 뒤 정확히 한 번 덧붙인다.
+        if (native) impl_->pendingBatch.events.push_back(*native);
+        // 시퀀스가 소진되면 값을 게시하지 않고 폴링을 멈춘다.
+        if (!sequence) break;
     }
+    impl_->batchTaken = false;
+}
+
+molga::platform::NativeInputBatch EngineHost::TakeNativeInputBatch() {
+    if (!impl_ || impl_->batchTaken) return {};
+    molga::platform::NativeInputBatch batch = std::move(impl_->pendingBatch);
+    impl_->pendingBatch = {};
+    impl_->batchTaken = true;
+    impl_->untakenReported = false;
+    return batch;
 }
 
 bool EngineHost::ShouldClose() const {

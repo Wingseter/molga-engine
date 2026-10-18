@@ -185,6 +185,7 @@ set(ENGINE_SOURCES
     src/Scripting/ScriptPackageLoader.cpp
     src/Scripting/ScriptReloadService.cpp
     src/Scripting/BuiltinScripts.cpp
+    src/Platform/NativeInputEvent.cpp
     src/Platform/Platform.cpp
     src/Rendering/TextRenderer.cpp
     src/Core/Bootstrap.cpp

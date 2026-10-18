@@ -21,6 +21,7 @@ bool DrawEditorSmokeFrame(EngineHost& host, Renderer& renderer,
                           const std::array<molga::RenderTarget*, 3>& previews,
                           bool drawDetached, std::string& error) {
     host.PollEvents();
+    (void)host.TakeNativeInputBatch();
     molga::BeginFrameResult acquired = host.BeginFrame();
     if (acquired.status != molga::FrameAcquireStatus::Acquired) {
         error = acquired.error.empty() ? "swapchain unavailable"

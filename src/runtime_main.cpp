@@ -1049,6 +1049,8 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
             benchmarkBaseCaptured = true;
         }
         host->PollEvents();
+        // Task 12.3: 소비자가 생기기 전까지 버린다(안 가져가면 폴링이 막힌다).
+        (void)host->TakeNativeInputBatch();
         if (host->ShouldClose()) break;
         Time::Update();
         // Task 6.3: 프레임 번호가 정해진 바로 다음, 어떤 텍스트도 큐에 담기기

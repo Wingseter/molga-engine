@@ -1,11 +1,13 @@
 #pragma once
 
+#include "Platform/NativeInputEvent.h"
 #include "Platform/Window.h"
 #include "Rendering/GraphicsDevice.h"
 
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -48,7 +50,11 @@ public:
     EngineHost(const EngineHost&) = delete;
     EngineHost& operator=(const EngineHost&) = delete;
 
+    // 이벤트를 폴링해 Input에 먹이고, 같은 이벤트를 값으로 모은 배치를 쌓는다.
+    // 앞 배치를 TakeNativeInputBatch로 가져가지 않았으면 폴링하지 않는다(경고 1회).
     void PollEvents();
+    // 마지막 폴링의 순서 있는 배치를 정확히 한 번 넘긴다. 두 번째는 빈 배치다.
+    molga::platform::NativeInputBatch TakeNativeInputBatch();
     bool ShouldClose() const;
     void RequestClose();
     void SetTitle(const std::string& title);
@@ -101,6 +107,22 @@ EngineShutdownStatus EngineShutdown(std::unique_ptr<EngineHost>& host,
 
 namespace molga {
 namespace detail {
+
+// SDL 이벤트 번역이 호스트에서 빌려 와야 하는 값. 창 없이도 시험할 수 있게
+// 호스트 상태를 직접 읽지 않고 이 값으로 받는다.
+struct NativeTranslateContext {
+    // 호스트가 연 게임패드 인스턴스 id. 0이면 열린 장치가 없다.
+    std::uint32_t gamepadInstanceId = 0;
+    // 게임패드 이벤트는 창이 없다. 호스트가 키보드 포커스 창으로 도장 찍고,
+    // 포커스 창이 없으면 0이다(UI는 이를 외부 이벤트로 감사만 한다).
+    molga::WindowId gamepadWindowId = 0;
+};
+
+// SDL 이벤트 하나를 값으로 옮긴다. UI가 보지 않는 종류와 열린 장치가 아닌
+// 게임패드, 알 수 없는 버튼은 nullopt다. rawSdlEvent는 const SDL_Event*다.
+std::optional<molga::platform::NativeInputEvent> TranslateNativeInputEvent(
+    const void* rawSdlEvent, std::uint64_t sequence,
+    const NativeTranslateContext& context) noexcept;
 
 // Renderer.h의 종료 단계 hook과 같은 규칙이고 같은 이유로 출하되는 빌드에
 // 남는다: 관찰 대상이 프로덕션 종료 경로 그 자체이고, 단계 사이의 순서는
