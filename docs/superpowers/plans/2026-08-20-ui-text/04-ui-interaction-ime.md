@@ -883,7 +883,7 @@ a stale snapshot` guards it.
 - Consumes: `PlannedUIEvent`, snapshot hit records, `UISelectable`, scroll runtime APIs, and full identity resolution.
 - Produces: `UIFocusSystem::HandleEvent`, `UIScrollSystem::HandleEvent`, `{windowId,worldGeneration}`-owned hover/pressed/capture/focus tables, stage-target validation, inner-to-outer scroll consumption, and deterministic navigation.
 
-- [ ] **Step 1a: Write the failing component-replacement focus test.**
+- [x] **Step 1a: Write the failing component-replacement focus test.**
 
   ```cpp
   TEST_CASE("component replacement cannot inherit focus") {
@@ -896,7 +896,7 @@ a stale snapshot` guards it.
   }
   ```
 
-- [ ] **Step 1b: Write the failing pointer-departure/window-loss distinction.**
+- [x] **Step 1b: Write the failing pointer-departure/window-loss distinction.**
 
   ```cpp
   TEST_CASE("pointer departure differs from native focus loss") {
@@ -911,19 +911,19 @@ a stale snapshot` guards it.
   }
   ```
 
-- [ ] **Step 1c: Write the failing focus/capture lifecycle matrix.**
+- [x] **Step 1c: Write the failing focus/capture lifecycle matrix.**
 
   Cover pointer focus, keyboard/gamepad focus, pointer capture, disabled/inactive cleanup, world release, and native focus loss. Each case supplies the starting full identities, one event/mutation, and exact focused/captured identities afterward.
 
-- [ ] **Step 1d: Write failing explicit-navigation tests.**
+- [x] **Step 1d: Write failing explicit-navigation tests.**
 
   Test all four explicit refs plus invalid/missing explicit refs; every row checks the frozen runtime and canonical targets copied into snapshot N.
 
-- [ ] **Step 1e: Write failing automatic-navigation ranking tests.**
+- [x] **Step 1e: Write failing automatic-navigation ranking tests.**
 
   Test half-plane eligibility, primary/secondary distance, stable sibling path, stable object-ID tie break, and no eligible target with exact chosen identities.
 
-- [ ] **Step 1f: Write a failing same-batch navigation projection test.**
+- [x] **Step 1f: Write a failing same-batch navigation projection test.**
 
   ```cpp
   TEST_CASE("navigation projects key focus but stamped text keeps its owner") {
@@ -949,7 +949,7 @@ a stale snapshot` guards it.
 
   Add a second `None`-stamped commit and require no target. An unstamped/`None` text event is never treated as a key event and never receives projected focus.
 
-- [ ] **Step 2: Write failing ordered scroll-handler tests.**
+- [x] **Step 2: Write failing ordered scroll-handler tests.**
 
   Feed `Scroll(-7,+11)`, pointer drag `(+3,-5)`, then gamepad vertical axis `-13` as three `PlannedUIEvent` values. Call `HandleEvent` once per plan and assert the scroll audit/state preserves that exact sequence and signed fields. Disabled horizontal axis must ignore X without rewriting Y.
 
@@ -961,7 +961,7 @@ a stale snapshot` guards it.
 
   Expected: compilation fails on `UIFocusSystem` and one-event scroll handlers.
 
-- [ ] **Step 4: Define focus and capture APIs around full identities.**
+- [x] **Step 4: Define focus and capture APIs around full identities.**
 
   ```cpp
   class UIFocusSystem {
@@ -985,31 +985,31 @@ a stale snapshot` guards it.
 
   Tables are keyed first by `{windowId,worldGeneration}` and hold complete target identities only. A window event touches only its exact surface key. Revalidate at frame start and after each callback that can mutate hierarchy/components; `OnWorldReleased` removes every window entry for that generation.
 
-- [ ] **Step 5a: Implement explicit navigation resolution.**
+- [x] **Step 5a: Implement explicit navigation resolution.**
 
   Resolve `SceneObjectRef` in the current world and verify the resulting active/interactable `UISelectable` full identity. An invalid ref leaves focus unchanged and reports `ReferenceInvalid` once.
 
-- [ ] **Step 5b: Implement automatic navigation ranking.**
+- [x] **Step 5b: Implement automatic navigation ranking.**
 
   Rank eligible snapshot-N candidates by requested half-plane, primary-axis distance, secondary-axis distance, sibling path, stable object ID, then component instance ID. Never read current component geometry after N is frozen.
 
-- [ ] **Step 5c: Project navigation into later same-batch plans.**
+- [x] **Step 5c: Project navigation into later same-batch plans.**
 
   `UIFocusSystem::ProjectEvent` reads only `UIHitTargetSnapshot::navigation` and snapshot rect/order. The navigation event itself retains the pre-transition focused target; after planning it writes the chosen identity into `UIPlanningState::focused`, so subsequent key/gamepad events target it. Text/edit remains bound to `ownerAtIngest`. It invokes no callback and does not mutate runtime focus.
 
-- [ ] **Step 5c2: Resolve the frozen focus stage only.**
+- [x] **Step 5c2: Resolve the frozen focus stage only.**
 
   `UIFocusSystem::HandleEvent` uses `planned.TargetFor(Focus)`, returns it as `resolvedStageTarget`, and never treats the action component or `textInputTarget` as the selectable. Foreign-window/window-focus plans with no focus target may clear only the matching surface state and return no stage target.
 
-- [ ] **Step 5d: Publish real focus/capture visual invalidation.**
+- [x] **Step 5d: Publish real focus/capture visual invalidation.**
 
   When `HandleEvent` actually changes focused/captured/hovered state visible in the next snapshot, acquire `UIRuntimeInvalidationClock::Advance(SemanticDirty)` before publishing the table mutation. Exhaustion leaves prior runtime state/snapshot visible, reports a blocker, and never lets `UILayoutSystem`'s fast path return a stale focus visual. Pure projection does not advance the clock.
 
-- [ ] **Step 6: Move UIButton runtime state into the router.**
+- [x] **Step 6: Move UIButton runtime state into the router.**
 
   Store hover/pressed/clicked-by-frame in identity-keyed runtime tables. Before publishing a changed visible state, acquire `Advance(SemanticDirty)` exactly once; a no-op event does not advance. Keep source-compatible `UIButton::{IsHovered,IsPressed,WasClickedThisFrame}` getters backed by the active router facade, but serialize only authored colors, sorting, interactability, and callback metadata.
 
-- [ ] **Step 7: Add one-event scroll handling.**
+- [x] **Step 7: Add one-event scroll handling.**
 
   ```cpp
   UIEventHandlerResult UIScrollSystem::HandleEvent(
@@ -1020,7 +1020,7 @@ a stale snapshot` guards it.
 
   Map `logicalDelta.x/y` directly for wheel/drag and map `axisValue` plus the named control axis for gamepad. Walk only `planned.scrollTargetsFromSnapshotN` from inner to outer, re-resolve each full identity, and stop at the first enabled target whose `ApplyInput` reports consumption; return that target/ordinal as the Scroll-stage result. An inner target at its boundary may decline so the exact delta reaches its outer ancestor once. Handle one plan only, project `UIScrollMutation` into `UIEventHandlerResult::{actionMask,arrangementDirty,visualDirty}`, and never iterate or retain `orderedEvents`.
 
-- [ ] **Step 8: Run focus, input, scroll, and serialization green gates.**
+- [x] **Step 8: Run focus, input, scroll, and serialization green gates.**
 
   ```bash
   cmake --build --preset debug --target test_ui_focus test_ui_input \
@@ -1039,6 +1039,210 @@ a stale snapshot` guards it.
     tests/test_ui_input.cpp tests/test_ui_scroll.cpp
   git commit -m "feat: add identity-safe UI focus and navigation"
   ```
+
+#### Implementation record — Task 12.2 (2026-10-18)
+
+Landed as eight commits on `claude/brave-carson-cv9y49` instead of Step 9's single
+commit (the red gate and the review loop made one commit per step the honest unit):
+
+| Commit | Content |
+|---|---|
+| `7f57c71` | Step A: `UIInteractionStateTable` (new `src/UI/UIInteractionState.{h,cpp}`), `UIButton` getters read it, legacy `ApplyPointerState` adapter, `UISystem::OnWorldReleased` wiring |
+| `1717f46` | Step B: `UIInputRouter::HandleEvent` is the single authority for hover, press, capture and click (R7); `PlannedUIEvent::capturedPointerFromSnapshotN` |
+| `7aaf24d` | fix after the A–B review: reclaim reached through `UISystem`, legacy hover churn, once-only exhaustion Blocker, stale-release cleanup |
+| `17263ee` | Step C: `UIFocusSystem` focus/capture/cleanup, `UINavigationDirectionOf`, `tests/test_ui_focus.cpp` |
+| `58f0b8c` | Step D: explicit and automatic navigation projected from snapshot N, `UINavigationCandidateLess` |
+| `f1a5667` | fix after the C–D review: foreign-snapshot guard in `Revalidate`, once-per-fact `ui.focus` reports |
+| `b9c0444` | Step E: `UIScrollSystem::HandleEvent`, `ScrollAxisOf` |
+| (이 커밋) | this record and `docs/now_going.md` |
+
+**User decisions (2026-10-18).**
+- **Q1 — `UIInputEvent::control` domain: engine enums.** `Key` = `static_cast<uint32_t>(Input::KeyCode)`
+  (HID/scancode positions, layout-independent), `GamepadButton` = `Input::GamepadButton`,
+  `GamepadAxis` = `Input::GamepadAxis`. Task 13.2 will use `Input::MouseButton` for
+  `PointerButton`. The mapping is isolated in two functions so a different domain changes
+  two functions: `UINavigationDirectionOf()` (`UIFocusSystem.h`) and `ScrollAxisOf()`
+  (`UIScrollSystem.h`).
+- **Q2 — gamepad scroll axes: right stick only.** `RightX` → horizontal, `RightY` → vertical.
+  `LeftX`, `LeftY`, `LeftTrigger`, `RightTrigger` and unknown values are a scroll-stage no-op
+  (tested for each, plus a positive control on `RightY`). This changed the planner's default of
+  "both sticks".
+- **Q3 — drag scrolling: only from a captured press on an interactable element.** A pointer
+  motion drag-scrolls only when its plan was made while the pointer was captured from snapshot
+  N (`capturedPointerFromSnapshotN`); an uncaptured hover motion carrying the same delta moves
+  nothing. Non-interactable content that captures a drag is deferred to Task 15.3. A release that
+  routes to the captured identity in N still clicks after a drag — 12.2 has no click cancellation.
+- **Q4a.** Gamepad sticks never navigate focus; only arrow keys (`Input::KeyCode` Up/Down/Left/Right)
+  and D-pad buttons do. **Q4b.** Activation of the focused element (Enter/Space/gamepad South →
+  Click) is **out of 12.2** and owned by Task 13.2 together with R10 (see that task's inherited
+  obligations). **Q4c.** Semantic-generation exhaustion fails closed: no Press, Click or Focus is
+  delivered, the prior state stays, one Blocker is reported. **Q4d.** Selectables with navigation
+  mode `None` are excluded as automatic-navigation destinations; a source with mode `None`
+  produces no destination (focus unchanged, no diagnostic).
+- Not a user question (design §8.2, "stale identities are skipped ... nothing retargeted"): a scroll
+  chain entry that no longer resolves is skipped with one `ReferenceInvalid` and the walk continues
+  outward.
+
+**What the code does now.**
+- *One store, three writers.* `UIInteractionStateTable::Get()` is a process-global table keyed by
+  `{windowId, worldGeneration}` and by full component identity (never destroyed, like
+  `UIScrollSystem::Get()`; reclaimed through `World → NotifyUIWorldReleased → UISystem::OnWorldReleased`).
+  `Apply()` is the only entry that changes visible state: it normalises, compares, and acquires
+  `Advance(SemanticDirty)` **once** per visible difference (hovered, pressed, focused, capture,
+  hovered id). A change that only flips `clickedThisFrame` is stored without advancing; a no-op
+  neither stores nor advances. On exhaustion nothing is stored and one `LayoutInvalid` Blocker is
+  reported per world generation, a latch shared by every writer (first refusal reports, later ones
+  are silent). The writers are the router (pointer action state), `UIFocusSystem` (focus and cleanup)
+  and the legacy `UIButton::ApplyPointerState` adapter, which writes the reserved surface
+  `{windowId = 0, worldGeneration}` and still calls `InvokeOnClick()` whenever its filtered `clicked`
+  is true, even for a button with no valid identity.
+- *R7 closed.* `UIButton` has no `hovered_/pressed_/clickedThisFrame_` members. The router decides a
+  click from snapshot N (`PointerActionRouteAt` at the release point equals the captured identity),
+  never asks the live `interactable_`, and invokes the callback as the last statement of dispatch.
+  `IsHovered()/IsPressed()` return `interactable_ && table`; `WasClickedThisFrame()` is not masked.
+  Targetless pointer plans mirror `PlanNext`'s projection into the table (departure; press over
+  nothing; uncaptured motion over nothing; uncaptured release), and a release or departure whose
+  target no longer resolves still clears capture, pressed, hover and the dead identity's entry
+  before reporting `ReferenceInvalid` once.
+- *Focus.* `UIFocusSystem` has no data members; focus and pointer capture live in the table. A press
+  moves focus to the frozen focus target after re-resolving all four identity fields (a press with
+  no focus target leaves focus unchanged, matching `PlanNext`). `Revalidate` drops focus, capture,
+  hover and button entries whose component was replaced, removed, deactivated or made
+  non-interactable; it returns without touching anything if the snapshot's world generation is not
+  the world's. `ClearPointerState` (pointer departure) keeps keyboard/gamepad focus;
+  `OnNativeWindowFocusLost` and `WindowFocus(false)` through `HandleEvent` clear focus, capture, hover
+  and pressed.
+- *Navigation.* `ProjectEvent` reads only snapshot N and writes `focusDestinationFromSnapshotN` and
+  `projected.focused`; it never touches the table, the clock or a callback, and writes nothing into an
+  ineligible plan. Explicit mode follows the reference frozen at publication and requires a focusable
+  record for it; an unset explicit direction does **not** fall back to automatic navigation, and a
+  mode-`None` selectable is still a valid *explicit* target (Q4d covers automatic destinations only).
+  Automatic mode ranks by half-plane, primary distance, secondary distance, sibling path, object id,
+  component instance id, in doubled raw coordinates (no halving), as the pure
+  `UINavigationCandidateLess`. The object-id and instance-id tiers are unreachable from a scene (each
+  canvas root has a distinct `siblingPath`; one `UISelectable` per object) and are tested with
+  hand-built keys, like P13. `HandleEvent` re-resolves the frozen destination in the live world and
+  commits only that identity; a destination that no longer resolves is not retargeted.
+- *Scroll.* `UIScrollSystem::HandleEvent` handles one plan: a wheel event (`logicalDelta`), a captured
+  pointer motion (`logicalDelta`), or a gamepad axis (`axisValue` on the axis `ScrollAxisOf` names). It
+  walks `planned.TargetFor(Scroll, n)` from the inner target outward, re-resolves each full identity,
+  and stops at the first target whose `ApplyInput` returns `changed`, reporting that target and
+  ordinal. A boundary target declines, so the exact delta reaches its ancestor once. `StepAxis`,
+  `AdvanceTick` and `MulQ6*` are untouched. Consumption is `mutation.changed`; the first touch of an
+  unseeded view can therefore count as consumption through `seededOffset` — documented, not special-cased.
+- *Handler results.* Every handler echoes `sequence`, stage, ordinal and `TargetFor(stage, ordinal)`.
+  A targetless result carries only dirty flags; an ineligible plan yields an echo with no target and
+  no flags (the accumulator rejects a sequence mismatch). A focus-stage press sets only the `Focus`
+  bit and `visualDirty`; navigation sets `Navigate|Focus`, `consumed` and `resultingFocus`.
+  The compile-time ban on vector-processing APIs now covers `UIFocusSystem` (a `static_assert` beside
+  the router's and the scroll system's), and `test_ui_input` checks the one-event `HandleEvent` signature
+  of the router, the focus system and the scroll system with `std::is_same`.
+  `visualDirty` on the router's result means "visible table state actually changed", which is a change
+  of meaning from 12.1's record.
+- *Diagnostics.* `ui.input` (router), `ui.focus`, `ui.scroll` (existing rate limiter). `ui.focus`
+  `ReferenceInvalid` has exactly two causes: (a) an explicit reference N froze but does not publish as
+  focusable, (b) a destination or press target that no longer resolves. Each is reported once per world
+  generation and fact (source object + direction, or the unresolved target) through
+  `UIInteractionStateTable::FirstReportOfFact`, bounded to 256 facts per world and reclaimed with the
+  world. A reference the layout rejected at publication stays a `ui.layout` report and is silent here.
+
+**Step E expected values.** The plan-review amendment said to seed the inner view mid-range with
+`UIScrollState{{0, -3200}, {}}` and expect `-3189`, `-3194`, `-3207` for `Scroll(-7,+11)`, drag
+`(+3,-5)` and axis `-13`. Verified against the real `ApplyInput` math, not assumed: scroll sensitivity
+is 1.0, so `MulQ6NearestAway(v, 64) == v` exactly; the fixture's chain is vertical-only, so the X
+component of the wheel and of the drag is not consumed and Y is not rewritten; the sums are
+`-3200 + 11 = -3189`, `-3189 - 5 = -3194`, `-3194 - 13 = -3207`, and the test observed exactly those,
+with X at 0 after every event and the outer view never touched. The authority's input values were not
+changed. The first plan draft's `-11, -16, -29` came from an unseeded start and the wrong sign; an
+unseeded view starts at the legal maximum (0), where `+11` clamps. One deliberate difference: the axis
+event uses `RightY`, because under Q2 a `LeftY` event is a no-op (the same `-13` on `LeftY` is asserted
+to move nothing).
+
+**Deviations from the plan text.**
+- **R-2.** `Revalidate`, `ClearPointerState` and `OnNativeWindowFocusLost` take an explicit
+  `TextDiagnosticSink&` (the same kind of deviation as 12.1's accumulator sink); `OnWorldReleased` keeps
+  the plan signature.
+- **R-4.** Explicit navigation resolves from the reference frozen in N (it must also be the focus target of
+  a focusable record in N); the live world is consulted only to re-resolve the destination's four fields
+  at dispatch, not to choose it.
+- **R-5.** The extra source pair `src/UI/UIInteractionState.{h,cpp}` is not in the file list. The legacy
+  `ProcessInput` path writes through the reserved surface key `{0, worldGeneration}`
+  (`kLegacyPointerSurfaceWindow`); SDL window ids are never 0.
+- **R-6.** `PlannedUIEvent::capturedPointerFromSnapshotN` in `UIInputEvent.h` (not in the file list):
+  a value the planner sets in its captured branch so a drag can be told from a hover motion.
+- **R-7.** One-line wiring in `UISystem::OnWorldReleased`, plus (fix `7aaf24d`) moving the legacy
+  pre-clear into `GatherButtons`' excluded branch so a steady hover through `ProcessInput` advances
+  `SemanticDirty` 0 times per frame instead of twice. Legacy `ProcessInput` otherwise advances it once
+  per visible hover/press change (it previously did not advance at all) — perf-only.
+- **R-9.** A stale scroll-chain entry is skipped with one `ReferenceInvalid` and the walk continues.
+- **D4.** `UILayoutSystem::Build` still reads `button->CurrentColor()` (any-surface OR); production button
+  colour still comes from the legacy `CollectRender`, so nothing production-visible changed.
+- `OnNativeWindowFocusLost(WindowId)` clears **every generation** of that window.
+- The test fixture's `Dispatch` does not call `Revalidate`; tests call it where the lifecycle needs it.
+- `SetEnabledFromSerializedState(false)` disables a component without `OnDisable`, so `Revalidate` is the
+  only cleanup for that path (the lifecycle matrix uses it on purpose). `RemoveComponent` and a running
+  world's `SetActive(false)` clean up through `OnDisable` first, which pre-empts `Revalidate`.
+- **Step 3's red gate was not run as written**, so Step 3 stays unticked: for Steps C and D the code
+  was written before the tests; for Step E the tests were written first but the failing build was not
+  executed separately. The mutation runs below are the evidence that the tests discriminate. Step 9 stays
+  unticked: the work landed as the commits above, not as the plan's single commit.
+
+**Mutation evidence.** Each named mutation turned at least one named test red and was reverted.
+Steps A–D and the reviews are as given in the implementers' and reviewers' reports, not re-run for
+this record:
+A/B — an `IsInteractable()` check restored in the click path; `Apply` without `Advance`. Fix `7aaf24d` —
+reclaim wiring removed; legacy pre-clear restored; exhaustion latch disabled; stale-release erase removed.
+C — no focus on press; `WindowFocus(false)` keeping capture; `Revalidate` ignoring hierarchy;
+`ClearPointerState` clearing focus; the `active` check removed; an axis treated as navigation; exhaustion
+ignored. D — inert `ProjectEvent` (six cases red); primary/secondary swapped; half-plane test removed;
+secondary tier dropped; sibling-path tier dropped; `None` exclusion dropped; object-id tier dropped;
+instance-id tier reversed; explicit navigation ignoring the focusable record; no re-resolve at dispatch;
+no explicit-reference report; `ProjectEvent` writing into an ineligible plan. Reviewers — removal of the
+`OnWorldReleased` wiring (caught after the fix), stale `clearPressed`, `None` exclusion, `Revalidate`
+capture drop. Fix `f1a5667` (this implementer) — the world-generation guard in `Revalidate` removed;
+`FirstReportOfFact` never deduping; the ledger erase in `OnWorldReleased` removed. Step E (this
+implementer) — chain walked outer→inner; `changed == false` treated as consumed; the captured check
+dropped so hover motion scrolls; `LeftY` added to `ScrollAxisOf`; a stale entry stopping the walk instead
+of continuing. Each of this implementer's runs (three for `f1a5667`, five for Step E) restored the file from a
+checksummed backup, and the checksums matched afterwards.
+
+**Verification (Linux GCC 13 Debug, `build/debug`, 2026-10-18).** `cmake --build --preset debug -j4`:
+116/116, exit 0. `ctest --test-dir build/debug -R '^(test_ui_focus|test_ui_input|test_ui_scroll|test_scene_serializer)$'`
+(Step 8's gate): 4/4 passed — `test_ui_focus` 5.2 s (17 cases), `test_ui_input` 15.7 s (73 cases, was 52),
+`test_ui_scroll` 54.6 s (52 cases, was 51), `test_scene_serializer` 0.01 s. Also passed:
+`test_ui` 7.3 s (30 cases, was 29), `test_ui_layout` 7.8 s, `test_ui_components`, `test_scene_runtime`.
+`ctest --test-dir build/debug -L unit -LE "smoke|pixel|e2e"`: 101 tests, **98 passed, 3 failed** in 325 s —
+`test_ui_render_clip` and `test_gpu_retirement` (`Failed to initialize SDL3: No available video device`:
+no GPU host in this container) and `test_text`. `test_text` fails even when run alone with ctest
+(`test_text.cpp:1312`, "an authored family wins over a legacy single-face pick"); only the single case
+selected with `-tc` passes. It is pre-existing at `c72ac61` and its cause is unconfirmed; it is tracked
+separately and not a 12.2 regression. The registered test count is 110 (109 + `test_ui_focus`).
+`rg 'orderedEvents' src/UI` still finds only the `UIFrameInput` field and its comment; the
+`Drain(Text|NativeText)|PendingTextEvents|vector<.*PlannedUIEvent>` search finds nothing in
+`src/UI src/Platform src/Core`; `ApplyPointerState` appears only in `UIButton.*`, `UISystem.cpp` (legacy) and
+a comment. **Not run:** Release, ASan, UBSan, macOS.
+
+**Carried forward, each with an owner.**
+- **Task 12.3.** Seed `UIPlanningState` from `UIInteractionStateTable::Surface`; reconcile the router's
+  hover with the planner's projected hover (for a captured motion or release outside the target the router
+  writes "target under the pointer, or none" while `PlanNext` keeps the captured target; for an uncaptured
+  release `PlanNext` updates hover and the router leaves it). Call `Revalidate` at frame start and after
+  every callback that can mutate the hierarchy or components. There is no `ClearFrameTransients` in 12.2:
+  a router-path click bit persists until that button's entry is next written, `WasClickedThisFrame()` ORs
+  across surfaces, and window focus loss keeps the bit, so a surface can linger after a click until the
+  next write or world release — 12.3 owns the per-frame reset. Switch `UILayoutSystem.cpp` (the
+  `CurrentColor()` call in `Build`) to `ButtonState({surfaceWindowId, world.Generation()}, …)`, then delete
+  the legacy surface key, `UIButton::ApplyPointerState`, and `UISystem::{capturedOwner_, capturedObjectId_,
+  ResetPointerCapture}`. Dead identities and the legacy `{0, gen}` surface stay in the table until
+  `Revalidate`/`OnWorldReleased` (`Revalidate` walks router surfaces only); harmless because identities are
+  never reused, but a leak until then. `Revalidate` keeps a focus whose record N no longer publishes (for
+  example a disabled `UICanvas` subtree): key plans become targetless. Automatic navigation may choose a
+  clipped or masked-out record (empty `logicalClip`); the authority is silent.
+- **Task 13.2.** R10 (primary-button-only clicks and capture); `PointerButton.control = Input::MouseButton`;
+  activation of the focused element (Enter/Space/gamepad South → Click), which has no owner in this
+  subplan until now (user decision Q4b). Recorded under that task's inherited obligations.
+- **Task 14.1 / 15.3** are unchanged: bare `UITextInput` focus; ScrollView preset background; plus
+  drag-capture of non-interactable scroll content (Q3).
 
 ### Task 12.3: Make `UISystem::ProcessFrame` the sole ordered-vector loop
 
@@ -1607,6 +1811,20 @@ a stale snapshot` guards it.
 
 - Consumes: platform-independent native values/arbiter, SDL events, and the existing `Input` state API.
 - Produces: `EngineHost::{TakeNativeInputBatch,TextInput}`, stamped `NativeEventObserver` metadata, one host-owned platform/arbiter lifetime, strict ingest sequence, immutable SDL key-modifier copies, and one checked `UISurfaceCoordinateMapping` used by pointer and later IME mapping.
+
+**Inherited obligations (from Tasks 12.1 and 12.2):**
+
+- **R10.** The router ignores which mouse button was pressed, so right and middle clicks fire
+  `onClick` and a second button's press steals capture. Recommended policy: primary only (a
+  recommendation of the 12.1 record, not yet an approved policy).
+- **`PointerButton.control = Input::MouseButton`.** User decision 2026-10-18: `UIInputEvent::control`
+  carries the engine enums — `Key` = `Input::KeyCode`, `GamepadButton` = `Input::GamepadButton`,
+  `GamepadAxis` = `Input::GamepadAxis` (12.2 consumes these through `UINavigationDirectionOf` and
+  `ScrollAxisOf`) — and this task fills `PointerButton.control` with `Input::MouseButton`.
+- **Activation of the focused element (Q4b, user decision 2026-10-18).** Enter, Space and gamepad South
+  → Click on the focused element is not implemented by 12.2 and had no owner in this subplan. This task
+  owns it together with R10: it must go through the router's single click authority (R7) and the
+  `UIFocusSystem` focus, not through `UIButton`.
 
 - [ ] **Step 1: Write the failing native order integration test.**
 
