@@ -17,6 +17,7 @@
 #include "Text/TextDiagnostic.h"
 #include "Text/TextLayoutTypes.h"
 #include "UI/UIHierarchy.h"
+#include "UI/UIInteractionState.h"
 #include "UI/UILayoutSystem.h"
 #include "UI/UIRuntimeIdentity.h"
 #include "UI/UIScrollSystem.h"
@@ -423,6 +424,8 @@ void UISystem::OnWorldReleased(std::uint64_t worldGeneration) {
     // 스크롤 표도 같은 모양이므로 같은 라우터에 붙인다: World ->
     // NotifyUIWorldReleased -> 여기 -> 표 세 개(상태/실패 집합/tick 커서).
     molga::ui::UIScrollSystem::Get().OnWorldReleased(worldGeneration);
+    // 포커스/캡처/hover/pressed 표도 같은 seam에서 회수한다.
+    molga::ui::UIInteractionStateTable::Get().OnWorldReleased(worldGeneration);
 }
 
 void UISystem::ResetPointerCapture() {

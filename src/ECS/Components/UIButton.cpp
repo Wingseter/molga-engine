@@ -1,7 +1,9 @@
 #include "ECS/Components/UIButton.h"
 
+#include "Core/World.h"
 #include "ECS/GameObject.h"
 #include "ECS/ComponentFactory.h"
+#include "UI/UIInteractionState.h"
 
 #include <algorithm>
 
@@ -21,7 +23,7 @@ Color ReadColor(const nlohmann::json& j, const char* key, Color fallback) {
 void UIButton::SetInteractable(bool value) {
     if (interactable_ == value) return;
     interactable_ = value;
-    if (!interactable_) ClearPointerState();
+    if (!interactable_) ClearRuntimePointerState();
     Invalidate(UIInvalidation::Interaction);
 }
 
@@ -55,21 +57,71 @@ void UIButton::SetSortingOrder(int value) {
     Invalidate(UIInvalidation::Visual);
 }
 
+molga::ui::UIRuntimeTargetIdentity UIButton::RuntimeIdentity() const noexcept {
+    const GameObject* owner = GetGameObject();
+    const World* world = owner ? owner->GetWorld() : nullptr;
+    if (!world) return {};
+    return molga::ui::CaptureTarget(*world, *this);
+}
+
+bool UIButton::WasClickedThisFrame() const {
+    return molga::ui::UIInteractionStateTable::Get()
+        .ButtonStateAnySurface(RuntimeIdentity())
+        .clickedThisFrame;
+}
+
+bool UIButton::IsHovered() const {
+    return interactable_ && molga::ui::UIInteractionStateTable::Get()
+                                .ButtonStateAnySurface(RuntimeIdentity())
+                                .hovered;
+}
+
+bool UIButton::IsPressed() const {
+    return interactable_ && molga::ui::UIInteractionStateTable::Get()
+                                .ButtonStateAnySurface(RuntimeIdentity())
+                                .pressed;
+}
+
 Color UIButton::CurrentColor() const {
     if (!interactable_) return disabledColor_;
-    if (pressed_) return pressedColor_;
-    if (hovered_) return hoverColor_;
+    const auto state = molga::ui::UIInteractionStateTable::Get()
+                           .ButtonStateAnySurface(RuntimeIdentity());
+    if (state.pressed) return pressedColor_;
+    if (state.hovered) return hoverColor_;
     return normalColor_;
 }
 
-void UIButton::ApplyPointerState(bool hovered, bool pressed, bool clicked) {
-    hovered_ = interactable_ && hovered;
-    pressed_ = interactable_ && pressed;
-    clickedThisFrame_ = interactable_ && clicked;
-    // A callback may delete this component (for example via a scene load), so
-    // keep an invocation-safe copy and do not touch members after calling it.
-    std::function<void()> callback = clickedThisFrame_ ? onClick_ : std::function<void()>{};
+void UIButton::ClearRuntimePointerState() {
+    const auto identity = RuntimeIdentity();
+    if (identity) {
+        molga::ui::UIInteractionStateTable::Get().ClearIdentityEverywhere(
+            identity, nullptr);
+    }
+}
+
+void UIButton::InvokeOnClick() {
+    // 콜백이 이 컴포넌트를 지울 수 있다(예: 씬 로드). 호출 가능한 사본을 만들고
+    // 호출 뒤에는 멤버를 건드리지 않는다.
+    std::function<void()> callback = onClick_;
     if (callback) callback();
+}
+
+void UIButton::ApplyPointerState(bool hovered, bool pressed, bool clicked) {
+    const bool h = interactable_ && hovered;
+    const bool p = interactable_ && pressed;
+    const bool c = interactable_ && clicked;
+    const auto identity = RuntimeIdentity();
+    if (identity) {
+        auto& table = molga::ui::UIInteractionStateTable::Get();
+        const molga::ui::UISurfaceKey key{molga::ui::kLegacyPointerSurfaceWindow,
+                                          identity.worldGeneration};
+        auto next = table.SurfaceOrEmpty(key);
+        next.buttons[identity] = molga::ui::UIButtonPointerState{h, p, c};
+        table.Apply(key, std::move(next), nullptr, "ui.legacy",
+                    identity.objectId);
+    }
+    // 식별자가 없는 버튼(월드 밖)도 레거시 의미 그대로 콜백을 받는다.
+    if (c) InvokeOnClick();
 }
 
 void UIButton::Serialize(nlohmann::json& j) const {
@@ -89,6 +141,7 @@ void UIButton::Deserialize(const nlohmann::json& j) {
     SetPressedColor(ReadColor(j, "pressedColor", pressedColor_));
     SetDisabledColor(ReadColor(j, "disabledColor", disabledColor_));
     SetSortingOrder(j.value("sortingOrder", sortingOrder_));
-    // hover/press/click은 런타임 상태다. 저작 revision을 올리지 않는다.
-    hovered_ = pressed_ = clickedThisFrame_ = false;
+    // hover/press/click은 런타임 상태다(표가 가진다). 저작 revision을 올리지
+    // 않고, 붙어 있으면 그 항목만 지운다.
+    ClearRuntimePointerState();
 }

@@ -128,6 +128,7 @@ set(ENGINE_SOURCES
     src/Rendering/Tilemap.cpp
     src/UI/UI.cpp
     src/UI/UIInputRouter.cpp
+    src/UI/UIInteractionState.cpp
     src/UI/UILayoutSnapshot.cpp
     src/UI/UILayoutSystem.cpp
     src/UI/UIRenderCollector.cpp

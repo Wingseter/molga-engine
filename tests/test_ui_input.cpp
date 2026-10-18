@@ -33,9 +33,11 @@
 #include "SmokeTestSupport.h"
 #include "UI/UIInputEvent.h"
 #include "UI/UIInputRouter.h"
+#include "UI/UIInteractionState.h"
 #include "UI/UILayoutSnapshot.h"
 #include "UI/UILayoutSystem.h"
 #include "UI/UIRuntimeIdentity.h"
+#include "UI/UIRuntimeInvalidation.h"
 #include "UI/UIScrollSystem.h"
 #include "UI/UITextInputVisualState.h"
 
@@ -156,6 +158,13 @@ public:
         std::size_t total = 0;
         for (const auto& record : records_) {
             if (record.code == code && record.subsystem == subsystem) ++total;
+        }
+        return total;
+    }
+    std::size_t CountSeverity(molga::text::TextSeverity severity) const {
+        std::size_t total = 0;
+        for (const auto& record : records_) {
+            if (record.severity == severity) ++total;
         }
         return total;
     }
@@ -3216,4 +3225,136 @@ TEST_CASE("a disabled selectable inside a clickable row absorbs its own press") 
     for (const auto& plan : plans) CHECK_FALSE(plan.targetFromSnapshotN);
     DispatchAll(f, *n, plans);
     CHECK(f.RowClicks() == 0);
+}
+
+// ── Task 12.2 Step A: UIButton 포인터 상태는 표면 키 표가 가진다 ─────────────
+namespace {
+
+std::uint64_t SemanticGeneration() {
+    return molga::ui::UIRuntimeInvalidationClock::Current()
+        .semanticDirtyGeneration;
+}
+
+}  // namespace
+
+TEST_CASE("UIButton getters read the surface-keyed interaction table") {
+    UIFrozenInputFixture f;
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    const molga::ui::UISurfaceKey key{kSurfaceWindow, f.World().Generation()};
+    auto next = table.SurfaceOrEmpty(key);
+    next.buttons[f.HighButtonIdentity()] =
+        molga::ui::UIButtonPointerState{true, true, false};
+    CHECK(table.Apply(key, next, &f.Diagnostics(), "test", 0));
+
+    CHECK(f.HighButton().IsPressed());
+    CHECK(f.HighButton().IsHovered());
+    CHECK_FALSE(f.HighButton().WasClickedThisFrame());
+    CHECK(f.HighButton().CurrentColor() == f.HighButton().GetPressedColor());
+    CHECK_FALSE(f.LowButton().IsPressed());
+    CHECK(f.LowButton().CurrentColor() == f.LowButton().GetNormalColor());
+
+    // 상호작용 불가로 바꾸면 표의 항목도 함께 사라진다.
+    f.HighButton().SetInteractable(false);
+    CHECK_FALSE(f.HighButton().IsPressed());
+    CHECK_FALSE(f.HighButton().IsHovered());
+    CHECK(table.ButtonState(key, f.HighButtonIdentity()) ==
+          molga::ui::UIButtonPointerState{});
+    CHECK(table.SurfaceCountForWorld(f.World().Generation()) == 0);
+}
+
+TEST_CASE("Apply publishes one semantic generation per visible change and none for a no-op") {
+    UIFrozenInputFixture f;
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    const molga::ui::UISurfaceKey key{kSurfaceWindow, f.World().Generation()};
+    const auto high = f.HighButtonIdentity();
+
+    auto pressed = table.SurfaceOrEmpty(key);
+    pressed.buttons[high] = molga::ui::UIButtonPointerState{true, true, false};
+
+    const auto before = SemanticGeneration();
+    bool changed = false;
+    CHECK(table.Apply(key, pressed, &f.Diagnostics(), "test", 0, &changed));
+    CHECK(changed);
+    CHECK(SemanticGeneration() == before + 1);
+
+    // 같은 상태를 다시 쓰면 세대도, changed도 없다.
+    CHECK(table.Apply(key, pressed, &f.Diagnostics(), "test", 0, &changed));
+    CHECK_FALSE(changed);
+    CHECK(SemanticGeneration() == before + 1);
+
+    // clickedThisFrame만 달라지면 저장은 하되 세대는 올리지 않는다.
+    auto clicked = pressed;
+    clicked.buttons[high].clickedThisFrame = true;
+    CHECK(table.Apply(key, clicked, &f.Diagnostics(), "test", 0, &changed));
+    CHECK_FALSE(changed);
+    CHECK(SemanticGeneration() == before + 1);
+    CHECK(table.ButtonState(key, high).clickedThisFrame);
+
+    // 소진: 이전 상태가 그대로 남고, Blocker 하나가 보고된다.
+    {
+        molga::ui::ScopedUIRuntimeGenerationForTesting guard(
+            molga::ui::UIRuntimeGenerationKind::SemanticDirty, UINT64_MAX);
+        auto released = clicked;
+        released.buttons[high] = molga::ui::UIButtonPointerState{true, false, false};
+        CHECK_FALSE(table.Apply(key, released, &f.Diagnostics(), "test", 0,
+                                &changed));
+        CHECK_FALSE(changed);
+    }
+    CHECK(table.ButtonState(key, high).pressed);
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::LayoutInvalid, "test") == 1);
+    CHECK(f.Diagnostics().CountSeverity(molga::text::TextSeverity::Blocker) == 1);
+}
+
+TEST_CASE("legacy ApplyPointerState writes the legacy surface and the getters see it") {
+    UIFrozenInputFixture f;
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    const auto gen = f.World().Generation();
+    const molga::ui::UISurfaceKey legacy{molga::ui::kLegacyPointerSurfaceWindow, gen};
+    const auto high = f.HighButtonIdentity();
+
+    f.HighButton().ApplyPointerState(true, true, false);
+    CHECK(table.ButtonState(legacy, high).pressed);
+    CHECK(table.ButtonState(legacy, high).hovered);
+    CHECK(f.HighButton().IsPressed());
+    CHECK(table.SurfaceCountForWorld(gen) == 1);
+    // 이 경로는 실제 표면의 표를 만들지 않는다.
+    CHECK(table.Surface({kSurfaceWindow, gen}) == nullptr);
+
+    f.HighButton().ApplyPointerState(false, false, false);
+    CHECK_FALSE(f.HighButton().IsPressed());
+    CHECK(table.SurfaceCountForWorld(gen) == 0);
+
+    // 클릭은 콜백을 부르고, 클릭 비트는 읽힌다.
+    f.HighButton().ApplyPointerState(true, false, true);
+    CHECK(f.HighButtonClicks() == 1);
+    CHECK(f.HighButton().WasClickedThisFrame());
+    f.HighButton().ApplyPointerState(false, false, false);
+    CHECK_FALSE(f.HighButton().WasClickedThisFrame());
+
+    // 꺼진 버튼은 레거시 의미 그대로 아무것도 얻지 않고 콜백도 받지 않는다.
+    f.HighButton().SetInteractable(false);
+    f.HighButton().ApplyPointerState(true, true, true);
+    CHECK_FALSE(f.HighButton().IsPressed());
+    CHECK(f.HighButtonClicks() == 1);
+}
+
+TEST_CASE("releasing a world drops its interaction surfaces") {
+    UIFrozenInputFixture f;
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    const auto gen = f.World().Generation();
+    const molga::ui::UISurfaceKey key{kSurfaceWindow, gen};
+    auto next = table.SurfaceOrEmpty(key);
+    next.focused = f.ComboSelectableIdentity();
+    next.buttons[f.HighButtonIdentity()] =
+        molga::ui::UIButtonPointerState{true, true, false};
+    REQUIRE(table.Apply(key, next, &f.Diagnostics(), "test", 0));
+    REQUIRE(table.SurfaceCountForWorld(gen) == 1);
+    REQUIRE(f.HighButton().IsPressed());
+
+    const auto before = SemanticGeneration();
+    table.OnWorldReleased(gen);
+    CHECK(table.SurfaceCountForWorld(gen) == 0);
+    CHECK_FALSE(f.HighButton().IsPressed());
+    // 죽은 월드의 표를 놓는 일은 보이는 상태가 아니다.
+    CHECK(SemanticGeneration() == before);
 }
