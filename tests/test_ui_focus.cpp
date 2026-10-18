@@ -1295,10 +1295,18 @@ TEST_CASE("a stale focus reference is reported once per fact and again after the
         }
         CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
                                         "ui.focus") == 1);
-        // 다른 방향은 다른 사실이다.
+        // 같은 대상(11)이라도 다른 방향은 다른 사실이다.
+        auto* source = f.World().FindById(kExplicitId)->GetComponent<UISelectable>();
+        REQUIRE(source != nullptr);
+        source->SetNavigateLeft(SceneObjectRef{11});
+        f.Rebuild();
+        f.Send(f.KeyEvent(Input::KeyCode::Left));
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                        "ui.focus") == 2);
+        // 유효한 명시 방향(Up -> center)은 보고하지 않는다.
         f.Send(f.KeyEvent(Input::KeyCode::Up));
         CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
-                                        "ui.focus") == 1);
+                                        "ui.focus") == 2);
     }
     SUBCASE("a destination that no longer resolves reports once and re-arms with the world") {
         const auto n = f.Snapshot();

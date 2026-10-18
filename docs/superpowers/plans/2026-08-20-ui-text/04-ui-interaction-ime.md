@@ -1143,7 +1143,8 @@ commit (the red gate and the review loop made one commit per step the honest uni
   `ReferenceInvalid` has exactly two causes: (a) an explicit reference N froze but does not publish as
   focusable, (b) a destination or press target that no longer resolves. Each is reported once per world
   generation and fact (source object + direction, or the unresolved target) through
-  `UIInteractionStateTable::FirstReportOfFact`, bounded to 256 facts per world and reclaimed with the
+  `UIInteractionStateTable::FirstReportOfFact`, bounded to 256 facts per world (a new fact past the
+  bound is not reported, without the one-time notice `ui.scroll` emits) and reclaimed with the
   world. A reference the layout rejected at publication stays a `ui.layout` report and is silent here.
 
 **Step E expected values.** The plan-review amendment said to seed the inner view mid-range with

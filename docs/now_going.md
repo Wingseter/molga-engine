@@ -373,7 +373,7 @@ smoke report가 존재한다. 이 기능 목록은 이번 갱신에서 전부 �
 | 검증 | 관찰 결과 |
 |---|---|
 | `cmake --build --preset debug -j4` | 116/116, 종료 코드 0 |
-| Step 8 게이트 `ctest --test-dir build/debug -R '^(test_ui_focus\|test_ui_input\|test_ui_scroll\|test_scene_serializer)$'` | 4/4 통과: `test_ui_focus` 5.5초(17 cases), `test_ui_input` 15.7초(73 cases, 이전 52), `test_ui_scroll` 54.6초(52 cases, 이전 51), `test_scene_serializer` 0.01초 |
+| Step 8 게이트 `ctest --test-dir build/debug -R '^(test_ui_focus\|test_ui_input\|test_ui_scroll\|test_scene_serializer)$'` | 4/4 통과: `test_ui_focus` 5.2초(17 cases), `test_ui_input` 15.7초(73 cases, 이전 52), `test_ui_scroll` 54.6초(52 cases, 이전 51), `test_scene_serializer` 0.01초 |
 | `test_ui` · `test_ui_layout` · `test_ui_components` · `test_scene_runtime` | 모두 통과(7.3초 · 7.8초 · 0.02초 · 0.02초). `test_ui`는 30 cases(이전 29) |
 | `ctest --test-dir build/debug -L unit -LE "smoke\|pixel\|e2e"` | 101개 중 **98개 통과, 3개 실패**, 325초 |
 | mutation 스폿 체크 | `f1a5667` 3종, Step E 5종 모두 지정한 테스트를 실패시킴. 하위 계획 04의 구현 기록 참조 |

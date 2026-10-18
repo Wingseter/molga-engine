@@ -865,6 +865,22 @@ public:
         Rebuild();
     }
 
+    // 대상을 지우지 않고 N2에서만 뺀다. 이 픽스처의 월드는 Play 중이 아니라
+    // SetActive(false)가 OnDisable을 발화하지 않으므로 표의 항목(캡처 등)이
+    // 그대로 남는다 — 제거(RemoveByIds)는 OnDisable이 항목을 치운다.
+    void DeactivateHighAndPublishNewGeometry() {
+        GameObject* high = world_.FindById(kHighButtonId);
+        REQUIRE(high != nullptr);
+        REQUIRE_FALSE(world_.IsRunning());
+        high->SetActive(false);
+        GameObject* low = world_.FindById(kLowButtonId);
+        REQUIRE(low != nullptr);
+        auto* rect = low->GetComponent<RectTransform>();
+        REQUIRE(rect != nullptr);
+        rect->SetSizeDelta({150.0f, 150.0f});
+        Rebuild();
+    }
+
     molga::ui::UILayoutSystem& Layout() { return layout_; }
 
 private:
@@ -2114,8 +2130,7 @@ TEST_CASE("no UI subsystem exposes an event-vector processing API") {
                            std::declval<const PlannedUIEvent&>(),
                            std::declval<molga::text::TextDiagnosticSink&>())),
                        UIEventHandlerResult>::value);
-    // UIFocusSystem도 한 이벤트짜리 발송 하나뿐이다.
-    // UIScrollSystem도 마찬가지다.
+    // UIScrollSystem도 한 이벤트짜리 발송 하나뿐이다.
     CHECK(std::is_same<decltype(std::declval<molga::ui::UIScrollSystem&>()
                                     .HandleEvent(
                                         std::declval<::World&>(),
@@ -2124,6 +2139,7 @@ TEST_CASE("no UI subsystem exposes an event-vector processing API") {
                                         std::declval<
                                             molga::text::TextDiagnosticSink&>())),
                        UIEventHandlerResult>::value);
+    // UIFocusSystem도 마찬가지다.
     CHECK(std::is_same<decltype(std::declval<molga::ui::UIFocusSystem&>()
                                     .HandleEvent(
                                         std::declval<::World&>(),
@@ -3350,6 +3366,20 @@ TEST_CASE("Apply publishes one semantic generation per visible change and none f
     CHECK(f.Diagnostics().CountSeverity(molga::text::TextSeverity::Blocker) == 1);
 }
 
+TEST_CASE("a scene replaced through Objects() clears a destroyed button without walking the dying vector") {
+    UIFrozenInputFixture f;
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    const auto gen = f.World().Generation();
+    const molga::ui::UISurfaceKey legacy{molga::ui::kLegacyPointerSurfaceWindow, gen};
+    f.HighButton().ApplyPointerState(true, true, false);
+    REQUIRE(table.ButtonState(legacy, f.HighButtonIdentity()).pressed);
+    // 편집기 장면 열기(SceneSerializer::DeserializeScene)처럼 벡터를 직접 비운다.
+    // 앞 오브젝트가 먼저 해제되므로, OnDisable이 World::FindById로 소속을
+    // 확인하면 해제된 메모리를 읽는다(ASan heap-use-after-free로 드러난다).
+    f.World().Objects().clear();
+    CHECK(table.SurfaceCountForWorld(gen) == 0);
+}
+
 TEST_CASE("legacy ApplyPointerState writes the legacy surface and the getters see it") {
     UIFrozenInputFixture f;
     auto& table = molga::ui::UIInteractionStateTable::Get();
@@ -3603,20 +3633,21 @@ TEST_CASE("targetless pointer plans mirror the planner's projection") {
         CHECK_FALSE(surface.buttons.at(high).pressed);
     }
     SUBCASE("a captured motion whose route N dropped changes nothing") {
-        // 캡처를 N1에서 세운 뒤 대상을 지우고 N2를 게시한다.
+        // 캡처를 N1에서 세운 뒤 대상을 N2에서 뺀다.
         auto state = f.InitialPlanningState();
         const auto press = f.Router().PlanNext(*n, kSurfaceWindow,
                                                f.PointerDown(83, onHigh), state);
         REQUIRE(press.targetFromSnapshotN);
         REQUIRE(DispatchOne(f, *n, press).merge == UIEventMergeStatus::Merged);
-        f.HideHighAndPublishNewGeometry();
+        // 제거하면 OnDisable이 표의 캡처를 치우므로, N2에서만 빼서 캡처를 남긴다.
+        f.DeactivateHighAndPublishNewGeometry();
         const auto n2 = f.Snapshot();
         const auto move = f.Router().PlanNext(*n2, kSurfaceWindow,
                                               f.PointerMove(84, empty), state);
         REQUIRE(move.capturedPointerFromSnapshotN);
         REQUIRE_FALSE(move.targetFromSnapshotN);
         const auto before = SurfaceOf(f);
-        // 전제: 지운 컴포넌트의 캡처가 표에 아직 있어야 이 케이스가 시험이다.
+        // 전제: N2에서 빠진 대상의 캡처가 표에 아직 있어야 이 케이스가 시험이다.
         REQUIRE(before.pointerCapture == high);
         const auto generation = SemanticGeneration();
         const auto out = DispatchOne(f, *n2, move);
@@ -3628,6 +3659,28 @@ TEST_CASE("targetless pointer plans mirror the planner's projection") {
         CHECK(after.hovered == before.hovered);
         CHECK(after.buttons.size() == before.buttons.size());
     }
+}
+
+TEST_CASE("RemoveByIds of a pressed button clears its table entries") {
+    UIFrozenInputFixture f;
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    const auto n = f.BuildSnapshot();
+    const auto high = f.HighButtonIdentity();
+    auto state = f.InitialPlanningState();
+    const auto down = f.Router().PlanNext(
+        *n, kSurfaceWindow, f.PointerDown(40, PxPoint(10.0f, 10.0f)), state);
+    REQUIRE(down.targetFromSnapshotN);
+    REQUIRE(DispatchOne(f, *n, down).merge == UIEventMergeStatus::Merged);
+    REQUIRE(SurfaceOf(f).pointerCapture == high);
+    REQUIRE(SurfaceOf(f).hovered == high);
+    REQUIRE(SurfaceOf(f).buttons.count(high) == 1);
+    // 제거된 버튼의 OnDisable이 자기 항목(캡처, hover, pressed)을 표에서 치운다.
+    f.World().RemoveByIds({kHighButtonId});
+    const auto surface = SurfaceOf(f);
+    CHECK_FALSE(surface.pointerCapture.has_value());
+    CHECK_FALSE(surface.hovered.has_value());
+    CHECK(surface.buttons.count(high) == 0);
+    CHECK(table.SurfaceCountForWorld(f.World().Generation()) == 0);
 }
 
 TEST_CASE("a release whose captured target no longer resolves still clears residual pressed") {
@@ -3644,13 +3697,19 @@ TEST_CASE("a release whose captured target no longer resolves still clears resid
     REQUIRE(SurfaceOf(f).pointerCapture == high);
     REQUIRE(SurfaceOf(f).buttons.count(high) == 1);
 
-    // 식별자 소실. World::RemoveByIds는 컴포넌트를 먼저 놓으므로 OnDisable이
-    // 식별자를 해석하지 못해 표의 항목이 그대로 남는다 — 놓기가 치워야 한다.
+    // 식별자 소실. 제거는 OnDisable에서 표의 항목을 치우므로, 놓기 경로가 낡은
+    // 캡처를 만나는 상황을 만들려면 제거 뒤에 같은 상태를 다시 심어야 한다
+    // (심는 것 자체는 시험 대상이 아니다).
+    const auto stale = SurfaceOf(f);
     f.HideHighAndPublishNewGeometry();
+    CHECK_FALSE(SurfaceOf(f).pointerCapture.has_value());
+    SeedSurface(f, stale);
     f.Diagnostics().Clear();
-    // 전제: 표에는 낡은 캡처가 아직 남아 있다. 아니면 이 케이스는 놓기 경로를
-    // 시험하지 않는다.
+    // 전제: 표에는 낡은 캡처와 pressed가 있고 식별자는 더 이상 풀리지 않는다.
+    // 아니면 이 케이스는 놓기 경로를 시험하지 않는다.
     REQUIRE(SurfaceOf(f).pointerCapture == high);
+    REQUIRE(SurfaceOf(f).buttons.count(high) == 1);
+    REQUIRE(f.World().FindById(kHighButtonId) == nullptr);
 
     const auto release = DispatchOne(f, *n1, plans[1]);
     CHECK(release.merge == UIEventMergeStatus::Merged);

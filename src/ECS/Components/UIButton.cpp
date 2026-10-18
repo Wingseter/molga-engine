@@ -92,7 +92,18 @@ Color UIButton::CurrentColor() const {
 }
 
 void UIButton::ClearRuntimePointerState() {
-    const auto identity = RuntimeIdentity();
+    // 지우기에는 소속 확인(CaptureTarget의 World::FindById)을 하지 않는다. 장면
+    // 교체가 Objects()를 직접 비우는 도중(SceneSerializer::DeserializeScene →
+    // ~GameObject → OnDisable)에는 그 순회가 이미 해제된 앞 오브젝트를 밟는다.
+    // 없는 식별자를 지우는 것은 아무 일도 하지 않으므로 확인 없이도 안전하다.
+    const GameObject* owner = GetGameObject();
+    const World* world = owner ? owner->GetWorld() : nullptr;
+    if (!world) return;
+    molga::ui::UIRuntimeTargetIdentity identity;
+    identity.worldGeneration = world->Generation();
+    identity.objectId = owner->GetID();
+    identity.componentRuntimeTypeId = GetRuntimeTypeID();
+    identity.componentInstanceId = GetInstanceID();
     if (identity) {
         molga::ui::UIInteractionStateTable::Get().ClearIdentityEverywhere(
             identity, nullptr);
