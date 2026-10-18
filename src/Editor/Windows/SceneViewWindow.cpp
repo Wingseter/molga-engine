@@ -767,7 +767,8 @@ void SceneViewWindow::DrawUI(float vpW, float vpH) {
     if (!renderer_ || !spriteShader_ || !Objects()) return;
     if (!textRenderer_ || !textDiagnostics_) return;
     // Scene View의 UI 층은 패널 픽셀에 1:1로 그려진다. 이 표면은 입력을 처리하지
-    // 않으므로 버튼은 기본 색으로 그려진다.
+    // 않지만, 레이아웃 빌드가 버튼 색을 표면 구분 없이(CurrentColor) 읽으므로 플레이
+    // 중에는 Game View가 쓴 hover/press 색이 그대로 보인다(Task 12.3 Step 8까지).
     const molga::ui::UISnapshotPtr snapshot = BuildUiSnapshot(vpW, vpH);
     if (!snapshot) return;
 

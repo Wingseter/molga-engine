@@ -483,6 +483,8 @@ private:
 // 시험 갈고리: N+1 게시 직후 세계를 바꾼다. 함수 포인터라 상태를 정적 변수로 둔다.
 UIFrameFixture* g_observedFixture = nullptr;
 int g_observerCalls = 0;
+// 세계를 건드리지 않고 호출 횟수만 센다. 관찰자가 설치돼야 정지 검사가 실행된다.
+void CountingNoopObserver(World&, const UISnapshot&) { ++g_observerCalls; }
 void ToggleCActiveObserver(World&, const UISnapshot&) {
     ++g_observerCalls;
     GameObject& c = g_observedFixture->Object(kCId);
@@ -521,11 +523,16 @@ TEST_CASE("ProcessFrame freezes N and publishes at most one N plus one") {
         f.Rect(kLowId).SetSizeDelta({400.0f, 100.0f});
     });
     const std::uint64_t buildsBefore = f.GeometryBuilds();
+    // 관찰자가 있어야 게시 직후의 정지 검사가 실행된다: 호출 횟수 1, 보고 0.
+    g_observerCalls = 0;
+    molga::ui::detail::SetUIFramePublicationObserverForTest(&CountingNoopObserver);
 
     const UIFrameResult result = f.Run(
         {UIFrameFixture::Down(1, UIFrameFixture::OnHigh()),
          UIFrameFixture::Up(2, UIFrameFixture::OnHigh()),
          UIFrameFixture::KeyDown(3)});
+    molga::ui::detail::SetUIFramePublicationObserverForTest(nullptr);
+    CHECK(g_observerCalls == 1);
 
     CHECK(result.interactionSnapshot.get() == n.get());
     REQUIRE(result.renderSnapshot != nullptr);
@@ -825,6 +832,10 @@ TEST_CASE("a callback that replaces the world leaves the rest of the batch undel
 
     CHECK(f.HighClicks() == 1);
     CHECK(f.LowClicks() == 0);
+    // 보고는 정확히 한 번: 프레임이 한 줄, 입력 쪽(누산기)은 없다.
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid, "ui.frame") == 1);
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid, "ui.input") == 0);
+    CHECK(f.Diagnostics().Total() == 1);
     // 감사는 이벤트마다 한 줄이지만 클릭 뒤의 둘은 발송되지 않았다.
     REQUIRE(result.dispatches.size() == 4);
     CHECK(result.dispatches[1].delivered);

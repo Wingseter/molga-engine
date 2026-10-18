@@ -420,10 +420,6 @@ molga::ui::UIFrameResult UISystem::ProcessFrame(
             }
             result.dispatches.push_back(std::move(audit).Finish());
         }
-        if (worldReplaced) {
-            // 은퇴한 세대의 장부는 OnWorldReleased가 이미 지웠다. 다시 쓰지 않는다.
-            lastCompletedNativeSequenceBySurface_.erase(key);
-        }
     }
 
     // 8. tick: 묶음 전체를 검증하고 한 번만 소비한다.
