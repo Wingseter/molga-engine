@@ -1,6 +1,8 @@
 #include "UI/UISurfaceCoordinateMapping.h"
 
+#include "Systems/Input.h"
 #include "Text/TextDiagnostic.h"
+#include "UI/UIInputRouter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -160,6 +162,57 @@ void DropUnfocusedPanelInput(UIFrameInput& input) noexcept {
     input.pointerAtBatchStart = {};
     input.pointerAtBatchStartValid = false;
     input.nativeWindowFocusedAtBatchStart = false;
+}
+
+UIInputEvent MakeSyntheticPrimaryButtonEvent(std::uint64_t sequence,
+                                             molga::WindowId windowId,
+                                             molga::FixedPoint canvasPoint,
+                                             bool pressed) noexcept {
+    UIInputEvent event;
+    event.sequence = sequence;
+    event.traceOrdinal = 0;
+    event.windowId = windowId;
+    event.kind = UIInputEventKind::PointerButton;
+    event.control = static_cast<std::uint32_t>(Input::MouseButton::Left);
+    event.active = pressed;
+    event.logicalPoint = canvasPoint;
+    event.logicalPointValid = true;
+    return event;
+}
+
+std::optional<molga::FixedPoint> SmokeClickPointForObject(
+    const UISnapshot& snapshot, unsigned int objectId) noexcept {
+    for (const UIHitTargetSnapshot& hit : snapshot.hitTargets) {
+        if (hit.target.objectId != objectId || !hit.interactable) continue;
+        std::int64_t minX = hit.logicalRect.x.Raw();
+        std::int64_t minY = hit.logicalRect.y.Raw();
+        std::int64_t maxX = minX + hit.logicalRect.width.Raw();
+        std::int64_t maxY = minY + hit.logicalRect.height.Raw();
+        if (hit.logicalClip) {
+            const std::int64_t clipMinX = hit.logicalClip->x.Raw();
+            const std::int64_t clipMinY = hit.logicalClip->y.Raw();
+            minX = std::max(minX, clipMinX);
+            minY = std::max(minY, clipMinY);
+            maxX = std::min(maxX, clipMinX + hit.logicalClip->width.Raw());
+            maxY = std::min(maxY, clipMinY + hit.logicalClip->height.Raw());
+        }
+        if (maxX <= minX || maxY <= minY) continue;
+        // 반열린 구간 [min, max)의 중심. 정수 raw 중간값은 항상 구간 안이다.
+        const std::int64_t centerX = minX + (maxX - minX) / 2;
+        const std::int64_t centerY = minY + (maxY - minY) / 2;
+        constexpr std::int64_t kRawMin = std::numeric_limits<std::int32_t>::min();
+        constexpr std::int64_t kRawMax = std::numeric_limits<std::int32_t>::max();
+        if (centerX < kRawMin || centerX > kRawMax || centerY < kRawMin ||
+            centerY > kRawMax) {
+            continue;
+        }
+        const molga::FixedPoint point{
+            molga::Fixed26_6::FromRaw(static_cast<std::int32_t>(centerX)),
+            molga::Fixed26_6::FromRaw(static_cast<std::int32_t>(centerY))};
+        const UIHitTargetSnapshot* top = TopmostHitRecordAt(snapshot, point);
+        if (top != nullptr && top->target.objectId == objectId) return point;
+    }
+    return std::nullopt;
 }
 
 std::optional<UIFrameInput> MapNativeInputBatch(

@@ -40,6 +40,7 @@
 #include "UI/UILayoutSystem.h"
 #include "UI/UIRuntimeIdentity.h"
 #include "UI/UIRuntimeInvalidation.h"
+#include "UI/UISurfaceCoordinateMapping.h"
 #include "UI/UIScrollSystem.h"
 #include "UI/UISystem.h"
 #include "UI/UITextInputVisualState.h"
@@ -1045,4 +1046,50 @@ TEST_CASE("the published render snapshot shows the router's hover and press colo
     REQUIRE(after != nullptr);
     REQUIRE(SolidColorOf(*after, f.HighIdentity()) != nullptr);
     CHECK(*SolidColorOf(*after, f.HighIdentity()) == high.GetNormalColor());
+}
+
+// Task 12.3 Step 7: 런타임 스모크는 호스트 배치 대신 합성 클릭으로 같은 ProcessFrame을
+// 구동한다. 점은 게시된 스냅샷의 hit 기록 중심이고, 버튼은 항상 주 버튼(Left)이다.
+TEST_CASE("smoke click synthesis drives a primary click through ProcessFrame") {
+    UIFrameFixture f;
+    const UISnapshotPtr n = f.BuildN();
+    REQUIRE(n != nullptr);
+
+    const auto point = molga::ui::SmokeClickPointForObject(*n, kHighId);
+    REQUIRE(point.has_value());
+    // high는 (0,0) 100x100: 중심은 (50,50)이고 맨 위 기록은 high다.
+    CHECK(point->x.Raw() == 50 * 64);
+    CHECK(point->y.Raw() == 50 * 64);
+
+    const UIInputEvent press = molga::ui::MakeSyntheticPrimaryButtonEvent(
+        1, kSurfaceWindow, *point, true);
+    const UIInputEvent release = molga::ui::MakeSyntheticPrimaryButtonEvent(
+        2, kSurfaceWindow, *point, false);
+    CHECK(press.kind == UIInputEventKind::PointerButton);
+    CHECK(press.control == static_cast<std::uint32_t>(Input::MouseButton::Left));
+    CHECK(press.active);
+    CHECK_FALSE(release.active);
+    CHECK(press.logicalPointValid);
+
+    // 스모크처럼 눌림과 놓음은 서로 다른 프레임이다.
+    (void)f.Run({press});
+    CHECK(f.Surface().pointerCapture == f.HighIdentity());
+    CHECK(f.HighClicks() == 0);
+    (void)f.Run({release});
+    CHECK(f.HighClicks() == 1);
+    CHECK(f.LowClicks() == 0);
+
+    // 가려진 버튼(low)과 기록 없는 오브젝트에는 클릭을 지어내지 않는다.
+    CHECK_FALSE(molga::ui::SmokeClickPointForObject(*n, kLowId).has_value());
+    CHECK_FALSE(molga::ui::SmokeClickPointForObject(*n, 987654u).has_value());
+
+    // 주 버튼이 아닌 합성 이벤트는 클릭을 만들지 않는다(대조).
+    UIInputEvent rightPress = press;
+    rightPress.sequence = 3;
+    rightPress.control = static_cast<std::uint32_t>(Input::MouseButton::Right);
+    UIInputEvent rightRelease = release;
+    rightRelease.sequence = 4;
+    rightRelease.control = rightPress.control;
+    (void)f.Run({rightPress, rightRelease});
+    CHECK(f.HighClicks() == 1);
 }

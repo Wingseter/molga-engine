@@ -50,6 +50,8 @@
 #include "Core/PersistentStorage.h"
 #include "Core/PlayerPrefs.h"
 #include "Core/SaveSystem.h"
+#include "UI/UIFixedTickClock.h"
+#include "UI/UISurfaceCoordinateMapping.h"
 #include "UI/UISystem.h"
 #include "Scripting/ScriptPackageLoader.h"
 #include "Common/Fixed26_6.h"
@@ -940,9 +942,11 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // 여기다. 진짜 제공자는 Task 14가 설치하고, 그때까지는 값이 비어 있음을
     // 명시적으로 말하는 Empty 제공자가 그 자리를 지킨다 — 기본 인자로 숨기면
     // 한 표면에서 빠뜨려도 컴파일이 통과한다.
+    molga::text::TextLayoutService& uiLayoutService =
+        TextRenderer::Get().LayoutService();
     UISystem::Get().InstallLayoutDependencies(
         molga::ui::EmptyUITextInputVisualStateProvider::Instance(),
-        TextRenderer::Get().LayoutService());
+        uiLayoutService);
 
     // Load asset catalog if present (runtime mode: read-only, no .meta creation)
     PathService::Get().SetAssetRoot(PathService::Get().ExecutableDir());
@@ -1037,7 +1041,8 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
     nlohmann::json expectedSlotPayload;
     bool scriptDrivenPrefsSaved = false;
     bool scriptDrivenSlotSaved = false;
-    bool rawMouseWasDown = false;
+    // 이 표면의 UI tick 시계. 시계는 표면마다 하나다.
+    molga::ui::UIFixedTickClock uiTickClock;
     auto gameOutputRenderer = std::make_unique<molga::GameOutputRenderer>();
     molga::GameOutputResult lastGameOutputResult;
     // Main game loop
@@ -1049,8 +1054,9 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
             benchmarkBaseCaptured = true;
         }
         host->PollEvents();
-        // Task 12.3: 소비자가 생기기 전까지 버린다(안 가져가면 폴링이 막힌다).
-        (void)host->TakeNativeInputBatch();
+        // Task 12.3: 배치는 반복마다 정확히 한 번 가져간다. 이번 프레임의 UI 입력은 이 한
+        // 값뿐이고, 스모크 모드에서도 가져가야 다음 폴링이 막히지 않는다.
+        molga::platform::NativeInputBatch nativeBatch = host->TakeNativeInputBatch();
         if (host->ShouldClose()) break;
         Time::Update();
         // Task 6.3: 프레임 번호가 정해진 바로 다음, 어떤 텍스트도 큐에 담기기
@@ -1122,34 +1128,58 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         }
         Input::ApplySnapshot(inputSnapshot);
 
-        // UI capture follows the physical button edge, independently from the
-        // script snapshot's pointer invalidation. Leaving a bar releases UI
-        // capture, and re-entering while still held cannot synthesize a press.
-        const bool rawMouseDown = windowPointer.leftDown;
-
-        const Vector2 uiViewport{
-            static_cast<float>(presentation.logicalSize.width),
-            static_cast<float>(presentation.logicalSize.height)};
-        UIPointerState uiPointer{
-            {mappedMouseX, mappedMouseY},
-            logicalPointer.has_value() && rawMouseDown,
-            logicalPointer.has_value() && rawMouseDown && !rawMouseWasDown,
-            logicalPointer.has_value() && !rawMouseDown && rawMouseWasDown,
-            logicalPointer.has_value()};
+        // ── UI 프레임 (Task 12.3 Step 7) ────────────────────────────────────────
+        // 프레임 순서: ProcessFrame -> 스크립트 Update -> 그리기. 호스트 배치를 한 번
+        // 매핑해 UISystem::ProcessFrame에 넘기고, 게시된 N+1을 이 반복 안에서만 쥐어
+        // 그린다(프레임을 넘겨 쥐면 장치 종료를 막는 수명 토큰을 든다). Update가 바꾼
+        // UI는 다음 프레임에 보인다(사용자가 받아들인 한 프레임 지연).
+        molga::ui::UISnapshotPtr uiRenderSnapshot;
         bool releasedSmokeAction = false;
         SmokeUIAction releasedAction = SmokeUIAction::SaveOption;
+        const molga::WindowId uiWindow = host->WindowId();
+        // 스냅샷의 논리 뷰포트와 매핑의 캔버스는 같은 표시 배치의 같은 논리 크기다.
+        const auto uiLogicalViewport = molga::GameOutputRenderer::UiLogicalViewport(
+            config.outputScaleMode, configuredLogicalSize, framebufferSize);
+        // 창 0은 UI 표면이 아니다: 이 프레임은 UI 층도 입력도 없다(진단도 없다).
+        std::optional<molga::ui::UIFrameInput> uiInput;
+        if (uiWindow != 0 && uiLogicalViewport) {
+            if (smoke->enabled) {
+                // 스모크의 창은 보이지 않는다: 호스트 배치는 쓰지 않고 합성 클릭만 쓴다.
+                molga::ui::UIFrameInput synthetic;
+                synthetic.windowId = uiWindow;
+                uiInput = std::move(synthetic);
+            } else {
+                const molga::GraphicsDevice* uiDevice = molga::GraphicsDevice::Current();
+                const auto mapping = molga::ui::MakeStandaloneSurfaceMapping(
+                    presentation, uiDevice ? uiDevice->Generation() : 0);
+                // 점 -> 물리 픽셀 배율은 호스트 포인터 씨앗과 같은 SDL 밀도 하나다.
+                const auto pixelsPerPoint =
+                    molga::ResolveWindowPixelsPerPoint(windowMetrics);
+                if (mapping && pixelsPerPoint) {
+                    uiInput = molga::ui::MapNativeInputBatch(
+                        nativeBatch, uiWindow, *mapping, pixelsPerPoint->x,
+                        pixelsPerPoint->y, textDiagnostics);
+                }
+            }
+        }
         if (smoke->enabled && smokeUIActionIndex < kSmokeUIActions.size()) {
             const SmokeUIAction action = kSmokeUIActions[smokeUIActionIndex];
             SmokeUITarget target = FindSmokeUITarget(world, action);
-            if (!target.object || !target.rect) {
+            // 합성 클릭의 점은 게시된 스냅샷에서 온다(캐시가 따뜻하면 ProcessFrame이 같은
+            // 스냅샷을 N으로 쓴다). 기록이 없거나 가려졌으면 흐름이 깨진 것이다.
+            std::optional<molga::FixedPoint> clickPoint;
+            if (target.object && target.rect && uiInput) {
+                const molga::ui::UISnapshotPtr targetSnapshot =
+                    UISystem::Get().BuildLayout(world, uiWindow, *uiLogicalViewport,
+                                                textDiagnostics);
+                if (targetSnapshot) {
+                    clickPoint = molga::ui::SmokeClickPointForObject(
+                        *targetSnapshot, target.object->GetID());
+                }
+            }
+            if (!clickPoint) {
                 smokeUIFlowOk = false;
-                uiPointer = {{}, false, false, false, false};
             } else {
-                const AABB screenRect = target.rect->GetScreenRect(uiViewport);
-                uiPointer.position = {
-                    screenRect.x + screenRect.width * 0.5f,
-                    screenRect.y + screenRect.height * 0.5f};
-                uiPointer.valid = true;
                 if (smokePressPhase) {
                     // Establish a clean baseline before the real pointer click;
                     // only the authored script is allowed to create the value.
@@ -1166,26 +1196,34 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
                             smokeUIFlowOk = false;
                         }
                     }
-                    uiPointer.down = true;
-                    uiPointer.pressedThisFrame = true;
-                    uiPointer.releasedThisFrame = false;
-                    smokePressPhase = false;
+                }
+                const auto sequence = molga::platform::AcquireNativeInputSequence();
+                if (!sequence) {
+                    smokeUIFlowOk = false;
                 } else {
-                    uiPointer.down = false;
-                    uiPointer.pressedThisFrame = false;
-                    uiPointer.releasedThisFrame = true;
-                    releasedSmokeAction = true;
-                    releasedAction = action;
-                    smokePressPhase = true;
+                    uiInput->orderedEvents.push_back(
+                        molga::ui::MakeSyntheticPrimaryButtonEvent(
+                            *sequence, uiWindow, *clickPoint, smokePressPhase));
+                    if (smokePressPhase) {
+                        smokePressPhase = false;
+                    } else {
+                        releasedSmokeAction = true;
+                        releasedAction = action;
+                        smokePressPhase = true;
+                    }
                 }
             }
-        } else if (smoke->enabled) {
-            uiPointer = {{}, false, false, false, false};
         }
-
-        if (!uiPointer.valid) UISystem::Get().ResetPointerCapture();
-        UISystem::Get().ProcessInput(world, uiViewport, uiPointer);
-        rawMouseWasDown = rawMouseDown;
+        if (uiInput) {
+            uiInput->logicalViewport = *uiLogicalViewport;
+            // tick은 ProcessFrame을 부르는 프레임에서만 진행한다.
+            uiInput->uiTicks = uiTickClock.AdvanceElapsedNanoseconds(
+                Time::GetElapsedNanoseconds(), textDiagnostics);
+            uiInput->frameIndex = static_cast<std::uint64_t>(Time::GetFrameCount());
+            molga::ui::UIFrameResult uiResult = UISystem::Get().ProcessFrame(
+                world, *uiInput, uiLayoutService, textDiagnostics);
+            uiRenderSnapshot = std::move(uiResult.renderSnapshot);
+        }
 
         if (releasedSmokeAction) {
             if (releasedAction == SmokeUIAction::SaveOption) {
@@ -1245,17 +1283,12 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
         {
             MOLGA_PROFILE_SCOPE("GameOutput.Render", molga::ProfileCategory::Rendering);
             if (frameAvailable && framebufferSize.IsValid()) {
-                // Task 12.3 Step 5: UI는 이번 프레임의 스냅샷 하나로만 그려진다. 입력이
-                // 아직 레거시(Step 7)라 스크립트 Update 뒤, 그리기 직전에 짓는다 — 그래서
-                // Update가 바꾼 UI는 예전처럼 같은 프레임에 보인다. 이 루프 본문 안에서만
-                // 쥐므로 장치 종료를 막는 수명 토큰을 프레임 밖으로 들고 나가지 않는다.
-                molga::ui::UISnapshotPtr uiRenderSnapshot;
-                if (const auto uiViewport =
-                        molga::GameOutputRenderer::UiLogicalViewport(
-                            config.outputScaleMode, configuredLogicalSize,
-                            framebufferSize)) {
+                // Task 12.3 Step 7: UI는 이번 프레임의 ProcessFrame이 게시한 N+1 하나로만
+                // 그려진다. 입력 단계가 스냅샷을 못 냈다면(매핑 불가 등) 같은 표면으로
+                // 직접 짓는다. 창 0은 UI 층이 없다.
+                if (!uiRenderSnapshot && uiWindow != 0 && uiLogicalViewport) {
                     uiRenderSnapshot = UISystem::Get().BuildLayout(
-                        world, host->WindowId(), *uiViewport, textDiagnostics);
+                        world, uiWindow, *uiLogicalViewport, textDiagnostics);
                 }
                 molga::GameOutputRequest outputRequest{
                     framebufferSize, configuredLogicalSize,
@@ -1266,6 +1299,9 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
                     TextRenderer::Get(), textDiagnostics);
             }
         }
+        // 그리기가 끝났다: 스냅샷의 수명 토큰을 이 프레임 안에서 놓는다(씬 전환 커밋과
+        // 장치 종료 어느 쪽도 이 값을 기다리지 않는다).
+        uiRenderSnapshot.reset();
 
         if (frameAvailable && !renderer->SubmitFrame(&rendererError)) {
             std::cerr << "GPU frame submission failed: " << rendererError << '\n';
@@ -1279,7 +1315,6 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
             if (sceneRuntime.CommitPendingLoad()) {
                 Time::ResetFixedAccumulator();
                 Input::ReleaseAll();
-                UISystem::Get().ResetPointerCapture();
                 if (smoke->enabled) {
                     ++successfulSceneTransitions;
                     if (smokeUITransitionAwaitingCommit) {
@@ -1566,7 +1601,6 @@ int RunRuntimeAfterPaths(int argc, char* argv[], bool textSeamRequested,
 
     // Cleanup (unique_ptrs auto-release; explicit reset for deterministic order)
     sceneRuntime.Shutdown();
-    UISystem::Get().ResetPointerCapture();
     PlayerPrefs::Shutdown();
     // Task 6.3/8.2 Step 7f: 텍스트/atlas GPU 자원은 renderer가 GPU idle을
     // 증명하고 반납 큐를 비운 다음에만 파괴되고, 텍스트 서비스는 그 다음,

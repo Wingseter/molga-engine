@@ -6,6 +6,7 @@
 #include "Rendering/OutputPresentationLayout.h"
 #include "UI/UIInputEvent.h"
 #include "UI/UILayoutSystem.h"
+#include "UI/UILayoutSnapshot.h"
 
 #include <cstdint>
 #include <optional>
@@ -70,6 +71,22 @@ std::optional<UISurfaceCoordinateMapping> MakeStandaloneSurfaceMapping(
 // 버린다(포커스 없는 패널의 이벤트는 UI에 닿지 않는다). frameIndex, windowId,
 // logicalViewport, uiTicks는 그대로다 — tick은 계속 흘러 관성이 가라앉는다.
 void DropUnfocusedPanelInput(UIFrameInput& input) noexcept;
+
+// ── 스모크 모드(보이지 않는 창)의 합성 클릭 ─────────────────────────────────
+// 보이지 않는 창에는 실제 포인터가 없다. 런타임 스모크는 호스트 배치 대신 이 이벤트로
+// 같은 ProcessFrame 경로를 구동한다. 버튼은 항상 주 버튼(Left)이다 — 주 버튼만 누름,
+// 캡처, 클릭을 만든다. 점은 캔버스 논리점이고 sequence는 부르는 쪽이 호스트와 같은
+// 전역 할당자에서 받는다.
+UIInputEvent MakeSyntheticPrimaryButtonEvent(std::uint64_t sequence,
+                                             molga::WindowId windowId,
+                                             molga::FixedPoint canvasPoint,
+                                             bool pressed) noexcept;
+
+// 합성 클릭의 점: objectId가 가진 상호작용 가능한 hit 기록의 보이는 사각형(rect ∩ clip)
+// 의 중심이다. 그 점의 맨 위 hit 기록이 그 오브젝트가 아니면(가려졌거나 기록이 없으면)
+// nullopt다 — 다른 버튼을 누르는 클릭을 지어내지 않는다.
+std::optional<molga::FixedPoint> SmokeClickPointForObject(
+    const UISnapshot& snapshot, unsigned int objectId) noexcept;
 
 // 호스트 배치 -> 이 표면의 순서 있는 프레임 입력. 씨앗이 없거나 중복이면
 // nullopt + ReferenceInvalid 한 번. frameIndex, logicalViewport, uiTicks는
