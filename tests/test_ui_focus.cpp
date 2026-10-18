@@ -17,6 +17,7 @@
 #include "ECS/Components/UICanvas.h"
 #include "ECS/Components/UIImage.h"
 #include "ECS/Components/UISelectable.h"
+#include "UI/UINavigationTypes.h"
 #include "ECS/GameObject.h"
 #include "Platform/TextInputOwner.h"
 #include "SmokeTestSupport.h"
@@ -37,6 +38,7 @@
 #include "UI/UIRuntimeInvalidation.h"
 #include "UI/UITextInputVisualState.h"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -83,6 +85,7 @@ constexpr unsigned int kCenterId = 3;
 constexpr unsigned int kRightId = 4;
 constexpr unsigned int kUpId = 5;
 constexpr unsigned int kDownId = 6;
+constexpr unsigned int kExplicitId = 10;
 
 FixedSize RawSize(std::int32_t width, std::int32_t height) {
     return FixedSize{Fixed26_6::FromRaw(width), Fixed26_6::FromRaw(height)};
@@ -336,6 +339,58 @@ public:
         Rebuild();
     }
 
+    // 명시 내비게이션 장면(id 10). 위는 Center, 오른쪽은 상호작용 불가
+    // selectable(11), 아래는 selectable 없는 오브젝트(12, 게시가 거절한다),
+    // 왼쪽은 비워 둔다. 자동 내비게이션이었다면 위는 Left가 뽑혔을 자리다.
+    void AddExplicit() {
+        GameObject* source = AddSelectable(kExplicitId, 100.0f, 500.0f);
+        GameObject* canvas = world_.FindById(kCanvasId);
+        GameObject* blocked = AddObject(world_, 11, canvas);
+        AddOffsetRect(*blocked, 500.0f, 500.0f, 50.0f, 50.0f);
+        REQUIRE(blocked->AddComponent<UIImage>() != nullptr);
+        auto* blockedSelectable = blocked->AddComponent<UISelectable>();
+        REQUIRE(blockedSelectable != nullptr);
+        blockedSelectable->SetInteractable(false);
+        GameObject* plain = AddObject(world_, 12, canvas);
+        AddOffsetRect(*plain, 300.0f, 560.0f, 50.0f, 50.0f);
+        REQUIRE(plain->AddComponent<UIImage>() != nullptr);
+        auto* selectable = source->GetComponent<UISelectable>();
+        selectable->SetNavigationMode(UINavigationMode::Explicit);
+        selectable->SetNavigateUp(SceneObjectRef{kCenterId});
+        selectable->SetNavigateRight(SceneObjectRef{11});
+        selectable->SetNavigateDown(SceneObjectRef{12});
+        Rebuild();
+    }
+    // 네 방향이 모두 서로 다른 유효한 참조인 명시 출발점(id 13, 왼쪽 위 구석).
+    // 자동이었다면 어느 방향도 같은 답이 나오지 않는 자리다.
+    void AddFourWaySource() {
+        GameObject* source = AddSelectable(13, 20.0f, 20.0f);
+        auto* selectable = source->GetComponent<UISelectable>();
+        selectable->SetNavigationMode(UINavigationMode::Explicit);
+        selectable->SetNavigateUp(SceneObjectRef{kUpId});
+        selectable->SetNavigateDown(SceneObjectRef{kDownId});
+        selectable->SetNavigateLeft(SceneObjectRef{kLeftId});
+        selectable->SetNavigateRight(SceneObjectRef{kRightId});
+        Rebuild();
+    }
+    // 오른쪽 후보를 모두 치운다(Right를 비활성).
+    void RemoveRight() {
+        Object(kRightId).SetActive(false);
+        Rebuild();
+    }
+
+    const molga::ui::UIHitTargetSnapshot& RecordOfSelectable(
+        const UISnapshot& n, unsigned int id) {
+        const auto identity = SelectableIdentity(id);
+        for (const auto& hit : n.hitTargets) {
+            if (hit.focusTarget && hit.focusTarget->runtimeTarget == identity) {
+                return hit;
+            }
+        }
+        FAIL("no focusable hit record for object " << id);
+        return n.hitTargets.front();
+    }
+
     // ── 표 ──────────────────────────────────────────────────────────────────
     UISurfaceKey Key(molga::WindowId window = kSurfaceWindow) const {
         return UISurfaceKey{window, world_.Generation()};
@@ -418,6 +473,19 @@ public:
         event.axisValue = Fixed26_6::FromRaw(valueRaw);
         // 활성이어도 축은 방향이 아니다 — active 검사가 대신 막지 못하게 한다.
         event.active = true;
+        return event;
+    }
+    UIInputEvent TextCommit(const std::string& utf8,
+                            const molga::platform::TextInputOwnerStamp& stamp) {
+        UIInputEvent event;
+        event.sequence = ++sequence_;
+        event.traceOrdinal = sequence_;
+        event.windowId = kSurfaceWindow;
+        event.kind = UIInputEventKind::TextCommit;
+        molga::ui::UITextInputEventPayload payload;
+        payload.utf8 = utf8;
+        payload.ownerAtIngest = stamp;
+        event.text = std::move(payload);
         return event;
     }
     UIInputEvent WindowFocus(bool active,
@@ -821,4 +889,373 @@ TEST_CASE("ProjectEvent writes nothing into an ineligible plan") {
     CHECK_FALSE(result.visualDirty);
     CHECK_FALSE(result.resolvedStageTarget.has_value());
     CHECK(f.Diagnostics().Total() == 0);
+}
+
+// ── Step D ──────────────────────────────────────────────────────────────────
+TEST_CASE("UINavigationCandidateLess ranks primary, secondary, sibling path, object id, instance id") {
+    using molga::ui::UINavigationCandidateKey;
+    using molga::ui::UINavigationCandidateLess;
+    const auto key = [](std::int64_t primary, std::int64_t secondary,
+                        std::vector<std::uint32_t> path, unsigned int objectId,
+                        std::uint64_t instance) {
+        UINavigationCandidateKey k;
+        k.primary = primary;
+        k.secondary = secondary;
+        k.siblingPath = std::move(path);
+        k.objectId = objectId;
+        k.componentInstanceId = instance;
+        return k;
+    };
+    const auto base = key(200, 100, {0, 2}, 5, 50);
+
+    // 각 단계가 **자기 뒤의 모든 단계를 이긴다**: 앞 단계가 더 나쁘면 뒤 단계가
+    // 아무리 좋아도 진다.
+    CHECK(UINavigationCandidateLess(key(100, 900, {9, 9}, 99, 99), base));
+    CHECK_FALSE(UINavigationCandidateLess(base, key(100, 900, {9, 9}, 99, 99)));
+    CHECK(UINavigationCandidateLess(key(200, 50, {9, 9}, 99, 99), base));
+    CHECK_FALSE(UINavigationCandidateLess(base, key(200, 50, {9, 9}, 99, 99)));
+    CHECK(UINavigationCandidateLess(key(200, 100, {0, 1}, 99, 99), base));
+    CHECK_FALSE(UINavigationCandidateLess(base, key(200, 100, {0, 1}, 99, 99)));
+    // 사전식: 짧은 접두사가 더 앞선다.
+    CHECK(UINavigationCandidateLess(key(200, 100, {0}, 99, 99), base));
+
+    // 형제 경로가 같으면 오브젝트 id, 그것도 같으면 인스턴스 id. 장면으로는
+    // 닿지 않는 단계라(캔버스 뿌리마다 경로가 다르고 오브젝트당 selectable은
+    // 하나) 손으로 만든 키로 본다.
+    const auto sameObject = key(200, 100, {0, 2}, 4, 99);
+    CHECK(UINavigationCandidateLess(sameObject, base));
+    CHECK_FALSE(UINavigationCandidateLess(base, sameObject));
+    const auto sameInstance = key(200, 100, {0, 2}, 5, 49);
+    CHECK(UINavigationCandidateLess(sameInstance, base));
+    CHECK_FALSE(UINavigationCandidateLess(base, sameInstance));
+
+    // 완전히 같은 키는 서로보다 작지 않다(엄격 약순서).
+    CHECK_FALSE(UINavigationCandidateLess(base, base));
+}
+
+TEST_CASE("explicit navigation follows the frozen ref table") {
+    UIFocusFixture f;
+    f.AddExplicit();
+    // 게시 시각 진단: 아래 참조(selectable 없음)는 레이아웃이 거절한다.
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                    "ui.layout") >= 1);
+    f.Diagnostics().Clear();
+    f.FocusByPointer(kExplicitId);
+    const auto center = f.SelectableIdentity(kCenterId);
+    const auto source = f.SelectableIdentity(kExplicitId);
+    const auto n = f.Snapshot();
+    const auto& record = f.RecordOfSelectable(*n, kExplicitId);
+
+    SUBCASE("up reaches the frozen target field for field, not the nearest neighbour") {
+        const auto plan = f.Plan(f.KeyEvent(Input::KeyCode::Up));
+        REQUIRE(plan.focusDestinationFromSnapshotN.has_value());
+        REQUIRE(record.navigation.explicitTargets[0].has_value());
+        REQUIRE(record.navigation.canonicalTargets[0].has_value());
+        CHECK(plan.focusDestinationFromSnapshotN->runtimeTarget ==
+              *record.navigation.explicitTargets[0]);
+        CHECK(plan.focusDestinationFromSnapshotN->canonicalTarget ==
+              *record.navigation.canonicalTargets[0]);
+        CHECK(plan.focusDestinationFromSnapshotN->runtimeTarget == center);
+        // 단계 대상은 목적지다. 동작 대상은 출발 경로의 버튼으로 남는다.
+        CHECK(plan.TargetFor(UIEventStage::Focus)->runtimeTarget == center);
+        CHECK(plan.targetFromSnapshotN == f.ButtonIdentity(kExplicitId));
+        CHECK(f.State().focused == center);
+
+        const auto sent = f.Dispatch(plan);
+        CHECK(sent.focusMerge == UIEventMergeStatus::Merged);
+        CHECK((sent.focus.actionMask & UIEventActionBit(UIEventAction::Navigate)) != 0);
+        CHECK((sent.focus.actionMask & UIEventActionBit(UIEventAction::Focus)) != 0);
+        CHECK(sent.focus.consumed);
+        CHECK(sent.focus.resultingFocus == center);
+        CHECK(sent.record.resultingFocus == center);
+        CHECK(f.Focused() == center);
+        // 감사 기록의 주 대상은 여전히 출발 버튼이다.
+        CHECK(sent.record.runtimeTarget == f.ButtonIdentity(kExplicitId));
+    }
+    SUBCASE("a reference frozen in N but not focusable there reports once and stays") {
+        REQUIRE(record.navigation.explicitTargets[3].has_value());
+        const auto plan = f.Plan(f.KeyRight());
+        CHECK_FALSE(plan.focusDestinationFromSnapshotN.has_value());
+        const auto sent = f.Dispatch(plan);
+        CHECK(sent.focusMerge == UIEventMergeStatus::Merged);
+        CHECK((sent.focus.actionMask & UIEventActionBit(UIEventAction::Navigate)) == 0);
+        CHECK_FALSE(sent.focus.resultingFocus.has_value());
+        CHECK(f.Focused() == source);
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                        "ui.focus") == 1);
+    }
+    SUBCASE("a reference the layout rejected is silent here") {
+        CHECK_FALSE(record.navigation.explicitTargets[1].has_value());
+        const auto plan = f.Plan(f.KeyEvent(Input::KeyCode::Down));
+        CHECK_FALSE(plan.focusDestinationFromSnapshotN.has_value());
+        const auto sent = f.Dispatch(plan);
+        CHECK(sent.focus.actionMask == 0);
+        CHECK(f.Focused() == source);
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                        "ui.focus") == 0);
+    }
+    SUBCASE("an unset direction does not fall back to automatic navigation") {
+        const auto plan = f.Plan(f.KeyEvent(Input::KeyCode::Left));
+        CHECK_FALSE(plan.focusDestinationFromSnapshotN.has_value());
+        const auto sent = f.Dispatch(plan);
+        CHECK(sent.focus.actionMask == 0);
+        CHECK(f.Focused() == source);
+        CHECK(f.Diagnostics().Total() == 0);
+    }
+}
+
+TEST_CASE("each explicit direction resolves its own distinct frozen reference") {
+    UIFocusFixture f;
+    f.AddFourWaySource();
+    const auto n = f.Snapshot();
+    const auto& record = f.RecordOfSelectable(*n, 13);
+    const std::array<unsigned int, 4> expected = {kUpId, kDownId, kLeftId, kRightId};
+    const std::array<Input::KeyCode, 4> keys = {
+        Input::KeyCode::Up, Input::KeyCode::Down, Input::KeyCode::Left,
+        Input::KeyCode::Right};
+    for (std::size_t axis = 0; axis < 4; ++axis) {
+        CAPTURE(axis);
+        REQUIRE(record.navigation.explicitTargets[axis].has_value());
+        REQUIRE(record.navigation.canonicalTargets[axis].has_value());
+        UIPlanningState state = f.InitialPlanningState();
+        state.focused = f.SelectableIdentity(13);
+        const auto plan = f.PlanOn(*n, state, f.KeyEvent(keys[axis]));
+        REQUIRE(plan.focusDestinationFromSnapshotN.has_value());
+        CHECK(plan.focusDestinationFromSnapshotN->runtimeTarget ==
+              *record.navigation.explicitTargets[axis]);
+        CHECK(plan.focusDestinationFromSnapshotN->canonicalTarget ==
+              *record.navigation.canonicalTargets[axis]);
+        CHECK(plan.focusDestinationFromSnapshotN->runtimeTarget ==
+              f.SelectableIdentity(expected[axis]));
+        CHECK(state.focused == f.SelectableIdentity(expected[axis]));
+    }
+}
+
+TEST_CASE("automatic navigation ranks half-plane, primary, secondary, sibling path") {
+    UIFocusFixture f;
+
+    const auto destinationOf = [&](unsigned int fromId, Input::KeyCode key) {
+        UIPlanningState state = f.InitialPlanningState();
+        state.focused = f.SelectableIdentity(fromId);
+        const auto plan = f.PlanOn(*f.Snapshot(), state, f.KeyEvent(key));
+        return plan.focusDestinationFromSnapshotN
+                   ? std::optional<UIRuntimeTargetIdentity>(
+                         plan.focusDestinationFromSnapshotN->runtimeTarget)
+                   : std::nullopt;
+    };
+
+    SUBCASE("each direction picks the neighbour in its own half-plane") {
+        CHECK(destinationOf(kCenterId, Input::KeyCode::Left) ==
+              f.SelectableIdentity(kLeftId));
+        CHECK(destinationOf(kCenterId, Input::KeyCode::Right) ==
+              f.SelectableIdentity(kRightId));
+        CHECK(destinationOf(kCenterId, Input::KeyCode::Up) ==
+              f.SelectableIdentity(kUpId));
+        CHECK(destinationOf(kCenterId, Input::KeyCode::Down) ==
+              f.SelectableIdentity(kDownId));
+        // 게임패드 D-pad도 같은 답이다.
+        UIPlanningState state = f.InitialPlanningState();
+        state.focused = f.SelectableIdentity(kCenterId);
+        const auto plan = f.PlanOn(*f.Snapshot(), state, f.DpadRight());
+        REQUIRE(plan.focusDestinationFromSnapshotN.has_value());
+        CHECK(plan.focusDestinationFromSnapshotN->runtimeTarget ==
+              f.SelectableIdentity(kRightId));
+    }
+    SUBCASE("the primary-axis distance wins over a perfectly aligned far candidate") {
+        // Right(500)는 정렬(보조축 0)이지만 id 7(400)이 주축으로 더 가깝다.
+        f.AddSelectable(7, 400.0f, 250.0f);
+        f.Rebuild();
+        CHECK(destinationOf(kCenterId, Input::KeyCode::Right) ==
+              f.SelectableIdentity(7));
+    }
+    SUBCASE("equal primary: the smaller secondary distance wins even for a later higher id") {
+        f.RemoveRight();
+        // 8은 먼저 만들었고 (500,210)이라 보조축 180(두 배 단위), 9는 나중에 만들었고
+        // (500,350)이라 100이다. id도 형제 순서도 9가 불리한데 9가 이겨야 한다.
+        f.AddSelectable(8, 500.0f, 210.0f);
+        f.AddSelectable(9, 500.0f, 350.0f);
+        f.Rebuild();
+        CHECK(destinationOf(kCenterId, Input::KeyCode::Right) ==
+              f.SelectableIdentity(9));
+    }
+    SUBCASE("equal distances: the earlier sibling wins even with the higher object id") {
+        f.RemoveRight();
+        // 9를 먼저 만들어 8보다 앞 형제로 둔다. 미러 위치라 거리가 같다.
+        f.AddSelectable(9, 500.0f, 250.0f);
+        f.AddSelectable(8, 500.0f, 350.0f);
+        f.Rebuild();
+        CHECK(destinationOf(kCenterId, Input::KeyCode::Right) ==
+              f.SelectableIdentity(9));
+    }
+    SUBCASE("no candidate in the half-plane leaves focus alone without a diagnostic") {
+        f.FocusByPointer(kRightId);
+        f.Diagnostics().Clear();
+        const auto plan = f.Plan(f.KeyRight());
+        CHECK_FALSE(plan.focusDestinationFromSnapshotN.has_value());
+        // 단계 대상은 출발 포커스 그대로다.
+        REQUIRE(plan.TargetFor(UIEventStage::Focus).has_value());
+        CHECK(plan.TargetFor(UIEventStage::Focus)->runtimeTarget ==
+              f.SelectableIdentity(kRightId));
+        const auto before = SemanticGeneration();
+        const auto sent = f.Dispatch(plan);
+        CHECK(sent.focusMerge == UIEventMergeStatus::Merged);
+        CHECK(sent.focus.actionMask == 0);
+        CHECK_FALSE(sent.focus.consumed);
+        CHECK_FALSE(sent.focus.resultingFocus.has_value());
+        CHECK(f.Focused() == f.SelectableIdentity(kRightId));
+        CHECK(f.Diagnostics().Total() == 0);
+        CHECK(SemanticGeneration() == before);
+    }
+}
+
+TEST_CASE("navigation mode None neither navigates nor is navigated to") {
+    UIFocusFixture f;
+    SUBCASE("a source with mode None produces no destination and no diagnostic") {
+        f.SelectableOf(kCenterId).SetNavigationMode(UINavigationMode::None);
+        f.Rebuild();
+        f.FocusByPointer(kCenterId);
+        f.Diagnostics().Clear();
+        for (const auto key : {Input::KeyCode::Left, Input::KeyCode::Right,
+                               Input::KeyCode::Up, Input::KeyCode::Down}) {
+            const auto plan = f.Plan(f.KeyEvent(key));
+            CHECK_FALSE(plan.focusDestinationFromSnapshotN.has_value());
+            const auto sent = f.Dispatch(plan);
+            CHECK(sent.focus.actionMask == 0);
+        }
+        CHECK(f.Focused() == f.SelectableIdentity(kCenterId));
+        CHECK(f.Diagnostics().Total() == 0);
+    }
+    SUBCASE("a mode None selectable is excluded as an automatic destination") {
+        f.SelectableOf(kRightId).SetNavigationMode(UINavigationMode::None);
+        f.Rebuild();
+        f.FocusByPointer(kCenterId);
+        const auto plan = f.Plan(f.KeyRight());
+        // Right가 유일한 오른쪽 후보였다.
+        CHECK_FALSE(plan.focusDestinationFromSnapshotN.has_value());
+        // 그래도 아래쪽 후보는 그대로 닿는다.
+        const auto down = f.Plan(f.KeyEvent(Input::KeyCode::Down));
+        REQUIRE(down.focusDestinationFromSnapshotN.has_value());
+        CHECK(down.focusDestinationFromSnapshotN->runtimeTarget ==
+              f.SelectableIdentity(kDownId));
+    }
+}
+
+TEST_CASE("navigation projects key focus but stamped text keeps its owner") {
+    UIFocusFixture f;
+    f.FocusByPointer(kLeftId);
+    const auto leftButton = f.ButtonIdentity(kLeftId);
+    const auto centerSelectable = f.SelectableIdentity(kCenterId);
+
+    const auto nav = f.Plan(f.DpadRight());
+    // 동작 대상은 출발 경로의 버튼, 포커스 단계 대상은 목적지다.
+    CHECK(nav.targetFromSnapshotN == leftButton);
+    REQUIRE(nav.focusDestinationFromSnapshotN.has_value());
+    CHECK(nav.focusDestinationFromSnapshotN->runtimeTarget == centerSelectable);
+    CHECK(f.State().focused == centerSelectable);
+    const auto sent = f.Dispatch(nav);
+    CHECK(sent.focus.resultingFocus == centerSelectable);
+    CHECK(f.Focused() == centerSelectable);
+
+    // 같은 배치의 다음 키는 투사된 새 포커스를 본다. 동작 대상은 Center 버튼이고
+    // 포커스 단계 대상은 Center selectable이다(둘은 다른 컴포넌트).
+    const auto key = f.Plan(f.KeyEvent(Input::KeyCode::A));
+    CHECK(key.targetFromSnapshotN == f.ButtonIdentity(kCenterId));
+    REQUIRE(key.TargetFor(UIEventStage::Focus).has_value());
+    CHECK(key.TargetFor(UIEventStage::Focus)->runtimeTarget == centerSelectable);
+    CHECK_FALSE(key.focusDestinationFromSnapshotN.has_value());
+
+    // 도장 받은 텍스트는 투사된 포커스를 보지 않는다: 소유자는 도장이다.
+    molga::platform::TextInputOwnerStamp stamp;
+    stamp.kind = molga::platform::TextInputOwnerKind::RuntimeUITextInput;
+    stamp.runtimeTarget = leftButton;
+    stamp.generation = 7;
+    const auto text = f.Plan(f.TextCommit("a", stamp));
+    CHECK(text.targetFromSnapshotN == leftButton);
+    CHECK_FALSE(text.focusDestinationFromSnapshotN.has_value());
+    CHECK_FALSE(text.TargetFor(UIEventStage::Focus).has_value());
+    CHECK(f.State().focused == centerSelectable);
+
+    // 도장 없는 텍스트는 대상이 없고 투사된 포커스를 건드리지 않는다.
+    const auto none =
+        f.Plan(f.TextCommit("b", molga::platform::TextInputOwnerStamp{}));
+    CHECK_FALSE(none.targetFromSnapshotN.has_value());
+    CHECK_FALSE(none.TargetFor(UIEventStage::Focus).has_value());
+    CHECK(f.State().focused == centerSelectable);
+    const auto noneSent = f.Dispatch(none);
+    CHECK(noneSent.focus.actionMask == 0);
+    CHECK(f.Focused() == centerSelectable);
+}
+
+TEST_CASE("navigation commits only the frozen destination") {
+    UIFocusFixture f;
+    f.FocusByPointer(kLeftId);
+    const auto n = f.Snapshot();
+    const auto plan = f.Plan(f.KeyRight());
+    REQUIRE(plan.focusDestinationFromSnapshotN.has_value());
+    const auto frozen = *plan.focusDestinationFromSnapshotN;
+    // 계획과 발송 사이에 목적지 selectable이 교체된다.
+    f.ReplaceSelectable(kCenterId);
+    f.Diagnostics().Clear();
+
+    const auto sent = f.DispatchOn(*n, plan);
+    CHECK(sent.focusMerge == UIEventMergeStatus::Merged);
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                    "ui.focus") == 1);
+    CHECK(f.Focused() == f.SelectableIdentity(kLeftId));
+    CHECK_FALSE(sent.focus.resultingFocus.has_value());
+    CHECK(sent.focus.actionMask == 0);
+    // 해석하지 못한 단계 대상은 그대로 남아 누산기가 검증한다.
+    REQUIRE(sent.focus.resolvedStageTarget.has_value());
+    CHECK(*sent.focus.resolvedStageTarget == frozen);
+    // 새 selectable로 다시 해석해 옮기지 않았다.
+    CHECK(f.Focused() != f.SelectableIdentity(kCenterId));
+}
+
+TEST_CASE("a gamepad axis never navigates") {
+    UIFocusFixture f;
+    f.FocusByPointer(kLeftId);
+    f.Diagnostics().Clear();
+    for (const auto axis :
+         {Input::GamepadAxis::LeftX, Input::GamepadAxis::LeftY,
+          Input::GamepadAxis::RightX, Input::GamepadAxis::RightY}) {
+        const auto plan = f.Plan(f.PadAxis(axis, 64 * 8));
+        CHECK_FALSE(plan.focusDestinationFromSnapshotN.has_value());
+        const auto sent = f.Dispatch(plan);
+        CHECK(sent.focusMerge == UIEventMergeStatus::Merged);
+        CHECK(sent.focus.actionMask == 0);
+        CHECK(f.Focused() == f.SelectableIdentity(kLeftId));
+    }
+    CHECK(f.Diagnostics().Total() == 0);
+}
+
+TEST_CASE("keyboard and gamepad focus share the pointer focus lifecycle") {
+    UIFocusFixture f;
+    f.FocusByPointer(kLeftId);
+    const auto sent = f.Send(f.DpadRight());
+    REQUIRE(sent.focus.resultingFocus.has_value());
+    const auto center = f.SelectableIdentity(kCenterId);
+    REQUIRE(f.Focused() == center);
+    // 방향 입력은 캡처를 만들지 않는다.
+    CHECK_FALSE(f.Surface().pointerCapture.has_value());
+
+    SUBCASE("a pointer departure keeps keyboard focus") {
+        const auto departure = f.Send(f.PointerDeparture());
+        CHECK(departure.focusMerge == UIEventMergeStatus::Merged);
+        CHECK(f.Focused() == center);
+    }
+    SUBCASE("deactivating the focused object clears it on Revalidate") {
+        f.Object(kCenterId).SetActive(false);
+        f.Focus().Revalidate(f.World(), *f.Snapshot(), f.Diagnostics());
+        CHECK_FALSE(f.Focused().has_value());
+    }
+    SUBCASE("a native window focus loss clears it") {
+        f.Focus().OnNativeWindowFocusLost(kSurfaceWindow, f.Diagnostics());
+        CHECK_FALSE(f.Focused().has_value());
+    }
+    SUBCASE("further navigation continues from the moved focus") {
+        f.SyncStateFromTable();
+        const auto next = f.Send(f.KeyRight());
+        CHECK(next.focus.resultingFocus == f.SelectableIdentity(kRightId));
+        CHECK(f.Focused() == f.SelectableIdentity(kRightId));
+    }
 }

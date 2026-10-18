@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 class World;
 
@@ -31,6 +32,23 @@ enum class UINavigationDirection : std::uint8_t {
 // 옮기지 않는다.
 std::optional<UINavigationDirection> UINavigationDirectionOf(
     const UIInputEvent& event) noexcept;
+
+// 자동 내비게이션 후보 하나의 순위 키. 작을수록 좋다. 순서는 **정확히** 이렇다:
+// 주축 거리, 보조축 거리, 형제 경로(사전식), 오브젝트 id, 컴포넌트 인스턴스 id.
+// 거리는 중심을 두 배로 잡은 raw 좌표(반 칸을 쪼개지 않으려고)의 절댓값이다.
+//
+// 순수 비교기를 따로 노출하는 이유: 오브젝트 id/인스턴스 id 단계는 장면으로는
+// 닿지 않는다(캔버스 뿌리마다 siblingPath가 다르고 오브젝트당 UISelectable은
+// 하나다). 그래도 구현되어 있고, 손으로 만든 키로 시험한다(P13과 같은 처리).
+struct UINavigationCandidateKey {
+    std::int64_t primary = 0;
+    std::int64_t secondary = 0;
+    std::vector<std::uint32_t> siblingPath;
+    unsigned int objectId = 0;
+    std::uint64_t componentInstanceId = 0;
+};
+bool UINavigationCandidateLess(const UINavigationCandidateKey& a,
+                               const UINavigationCandidateKey& b) noexcept;
 
 // 포커스/캡처의 **상태**는 UIInteractionStateTable에 산다(프로세스에 하나, 표면
 // 키별). 이 클래스는 데이터 멤버가 없고, 그 표를 쓰는 세 번째 규칙 묶음이다:
