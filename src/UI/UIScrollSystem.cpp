@@ -4,6 +4,7 @@
 #include "ECS/Components/RectTransform.h"
 #include "ECS/Components/UIScrollView.h"
 #include "ECS/GameObject.h"
+#include "Systems/Input.h"
 #include "UI/UIHierarchy.h"
 #include "UI/UIRuntimeInvalidation.h"
 
@@ -1027,6 +1028,96 @@ UIScrollMutation UIScrollSystem::ApplyInput(
     mutation.renderDirty = dirtied;
     mutation.textShapeDirty = false;
     return mutation;
+}
+
+// ── 한 이벤트 입력 (Task 12.2 Step E) ───────────────────────────────────────
+std::optional<UIScrollAxis> ScrollAxisOf(std::uint32_t control) noexcept {
+    // 사용자 결정 2026-10-18: 오른쪽 스틱만 스크롤한다.
+    switch (static_cast<Input::GamepadAxis>(control)) {
+        case Input::GamepadAxis::RightX: return UIScrollAxis::Horizontal;
+        case Input::GamepadAxis::RightY: return UIScrollAxis::Vertical;
+        default: return std::nullopt;
+    }
+}
+
+namespace {
+
+// 이 계획이 스크롤 입력이 되는가. 휠과 **잡힌** 포인터 이동만 변위를 들고
+// 온다(잡히지 않은 hover 이동은 스크롤이 아니다). 축 이벤트는 정확한 부호 있는
+// 값 하나와 ScrollAxisOf가 고른 이름 붙은 축을 낸다.
+std::optional<UIScrollInput> ScrollInputFor(const PlannedUIEvent& planned) {
+    const UIInputEvent& event = planned.event;
+    UIScrollInput input;
+    switch (event.kind) {
+        case UIInputEventKind::Scroll:
+            input.logicalDelta = event.logicalDelta;
+            return input;
+        case UIInputEventKind::PointerMotion:
+            if (!planned.capturedPointerFromSnapshotN ||
+                !event.logicalPointValid) {
+                return std::nullopt;
+            }
+            input.logicalDelta = event.logicalDelta;
+            return input;
+        case UIInputEventKind::GamepadAxis: {
+            const auto axis = ScrollAxisOf(event.control);
+            if (!axis) return std::nullopt;
+            input.axisValue = event.axisValue;
+            input.axis = *axis;
+            return input;
+        }
+        default:
+            return std::nullopt;
+    }
+}
+
+}  // namespace
+
+UIEventHandlerResult UIScrollSystem::HandleEvent(
+    World& world, const UISnapshot& snapshot, const PlannedUIEvent& planned,
+    molga::text::TextDiagnosticSink& sink) {
+    // 소비자가 없으면 서수 0과 그 단계 대상을 되풀이한다(누산기가 계획의
+    // TargetFor와 맞춰 본다). 부적격 계획은 대상도 효과도 없다.
+    UIEventHandlerResult result;
+    result.sequence = planned.event.sequence;
+    result.stage = UIEventStage::Scroll;
+    result.stageTargetOrdinal = 0;
+    if (!planned.surfaceEligible) return result;
+    result.resolvedStageTarget = planned.TargetFor(UIEventStage::Scroll, 0);
+
+    const auto input = ScrollInputFor(planned);
+    if (!input) return result;
+
+    // 안쪽에서 바깥쪽으로, 이 계획 하나가 얼려 둔 사슬만 걷는다. 처음으로
+    // 변위를 소비한 대상에서 멈춘다: 경계에 닿은 안쪽 대상은 거절하고, 같은
+    // 변위가 바깥쪽 조상에 정확히 한 번 닿는다.
+    for (std::size_t ordinal = 0; ordinal < planned.ScrollTargetCount();
+         ++ordinal) {
+        const auto frozen = planned.TargetFor(UIEventStage::Scroll, ordinal);
+        if (!frozen) continue;
+        if (!ResolveTarget(world, frozen->runtimeTarget)) {
+            // 낡은 항목은 건너뛰고 바깥으로 계속한다. 다시 매기지 않는다.
+            impl_->Report(sink, molga::text::TextDiagnosticCode::ReferenceInvalid,
+                          molga::text::TextSeverity::Warning,
+                          frozen->runtimeTarget.worldGeneration,
+                          frozen->runtimeTarget.objectId,
+                          "a planned UI scroll target no longer resolves; it "
+                          "was skipped and not retargeted",
+                          "re-plan input against the current snapshot");
+            continue;
+        }
+        const UIScrollMutation mutation = ApplyInput(
+            world, snapshot, frozen->runtimeTarget, *input, sink);
+        if (!mutation.changed) continue;
+        result.stageTargetOrdinal = ordinal;
+        result.resolvedStageTarget = frozen;
+        result.consumed = true;
+        result.actionMask = UIEventActionBit(UIEventAction::Scroll);
+        result.arrangementDirty = mutation.arrangementDirty;
+        result.visualDirty = mutation.renderDirty;
+        return result;
+    }
+    return result;
 }
 
 UIScrollMutation UIScrollSystem::AdvanceTick(

@@ -3,6 +3,7 @@
 #include "Common/Fixed26_6.h"
 #include "Text/TextDiagnostic.h"
 #include "UI/UIDeterministicTick.h"
+#include "UI/UIInputEvent.h"
 #include "UI/UILayoutSnapshot.h"
 #include "UI/UIRuntimeIdentity.h"
 
@@ -19,6 +20,12 @@ namespace molga::ui {
 // 이름 붙은 축. 게임패드 축 값은 이 이름이 가리키는 축 하나에만 더해진다 —
 // "두 축에 나눠 넣기"는 저작자가 고른 축을 조용히 바꾸는 일이다.
 enum class UIScrollAxis : std::uint8_t { Horizontal, Vertical };
+
+// 게임패드 축 이벤트(UIInputEvent::control)가 어느 스크롤 축을 가리키는가.
+// control 도메인(사용자 결정 2026-10-18)을 스크롤 쪽에서 아는 유일한 곳이다:
+// Input::GamepadAxis의 오른쪽 스틱만 스크롤한다(RightX -> 가로, RightY -> 세로).
+// 왼쪽 스틱과 두 트리거, 모르는 값은 nullopt — 스크롤 단계가 무동작이다.
+std::optional<UIScrollAxis> ScrollAxisOf(std::uint32_t control) noexcept;
 
 // 입력 사건 하나. 부호 있는 X/Y 변위와 정확한 부호 있는 축 값을 함께 든다:
 // 휠/포인터는 logicalDelta로, 게임패드는 axisValue로 온다. 둘 다 의도적으로
@@ -97,6 +104,16 @@ public:
     UIScrollMutation AdvanceTick(World&, const UISnapshot&,
                                  const UIDeterministicTick&,
                                  molga::text::TextDiagnosticSink&);
+
+    // 계획 **하나**를 처리한다. 얼어붙은 self-or-ancestor 사슬을 안쪽부터 걷고,
+    // 처음으로 변위를 소비한(ApplyInput.changed) 대상과 그 서수를 Scroll 단계
+    // 결과로 보고한다. 휠은 logicalDelta를, 잡힌 포인터 이동(드래그)은 같은
+    // logicalDelta를, 게임패드 축은 axisValue와 ScrollAxisOf가 고른 축을 쓴다.
+    // 벡터를 받지 않는다 — tests/test_ui_input.cpp가 그 금지를 컴파일 시각에
+    // 지킨다.
+    UIEventHandlerResult HandleEvent(World&, const UISnapshot&,
+                                     const PlannedUIEvent&,
+                                     molga::text::TextDiagnosticSink&);
 
     const UIScrollState* State(const UIRuntimeTargetIdentity&) const;
 

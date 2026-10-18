@@ -29,6 +29,8 @@
 #include "Text/TextShapingService.h"
 #include "TextQualificationAssetTree.h"
 #include "UI/UIDeterministicTick.h"
+#include "UI/UIInputEvent.h"
+#include "UI/UIInputRouter.h"
 #include "UI/UILayoutSnapshot.h"
 #include "UI/UILayoutSystem.h"
 #include "UI/UIRuntimeIdentity.h"
@@ -2005,4 +2007,48 @@ TEST_CASE("a displacement whose content is not in this tree stays out of the geo
     key = f.Layout().LastGeometryKey();
     REQUIRE(key.has_value());
     CHECK(key->scrollDisplacements.empty());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Task 12.2 Step E: 한 이벤트 핸들러가 이 픽스처 자신의 사슬을 소비한다
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("HandleEvent consumes one planned wheel event on the fixture's own chain") {
+    UIScrollFixture f;
+    // 내용 안의 상호작용 불가 글자: 이 기록이 스크롤 사슬 [primary]를 든다.
+    f.AddContentLabel(10, "item", 0.0f);
+    REQUIRE(f.Rebuild() != nullptr);
+    const auto snapshot = f.Snapshot();
+
+    molga::ui::UIInputRouter router;
+    molga::ui::UIPlanningState state;
+    state.surfaceWindowId = kSurface;
+    state.surfaceWorldGeneration = f.World().Generation();
+    state.nativeWindowFocused = true;
+    state.pointer = FixedPoint{Fixed26_6::FromRaw(10), Fixed26_6::FromRaw(10)};
+    state.pointerValid = true;
+
+    molga::ui::UIInputEvent event;
+    event.sequence = 1;
+    event.traceOrdinal = 1;
+    event.windowId = kSurface;
+    event.kind = molga::ui::UIInputEventKind::Scroll;
+    event.logicalDelta =
+        FixedPoint{Fixed26_6::FromRaw(0), Fixed26_6::FromRaw(-32)};
+    const auto plan = router.PlanNext(*snapshot, kSurface, event, state);
+    REQUIRE(plan.ScrollTargetCount() == 1);
+    REQUIRE(plan.TargetFor(molga::ui::UIEventStage::Scroll, 0)->runtimeTarget ==
+            f.ScrollTarget());
+
+    const auto result =
+        f.System().HandleEvent(f.World(), *snapshot, plan, f.Diagnostics());
+    REQUIRE(f.System().State(f.ScrollTarget()) != nullptr);
+    CHECK(f.System().State(f.ScrollTarget())->offset.y.Raw() == -32);
+    CHECK(result.consumed);
+    CHECK(result.stage == molga::ui::UIEventStage::Scroll);
+    CHECK(result.stageTargetOrdinal == 0);
+    CHECK(result.sequence == 1);
+    CHECK((result.actionMask &
+           molga::ui::UIEventActionBit(molga::ui::UIEventAction::Scroll)) != 0);
+    CHECK(result.resolvedStageTarget ==
+          plan.TargetFor(molga::ui::UIEventStage::Scroll, 0));
 }

@@ -31,6 +31,7 @@
 #include "Text/TextLayoutService.h"
 #include "Text/TextShapingService.h"
 #include "SmokeTestSupport.h"
+#include "Systems/Input.h"
 #include "UI/UIFocusSystem.h"
 #include "UI/UIInputEvent.h"
 #include "UI/UIInputRouter.h"
@@ -697,6 +698,14 @@ public:
                              molga::WindowId window = kSurfaceWindow) const {
         return Pointer(UIInputEventKind::PointerMotion, sequence, point, false,
                        window);
+    }
+    // 포인터 이동에 부호 있는 변위를 함께 싣는다 — 드래그 스크롤의 입력이다.
+    UIInputEvent PointerDrag(std::uint64_t sequence, FixedPoint point,
+                             std::int32_t deltaXRaw,
+                             std::int32_t deltaYRaw) const {
+        UIInputEvent event = PointerMove(sequence, point);
+        event.logicalDelta = RawPoint(deltaXRaw, deltaYRaw);
+        return event;
     }
     UIInputEvent PointerDeparture(std::uint64_t sequence) const {
         UIInputEvent event;
@@ -2106,6 +2115,15 @@ TEST_CASE("no UI subsystem exposes an event-vector processing API") {
                            std::declval<molga::text::TextDiagnosticSink&>())),
                        UIEventHandlerResult>::value);
     // UIFocusSystem도 한 이벤트짜리 발송 하나뿐이다.
+    // UIScrollSystem도 마찬가지다.
+    CHECK(std::is_same<decltype(std::declval<molga::ui::UIScrollSystem&>()
+                                    .HandleEvent(
+                                        std::declval<::World&>(),
+                                        std::declval<const UISnapshot&>(),
+                                        std::declval<const PlannedUIEvent&>(),
+                                        std::declval<
+                                            molga::text::TextDiagnosticSink&>())),
+                       UIEventHandlerResult>::value);
     CHECK(std::is_same<decltype(std::declval<molga::ui::UIFocusSystem&>()
                                     .HandleEvent(
                                         std::declval<::World&>(),
@@ -3762,4 +3780,388 @@ TEST_CASE("a captured motion plan is marked captured and an uncaptured one is no
              f.PointerMove(121, onHigh, kForeignWindow)});
     CHECK_FALSE(foreign[1].surfaceEligible);
     CHECK_FALSE(foreign[1].capturedPointerFromSnapshotN);
+}
+
+// ── Task 12.2 Step E: 한 이벤트 스크롤 핸들러 ────────────────────────────────
+//
+// 라우터(Input 단계)와 스크롤 시스템(Scroll 단계)을 한 누산기에 합친다. 실제
+// 호출 순서와 같다. 스크롤 시스템은 프로세스에 하나(Get())이고 상태는 완전한
+// 식별자로 키가 잡히므로 케이스끼리 상태를 나누지 않는다.
+namespace {
+
+using molga::ui::UIScrollState;
+using molga::ui::UIScrollSystem;
+
+struct ScrollDispatch {
+    UIEventHandlerResult input;
+    UIEventHandlerResult scroll;
+    UIEventMergeStatus inputMerge = UIEventMergeStatus::RejectedSpent;
+    UIEventMergeStatus scrollMerge = UIEventMergeStatus::RejectedSpent;
+    molga::ui::UIEventDispatchRecord record;
+};
+
+ScrollDispatch DispatchWithScroll(UIFrozenInputFixture& f, const UISnapshot& n,
+                                  const PlannedUIEvent& plan) {
+    ScrollDispatch out;
+    UIEventDispatchAccumulator accumulator(plan, f.Diagnostics());
+    out.input = f.Router().HandleEvent(f.World(), n, plan, f.Diagnostics());
+    out.inputMerge = accumulator.Merge(out.input);
+    out.scroll =
+        UIScrollSystem::Get().HandleEvent(f.World(), n, plan, f.Diagnostics());
+    out.scrollMerge = accumulator.Merge(out.scroll);
+    out.record = std::move(accumulator).Finish();
+    return out;
+}
+
+constexpr std::uint32_t AxisControl(Input::GamepadAxis axis) {
+    return static_cast<std::uint32_t>(axis);
+}
+
+// 안쪽 스크롤의 합법 구간은 [-6400, 0](뷰포트 100, 내용 200), 바깥쪽은
+// [-12800, 0](200/400)이다. 심지 않은 뷰는 합법 구간의 위쪽 끝(0)에서 시작하므로
+// 양수 변위를 시험하려면 가운데로 심어야 한다.
+constexpr std::int32_t kInnerMid = -3200;
+
+void SeedInner(UIFrozenInputFixture& f, std::int32_t yRaw) {
+    UIScrollSystem::Get().SeedStateForTesting(
+        f.ScrollIdentity(kInnerScrollId),
+        UIScrollState{RawPoint(0, yRaw), RawPoint(0, 0)});
+}
+
+std::int32_t InnerY(UIFrozenInputFixture& f) {
+    const auto* state =
+        UIScrollSystem::Get().State(f.ScrollIdentity(kInnerScrollId));
+    REQUIRE(state != nullptr);
+    return state->offset.y.Raw();
+}
+
+}  // namespace
+
+TEST_CASE("ScrollAxisOf maps only the right stick") {
+    using molga::ui::ScrollAxisOf;
+    using molga::ui::UIScrollAxis;
+    // 사용자 결정 2026-10-18: 오른쪽 스틱만 스크롤한다.
+    REQUIRE(ScrollAxisOf(AxisControl(Input::GamepadAxis::RightX)).has_value());
+    CHECK(*ScrollAxisOf(AxisControl(Input::GamepadAxis::RightX)) ==
+          UIScrollAxis::Horizontal);
+    REQUIRE(ScrollAxisOf(AxisControl(Input::GamepadAxis::RightY)).has_value());
+    CHECK(*ScrollAxisOf(AxisControl(Input::GamepadAxis::RightY)) ==
+          UIScrollAxis::Vertical);
+    CHECK_FALSE(ScrollAxisOf(AxisControl(Input::GamepadAxis::LeftX)).has_value());
+    CHECK_FALSE(ScrollAxisOf(AxisControl(Input::GamepadAxis::LeftY)).has_value());
+    CHECK_FALSE(
+        ScrollAxisOf(AxisControl(Input::GamepadAxis::LeftTrigger)).has_value());
+    CHECK_FALSE(
+        ScrollAxisOf(AxisControl(Input::GamepadAxis::RightTrigger)).has_value());
+    CHECK_FALSE(ScrollAxisOf(0xFFFFFFFFu).has_value());
+}
+
+TEST_CASE("the scroll handler processes one plan at a time and preserves signed values in native order") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onCombo = PxPoint(210.0f, 10.0f);
+    const auto inner = f.ScrollIdentity(kInnerScrollId);
+    const auto outer = f.ScrollIdentity(kOuterScrollId);
+    // 가운데로 심는다. 위쪽 끝(0)에서 시작하면 +11이 합법 구간에서 잘려 부호를
+    // 구별하지 못한다. 기대 값은 입력의 합이다: 감도 1.0이므로 변위가 그대로
+    // 더해진다(-3200 + 11 = -3189, -5 -> -3194, -13 -> -3207).
+    SeedInner(f, kInnerMid);
+
+    auto state = f.InitialPlanningState();
+    const std::vector<UIInputEvent> events{
+        f.PointerMove(39, onCombo),
+        f.Scroll(40, -7, +11),
+        f.PointerDown(41, onCombo),
+        f.PointerDrag(42, PxPoint(213.0f, 5.0f), +3, -5),
+        // 오른쪽 스틱 세로축(사용자 결정: 왼쪽 스틱은 스크롤하지 않는다).
+        f.GamepadAxis(43, AxisControl(Input::GamepadAxis::RightY), -13)};
+    const auto plans = f.ProjectAll(*n, events, state);
+    REQUIRE(plans.size() == 5);
+    // 전제: 드래그는 잡힌 계획이고 스크롤 사슬은 안쪽 -> 바깥쪽이다.
+    REQUIRE(plans[3].capturedPointerFromSnapshotN);
+    REQUIRE(plans[4].ScrollTargetCount() == 2);
+
+    std::vector<ScrollDispatch> sent;
+    std::vector<std::int32_t> offsets;
+    for (const auto& plan : plans) {
+        sent.push_back(DispatchWithScroll(f, *n, plan));
+        CHECK(sent.back().inputMerge == UIEventMergeStatus::Merged);
+        CHECK(sent.back().scrollMerge == UIEventMergeStatus::Merged);
+        const auto* innerState = UIScrollSystem::Get().State(inner);
+        REQUIRE(innerState != nullptr);
+        offsets.push_back(innerState->offset.y.Raw());
+        // X는 꺼진 축이라 소비되지 않고, Y를 다시 쓰지도 않는다.
+        CHECK(innerState->offset.x.Raw() == 0);
+    }
+    CHECK(offsets == std::vector<std::int32_t>{kInnerMid, kInnerMid + 11,
+                                               kInnerMid + 11,
+                                               kInnerMid + 11 - 5,
+                                               kInnerMid + 11 - 5 - 13});
+    // 바깥쪽은 안쪽이 소비했으므로 한 번도 닿지 않았다.
+    CHECK(UIScrollSystem::Get().State(outer) == nullptr);
+
+    // 감사 기록은 들어온 순서 그대로다.
+    const std::vector<std::uint64_t> order{39, 40, 41, 42, 43};
+    for (std::size_t i = 0; i < sent.size(); ++i) {
+        CHECK(sent[i].record.sequence == order[i]);
+        CHECK(sent[i].scroll.sequence == order[i]);
+        CHECK(sent[i].scroll.stage == UIEventStage::Scroll);
+    }
+    // 휠: 주 대상은 첫 소비자(안쪽 스크롤)다.
+    CHECK((sent[1].record.actionMask & UIEventActionBit(UIEventAction::Scroll)) != 0);
+    CHECK(sent[1].record.consumed);
+    REQUIRE(sent[1].record.runtimeTarget.has_value());
+    CHECK(*sent[1].record.runtimeTarget == inner);
+    CHECK(sent[1].scroll.stageTargetOrdinal == 0);
+    // 드래그와 스틱: 주 대상은 동작 대상(combo 버튼)으로 남고 Scroll 비트가 붙는다.
+    for (const std::size_t i : {std::size_t{3}, std::size_t{4}}) {
+        CHECK((sent[i].record.actionMask & UIEventActionBit(UIEventAction::Scroll)) != 0);
+        REQUIRE(sent[i].record.runtimeTarget.has_value());
+        CHECK(*sent[i].record.runtimeTarget == f.ComboButtonIdentity());
+        CHECK(sent[i].scroll.stageTargetOrdinal == 0);
+        CHECK(sent[i].scroll.consumed);
+        CHECK(sent[i].scroll.arrangementDirty);
+        CHECK(sent[i].scroll.visualDirty);
+    }
+    // 스크롤이 아닌 이벤트(hover, 누름)는 Scroll 비트가 없다.
+    for (const std::size_t i : {std::size_t{0}, std::size_t{2}}) {
+        CHECK((sent[i].record.actionMask & UIEventActionBit(UIEventAction::Scroll)) == 0);
+        CHECK_FALSE(sent[i].scroll.consumed);
+        CHECK_FALSE(sent[i].scroll.arrangementDirty);
+    }
+}
+
+TEST_CASE("an inner scroll target at its boundary declines so the outer consumes the exact delta once") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    SeedInner(f, -6400);  // 안쪽의 아래쪽 끝
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerMove(49, PxPoint(210.0f, 10.0f)), f.Scroll(50, 0, -20)});
+    REQUIRE(plans[1].ScrollTargetCount() == 2);
+
+    const auto sent = DispatchWithScroll(f, *n, plans[1]);
+    CHECK(sent.scrollMerge == UIEventMergeStatus::Merged);
+    CHECK(InnerY(f) == -6400);
+    const auto* outer =
+        UIScrollSystem::Get().State(f.ScrollIdentity(kOuterScrollId));
+    REQUIRE(outer != nullptr);
+    CHECK(outer->offset.y.Raw() == -20);
+    CHECK(sent.scroll.consumed);
+    CHECK(sent.scroll.stageTargetOrdinal == 1);
+    CHECK(sent.scroll.resolvedStageTarget ==
+          plans[1].TargetFor(UIEventStage::Scroll, 1));
+    REQUIRE(sent.record.runtimeTarget.has_value());
+    CHECK(*sent.record.runtimeTarget == f.ScrollIdentity(kOuterScrollId));
+}
+
+TEST_CASE("a scroll nobody consumes reports no primary and no action") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    SeedInner(f, -6400);
+    UIScrollSystem::Get().SeedStateForTesting(
+        f.ScrollIdentity(kOuterScrollId),
+        UIScrollState{RawPoint(0, -12800), RawPoint(0, 0)});
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerMove(51, PxPoint(210.0f, 10.0f)), f.Scroll(52, 0, -20)});
+
+    const auto sent = DispatchWithScroll(f, *n, plans[1]);
+    CHECK(sent.scrollMerge == UIEventMergeStatus::Merged);
+    CHECK_FALSE(sent.scroll.consumed);
+    CHECK(sent.scroll.actionMask == 0);
+    CHECK(sent.scroll.stageTargetOrdinal == 0);
+    CHECK(sent.scroll.resolvedStageTarget ==
+          plans[1].TargetFor(UIEventStage::Scroll, 0));
+    CHECK_FALSE(sent.scroll.arrangementDirty);
+    CHECK_FALSE(sent.scroll.visualDirty);
+    CHECK_FALSE(sent.record.runtimeTarget.has_value());
+    CHECK((sent.record.actionMask & UIEventActionBit(UIEventAction::Scroll)) == 0);
+    CHECK(InnerY(f) == -6400);
+}
+
+TEST_CASE("a stale inner scroll target is skipped once and not retargeted") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerMove(53, PxPoint(210.0f, 10.0f)), f.Scroll(54, 0, -20)});
+    REQUIRE(plans[1].ScrollTargetCount() == 2);
+    const auto inner = f.ScrollIdentity(kInnerScrollId);
+    const auto outer = f.ScrollIdentity(kOuterScrollId);
+
+    // 계획과 발송 사이에 안쪽 뷰가 사라진다: 식별자가 풀리지 않는다.
+    GameObject* innerObject = f.World().FindById(kInnerScrollId);
+    REQUIRE(innerObject != nullptr);
+    innerObject->RemoveComponent<UIScrollView>();
+    f.Diagnostics().Clear();
+
+    const auto first = DispatchWithScroll(f, *n, plans[1]);
+    CHECK(first.scrollMerge == UIEventMergeStatus::Merged);
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                    "ui.scroll") == 1);
+    // 안쪽으로 다시 매기지 않고 바깥쪽으로 걸어 나간다.
+    CHECK(first.scroll.consumed);
+    CHECK(first.scroll.stageTargetOrdinal == 1);
+    CHECK(first.scroll.resolvedStageTarget ==
+          plans[1].TargetFor(UIEventStage::Scroll, 1));
+    REQUIRE(first.record.runtimeTarget.has_value());
+    CHECK(*first.record.runtimeTarget == outer);
+    const auto* outerState = UIScrollSystem::Get().State(outer);
+    REQUIRE(outerState != nullptr);
+    CHECK(outerState->offset.y.Raw() == -20);
+    CHECK(UIScrollSystem::Get().State(inner) == nullptr);
+
+    // 같은 낡은 항목은 되풀이해도 한 번만 보고한다.
+    const auto second = DispatchWithScroll(f, *n, plans[1]);
+    CHECK(second.scrollMerge == UIEventMergeStatus::Merged);
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                    "ui.scroll") == 1);
+    CHECK(UIScrollSystem::Get().State(outer)->offset.y.Raw() == -40);
+}
+
+TEST_CASE("an uncaptured pointer motion never drag-scrolls but a captured one does") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onCombo = PxPoint(210.0f, 10.0f);
+    SeedInner(f, kInnerMid);
+
+    SUBCASE("hovering the same element moves nothing") {
+        const auto plans = f.ProjectAll(
+            *n, {f.PointerMove(55, onCombo),
+                 f.PointerDrag(56, PxPoint(213.0f, 5.0f), +3, -5)});
+        // 전제: 이 계획은 스크롤 사슬을 얼려 두었다 — 사슬이 비어 있으면 이 시험은
+        // 아무것도 구별하지 못한다. 다만 잡힌 계획이 아니다.
+        REQUIRE(plans[1].ScrollTargetCount() == 2);
+        REQUIRE_FALSE(plans[1].capturedPointerFromSnapshotN);
+        for (const auto& plan : plans) {
+            const auto sent = DispatchWithScroll(f, *n, plan);
+            CHECK(sent.scrollMerge == UIEventMergeStatus::Merged);
+            CHECK_FALSE(sent.scroll.consumed);
+            CHECK(sent.scroll.actionMask == 0);
+        }
+        CHECK(InnerY(f) == kInnerMid);
+        CHECK(UIScrollSystem::Get().State(f.ScrollIdentity(kOuterScrollId)) ==
+              nullptr);
+    }
+    SUBCASE("after a captured press the same motion scrolls") {
+        const auto plans = f.ProjectAll(
+            *n, {f.PointerMove(57, onCombo), f.PointerDown(58, onCombo),
+                 f.PointerDrag(59, PxPoint(213.0f, 5.0f), +3, -5)});
+        REQUIRE(plans[2].capturedPointerFromSnapshotN);
+        for (const auto& plan : plans) DispatchWithScroll(f, *n, plan);
+        CHECK(InnerY(f) == kInnerMid - 5);
+    }
+    SUBCASE("a drag of a release is not a scroll either") {
+        // 놓기는 변위를 들고 오지 않지만 들고 왔다 해도 이동이 아니므로 읽지 않는다.
+        auto release = f.PointerUp(60, onCombo);
+        release.logicalDelta = RawPoint(+3, -5);
+        const auto plans = f.ProjectAll(
+            *n, {f.PointerMove(61, onCombo), f.PointerDown(62, onCombo),
+                 release});
+        for (const auto& plan : plans) DispatchWithScroll(f, *n, plan);
+        CHECK(InnerY(f) == kInnerMid);
+    }
+}
+
+TEST_CASE("only the right stick scrolls and an axis the chain does not enable is a no-op") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onCombo = PxPoint(210.0f, 10.0f);
+    SeedInner(f, kInnerMid);
+    auto state = f.InitialPlanningState();
+    // 눌러서 포커스를 세운다. 게임패드 계획은 포커스 경로를 따라간다.
+    const auto setup = f.ProjectAll(
+        *n, {f.PointerMove(63, onCombo), f.PointerDown(64, onCombo)}, state);
+    for (const auto& plan : setup) DispatchWithScroll(f, *n, plan);
+    REQUIRE(state.focused.has_value());
+
+    const auto sendAxis = [&](std::uint64_t sequence, Input::GamepadAxis axis,
+                              std::int32_t raw) {
+        const auto plans = f.ProjectAll(
+            *n, {f.GamepadAxis(sequence, AxisControl(axis), raw)}, state);
+        REQUIRE(plans[0].ScrollTargetCount() == 2);
+        return DispatchWithScroll(f, *n, plans[0]);
+    };
+
+    // 사슬이 있는데도 스크롤하지 않는 축: 왼쪽 스틱, 두 트리거, 알 수 없는 값.
+    for (const auto axis :
+         {Input::GamepadAxis::LeftX, Input::GamepadAxis::LeftY,
+          Input::GamepadAxis::LeftTrigger, Input::GamepadAxis::RightTrigger}) {
+        const auto sent = sendAxis(70 + static_cast<std::uint64_t>(axis), axis, -13);
+        CHECK(sent.scrollMerge == UIEventMergeStatus::Merged);
+        CHECK_FALSE(sent.scroll.consumed);
+        CHECK(sent.scroll.actionMask == 0);
+        CHECK(InnerY(f) == kInnerMid);
+    }
+    // 세로 전용 사슬은 오른쪽 스틱의 가로축 값을 받지 않는다.
+    {
+        const auto sent = sendAxis(80, Input::GamepadAxis::RightX, +9);
+        CHECK(sent.scrollMerge == UIEventMergeStatus::Merged);
+        CHECK_FALSE(sent.scroll.consumed);
+        CHECK(sent.scroll.actionMask == 0);
+        CHECK(InnerY(f) == kInnerMid);
+        CHECK(UIScrollSystem::Get().State(f.ScrollIdentity(kInnerScrollId))
+                  ->offset.x.Raw() == 0);
+    }
+    // 오른쪽 스틱의 세로축은 스크롤한다 — 위의 무동작이 고장이 아님을 보인다.
+    {
+        const auto sent = sendAxis(81, Input::GamepadAxis::RightY, -13);
+        CHECK(sent.scroll.consumed);
+        CHECK(InnerY(f) == kInnerMid - 13);
+    }
+}
+
+TEST_CASE("a right-stick horizontal value scrolls a horizontal chain on its axis only") {
+    UIFrozenInputFixture f;
+    // 안쪽 뷰를 가로 전용으로 바꾸고 내용 폭을 뷰포트의 두 배로 만든다.
+    GameObject* innerObject = f.World().FindById(kInnerScrollId);
+    REQUIRE(innerObject != nullptr);
+    auto* view = innerObject->GetComponent<UIScrollView>();
+    REQUIRE(view != nullptr);
+    view->SetHorizontal(true);
+    view->SetVertical(false);
+    GameObject* content = f.World().FindById(kInnerContentId);
+    REQUIRE(content != nullptr);
+    content->GetComponent<RectTransform>()->SetSizeDelta({200.0f, 200.0f});
+    const auto n = f.BuildSnapshot();
+    const auto inner = f.ScrollIdentity(kInnerScrollId);
+    UIScrollSystem::Get().SeedStateForTesting(
+        inner, UIScrollState{RawPoint(-3200, -3200), RawPoint(0, 0)});
+
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerMove(90, PxPoint(210.0f, 10.0f)),
+             f.PointerDown(91, PxPoint(210.0f, 10.0f)),
+             f.GamepadAxis(92, AxisControl(Input::GamepadAxis::RightX), +9),
+             f.GamepadAxis(93, AxisControl(Input::GamepadAxis::RightY), -13)},
+        state);
+    for (const auto& plan : plans) DispatchWithScroll(f, *n, plan);
+    const auto* after = UIScrollSystem::Get().State(inner);
+    REQUIRE(after != nullptr);
+    // 가로 값은 가로 축에만 더해지고, 세로 값은 꺼진 세로 축에서 소비되지 않는다.
+    CHECK(after->offset.x.Raw() == -3200 + 9);
+    CHECK(after->offset.y.Raw() == -3200);
+}
+
+TEST_CASE("the scroll handler echoes an ineligible plan without touching any state") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    SeedInner(f, kInnerMid);
+    UIInputEvent foreign = f.Scroll(95, 0, -20);
+    foreign.windowId = kForeignWindow;
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(*n, {foreign}, state);
+    REQUIRE_FALSE(plans[0].surfaceEligible);
+
+    const auto result = UIScrollSystem::Get().HandleEvent(
+        f.World(), *n, plans[0], f.Diagnostics());
+    CHECK(result.sequence == 95);
+    CHECK(result.stage == UIEventStage::Scroll);
+    CHECK(result.stageTargetOrdinal == 0);
+    CHECK_FALSE(result.resolvedStageTarget.has_value());
+    CHECK(result.actionMask == 0);
+    CHECK_FALSE(result.consumed);
+    CHECK_FALSE(result.arrangementDirty);
+    CHECK_FALSE(result.visualDirty);
+    UIEventDispatchAccumulator accumulator(plans[0], f.Diagnostics());
+    CHECK(accumulator.Merge(result) == UIEventMergeStatus::Merged);
+    CHECK(InnerY(f) == kInnerMid);
 }
