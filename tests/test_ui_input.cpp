@@ -31,6 +31,7 @@
 #include "Text/TextLayoutService.h"
 #include "Text/TextShapingService.h"
 #include "SmokeTestSupport.h"
+#include "UI/UIFocusSystem.h"
 #include "UI/UIInputEvent.h"
 #include "UI/UIInputRouter.h"
 #include "UI/UIInteractionState.h"
@@ -2082,6 +2083,8 @@ static_assert(ForbidsEventVectors<UIInputRouter>(),
               "UIInputRouter must not expose a vector-processing API");
 static_assert(ForbidsEventVectors<molga::ui::UIScrollSystem>(),
               "UIScrollSystem must not expose a vector-processing API");
+static_assert(ForbidsEventVectors<molga::ui::UIFocusSystem>(),
+              "UIFocusSystem must not expose a vector-processing API");
 
 }  // namespace
 
@@ -2090,6 +2093,7 @@ TEST_CASE("no UI subsystem exposes an event-vector processing API") {
     // 이 실행 파일 안에서 평가되었다는 것을 보고서에 남긴다.
     CHECK(ForbidsEventVectors<UIInputRouter>());
     CHECK(ForbidsEventVectors<molga::ui::UIScrollSystem>());
+    CHECK(ForbidsEventVectors<molga::ui::UIFocusSystem>());
     CHECK_FALSE(ForbidsEventVectors<OneArgumentCanary>());
     CHECK_FALSE(ForbidsEventVectors<MirroredSignatureCanary>());
     CHECK_FALSE(ForbidsEventVectors<NonPublicCanary>());
@@ -2100,6 +2104,15 @@ TEST_CASE("no UI subsystem exposes an event-vector processing API") {
                            std::declval<const UISnapshot&>(),
                            std::declval<const PlannedUIEvent&>(),
                            std::declval<molga::text::TextDiagnosticSink&>())),
+                       UIEventHandlerResult>::value);
+    // UIFocusSystem도 한 이벤트짜리 발송 하나뿐이다.
+    CHECK(std::is_same<decltype(std::declval<molga::ui::UIFocusSystem&>()
+                                    .HandleEvent(
+                                        std::declval<::World&>(),
+                                        std::declval<const UISnapshot&>(),
+                                        std::declval<const PlannedUIEvent&>(),
+                                        std::declval<
+                                            molga::text::TextDiagnosticSink&>())),
                        UIEventHandlerResult>::value);
 }
 

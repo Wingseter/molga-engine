@@ -739,6 +739,17 @@ target_compile_definitions(test_ui_input PRIVATE
 # test_ui_scroll: fitting the contract to the clock would erase the contract.
 set_tests_properties(test_ui_input PROPERTIES TIMEOUT 600)
 
+# Task 12.2: every focus fixture builds a real snapshot through UILayoutSystem::Build,
+# which takes a TextLayoutService and therefore the one process-wide ICU lifetime a
+# session-backed executable owns. The scene draws no text, but the service needs a
+# real one-face font tree, copied per case like test_ui_input.
+molga_add_text_test(test_ui_focus test_ui_focus.cpp)
+target_include_directories(test_ui_focus PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui_focus PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+# Per-case fixture isolation (see test_ui_input) in Debug can exceed the preset's 60 s cap.
+set_tests_properties(test_ui_focus PROPERTIES TIMEOUT 600)
+
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
