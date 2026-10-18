@@ -7,12 +7,15 @@
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/OutputPresentationLayout.h"
 #include "Systems/Input.h"
+#include "Text/TextDiagnostic.h"
+#include "UI/UISurfaceCoordinateMapping.h"
 #include "doctest.h"
 
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 
 using namespace molga;
@@ -410,4 +413,388 @@ TEST_CASE("InputSnapshot maps gameplay state and focus loss releases once") {
     Input::ReleaseAll();
     CHECK_FALSE(Input::GetMouseButtonUp(Input::MouseButton::Left));
     CHECK_FALSE(Input::GetActionUp("Fire"));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 12.3 Step 2: 표면 좌표 매핑과 배치 -> UIFrameInput.
+//
+// 같은 매핑 값이 포인터 hit-test(여기)와 이후 IME 사각형(Task 14.3)에 쓰인다.
+// 기대 raw 값은 손으로 계산한 것이다 — 26.6 raw = 논리 단위 x 64.
+// ═══════════════════════════════════════════════════════════════════════════
+namespace {
+
+using molga::ui::UISurfaceCoordinateMapping;
+
+std::size_t CountDiagnostics(const molga::text::VectorTextDiagnosticSink& sink,
+                             molga::text::TextDiagnosticCode code,
+                             const char* subsystem) {
+    std::size_t count = 0;
+    for (const auto& diagnostic : sink.Diagnostics()) {
+        if (diagnostic.code == code && diagnostic.subsystem == subsystem) ++count;
+    }
+    return count;
+}
+
+// 기대 raw 점 비교 보조.
+void CheckPoint(const std::optional<FixedPoint>& actual, std::int32_t rawX,
+                std::int32_t rawY) {
+    REQUIRE(actual.has_value());
+    CHECK(actual->x.Raw() == rawX);
+    CHECK(actual->y.Raw() == rawY);
+}
+
+} // namespace
+
+TEST_CASE("UISurfaceCoordinateMapping maps a letterboxed Game View panel to canvas points") {
+    // 위 "GameView maps panel through target presentation" 케이스와 같은 수:
+    // 패널 ppt=1, framebufferScale {2,1.5}, IntegerFit 320x180 -> 800x600
+    // (scale 2, content (80,120,640,360)).
+    const GameViewLayout panel = GameViewLayout::Calculate(
+        {800, 600}, {400.0f, 400.0f}, {2.0f, 1.5f},
+        GameViewDisplayMode::PixelPerfect100);
+    const OutputPresentationLayout presentation =
+        OutputPresentationLayout::IntegerFit({320, 180}, {800, 600});
+    REQUIRE(panel.physicalPixelsPerTexel == doctest::Approx(1.0f));
+
+    // 창 안 이미지 원점 (10,20)점 -> (20,30) 창 픽셀. 출력 원점 = 그 + content
+    // 원점 x ppt = (100,150). 논리 픽셀 하나 = scale(2) x ppt(1) = 2 창 픽셀.
+    const auto mapping = molga::ui::MakeEmbeddedSurfaceMapping(
+        presentation, 10.0, 20.0, 2.0, 1.5, panel.physicalPixelsPerTexel, 7);
+    REQUIRE(mapping.has_value());
+    CHECK(mapping->outputOriginWindowPixelX == doctest::Approx(100.0));
+    CHECK(mapping->outputOriginWindowPixelY == doctest::Approx(150.0));
+    CHECK(mapping->windowPixelsPerOutputPixelX == doctest::Approx(2.0));
+    CHECK(mapping->windowPixelsPerOutputPixelY == doctest::Approx(2.0));
+    CHECK(mapping->canvasToOutput.deviceGeneration == 7);
+
+    CheckPoint(mapping->WindowPixelToCanvas(100.0, 150.0), 0, 0);
+    // 레터박스 막대: content 왼쪽/위.
+    CHECK_FALSE(mapping->WindowPixelToCanvas(99.99, 150.0).has_value());
+    CHECK_FALSE(mapping->WindowPixelToCanvas(100.0, 149.99).has_value());
+    // 마지막 안쪽 점 (319.5, 179.5) 논리 -> raw (20448, 11488).
+    CheckPoint(mapping->WindowPixelToCanvas(739.0, 509.0), 20448, 11488);
+    // 반열린 최대 가장자리 (320,180)은 밖이다. 클램프 없음.
+    CHECK_FALSE(mapping->WindowPixelToCanvas(740.0, 510.0).has_value());
+    CHECK_FALSE(mapping->WindowPixelToCanvas(740.0, 150.0).has_value());
+    // 이미지(패널) 밖은 content 안처럼 보여도 밖이다.
+    CHECK_FALSE(mapping->WindowPixelToCanvas(19.9, 300.0).has_value());
+    // 비유한 값은 밖이다.
+    CHECK_FALSE(mapping->WindowPixelToCanvas(
+        std::numeric_limits<double>::quiet_NaN(), 200.0).has_value());
+    CHECK_FALSE(mapping->WindowPixelToCanvas(
+        200.0, std::numeric_limits<double>::infinity()).has_value());
+
+    // 캔버스 100x100 사각형 (110,40)의 중심 (160,90) = 창 픽셀 (420,330).
+    const auto center = mapping->WindowPixelToCanvas(420.0, 330.0);
+    CheckPoint(center, 160 * 64, 90 * 64);
+    const FixedRect rect{Fixed26_6::FromRaw(110 * 64), Fixed26_6::FromRaw(40 * 64),
+                         Fixed26_6::FromRaw(100 * 64), Fixed26_6::FromRaw(100 * 64)};
+    CHECK(center->x.Raw() >= rect.x.Raw());
+    CHECK(center->x.Raw() < rect.x.Raw() + rect.width.Raw());
+    CHECK(center->y.Raw() >= rect.y.Raw());
+    CHECK(center->y.Raw() < rect.y.Raw() + rect.height.Raw());
+}
+
+TEST_CASE("UISurfaceCoordinateMapping maps standalone 1x, 2x and cropped output") {
+    // 1x: 800x600 창에 320x180. 같은 content (80,120), scale 2.
+    const OutputPresentationLayout oneX =
+        OutputPresentationLayout::IntegerFit({320, 180}, {800, 600});
+    const auto standalone = molga::ui::MakeStandaloneSurfaceMapping(oneX, 3);
+    REQUIRE(standalone.has_value());
+    CheckPoint(standalone->WindowPixelToCanvas(80.0, 120.0), 0, 0);
+    CheckPoint(standalone->WindowPixelToCanvas(400.0, 300.0), 160 * 64, 90 * 64);
+    CHECK_FALSE(standalone->WindowPixelToCanvas(79.0, 300.0).has_value());
+    CHECK_FALSE(standalone->WindowPixelToCanvas(720.0, 300.0).has_value());
+    // 프레임버퍼(창) 밖.
+    CHECK_FALSE(standalone->WindowPixelToCanvas(-1.0, 300.0).has_value());
+    CHECK_FALSE(standalone->WindowPixelToCanvas(400.0, 600.0).has_value());
+
+    // 2x 창: 프레임버퍼 1600x1200 -> scale 5, content (0,150,1600,900).
+    const OutputPresentationLayout twoX =
+        OutputPresentationLayout::IntegerFit({320, 180}, {1600, 1200});
+    REQUIRE(twoX.scale == 5);
+    const auto retina = molga::ui::MakeStandaloneSurfaceMapping(twoX, 3);
+    REQUIRE(retina.has_value());
+    CheckPoint(retina->WindowPixelToCanvas(800.0, 600.0), 160 * 64, 90 * 64);
+    CheckPoint(retina->WindowPixelToCanvas(0.0, 150.0), 0, 0);
+    CHECK_FALSE(retina->WindowPixelToCanvas(800.0, 149.0).has_value());
+
+    // 잘림: 5x4 논리를 4x3 프레임버퍼에. content (-1,-1,5,4), scale 1.
+    const OutputPresentationLayout cropped =
+        OutputPresentationLayout::IntegerFit({5, 4}, {4, 3});
+    REQUIRE(cropped.cropped);
+    REQUIRE(cropped.contentRect.x == -1);
+    REQUIRE(cropped.contentRect.y == -1);
+    const auto crop = molga::ui::MakeStandaloneSurfaceMapping(cropped, 3);
+    REQUIRE(crop.has_value());
+    CheckPoint(crop->WindowPixelToCanvas(0.0, 0.0), 1 * 64, 1 * 64);
+    CheckPoint(crop->WindowPixelToCanvas(3.0, 2.0), 4 * 64, 3 * 64);
+    // 프레임버퍼 밖은 잘린 content 안이어도 밖이다.
+    CHECK_FALSE(crop->WindowPixelToCanvas(4.0, 0.0).has_value());
+    CHECK_FALSE(crop->WindowPixelToCanvas(-1.0, 0.0).has_value());
+
+    // 잘린 임베디드: 이미지 원점 (10,20)점, 1x, ppt 1.
+    const auto embeddedCrop = molga::ui::MakeEmbeddedSurfaceMapping(
+        cropped, 10.0, 20.0, 1.0, 1.0, 1.0, 3);
+    REQUIRE(embeddedCrop.has_value());
+    CheckPoint(embeddedCrop->WindowPixelToCanvas(10.0, 20.0), 1 * 64, 1 * 64);
+    CHECK_FALSE(embeddedCrop->WindowPixelToCanvas(9.5, 20.0).has_value());
+    CHECK_FALSE(embeddedCrop->WindowPixelToCanvas(14.0, 20.0).has_value());
+
+    // 분리된 창: 원점 (0,0), 2x 밀도, 텍셀 하나 = 2 창 픽셀 -> 논리 픽셀 = 4 창 픽셀.
+    const OutputPresentationLayout fit =
+        OutputPresentationLayout::IntegerFit({320, 180}, {320, 180});
+    const auto detached = molga::ui::MakeEmbeddedSurfaceMapping(
+        fit, 0.0, 0.0, 2.0, 2.0, 2.0, 3);
+    REQUIRE(detached.has_value());
+    CHECK(detached->windowPixelsPerOutputPixelX == doctest::Approx(2.0));
+    CheckPoint(detached->WindowPixelToCanvas(320.0, 180.0), 160 * 64, 90 * 64);
+    CHECK_FALSE(detached->WindowPixelToCanvas(640.0, 100.0).has_value());
+
+    // 잘못된 입력은 매핑을 만들지 않는다.
+    CHECK_FALSE(molga::ui::MakeEmbeddedSurfaceMapping(
+        OutputPresentationLayout{}, 0.0, 0.0, 1.0, 1.0, 1.0, 3).has_value());
+    CHECK_FALSE(molga::ui::MakeEmbeddedSurfaceMapping(
+        fit, 0.0, 0.0, 0.0, 1.0, 1.0, 3).has_value());
+    CHECK_FALSE(molga::ui::MakeEmbeddedSurfaceMapping(
+        fit, 0.0, 0.0, 1.0, 1.0, 0.0, 3).has_value());
+    CHECK_FALSE(molga::ui::MakeEmbeddedSurfaceMapping(
+        fit, std::numeric_limits<double>::quiet_NaN(), 0.0, 1.0, 1.0, 1.0, 3)
+                    .has_value());
+    CHECK_FALSE(molga::ui::MakeStandaloneSurfaceMapping(
+        OutputPresentationLayout{}, 3).has_value());
+}
+
+TEST_CASE("MapNativeInputBatch preserves order, sequence and signed values") {
+    using molga::platform::NativeInputBatch;
+    using molga::platform::NativeInputEvent;
+    using molga::platform::NativeInputEventKind;
+    using molga::platform::NativeSurfaceBatchStart;
+
+    const OutputPresentationLayout presentation =
+        OutputPresentationLayout::IntegerFit({320, 180}, {800, 600});
+    const auto mapping = molga::ui::MakeStandaloneSurfaceMapping(presentation, 3);
+    REQUIRE(mapping.has_value());
+    constexpr molga::WindowId kSurface = 10;
+
+    auto make = [](std::uint64_t sequence, molga::WindowId window,
+                   NativeInputEventKind kind) {
+        NativeInputEvent event;
+        event.sequence = sequence;
+        event.windowId = window;
+        event.kind = kind;
+        event.nativeType = 1000 + static_cast<std::uint32_t>(sequence);
+        return event;
+    };
+    NativeInputBatch batch;
+    {
+        NativeInputEvent key = make(40, kSurface, NativeInputEventKind::Key);
+        key.control = 40;
+        key.keyModifiers.gui = true;
+        key.active = true;
+        NativeInputEvent scroll = make(41, kSurface, NativeInputEventKind::Scroll);
+        scroll.deltaX = -2.5f;
+        scroll.deltaY = 4.0f;
+        scroll.x = 400.0f;
+        scroll.y = 300.0f;
+        NativeInputEvent axis = make(42, kSurface, NativeInputEventKind::GamepadAxis);
+        axis.control = static_cast<std::uint32_t>(Input::GamepadAxis::RightY);
+        axis.axisValue = -0.75f;
+        NativeInputEvent inside = make(43, kSurface, NativeInputEventKind::PointerMotion);
+        inside.x = 400.0f;
+        inside.y = 300.0f;
+        NativeInputEvent bar = make(44, kSurface, NativeInputEventKind::PointerMotion);
+        bar.x = 10.0f;
+        bar.y = 10.0f;
+        NativeInputEvent foreign = make(45, 20, NativeInputEventKind::PointerMotion);
+        foreign.x = 400.0f;
+        foreign.y = 300.0f;
+        NativeInputEvent pad = make(46, kSurface, NativeInputEventKind::GamepadButton);
+        pad.control = static_cast<std::uint32_t>(Input::GamepadButton::South);
+        pad.active = true;
+        NativeInputEvent padNoWindow = make(47, 0, NativeInputEventKind::GamepadButton);
+        batch.events = {key, scroll, axis, inside, bar, foreign, pad, padNoWindow};
+    }
+    NativeSurfaceBatchStart seed;
+    seed.windowId = kSurface;
+    seed.nativeWindowFocused = true;
+    seed.pointerWindowPixelX = 400;
+    seed.pointerWindowPixelY = 300;
+    seed.pointerWindowPixelValid = true;
+    NativeSurfaceBatchStart other;
+    other.windowId = 20;
+    batch.surfaceStarts = {other, seed};
+
+    molga::text::VectorTextDiagnosticSink sink;
+    const auto input = molga::ui::MapNativeInputBatch(
+        batch, kSurface, *mapping, 1.0, 1.0, sink);
+    REQUIRE(input.has_value());
+    CHECK(sink.Diagnostics().empty());
+    CHECK(input->windowId == kSurface);
+    REQUIRE(input->orderedEvents.size() == batch.events.size());
+    for (std::size_t i = 0; i < batch.events.size(); ++i) {
+        CHECK(input->orderedEvents[i].sequence == batch.events[i].sequence);
+        CHECK(input->orderedEvents[i].nativeType == batch.events[i].nativeType);
+        CHECK(input->orderedEvents[i].traceOrdinal == 0);
+        CHECK(input->orderedEvents[i].windowId == batch.events[i].windowId);
+    }
+    using molga::ui::UIInputEventKind;
+    const auto& events = input->orderedEvents;
+    CHECK(events[0].kind == UIInputEventKind::Key);
+    CHECK(events[0].keyModifiers.gui);
+    CHECK(events[0].active);
+    CHECK(events[0].control == 40);
+    CHECK(events[1].kind == UIInputEventKind::Scroll);
+    CHECK(events[1].logicalDelta.x.Raw() == -160);
+    CHECK(events[1].logicalDelta.y.Raw() == 256);
+    CHECK(events[1].logicalPointValid);
+    CHECK(events[2].kind == UIInputEventKind::GamepadAxis);
+    CHECK(events[2].axisValue.Raw() == -48);
+    CHECK(events[3].logicalPointValid);
+    CHECK(events[3].logicalPoint.x.Raw() == 160 * 64);
+    CHECK(events[3].logicalPoint.y.Raw() == 90 * 64);
+    // 막대 위: 클램프하지 않고 무효(이탈)다.
+    CHECK_FALSE(events[4].logicalPointValid);
+    // 다른 창: 이 표면의 좌표계로 풀지 않는다.
+    CHECK(events[5].windowId == 20);
+    CHECK_FALSE(events[5].logicalPointValid);
+    // 게임패드: 호스트가 정한 창 그대로. 매퍼가 재배정하지 않는다.
+    CHECK(events[6].windowId == kSurface);
+    CHECK(events[7].windowId == 0);
+    // 씨앗은 첫 이동과 같은 물리 픽셀이므로 바이트까지 같다.
+    CHECK(input->pointerAtBatchStartValid);
+    CHECK(input->pointerAtBatchStart == events[3].logicalPoint);
+    CHECK(input->nativeWindowFocusedAtBatchStart);
+
+    // 무효 씨앗 포인터: (0,0)을 지어내지 않는다.
+    batch.surfaceStarts[1].pointerWindowPixelValid = false;
+    const auto noPointer = molga::ui::MapNativeInputBatch(
+        batch, kSurface, *mapping, 1.0, 1.0, sink);
+    REQUIRE(noPointer.has_value());
+    CHECK_FALSE(noPointer->pointerAtBatchStartValid);
+    // 씨앗이 막대 위(content 밖)이면 무효다.
+    batch.surfaceStarts[1].pointerWindowPixelValid = true;
+    batch.surfaceStarts[1].pointerWindowPixelX = 10;
+    batch.surfaceStarts[1].pointerWindowPixelY = 10;
+    const auto barSeed = molga::ui::MapNativeInputBatch(
+        batch, kSurface, *mapping, 1.0, 1.0, sink);
+    REQUIRE(barSeed.has_value());
+    CHECK_FALSE(barSeed->pointerAtBatchStartValid);
+    CHECK(sink.Diagnostics().empty());
+
+    // 씨앗이 없거나 중복이면 배치 전체를 거절하고 한 번만 보고한다.
+    {
+        molga::text::VectorTextDiagnosticSink missingSink;
+        NativeInputBatch missing = batch;
+        missing.surfaceStarts = {other};
+        CHECK_FALSE(molga::ui::MapNativeInputBatch(
+            missing, kSurface, *mapping, 1.0, 1.0, missingSink).has_value());
+        CHECK(CountDiagnostics(missingSink,
+                               molga::text::TextDiagnosticCode::ReferenceInvalid,
+                               "ui.frame") == 1);
+    }
+    {
+        molga::text::VectorTextDiagnosticSink duplicateSink;
+        NativeInputBatch duplicate = batch;
+        duplicate.surfaceStarts = {seed, other, seed};
+        CHECK_FALSE(molga::ui::MapNativeInputBatch(
+            duplicate, kSurface, *mapping, 1.0, 1.0, duplicateSink).has_value());
+        CHECK(CountDiagnostics(duplicateSink,
+                               molga::text::TextDiagnosticCode::ReferenceInvalid,
+                               "ui.frame") == 1);
+    }
+}
+
+TEST_CASE("MapNativeInputBatch multiplies window points by the pixel density exactly once") {
+    using molga::platform::NativeInputBatch;
+    using molga::platform::NativeInputEvent;
+    using molga::platform::NativeInputEventKind;
+    using molga::platform::NativeSurfaceBatchStart;
+
+    // 2x 창: 점 (400,300) = 창 픽셀 (800,600) = 논리 (160,90).
+    const OutputPresentationLayout twoX =
+        OutputPresentationLayout::IntegerFit({320, 180}, {1600, 1200});
+    const auto mapping = molga::ui::MakeStandaloneSurfaceMapping(twoX, 3);
+    REQUIRE(mapping.has_value());
+    NativeInputEvent motion;
+    motion.sequence = 5;
+    motion.windowId = 10;
+    motion.kind = NativeInputEventKind::PointerMotion;
+    motion.x = 400.0f;
+    motion.y = 300.0f;
+    NativeSurfaceBatchStart seed;
+    seed.windowId = 10;
+    seed.pointerWindowPixelX = 800;   // 호스트가 이미 픽셀로 바꾼 값: 다시 곱하지 않는다.
+    seed.pointerWindowPixelY = 600;
+    seed.pointerWindowPixelValid = true;
+    NativeInputBatch batch;
+    batch.events = {motion};
+    batch.surfaceStarts = {seed};
+
+    molga::text::VectorTextDiagnosticSink sink;
+    const auto input = molga::ui::MapNativeInputBatch(
+        batch, 10, *mapping, 2.0, 2.0, sink);
+    REQUIRE(input.has_value());
+    REQUIRE(input->orderedEvents.size() == 1);
+    CHECK(input->orderedEvents[0].logicalPointValid);
+    CHECK(input->orderedEvents[0].logicalPoint.x.Raw() == 160 * 64);
+    CHECK(input->orderedEvents[0].logicalPoint.y.Raw() == 90 * 64);
+    CHECK(input->pointerAtBatchStartValid);
+    CHECK(input->pointerAtBatchStart == input->orderedEvents[0].logicalPoint);
+    CHECK(sink.Diagnostics().empty());
+}
+
+TEST_CASE("MapNativeInputBatch reports non-finite values once and keeps the sequence audit") {
+    using molga::platform::NativeInputBatch;
+    using molga::platform::NativeInputEvent;
+    using molga::platform::NativeInputEventKind;
+    using molga::platform::NativeSurfaceBatchStart;
+
+    const OutputPresentationLayout presentation =
+        OutputPresentationLayout::IntegerFit({320, 180}, {800, 600});
+    const auto mapping = molga::ui::MakeStandaloneSurfaceMapping(presentation, 3);
+    REQUIRE(mapping.has_value());
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+
+    NativeInputEvent scroll;
+    scroll.sequence = 1;
+    scroll.windowId = 10;
+    scroll.kind = NativeInputEventKind::Scroll;
+    scroll.deltaX = nan;
+    scroll.deltaY = 1.0f;
+    scroll.x = 400.0f;
+    scroll.y = 300.0f;
+    NativeInputEvent motion;
+    motion.sequence = 2;
+    motion.windowId = 10;
+    motion.kind = NativeInputEventKind::PointerMotion;
+    motion.x = nan;
+    motion.y = 300.0f;
+    NativeInputEvent axis;
+    axis.sequence = 3;
+    axis.windowId = 10;
+    axis.kind = NativeInputEventKind::GamepadAxis;
+    axis.axisValue = std::numeric_limits<float>::infinity();
+    NativeSurfaceBatchStart seed;
+    seed.windowId = 10;
+    NativeInputBatch batch;
+    batch.events = {scroll, motion, axis};
+    batch.surfaceStarts = {seed};
+
+    molga::text::VectorTextDiagnosticSink sink;
+    const auto input = molga::ui::MapNativeInputBatch(
+        batch, 10, *mapping, 1.0, 1.0, sink);
+    REQUIRE(input.has_value());
+    REQUIRE(input->orderedEvents.size() == 3);
+    // 시퀀스 감사는 보존되고 값만 0/무효가 된다.
+    CHECK(input->orderedEvents[0].sequence == 1);
+    CHECK(input->orderedEvents[0].logicalDelta.x.Raw() == 0);
+    CHECK(input->orderedEvents[0].logicalDelta.y.Raw() == 64);
+    CHECK(input->orderedEvents[1].sequence == 2);
+    CHECK_FALSE(input->orderedEvents[1].logicalPointValid);
+    CHECK(input->orderedEvents[2].axisValue.Raw() == 0);
+    // 배치당 한 번.
+    CHECK(CountDiagnostics(sink, molga::text::TextDiagnosticCode::LayoutInvalid,
+                           "ui.frame") == 1);
+    CHECK(sink.Diagnostics().size() == 1);
 }
