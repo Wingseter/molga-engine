@@ -564,7 +564,7 @@ public:
     }
 
     // ── 접근자 ──────────────────────────────────────────────────────────────
-    World& World() { return world_; }
+    ::World& World() { return world_; }
     UIInputRouter& Router() { return router_; }
     CountingDiagnosticSink& Diagnostics() { return sink_; }
     molga::WindowId SurfaceWindowId() const noexcept { return kSurfaceWindow; }

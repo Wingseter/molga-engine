@@ -261,7 +261,7 @@ public:
         return label;
     }
 
-    World& World() { return world_; }
+    ::World& World() { return world_; }
     UIScrollSystem& System() { return UIScrollSystem::Get(); }
     CountingDiagnosticSink& Diagnostics() { return diagnostics_; }
     molga::ui::UILayoutSystem& Layout() { return layout_; }
