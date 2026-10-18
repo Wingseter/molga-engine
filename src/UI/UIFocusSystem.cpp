@@ -10,8 +10,7 @@
 #include "UI/UIHierarchy.h"
 #include "UI/UIInteractionState.h"
 
-#include <algorithm>
-#include <array>
+#include <string>
 #include <utility>
 
 namespace molga::ui {
@@ -21,8 +20,16 @@ using molga::text::TextDiagnostic;
 using molga::text::TextDiagnosticCode;
 using molga::text::TextSeverity;
 
-void ReportInvalid(molga::text::TextDiagnosticSink& sink, const char* message,
-                   const char* remediation, unsigned int sceneObjectId) {
+// 같은 사실은 월드 세대마다 한 번만 보고한다(같은 키 입력이 되풀이돼도 진단이
+// 쌓이지 않는다). 사실의 키는 {출발 오브젝트, 방향 또는 대상}으로 호출부가 정한다.
+void ReportInvalid(molga::text::TextDiagnosticSink& sink,
+                   std::uint64_t worldGeneration, const std::string& fact,
+                   const char* message, const char* remediation,
+                   unsigned int sceneObjectId) {
+    if (!UIInteractionStateTable::Get().FirstReportOfFact(worldGeneration,
+                                                          fact)) {
+        return;
+    }
     TextDiagnostic diagnostic;
     diagnostic.code = TextDiagnosticCode::ReferenceInvalid;
     diagnostic.severity = TextSeverity::Warning;
@@ -74,6 +81,11 @@ const UIHitTargetSnapshot* RouteForFocusTarget(
 
 std::size_t DirectionIndex(UINavigationDirection direction) noexcept {
     return static_cast<std::size_t>(direction);
+}
+
+std::string TargetFact(const char* what, const UIRuntimeTargetIdentity& id) {
+    return std::string(what) + ":" + std::to_string(id.objectId) + ":" +
+           std::to_string(id.componentInstanceId);
 }
 
 // 중심의 두 배. 반 칸을 쪼개지 않으려고 정수로 둔다.
@@ -235,7 +247,8 @@ UIEventHandlerResult UIFocusSystem::HandleEvent(
     result.sequence = planned.event.sequence;
     result.stage = UIEventStage::Focus;
     result.stageTargetOrdinal = 0;
-    // 부적격 계획은 어떤 표도 건드리지 않고, 대상도 효과도 없는 빈 결과를 낸다.
+    // 부적격 계획은 어떤 표도 건드리지 않고, 대상도 효과도 없이 순번·단계만
+    // 되풀이하는 결과를 낸다.
     if (!planned.surfaceEligible) return result;
 
     const UISurfaceKey key{n.surfaceWindowId, n.worldGeneration};
@@ -269,7 +282,12 @@ UIEventHandlerResult UIFocusSystem::HandleEvent(
                 if (record && record->navigation.mode == UINavigationMode::Explicit &&
                     record->navigation.explicitTargets[DirectionIndex(*direction)]) {
                     ReportInvalid(
-                        sink,
+                        sink, n.worldGeneration,
+                        "explicit:" +
+                            std::to_string(
+                                result.resolvedStageTarget->runtimeTarget
+                                    .objectId) +
+                            ":" + std::to_string(DirectionIndex(*direction)),
                         "explicit UI navigation names a target that snapshot N "
                         "does not publish as focusable; focus did not move",
                         "point explicit navigation at an enabled, interactable "
@@ -282,7 +300,8 @@ UIEventHandlerResult UIFocusSystem::HandleEvent(
         const UIRuntimeTargetIdentity& destination =
             planned.focusDestinationFromSnapshotN->runtimeTarget;
         if (!ResolveTarget(world, destination)) {
-            ReportInvalid(sink,
+            ReportInvalid(sink, n.worldGeneration,
+                          TargetFact("destination", destination),
                           "a planned UI focus destination no longer resolves; "
                           "focus was not moved and was not retargeted",
                           "re-plan input against the current snapshot",
@@ -310,7 +329,8 @@ UIEventHandlerResult UIFocusSystem::HandleEvent(
         const UIRuntimeTargetIdentity& target =
             result.resolvedStageTarget->runtimeTarget;
         if (!ResolveTarget(world, target)) {
-            ReportInvalid(sink,
+            ReportInvalid(sink, n.worldGeneration,
+                          TargetFact("press", target),
                           "a planned UI focus target no longer resolves; focus "
                           "was not moved and was not retargeted",
                           "re-plan input against the current snapshot",
@@ -334,6 +354,9 @@ UIEventHandlerResult UIFocusSystem::HandleEvent(
 void UIFocusSystem::Revalidate(World& world, const UISnapshot& n,
                                molga::text::TextDiagnosticSink& sink) {
     auto& table = UIInteractionStateTable::Get();
+    // 스냅샷이 이 월드의 것이 아니면 그 표면의 키로 다른 월드의 식별자를
+    // 해석하게 된다. 아무것도 정리하지 않는다.
+    if (n.worldGeneration != world.Generation()) return;
     const UISurfaceKey key{n.surfaceWindowId, n.worldGeneration};
     const UISurfaceInteractionState* current = table.Surface(key);
     if (!current) return;

@@ -17,7 +17,6 @@
 #include "ECS/Components/UICanvas.h"
 #include "ECS/Components/UIImage.h"
 #include "ECS/Components/UISelectable.h"
-#include "UI/UINavigationTypes.h"
 #include "ECS/GameObject.h"
 #include "Platform/TextInputOwner.h"
 #include "SmokeTestSupport.h"
@@ -34,8 +33,10 @@
 #include "UI/UIInteractionState.h"
 #include "UI/UILayoutSnapshot.h"
 #include "UI/UILayoutSystem.h"
+#include "UI/UINavigationTypes.h"
 #include "UI/UIRuntimeIdentity.h"
 #include "UI/UIRuntimeInvalidation.h"
+#include "UI/UISystem.h"
 #include "UI/UITextInputVisualState.h"
 
 #include <array>
@@ -772,6 +773,21 @@ TEST_CASE("focus and capture lifecycle") {
     }
 }
 
+TEST_CASE("Revalidate ignores a snapshot that belongs to another world") {
+    UIFocusFixture f;
+    UIFocusFixture other;
+    REQUIRE(f.World().Generation() != other.World().Generation());
+    f.FocusByPointer(kLeftId);
+    other.FocusByPointer(kLeftId);
+    const auto otherFocus = other.Focused();
+    REQUIRE(otherFocus.has_value());
+    // 이 월드의 식별자는 저쪽 월드에서 풀리지 않는다. 다른 월드의 스냅샷으로
+    // 정리를 돌리면 저쪽 표면의 살아 있는 포커스를 지워 버린다.
+    f.Focus().Revalidate(f.World(), *other.Snapshot(), f.Diagnostics());
+    CHECK(other.Focused() == otherFocus);
+    CHECK(f.Focused() == f.SelectableIdentity(kLeftId));
+}
+
 TEST_CASE("a focus change acquires one semantic generation, a repeat none, exhaustion keeps the prior focus") {
     UIFocusFixture f;
     const FixedPoint left = f.CenterOf(kLeftId);
@@ -888,6 +904,12 @@ TEST_CASE("ProjectEvent writes nothing into an ineligible plan") {
     CHECK_FALSE(result.consumed);
     CHECK_FALSE(result.visualDirty);
     CHECK_FALSE(result.resolvedStageTarget.has_value());
+    // 순번·단계·서수는 되풀이한다: 누산기는 순번이 다른 결과를 거절한다.
+    CHECK(result.sequence == plan.event.sequence);
+    CHECK(result.stage == UIEventStage::Focus);
+    CHECK(result.stageTargetOrdinal == 0);
+    UIEventDispatchAccumulator accumulator(plan, f.Diagnostics());
+    CHECK(accumulator.Merge(result) == UIEventMergeStatus::Merged);
     CHECK(f.Diagnostics().Total() == 0);
 }
 
@@ -1257,5 +1279,43 @@ TEST_CASE("keyboard and gamepad focus share the pointer focus lifecycle") {
         const auto next = f.Send(f.KeyRight());
         CHECK(next.focus.resultingFocus == f.SelectableIdentity(kRightId));
         CHECK(f.Focused() == f.SelectableIdentity(kRightId));
+    }
+}
+
+TEST_CASE("a stale focus reference is reported once per fact and again after the world is released") {
+    UIFocusFixture f;
+    f.AddExplicit();
+    f.FocusByPointer(kExplicitId);
+    f.Diagnostics().Clear();
+
+    SUBCASE("repeating an explicit reference N froze but does not publish reports once") {
+        for (int i = 0; i < 3; ++i) {
+            const auto sent = f.Send(f.KeyRight());
+            CHECK(sent.focusMerge == UIEventMergeStatus::Merged);
+        }
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                        "ui.focus") == 1);
+        // 다른 방향은 다른 사실이다.
+        f.Send(f.KeyEvent(Input::KeyCode::Up));
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                        "ui.focus") == 1);
+    }
+    SUBCASE("a destination that no longer resolves reports once and re-arms with the world") {
+        const auto n = f.Snapshot();
+        const auto plan = f.Plan(f.KeyEvent(Input::KeyCode::Up));
+        REQUIRE(plan.focusDestinationFromSnapshotN.has_value());
+        f.ReplaceSelectable(kCenterId);
+        f.Diagnostics().Clear();
+        for (int i = 0; i < 3; ++i) {
+            const auto sent = f.DispatchOn(*n, plan);
+            CHECK(sent.focusMerge == UIEventMergeStatus::Merged);
+        }
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                        "ui.focus") == 1);
+        // 월드가 놓이면 그 세대의 장부도 비워진다(UISystem이 알리는 길로).
+        UISystem::Get().OnWorldReleased(f.World().Generation());
+        f.DispatchOn(*n, plan);
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                        "ui.focus") == 2);
     }
 }

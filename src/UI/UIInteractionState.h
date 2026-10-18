@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -100,6 +101,10 @@ public:
                                  molga::text::TextDiagnosticSink* sink);
     // 세대를 올리지 않는다: 죽은 월드의 표는 어떤 스냅샷에도 보이지 않는다.
     void OnWorldReleased(std::uint64_t worldGeneration);
+    // 같은 사실(fact)을 월드 세대마다 한 번만 보고하게 하는 장부. 처음 보는
+    // 사실이면 true. 월드가 놓이면 그 세대의 장부도 함께 지운다. 월드마다
+    // 기억하는 수에 상한이 있고, 상한을 넘은 새 사실은 보고하지 않는다.
+    bool FirstReportOfFact(std::uint64_t worldGeneration, const std::string& fact);
     std::size_t SurfaceCountForWorld(std::uint64_t worldGeneration) const noexcept;
     std::vector<UISurfaceKey> SurfacesForWindow(molga::WindowId) const;
 

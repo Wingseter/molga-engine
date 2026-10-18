@@ -3,6 +3,8 @@
 #include "UI/UIRuntimeInvalidation.h"
 
 #include <algorithm>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -91,7 +93,15 @@ struct UIInteractionStateTable::Impl {
     // 소진 Blocker를 이미 보고한 월드 세대. 거절된 Apply마다 같은 Blocker를
     // 되풀이하지 않는다("한 번"). 월드가 놓이면 함께 지운다.
     std::unordered_set<std::uint64_t> exhaustionReported;
+    // 월드 세대마다 이미 보고한 사실. UIFocusSystem의 ReferenceInvalid가 같은
+    // 입력의 되풀이마다 새로 나오지 않게 한다.
+    std::unordered_map<std::uint64_t, std::unordered_set<std::string>>
+        reportedFacts;
 };
+
+namespace {
+constexpr std::size_t kMaxRememberedFacts = 256;
+}  // namespace
 
 UIInteractionStateTable::UIInteractionStateTable()
     : impl_(std::make_unique<Impl>()) {}
@@ -224,11 +234,22 @@ bool UIInteractionStateTable::ClearIdentityEverywhere(
 void UIInteractionStateTable::OnWorldReleased(std::uint64_t worldGeneration) {
     if (worldGeneration == 0) return;
     impl_->exhaustionReported.erase(worldGeneration);
+    impl_->reportedFacts.erase(worldGeneration);
     for (auto it = impl_->surfaces.begin(); it != impl_->surfaces.end();) {
         it = it->first.worldGeneration == worldGeneration
                  ? impl_->surfaces.erase(it)
                  : std::next(it);
     }
+}
+
+bool UIInteractionStateTable::FirstReportOfFact(std::uint64_t worldGeneration,
+                                                const std::string& fact) {
+    auto& facts = impl_->reportedFacts[worldGeneration];
+    if (facts.count(fact) != 0) return false;
+    // 상한을 넘긴 새 사실은 기억도 보고도 하지 않는다(월드당 메모리 상한).
+    if (facts.size() >= kMaxRememberedFacts) return false;
+    facts.insert(fact);
+    return true;
 }
 
 std::size_t UIInteractionStateTable::SurfaceCountForWorld(
