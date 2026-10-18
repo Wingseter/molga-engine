@@ -4,6 +4,7 @@
 #include "ECS/Component.h"
 #include "ECS/Components/UIButton.h"
 #include "Text/TextDiagnostic.h"
+#include "UI/UIInteractionState.h"
 #include "UI/UIRuntimeIdentity.h"
 
 #include <cstdint>
@@ -357,6 +358,7 @@ PlannedUIEvent UIInputRouter::PlanNext(const UISnapshot& n,
                 // 않는다. 캡처는 이전 프레임에서 넘어올 수 있고(Task 12.3이
                 // 프레임마다 투사 상태를 다시 세운다), N이 상호작용 여부의
                 // 유일한 권위다.
+                plan.capturedPointerFromSnapshotN = true;
                 route = RouteForActionTarget(n, *projected.pointerCapture);
                 if (route && !route->interactable) route = nullptr;
                 if (release) projected.pointerCapture.reset();
@@ -444,6 +446,11 @@ PlannedUIEvent UIInputRouter::PlanNext(const UISnapshot& n,
 }
 
 // ── Step 6a: 발송 시각의 완전한 식별자 해석 ─────────────────────────────────
+//
+// hover/pressed/click의 권위는 이 함수 하나다(R7). UIButton은 자기 상태를 갖지
+// 않고, 라우터는 UIButton::IsInteractable()을 묻지 않는다 — 상호작용 여부의
+// 권위는 계획을 만든 스냅샷 N이다. 표 쓰기는 모두 UIInteractionStateTable::Apply
+// 를 지나므로 보이는 변화 하나에 의미 세대가 정확히 하나 오른다.
 UIEventHandlerResult UIInputRouter::HandleEvent(
     World& world, const UISnapshot& n, const PlannedUIEvent& planned,
     molga::text::TextDiagnosticSink& sink) {
@@ -452,10 +459,69 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
     result.stage = UIEventStage::Input;
     result.stageTargetOrdinal = 0;
 
+    // 표면 키의 권위는 N이다. 적격 계획에서 이 값은 {event.windowId, 월드 세대}와
+    // 같다.
+    const UISurfaceKey key{n.surfaceWindowId, n.worldGeneration};
+    auto& table = UIInteractionStateTable::Get();
+    // 표를 바꾸고 보이는 변화를 result에 올린다. 소진이면 false(이전 상태 유지).
+    const auto commit = [&](UISurfaceInteractionState next,
+                            unsigned int objectId) {
+        bool changed = false;
+        const bool stored =
+            table.Apply(key, std::move(next), &sink, "ui.input", objectId,
+                        &changed);
+        if (stored) result.visualDirty = changed;
+        return stored;
+    };
+    const auto clearPressed = [](UISurfaceInteractionState& state) {
+        for (auto& entry : state.buttons) entry.second.pressed = false;
+    };
+    const auto clearHovered = [](UISurfaceInteractionState& state) {
+        for (auto& entry : state.buttons) entry.second.hovered = false;
+    };
+
     // 대상은 오직 여기서만 온다. 이 줄이 ECS를 다시 뒤지는 순간 계획이
     // 얼려 둔 대상은 아무 의미가 없어진다.
     const auto stageTarget = planned.TargetFor(UIEventStage::Input);
-    if (!stageTarget) return result;
+    if (!stageTarget) {
+        // 부적격 계획은 표를 건드리지 않는다. 적격이면서 대상이 없는 포인터
+        // 계획은 PlanNext가 투사한 상태를 표에도 그대로 옮긴다 — 투사만 하고
+        // 표를 두면 잡힌 눌림이 영원히 남는다(R-10).
+        if (!planned.surfaceEligible) return result;
+        const auto& event = planned.event;
+        const bool pointer = event.kind == UIInputEventKind::PointerMotion ||
+                             event.kind == UIInputEventKind::PointerButton;
+        if (!pointer) return result;
+
+        UISurfaceInteractionState next = table.SurfaceOrEmpty(key);
+        if (!event.logicalPointValid) {
+            // 포인터 이탈: 위치가 없다. 포커스는 남긴다.
+            next.hovered.reset();
+            next.pointerCapture.reset();
+            clearHovered(next);
+            clearPressed(next);
+        } else if (event.kind == UIInputEventKind::PointerButton &&
+                   event.active) {
+            // 아무것도 없는 곳에서의 누름.
+            next.pointerCapture.reset();
+            next.hovered.reset();
+            clearPressed(next);
+            clearHovered(next);
+        } else if (event.kind == UIInputEventKind::PointerButton) {
+            // 잡힌 눌림이 없는(혹은 N이 놓아 준) 놓기. hover는 두고 눌림만 푼다.
+            next.pointerCapture.reset();
+            clearPressed(next);
+        } else if (!planned.capturedPointerFromSnapshotN) {
+            // 잡히지 않은 움직임이 빈 곳 위에 있다.
+            next.hovered.reset();
+            clearHovered(next);
+        } else {
+            // 잡힌 움직임인데 N이 그 경로를 떨어뜨렸다. 캡처는 놓기가 풀 것이다.
+            return result;
+        }
+        (void)commit(std::move(next), 0);
+        return result;
+    }
     result.resolvedStageTarget = stageTarget;
 
     // 네 필드를 전부 다시 해석한다. 그 사이에 컴포넌트가 지워지고 같은 타입이
@@ -467,6 +533,15 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
             "event was not delivered and was not retargeted",
             "re-plan input against the current snapshot",
             stageTarget->runtimeTarget.objectId));
+        // 낡은 놓기는 전달하지 않되 잡힌 눌림은 남기지 않는다. 대상이 사라진 뒤의
+        // 놓기가 캡처를 풀지 않으면 그 표면의 눌림이 영원히 남는다.
+        if (planned.event.kind == UIInputEventKind::PointerButton &&
+            !planned.event.active) {
+            UISurfaceInteractionState next = table.SurfaceOrEmpty(key);
+            next.pointerCapture.reset();
+            clearPressed(next);
+            (void)commit(std::move(next), stageTarget->runtimeTarget.objectId);
+        }
         return result;
     }
 
@@ -475,17 +550,27 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
         ComponentTypeID::Get<UIButton>()) {
         button = static_cast<UIButton*>(component);
     }
+    const UIRuntimeTargetIdentity& id = stageTarget->runtimeTarget;
+    // 클릭 콜백은 이 함수의 마지막 일이다. 콜백이 이 컴포넌트를 지울 수 있다.
+    bool invokeClick = false;
 
     switch (planned.event.kind) {
         case UIInputEventKind::PointerButton: {
+            UISurfaceInteractionState next = table.SurfaceOrEmpty(key);
             if (planned.event.active) {
+                // 누름: 캡처와 hover를 이 대상으로 옮기고, 다른 버튼의 눌림과
+                // hover는 푼다.
+                clearPressed(next);
+                clearHovered(next);
+                next.pointerCapture = id;
+                next.hovered = id;
+                if (button) next.buttons[id] = UIButtonPointerState{true, true, false};
+                if (!commit(std::move(next), id.objectId)) break;
                 result.actionMask = static_cast<std::uint16_t>(
                     UIEventActionBit(UIEventAction::Hover) |
                     UIEventActionBit(UIEventAction::Press));
                 result.consumed = true;
                 result.callbackDelivered = true;
-                result.visualDirty = true;
-                if (button) button->ApplyPointerState(true, true, false);
             } else {
                 // 클릭 판정은 Unity 규칙이다: 놓은 점이 **스냅샷 N** 위에서 이
                 // 잡힌 식별자로 라우팅될 때만 클릭이다. 대상 자신의 사각형으로
@@ -497,8 +582,15 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
                     const UIHitTargetSnapshot* releasedOver =
                         PointerActionRouteAt(n, planned.event.logicalPoint);
                     inside = releasedOver != nullptr &&
-                             releasedOver->target == stageTarget->runtimeTarget;
+                             releasedOver->target == id;
                 }
+                next.pointerCapture.reset();
+                next.hovered.reset();
+                if (inside) next.hovered = id;
+                if (button) {
+                    next.buttons[id] = UIButtonPointerState{inside, false, inside};
+                }
+                if (!commit(std::move(next), id.objectId)) break;
                 result.actionMask = UIEventActionBit(UIEventAction::Release);
                 if (inside) {
                     result.actionMask = static_cast<std::uint16_t>(
@@ -507,12 +599,29 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
                 }
                 result.consumed = true;
                 result.callbackDelivered = true;
-                result.visualDirty = true;
-                if (button) button->ApplyPointerState(inside, false, inside);
+                invokeClick = inside && button != nullptr;
             }
             break;
         }
         case UIInputEventKind::PointerMotion: {
+            UISurfaceInteractionState next = table.SurfaceOrEmpty(key);
+            if (planned.capturedPointerFromSnapshotN) {
+                // 잡힌 동안 대상은 캡처 대상이다. 그 위에 있는지는 N으로 본다.
+                bool over = false;
+                if (planned.event.logicalPointValid) {
+                    const UIHitTargetSnapshot* under =
+                        PointerActionRouteAt(n, planned.event.logicalPoint);
+                    over = under != nullptr && under->target == id;
+                }
+                next.hovered.reset();
+                if (over) next.hovered = id;
+                if (button) next.buttons[id].hovered = over;
+            } else {
+                clearHovered(next);
+                next.hovered = id;
+                if (button) next.buttons[id].hovered = true;
+            }
+            if (!commit(std::move(next), id.objectId)) break;
             result.actionMask = UIEventActionBit(UIEventAction::Hover);
             result.callbackDelivered = true;
             break;
@@ -534,6 +643,8 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
         case UIInputEventKind::Other:
             break;
     }
+    // 가장 마지막. 이 호출 뒤에는 button에 손대지 않는다.
+    if (invokeClick) button->InvokeOnClick();
     return result;
 }
 

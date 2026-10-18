@@ -70,7 +70,14 @@ struct UIInputEvent {
     molga::FixedPoint logicalDelta;
     molga::Fixed26_6 axisValue = molga::Fixed26_6::FromRaw(0);
     // 버튼 번호 / 키 코드 / 게임패드 버튼·축 이름. 종류가 무엇을 뜻하는지
-    // 정한다.
+    // 정한다. 값의 도메인은 엔진이 가진 SDL 없는 열거형이다(사용자 결정
+    // 2026-10-18):
+    //   Key           -> static_cast<uint32_t>(Input::KeyCode) (HID 위치, 배열 무관)
+    //   GamepadButton -> Input::GamepadButton
+    //   GamepadAxis   -> Input::GamepadAxis
+    //   PointerButton -> Input::MouseButton (Task 13.2가 채운다)
+    // 이 값을 해석하는 곳은 UINavigationDirectionOf(UIFocusSystem)와
+    // ScrollAxisOf(UIScrollSystem) 둘뿐이다.
     std::uint32_t control = 0;
     molga::platform::NativeKeyModifiers keyModifiers;
     // PointerButton/Key/GamepadButton은 눌림, WindowFocus는 창 활성.
@@ -101,6 +108,10 @@ struct PlannedUIEvent {
     // 이 이벤트가 이 표면의 것인가. 거짓이면 감사 순서에는 남되 어떤 단계
     // 대상도 없고 어떤 상태도 건드리지 않는다.
     bool surfaceEligible = false;
+    // 이 포인터 이동/놓기가 **잡혀 있는 동안** 계획되었는가(PlanNext의 캡처 분기).
+    // 캡처된 이동과 그냥 hover 이동은 같은 모양의 경로를 얼리므로, 드래그 스크롤과
+    // hover 정리를 가르려면 계획 자신이 말해야 한다. 값만 담고 동작은 없다.
+    bool capturedPointerFromSnapshotN = false;
 
     // 원본과 호환되는 동작 대상 필드.
     std::optional<UIRuntimeTargetIdentity> targetFromSnapshotN;

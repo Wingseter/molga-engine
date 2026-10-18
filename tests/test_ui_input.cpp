@@ -661,6 +661,7 @@ public:
         return IdentityOf(*rectlessButton_);
     }
     UIButton& PresetButton() { return *presetButton_; }
+    UIButton& OverflowButton() { return *overflowButton_; }
     int OverflowClicks() const noexcept { return overflowClicks_; }
     int RowClicks() const noexcept { return rowClicks_; }
     int DeleteClicks() const noexcept { return deleteClicks_; }
@@ -3119,6 +3120,18 @@ TEST_CASE("hover over a decorative child hovers its owner") {
     CHECK(*hover.targetFromSnapshotN == f.OverflowButtonIdentity());
     CHECK(state.hovered == f.OverflowButtonIdentity());
     CHECK_FALSE(state.pointerCapture.has_value());
+
+    // 발송하면 주인 버튼이 hover가 된다. 계획만 보던 이 케이스가 표를 보지
+    // 않으면 라우터가 hover를 안 써도 초록이다.
+    CHECK_FALSE(f.OverflowButton().IsHovered());
+    const auto result = f.Router().HandleEvent(f.World(), *n, hover,
+                                               f.Diagnostics());
+    CHECK(result.callbackDelivered);
+    CHECK(f.OverflowButton().IsHovered());
+    CHECK_FALSE(f.OverflowButton().IsPressed());
+    const molga::ui::UISurfaceKey key{kSurfaceWindow, f.World().Generation()};
+    CHECK(molga::ui::UIInteractionStateTable::Get().SurfaceOrEmpty(key).hovered ==
+          f.OverflowButtonIdentity());
 }
 
 // self-or-ancestor: 스크롤 뷰의 배경 위 휠은 그 뷰 자신을 스크롤한다.
@@ -3357,4 +3370,350 @@ TEST_CASE("releasing a world drops its interaction surfaces") {
     CHECK_FALSE(f.HighButton().IsPressed());
     // 죽은 월드의 표를 놓는 일은 보이는 상태가 아니다.
     CHECK(SemanticGeneration() == before);
+}
+
+// ── Task 12.2 Step B: 라우터가 hover/press/click의 유일한 권위 ───────────────
+namespace {
+
+// 계획 하나를 라우터로 보내 누산기에 합친다. 합치기 결과도 함께 돌려준다.
+struct OneDispatch {
+    UIEventHandlerResult result;
+    UIEventMergeStatus merge = UIEventMergeStatus::RejectedSpent;
+    molga::ui::UIEventDispatchRecord record;
+};
+
+OneDispatch DispatchOne(UIFrozenInputFixture& f, const UISnapshot& n,
+                        const PlannedUIEvent& plan) {
+    OneDispatch out;
+    UIEventDispatchAccumulator accumulator(plan, f.Diagnostics());
+    out.result = f.Router().HandleEvent(f.World(), n, plan, f.Diagnostics());
+    out.merge = accumulator.Merge(out.result);
+    out.record = std::move(accumulator).Finish();
+    return out;
+}
+
+molga::ui::UISurfaceKey SurfaceKeyOf(UIFrozenInputFixture& f) {
+    return molga::ui::UISurfaceKey{kSurfaceWindow, f.World().Generation()};
+}
+
+molga::ui::UISurfaceInteractionState SurfaceOf(UIFrozenInputFixture& f) {
+    return molga::ui::UIInteractionStateTable::Get().SurfaceOrEmpty(
+        SurfaceKeyOf(f));
+}
+
+// 표에 손으로 상태를 심는다. 심는 것 자체가 시험 대상이 아닐 때만 쓴다.
+void SeedSurface(UIFrozenInputFixture& f,
+                 const molga::ui::UISurfaceInteractionState& state) {
+    REQUIRE(molga::ui::UIInteractionStateTable::Get().Apply(
+        SurfaceKeyOf(f), state, nullptr, "test", 0));
+}
+
+}  // namespace
+
+TEST_CASE("the router, not the live interactable flag, decides a click") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint overlap = PxPoint(10.0f, 10.0f);
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(50, overlap), f.PointerUp(51, overlap)}, state);
+    REQUIRE(plans[0].targetFromSnapshotN);
+    REQUIRE(plans[1].targetFromSnapshotN);
+
+    CHECK(DispatchOne(f, *n, plans[0]).merge == UIEventMergeStatus::Merged);
+    REQUIRE(f.HighButton().IsPressed());
+    // N은 아직 상호작용 가능이라고 말한다. 계획과 발송 사이에 살아 있는 플래그만
+    // 꺼진다 — 클릭을 정하는 것은 스냅샷 N이지 이 플래그가 아니다(R7).
+    f.HighButton().SetInteractable(false);
+
+    const auto release = DispatchOne(f, *n, plans[1]);
+    CHECK(release.merge == UIEventMergeStatus::Merged);
+    CHECK(f.HighButtonClicks() == 1);
+    CHECK(release.record.delivered);
+    CHECK(release.record.consumed);
+    CHECK((release.record.actionMask & UIEventActionBit(UIEventAction::Click)) != 0);
+    CHECK((release.record.actionMask & UIEventActionBit(UIEventAction::Release)) != 0);
+    CHECK(f.HighButton().WasClickedThisFrame());
+    // 눌림은 풀렸고 캡처도 풀렸다.
+    CHECK_FALSE(f.HighButton().IsPressed());
+    CHECK_FALSE(SurfaceOf(f).pointerCapture.has_value());
+}
+
+TEST_CASE("a pointer departure clears capture and residual pressed but not focus") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(60, PxPoint(210.0f, 10.0f)),
+             f.PointerDeparture(61)},
+        state);
+    REQUIRE(plans[0].targetFromSnapshotN);
+    REQUIRE(plans[0].focusTargetFromSnapshotN);
+    CHECK(DispatchOne(f, *n, plans[0]).merge == UIEventMergeStatus::Merged);
+    CHECK(f.ComboButton().IsPressed());
+    CHECK(SurfaceOf(f).pointerCapture == f.ComboButtonIdentity());
+    CHECK(SurfaceOf(f).hovered == f.ComboButtonIdentity());
+
+    const auto before = SemanticGeneration();
+    REQUIRE_FALSE(plans[1].targetFromSnapshotN);
+    const auto departure = DispatchOne(f, *n, plans[1]);
+    // 대상 없는 결과는 dirty 플래그만 가질 수 있고, 누산기가 그것을 받아들인다.
+    CHECK(departure.merge == UIEventMergeStatus::Merged);
+    CHECK(departure.result.visualDirty);
+    CHECK(departure.result.actionMask == 0);
+    CHECK_FALSE(departure.result.consumed);
+    CHECK_FALSE(departure.result.callbackDelivered);
+    CHECK_FALSE(departure.result.resolvedStageTarget.has_value());
+    CHECK(SemanticGeneration() == before + 1);
+
+    CHECK_FALSE(f.ComboButton().IsPressed());
+    CHECK_FALSE(f.ComboButton().IsHovered());
+    const auto surface = SurfaceOf(f);
+    CHECK_FALSE(surface.pointerCapture.has_value());
+    CHECK_FALSE(surface.hovered.has_value());
+    // 포커스는 이 단계(라우터)의 것이 아니다. 표의 focused 칸을 건드리지 않는다.
+    // Task 12.2 Step C가 UIFocusSystem을 얹은 뒤 여기서 focus가 남는 것을 본다.
+    CHECK_FALSE(surface.focused.has_value());
+
+    // 이미 비어 있는 표면에 다시 이탈이 오면 세대는 올라가지 않는다.
+    const auto again = DispatchOne(f, *n, plans[1]);
+    CHECK(again.merge == UIEventMergeStatus::Merged);
+    CHECK_FALSE(again.result.visualDirty);
+    CHECK(SemanticGeneration() == before + 1);
+}
+
+TEST_CASE("targetless pointer plans mirror the planner's projection") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint empty = PxPoint(700.0f, 500.0f);
+    const FixedPoint onHigh = PxPoint(10.0f, 10.0f);
+    const auto high = f.HighButtonIdentity();
+    const auto low = f.LowButtonIdentity();
+    using molga::ui::UIButtonPointerState;
+
+    const auto seeded = [&] {
+        molga::ui::UISurfaceInteractionState state;
+        state.pointerCapture = high;
+        state.hovered = high;
+        state.buttons[high] = UIButtonPointerState{true, true, false};
+        state.buttons[low] = UIButtonPointerState{true, false, false};
+        return state;
+    };
+
+    SUBCASE("a press over nothing clears capture, hover and every pressed bit") {
+        SeedSurface(f, seeded());
+        auto state = f.InitialPlanningState();
+        const auto plan = f.Router().PlanNext(*n, kSurfaceWindow,
+                                              f.PointerDown(80, empty), state);
+        REQUIRE_FALSE(plan.targetFromSnapshotN);
+        const auto out = DispatchOne(f, *n, plan);
+        CHECK(out.merge == UIEventMergeStatus::Merged);
+        CHECK(out.result.visualDirty);
+        const auto surface = SurfaceOf(f);
+        CHECK_FALSE(surface.pointerCapture.has_value());
+        CHECK_FALSE(surface.hovered.has_value());
+        CHECK(surface.buttons.empty());
+    }
+    SUBCASE("an uncaptured motion over nothing clears hover but keeps pressed") {
+        SeedSurface(f, seeded());
+        auto state = f.InitialPlanningState();
+        const auto plan = f.Router().PlanNext(*n, kSurfaceWindow,
+                                              f.PointerMove(81, empty), state);
+        REQUIRE_FALSE(plan.targetFromSnapshotN);
+        REQUIRE_FALSE(plan.capturedPointerFromSnapshotN);
+        const auto out = DispatchOne(f, *n, plan);
+        CHECK(out.merge == UIEventMergeStatus::Merged);
+        CHECK(out.result.visualDirty);
+        const auto surface = SurfaceOf(f);
+        CHECK_FALSE(surface.hovered.has_value());
+        CHECK(surface.pointerCapture == high);
+        REQUIRE(surface.buttons.count(high) == 1);
+        CHECK_FALSE(surface.buttons.at(high).hovered);
+        CHECK(surface.buttons.at(high).pressed);
+        CHECK(surface.buttons.count(low) == 0);
+    }
+    SUBCASE("an uncaptured release clears capture and pressed but leaves hover") {
+        SeedSurface(f, seeded());
+        auto state = f.InitialPlanningState();
+        const auto plan = f.Router().PlanNext(*n, kSurfaceWindow,
+                                              f.PointerUp(82, onHigh), state);
+        REQUIRE_FALSE(plan.targetFromSnapshotN);
+        const auto out = DispatchOne(f, *n, plan);
+        CHECK(out.merge == UIEventMergeStatus::Merged);
+        CHECK(out.result.visualDirty);
+        CHECK(f.HighButtonClicks() == 0);
+        const auto surface = SurfaceOf(f);
+        CHECK_FALSE(surface.pointerCapture.has_value());
+        CHECK(surface.hovered == high);
+        REQUIRE(surface.buttons.count(high) == 1);
+        CHECK(surface.buttons.at(high).hovered);
+        CHECK_FALSE(surface.buttons.at(high).pressed);
+    }
+    SUBCASE("a captured motion whose route N dropped changes nothing") {
+        // 캡처를 N1에서 세운 뒤 대상을 지우고 N2를 게시한다.
+        auto state = f.InitialPlanningState();
+        const auto press = f.Router().PlanNext(*n, kSurfaceWindow,
+                                               f.PointerDown(83, onHigh), state);
+        REQUIRE(press.targetFromSnapshotN);
+        REQUIRE(DispatchOne(f, *n, press).merge == UIEventMergeStatus::Merged);
+        f.HideHighAndPublishNewGeometry();
+        const auto n2 = f.Snapshot();
+        const auto move = f.Router().PlanNext(*n2, kSurfaceWindow,
+                                              f.PointerMove(84, empty), state);
+        REQUIRE(move.capturedPointerFromSnapshotN);
+        REQUIRE_FALSE(move.targetFromSnapshotN);
+        const auto before = SurfaceOf(f);
+        // 전제: 지운 컴포넌트의 캡처가 표에 아직 있어야 이 케이스가 시험이다.
+        REQUIRE(before.pointerCapture == high);
+        const auto generation = SemanticGeneration();
+        const auto out = DispatchOne(f, *n2, move);
+        CHECK(out.merge == UIEventMergeStatus::Merged);
+        CHECK_FALSE(out.result.visualDirty);
+        CHECK(SemanticGeneration() == generation);
+        const auto after = SurfaceOf(f);
+        CHECK(after.pointerCapture == before.pointerCapture);
+        CHECK(after.hovered == before.hovered);
+        CHECK(after.buttons.size() == before.buttons.size());
+    }
+}
+
+TEST_CASE("a release whose captured target no longer resolves still clears residual pressed") {
+    UIFrozenInputFixture f;
+    const auto n1 = f.BuildSnapshot();
+    const FixedPoint onHigh = PxPoint(10.0f, 10.0f);
+    const auto high = f.HighButtonIdentity();
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n1, {f.PointerDown(70, onHigh), f.PointerUp(71, onHigh)}, state);
+    REQUIRE(plans[0].targetFromSnapshotN);
+    REQUIRE(plans[1].targetFromSnapshotN);
+    REQUIRE(DispatchOne(f, *n1, plans[0]).merge == UIEventMergeStatus::Merged);
+    REQUIRE(SurfaceOf(f).pointerCapture == high);
+    REQUIRE(SurfaceOf(f).buttons.count(high) == 1);
+
+    // 식별자 소실. World::RemoveByIds는 컴포넌트를 먼저 놓으므로 OnDisable이
+    // 식별자를 해석하지 못해 표의 항목이 그대로 남는다 — 놓기가 치워야 한다.
+    f.HideHighAndPublishNewGeometry();
+    f.Diagnostics().Clear();
+    // 전제: 표에는 낡은 캡처가 아직 남아 있다. 아니면 이 케이스는 놓기 경로를
+    // 시험하지 않는다.
+    REQUIRE(SurfaceOf(f).pointerCapture == high);
+
+    const auto release = DispatchOne(f, *n1, plans[1]);
+    CHECK(release.merge == UIEventMergeStatus::Merged);
+    CHECK_FALSE(release.result.callbackDelivered);
+    CHECK_FALSE(release.result.consumed);
+    CHECK(release.result.actionMask == 0);
+    // 단계 대상은 그대로 남아 누산기가 검증한다.
+    REQUIRE(release.result.resolvedStageTarget.has_value());
+    CHECK(release.result.resolvedStageTarget->runtimeTarget == high);
+    CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::ReferenceInvalid,
+                                    "ui.input") == 1);
+    CHECK(f.HighButtonClicks() == 0);
+    const auto surface = SurfaceOf(f);
+    CHECK_FALSE(surface.pointerCapture.has_value());
+    // 낡은 항목의 hover는 Revalidate(Step C)가 치운다. 눌림은 여기서 풀린다.
+    for (const auto& entry : surface.buttons) CHECK_FALSE(entry.second.pressed);
+}
+
+TEST_CASE("press, hover and release each publish one semantic generation and a repeat publishes none") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onHigh = PxPoint(10.0f, 10.0f);
+    // 프리셋 버튼의 Label 위. 캡처된 High를 벗어나는 자리다.
+    const FixedPoint onPresetLabel = PxPoint(110.0f, 330.0f);
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(90, onHigh), f.PointerMove(91, onPresetLabel),
+             f.PointerUp(92, onPresetLabel),
+             f.PointerMove(93, onPresetLabel)},
+        state);
+    REQUIRE(plans[0].targetFromSnapshotN);
+    REQUIRE(plans[1].capturedPointerFromSnapshotN);
+    REQUIRE(plans[1].targetFromSnapshotN);
+    REQUIRE(plans[3].targetFromSnapshotN);
+    REQUIRE(*plans[3].targetFromSnapshotN == f.PresetButtonIdentity());
+
+    auto delta = [&](const PlannedUIEvent& plan) {
+        const auto before = SemanticGeneration();
+        (void)DispatchOne(f, *n, plan);
+        return SemanticGeneration() - before;
+    };
+    CHECK(delta(plans[0]) == 1);  // 누름: 캡처 + hover + pressed
+    CHECK(f.HighButton().IsPressed());
+    CHECK(delta(plans[0]) == 0);  // 같은 계획을 다시: 달라진 것이 없다
+    CHECK(delta(plans[1]) == 1);  // 캡처한 채 밖으로: hover만 사라진다
+    CHECK(f.HighButton().IsPressed());
+    CHECK_FALSE(f.HighButton().IsHovered());
+    CHECK(delta(plans[2]) == 1);  // 밖에서 놓기: 캡처와 pressed가 풀린다
+    CHECK(f.HighButtonClicks() == 0);
+    CHECK_FALSE(f.HighButton().IsPressed());
+    CHECK(delta(plans[3]) == 1);  // 이제 캡처가 없으니 프리셋이 hover를 얻는다
+    CHECK(f.PresetButton().IsHovered());
+    CHECK(delta(plans[3]) == 0);  // 반복
+}
+
+TEST_CASE("an exhausted semantic generation fails closed on press and click") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onHigh = PxPoint(10.0f, 10.0f);
+    auto state = f.InitialPlanningState();
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(95, onHigh), f.PointerUp(96, onHigh)}, state);
+    REQUIRE(plans[0].targetFromSnapshotN);
+    REQUIRE(plans[1].targetFromSnapshotN);
+
+    {
+        molga::ui::ScopedUIRuntimeGenerationForTesting guard(
+            molga::ui::UIRuntimeGenerationKind::SemanticDirty, UINT64_MAX);
+        const auto press = DispatchOne(f, *n, plans[0]);
+        CHECK(press.merge == UIEventMergeStatus::Merged);
+        CHECK_FALSE(press.result.callbackDelivered);
+        CHECK_FALSE(press.result.consumed);
+        CHECK(press.result.actionMask == 0);
+        CHECK_FALSE(f.HighButton().IsPressed());
+        CHECK(f.Diagnostics().CountSeverity(molga::text::TextSeverity::Blocker) == 1);
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::LayoutInvalid,
+                                        "ui.input") == 1);
+    }
+    // 정상 시계에서 누른 뒤, 소진된 시계에서 놓으면 클릭이 나가지 않는다.
+    REQUIRE(DispatchOne(f, *n, plans[0]).result.callbackDelivered);
+    REQUIRE(f.HighButton().IsPressed());
+    {
+        molga::ui::ScopedUIRuntimeGenerationForTesting guard(
+            molga::ui::UIRuntimeGenerationKind::SemanticDirty, UINT64_MAX);
+        const auto release = DispatchOne(f, *n, plans[1]);
+        CHECK_FALSE(release.result.callbackDelivered);
+        CHECK((release.result.actionMask &
+               UIEventActionBit(UIEventAction::Click)) == 0);
+        CHECK(f.HighButtonClicks() == 0);
+        // 이전 상태가 그대로 보인다.
+        CHECK(f.HighButton().IsPressed());
+    }
+}
+
+TEST_CASE("a captured motion plan is marked captured and an uncaptured one is not") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onHigh = PxPoint(10.0f, 10.0f);
+    const FixedPoint empty = PxPoint(700.0f, 500.0f);
+
+    const auto plans = f.ProjectAll(
+        *n, {f.PointerDown(100, onHigh), f.PointerMove(101, empty),
+             f.PointerUp(102, empty), f.PointerMove(103, empty)});
+    REQUIRE(plans.size() == 4);
+    CHECK_FALSE(plans[0].capturedPointerFromSnapshotN);
+    CHECK(plans[1].capturedPointerFromSnapshotN);
+    CHECK(plans[2].capturedPointerFromSnapshotN);
+    // 놓은 뒤에는 캡처가 없다.
+    CHECK_FALSE(plans[3].capturedPointerFromSnapshotN);
+
+    const auto lone = f.ProjectAll(*n, {f.PointerMove(110, onHigh)});
+    CHECK_FALSE(lone[0].capturedPointerFromSnapshotN);
+
+    const auto foreign = f.ProjectAll(
+        *n, {f.PointerDown(120, onHigh),
+             f.PointerMove(121, onHigh, kForeignWindow)});
+    CHECK_FALSE(foreign[1].surfaceEligible);
+    CHECK_FALSE(foreign[1].capturedPointerFromSnapshotN);
 }
