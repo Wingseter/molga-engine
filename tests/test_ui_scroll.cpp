@@ -609,6 +609,33 @@ TEST_CASE("MulQ6NearestAway rounds away from zero and refuses to wrap") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step 5e amendment (2026-10-01): 감쇠 전용 0 방향 절단 곱
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("MulQ6TowardZero truncates toward zero and refuses to wrap") {
+    using molga::ui::MulQ6TowardZero;
+    const auto q6 = [](std::int32_t a, std::int32_t b) {
+        return MulQ6TowardZero(Fixed26_6::FromRaw(a), Fixed26_6::FromRaw(b));
+    };
+    // 바로 그 고정점: 2 * 48 / 64 = 1.5 는 0에서 먼 쪽이면 2, 자르면 1이다.
+    CHECK(q6(2, 48)->Raw() == 1);
+    CHECK(q6(-2, 48)->Raw() == -1);
+    // 1 * 63 / 64 는 0으로 — 모든 0이 아닌 |v|가 retained <= 63 에서 줄어든다.
+    CHECK(q6(1, 63)->Raw() == 0);
+    CHECK(q6(-1, 63)->Raw() == 0);
+    // 정확한 나눗셈은 반올림 방향과 무관하다(못 박힌 픽스처가 서 있는 자리).
+    CHECK(q6(128, 48)->Raw() == 96);
+    CHECK(q6(96, 48)->Raw() == 72);
+    // 승인 문서의 옛 열이 갈리는 첫 자리: 54 * 48 / 64 = 40.5 -> 40 (옛 값 41).
+    CHECK(q6(54, 48)->Raw() == 40);
+    CHECK(q6(-54, 48)->Raw() == -40);
+    // int32 범위를 벗어나면 포화가 아니라 실패다. INT32_MIN * 64 / 64 는 들어간다.
+    REQUIRE(q6(-2147483647 - 1, 64).has_value());
+    CHECK(q6(-2147483647 - 1, 64)->Raw() == -2147483647 - 1);
+    CHECK_FALSE(q6(-2147483647 - 1, 65).has_value());
+    CHECK_FALSE(q6(2147483647, 2147483647).has_value());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Step 1f: 결정적 tick 값 계약과 정규 리플레이
 // ─────────────────────────────────────────────────────────────────────────────
 TEST_CASE("deterministic ticks reject zero, non-increasing, and oversized deltas") {
@@ -1380,14 +1407,11 @@ TEST_CASE("elastic overscroll never strands the content outside its own clip") {
     // 상태가 구조적으로 도달 불가능하고, 그 도달 불가능성이 이 결함을 가렸다.
     f.Primary().contentRect->SetSizeDelta(
         {RawToFloat(kViewportRaw), RawToFloat(256)});
-    // 관성은 끈다. 저작된 감속(0.875/s)의 감쇠는 |velocity| == 2에서 고정점을
-    // 가지므로(MulQ6가 0에서 먼 쪽으로 반올림한다) 속도가 남아 있으면 이
-    // 재귀는 0이 아니라 그 속도가 만드는 평형점에 선다. 그것은 승인된 재귀
-    // 자체의 성질이고 이 케이스가 재려는 것이 아니다.
+    // 관성은 끄고 복귀율은 1.0/s로 둔다. 이 값들은 2026-10-01 amendment 전에 이
+    // 케이스가 옛 재귀의 고정점을 피하려고 고른 것이고, 못 박힌 값을 지키려고 그대로
+    // 둔다. 재는 것은 수렴이 아니라 "클립 밖으로 밀려난 내용이 흡수 상태에 갇히지
+    // 않는다"이다.
     f.Primary().view->SetInertia(false);
-    // 탄성 복귀율을 1.0/s로 둔다. 저작 기본값(0.125/s)에서는 한 걸음의 보정이
-    // |offset| < 16 에서 0으로 반올림되어 재귀가 합법 구간 밖 15 raw에 선다 —
-    // 이 역시 승인된 재귀의 성질이지 이 케이스의 대상이 아니다.
     f.Primary().view->SetElasticity(1.0f);
     f.Rebuild();
 
@@ -1699,9 +1723,11 @@ TEST_CASE("the elastic settle clause terminates a recurrence that cannot close i
     UIScrollFixture f;
     f.SetVerticalExtentRaw(-640, 0, 640);
     f.SetRatesRaw(/* elasticity */ 8, /* deceleration */ 8);
-    // 합법 구간 밖으로 정확히 1 raw, 속도도 1 raw. MulQ6가 0에서 **먼** 쪽으로
-    // 반올림하므로 이 둘은 각자의 재귀에서 고정점이다: Q6(1, 62) = 1 이라 속도가
-    // 줄지 않고, Q6(1, 2) = 0 이라 보정이 마지막 한 칸을 닫지 못한다.
+    // 합법 구간 밖으로 정확히 1 raw, 속도도 1 raw. 2026-10-01 amendment 전에는 둘 다
+    // 고정점이었다(Q6(1,62)=1, Q6(1,2)=0). 지금은 절단이 속도를, 보정 바닥이 마지막
+    // 1 raw를 닫는다. settle 절 자체는 아래의 별도 케이스가 못 박는다.
+    // (케이스 이름은 옛 재귀를 말한다. amendment 뒤에는 재귀가 스스로 닫히므로
+    // 이 절을 지키는 것은 아래 "the settle clause still closes..." 케이스다.)
     f.SetVerticalStateRaw(/* offset */ 1, /* velocity */ 1);
     f.StepRaw(16);
     const auto* state = f.System().State(f.ScrollTarget());
@@ -1712,6 +1738,169 @@ TEST_CASE("the elastic settle clause terminates a recurrence that cannot close i
     // 스냅샷이 영원히 다시 발행된다.
     CHECK_FALSE(f.StepRaw(16));
     CHECK(f.System().State(f.ScrollTarget())->velocity.y.Raw() == 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step 5e amendment (2026-10-01): 수렴
+// ─────────────────────────────────────────────────────────────────────────────
+TEST_CASE("velocity decay at retained=48 reaches zero instead of parking at 2") {
+    UIScrollFixture f;
+    f.SetVerticalExtentRaw(-640, 0, 640);
+    f.SetRatesRaw(/* elasticity */ 128, /* deceleration */ 64);  // retained = 48
+    f.SetVerticalStateRaw(/* offset */ -320, /* velocity */ 96);
+    // 승인 문서가 적은 옛 열은 96 -> 72 -> 54 -> 41 -> ... -> 3 -> 2 -> 2 -> 2 로
+    // 2에 영원히 선다. 0 방향 절단은 셋째 걸음(40.5 -> 40)에서 갈라지고 열셋째
+    // 걸음에서 0에 닿는다(마지막 2 -> 1 은 settle 절이 0으로 닫는다).
+    const std::vector<std::int32_t> velocities{72, 54, 40, 30, 22, 16, 12,
+                                               9,  6,  4,  3,  2,  0};
+    const std::vector<std::int32_t> offsets{-296, -278, -264, -254, -246,
+                                            -240, -236, -233, -231, -229,
+                                            -228, -227, -226};
+    const auto target = f.ScrollTarget();
+    for (std::size_t i = 0; i < velocities.size(); ++i) {
+        CAPTURE(i);
+        REQUIRE(f.StepRaw(16));
+        CHECK(f.System().State(target)->velocity.y.Raw() == velocities[i]);
+        CHECK(f.System().State(target)->offset.y.Raw() == offsets[i]);
+    }
+    // 그리고 그 자리에 머문다.
+    CHECK_FALSE(f.StepRaw(16));
+    CHECK(f.System().State(target)->velocity.y.Raw() == 0);
+    CHECK(f.System().State(target)->offset.y.Raw() == -226);
+}
+
+TEST_CASE("a positive rate that rounds to nothing in one tick still makes progress") {
+    UIScrollFixture f;
+    f.SetVerticalExtentRaw(-640, 0, 640);
+    const auto target = f.ScrollTarget();
+
+    // amendment 2: 감속률 1 raw(1/64 per s)는 Q6(1, 16) = 0 으로 반올림된다.
+    // 바닥 1이 없으면 retained = 64 라 속도 64가 64 그대로 남는다.
+    f.SetRatesRaw(/* elasticity */ 128, /* deceleration */ 1);
+    f.SetVerticalStateRaw(/* offset */ -320, /* velocity */ 64);
+    REQUIRE(f.StepRaw(16));
+    CHECK(f.System().State(target)->velocity.y.Raw() == 63);  // 64 * 63 / 64
+    CHECK(f.System().State(target)->offset.y.Raw() == -304);
+
+    // amendment 3: 복귀율 1 raw는 Q6(1, 16) = 0 으로 반올림된다. 바닥 1이 없으면
+    // returnStep = 0, correction = 0 이라 과주행 100이 영원히 남는다.
+    f.SetRatesRaw(/* elasticity */ 1, /* deceleration */ 64);
+    f.SetVerticalStateRaw(/* offset */ 100, /* velocity */ 0);
+    REQUIRE(f.StepRaw(16));
+    CHECK(f.System().State(target)->offset.y.Raw() == 98);  // Q6(100, 1) = 2
+    CHECK(f.System().State(target)->velocity.y.Raw() == 0);
+
+    // amendment 4: 저작 기본 복귀율(8 raw)은 returnStep 2 를 내고, 과주행 15 는
+    // Q6(15, 2) = 0 으로 반올림된다 — 승인 문서의 "합법 구간 밖 15 raw". 바닥이
+    // 없으면 오프셋이 15에 서서 "변하지 않았다"를 보고한다.
+    f.SetRatesRaw(/* elasticity */ 8, /* deceleration */ 64);
+    f.SetVerticalStateRaw(/* offset */ 15, /* velocity */ 0);
+    REQUIRE(f.StepRaw(16));
+    CHECK(f.System().State(target)->offset.y.Raw() == 14);
+    int ticks = 0;
+    while (f.System().State(target)->offset.y.Raw() != 0 && ticks < 16) {
+        f.StepRaw(16);
+        ++ticks;
+    }
+    CHECK(f.System().State(target)->offset.y.Raw() == 0);   // 14 -> ... -> 2 -> settle
+    CHECK(f.System().State(target)->velocity.y.Raw() == 0);
+    // 부호가 보존된다: 음의 과주행은 음의 보정을 받는다.
+    f.SetVerticalStateRaw(/* offset */ -655, /* velocity */ 0);
+    REQUIRE(f.StepRaw(16));
+    CHECK(f.System().State(target)->offset.y.Raw() == -654);
+}
+
+// Step 5e amendment: 수렴성 — 양수 저작 속도 격자 전체가 유한 tick 안에 정지한다.
+// 감속률 0은 격자에서 뺀다: 승인된 본문이 retained = 64 를 그대로 두므로 그 뷰는
+// 정당하게 멈추지 않는다(Elastic el=8, δ=16 의 (0, 2)는 (0, 2)로 changed=false 에 서고,
+// Clamped의 v=1 은 δ=1 에서 Q6(1, 1) = 0 이라 영원히 움직이지 않는다).
+// 상한 1024는 retained <= 63 에서 |v| <= 4096 이 328 tick 안에 0이 되고(64 아래로
+// 265 tick, 그 뒤 tick당 1), 과주행 <= 320 이 tick당 최소 1 raw 줄어 총 648 을
+// 넘지 않는 데서 나온다(관찰된 최악 468).
+TEST_CASE("every positive authored rate in the grid comes to rest within a bounded number of ticks") {
+    constexpr std::int32_t kTickBound = 1024;
+    constexpr std::int32_t kLegalMin = -640;
+    constexpr std::int32_t kLegalMax = 0;
+    constexpr std::int32_t kDeltas[] = {1, 16, 64};
+    constexpr std::int32_t kElasticities[] = {1, 8, 128, 4096};
+    constexpr std::int32_t kDecelerations[] = {1, 56, 64, 4096};
+    struct Start { std::int32_t offset; std::int32_t velocity; };
+    constexpr Start kStarts[] = {{-320, 96},   {-320, -4096}, {0, 4096},
+                                 {-640, -4096}, {100, 0},     {300, 2000},
+                                 {-900, -2},   {-320, 2},     {-320, 1},
+                                 {1, 1},       {-320, -1},    {15, 0},
+                                 {-655, 0}};
+
+    UIScrollFixture f;
+    f.SetVerticalExtentRaw(kLegalMin, kLegalMax, 640);
+    const auto target = f.ScrollTarget();
+    const auto atRest = [&]() {
+        const auto* state = f.System().State(target);
+        if (state == nullptr) return false;
+        const std::int32_t offset = state->offset.y.Raw();
+        return state->velocity.y.Raw() == 0 && offset >= kLegalMin &&
+               offset <= kLegalMax;
+    };
+    const auto runGrid = [&](const char* mode, bool elastic) {
+        for (std::int32_t elasticity : kElasticities) {
+            if (!elastic && elasticity != 8) continue;  // Clamped는 복귀율을 읽지 않는다
+            for (std::int32_t deceleration : kDecelerations) {
+                f.SetRatesRaw(elasticity, deceleration);
+                for (std::int32_t delta : kDeltas) {
+                    for (const Start& start : kStarts) {
+                        CAPTURE(std::string(mode));
+                        CAPTURE(elasticity);
+                        CAPTURE(deceleration);
+                        CAPTURE(delta);
+                        CAPTURE(start.offset);
+                        CAPTURE(start.velocity);
+                        f.SetVerticalStateRaw(start.offset, start.velocity);
+                        std::int32_t ticks = 0;
+                        while (!atRest() && ticks < kTickBound) {
+                            f.StepRaw(delta);
+                            ++ticks;
+                        }
+                        CHECK(ticks < kTickBound);
+                        REQUIRE(atRest());
+                        // 정지는 정지다: 한 tick 더 밟아도 아무것도 변하지 않는다.
+                        const std::int32_t restOffset =
+                            f.System().State(target)->offset.y.Raw();
+                        CHECK_FALSE(f.StepRaw(delta));
+                        CHECK(f.System().State(target)->offset.y.Raw() == restOffset);
+                        CHECK(f.System().State(target)->velocity.y.Raw() == 0);
+                    }
+                }
+            }
+        }
+    };
+    runGrid("Elastic", true);  // 픽스처 기본은 Elastic이다
+    f.Primary().view->SetMovement(UIScrollMovement::Clamped);
+    f.Rebuild();
+    runGrid("Clamped", false);
+}
+
+TEST_CASE("the settle clause still closes the last raw one tick early") {
+    UIScrollFixture f;
+    f.SetVerticalExtentRaw(-640, 0, 640);
+    const auto target = f.ScrollTarget();
+    // 과주행 2, returnStep 16: 보정 Q6(2, 16) = 0.5 -> 1 이 남긴 마지막 1 raw를
+    // settle 절이 같은 tick에 닫는다. 절이 없으면 1에 서서 한 tick 더 "변한다".
+    f.SetRatesRaw(/* elasticity */ 64, /* deceleration */ 8);
+    f.SetVerticalStateRaw(/* offset */ 2, /* velocity */ 0);
+    REQUIRE(f.StepRaw(16));
+    CHECK(f.System().State(target)->offset.y.Raw() == 0);
+    CHECK(f.System().State(target)->velocity.y.Raw() == 0);
+    // 감속률 0은 감쇠하지 않는다(바닥은 양수 감속률에만 걸린다).
+    f.SetRatesRaw(/* elasticity */ 64, /* deceleration */ 0);
+    f.SetVerticalStateRaw(/* offset */ -320, /* velocity */ 64);
+    REQUIRE(f.StepRaw(16));
+    CHECK(f.System().State(target)->velocity.y.Raw() == 64);
+    CHECK(f.System().State(target)->offset.y.Raw() == -304);
+    // 합법 구간 안의 |v| = 1 은 settle 절만이 0으로 닫는다.
+    f.SetVerticalStateRaw(/* offset */ -320, /* velocity */ 1);
+    REQUIRE(f.StepRaw(16));
+    CHECK(f.System().State(target)->offset.y.Raw() == -320);
+    CHECK(f.System().State(target)->velocity.y.Raw() == 0);
 }
 
 TEST_CASE("an authored start position waits for the first snapshot that can measure the axis") {

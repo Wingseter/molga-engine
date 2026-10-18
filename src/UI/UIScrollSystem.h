@@ -61,6 +61,14 @@ struct UIScrollMutation {
 std::optional<molga::Fixed26_6> MulQ6NearestAway(molga::Fixed26_6 a,
                                                  molga::Fixed26_6 b) noexcept;
 
+// (a.raw * b.raw) / 64 를 0 방향으로 자른다. Step 5e amendment(2026-10-01)의
+// 속도 감쇠 전용이다: 0에서 먼 쪽으로 반올림하면 |v| * retained / 64 가 0이
+// 아닌 고정점을 가진다(2 * 48 / 64 = 1.5 -> 2). 자르면 retained <= 63 인 모든
+// 0이 아닌 |v|가 매 tick 엄격히 줄어 유한한 tick 안에 0에 닿는다. 중간 곱은
+// int64_t이고 마지막에 int32_t 범위를 검사한다 — 포화도 랩도 없다.
+std::optional<molga::Fixed26_6> MulQ6TowardZero(molga::Fixed26_6 a,
+                                                molga::Fixed26_6 b) noexcept;
+
 // ── 결정적 식별자 키 스크롤 상태 ────────────────────────────────────────────
 // 상태는 완전한 런타임 식별자 {worldGeneration, objectId, componentRuntimeTypeId,
 // componentInstanceId}로만 키를 잡는다. 오브젝트 id만으로 키를 잡으면 씬을 다시

@@ -208,6 +208,18 @@ std::optional<molga::Fixed26_6> MulQ6NearestAway(molga::Fixed26_6 a,
     return molga::Fixed26_6::FromRaw(static_cast<Raw>(signed_));
 }
 
+// ── Step 5e amendment: 0 방향 절단 Q6 곱 ───────────────────────────────────
+std::optional<molga::Fixed26_6> MulQ6TowardZero(molga::Fixed26_6 a,
+                                                molga::Fixed26_6 b) noexcept {
+    const std::int64_t product =
+        static_cast<std::int64_t>(a.Raw()) * static_cast<std::int64_t>(b.Raw());
+    // 부호 있는 정수 나눗셈은 C++11부터 0 방향 절단이다. 그것이 요점이므로
+    // 절댓값도 나머지도 따로 보지 않는다.
+    const std::int64_t truncated = product / molga::Fixed26_6::Scale;
+    if (!InRaw(truncated)) return std::nullopt;
+    return molga::Fixed26_6::FromRaw(static_cast<Raw>(truncated));
+}
+
 // ── 결정적 tick ─────────────────────────────────────────────────────────────
 bool UIDeterministicTickIsValid(const UIDeterministicTick& tick) noexcept {
     if (tick.tickIndex == 0) return false;
@@ -607,12 +619,24 @@ bool InitialOffset(const AxisExtent& extent, molga::Fixed26_6 normalized,
     return AddRaw(extent.legalMax, scaled->Raw(), out);
 }
 
-// ── Step 5e: 한 축의 정확한 재귀 ────────────────────────────────────────────
+// ── Step 5e: 한 축의 정확한 재귀 (2026-10-01 amendment 반영) ────────────────
+// 승인된 본문과 정확히 네 곳이 다르다: (1) 속도 감쇠는 0 방향 절단, (2) 양수
+// 감속률의 decayStep 바닥 1, (3) 양수 복귀율의 returnStep 바닥 1, (4) 과주행이
+// 남아 있으면 보정은 같은 부호로 최소 1·최대 |overscroll|. settle 절은 그대로다.
 bool StepAxis(const ResolvedScroll& config, const AxisExtent& extent,
               molga::Fixed26_6 deltaSeconds, Raw& offset, Raw& velocity) {
     const auto q6 = [](Raw a, Raw b, Raw& out) {
         const auto result = MulQ6NearestAway(molga::Fixed26_6::FromRaw(a),
                                              molga::Fixed26_6::FromRaw(b));
+        if (!result) return false;
+        out = result->Raw();
+        return true;
+    };
+    // 감쇠 곱 하나만 0 방향으로 자른다(amendment 1). 다른 곱은 전부 승인된
+    // 0에서 먼 쪽 반올림 그대로다 — 손으로 못 박은 픽스처가 그 값에 서 있다.
+    const auto q6TowardZero = [](Raw a, Raw b, Raw& out) {
+        const auto result = MulQ6TowardZero(molga::Fixed26_6::FromRaw(a),
+                                            molga::Fixed26_6::FromRaw(b));
         if (!result) return false;
         out = result->Raw();
         return true;
@@ -626,10 +650,16 @@ bool StepAxis(const ResolvedScroll& config, const AxisExtent& extent,
 
     Raw decayStep = 0;
     if (!q6(config.deceleration.Raw(), delta, decayStep)) return false;
-    decayStep = ClampRaw(decayStep, 0, molga::Fixed26_6::Scale);
+    // amendment 2: 양수 감속률은 한 tick에 최소 1 raw는 깎는다. 바닥이 없으면
+    // 한 tick에 잡히지 않을 만큼 작은 양수 감속률이 0으로 반올림되어 retained가
+    // 64에 머물고, 감속률이 양수인데도 영원히 미끄러진다.
+    const Raw decayFloor = config.deceleration.Raw() > 0 ? 1 : 0;
+    decayStep = ClampRaw(decayStep, decayFloor, molga::Fixed26_6::Scale);
     const Raw retained = static_cast<Raw>(molga::Fixed26_6::Scale) - decayStep;
     Raw nextVelocity = 0;
-    if (!q6(velocity, retained, nextVelocity)) return false;
+    // amendment 1: 0에서 먼 쪽으로 반올림하면 |v| = 2, retained = 48 이 고정점이다
+    // (1.5 -> 2). 자르면 retained <= 63 인 모든 0이 아닌 |v|가 매 tick 줄어든다.
+    if (!q6TowardZero(velocity, retained, nextVelocity)) return false;
 
     Raw nextOffset = 0;
     if (config.movement == UIScrollMovement::Clamped) {
@@ -656,12 +686,25 @@ bool StepAxis(const ResolvedScroll& config, const AxisExtent& extent,
         if (!SubRaw(bounded, legal, overscroll)) return false;
         Raw returnStep = 0;
         if (!q6(config.elasticity.Raw(), delta, returnStep)) return false;
-        returnStep = ClampRaw(returnStep, 0, molga::Fixed26_6::Scale);
+        // amendment 3: 양수 복귀율은 한 tick에 최소 1 raw의 returnStep을 낸다.
+        const Raw returnFloor = config.elasticity.Raw() > 0 ? 1 : 0;
+        returnStep = ClampRaw(returnStep, returnFloor, molga::Fixed26_6::Scale);
         Raw correction = 0;
         if (!q6(overscroll, returnStep, correction)) return false;
+        // amendment 4: 과주행이 남아 있고 복귀율이 양수면 보정은 과주행과 같은
+        // 부호로 최소 1 raw, 최대 |overscroll| raw다. 아래 한도가 없으면 작은
+        // 과주행 × 작은 returnStep이 0으로 반올림되어 오프셋이 합법 구간 밖
+        // (저작 기본 복귀율에서 최대 15 raw)에 영원히 선다. 위 한도는 합법
+        // 경계를 지나치지 않는다는 선언이다(returnStep <= 64 이므로 산술적으로도
+        // 넘지 않는다).
+        if (overscroll != 0 && returnStep > 0) {
+            correction = overscroll < 0 ? ClampRaw(correction, overscroll, -1)
+                                        : ClampRaw(correction, 1, overscroll);
+        }
         if (!SubRaw(bounded, correction, nextOffset)) return false;
-        // 마지막 1 raw는 재귀로 절대 닫히지 않는다(곱이 0으로 반올림된다).
-        // 여기서 붙이지 않으면 정지한 스크롤이 영원히 "변했다"를 보고한다.
+        // settle 절은 amendment 전과 같다. 보정이 남긴 마지막 1 raw와 |v| <= 1 을
+        // 한 tick 일찍 닫는다 — 닫지 않으면 정지 직전의 스크롤이 한 tick 더
+        // "변했다"를 보고한다.
         Raw settled = ClampRaw(nextOffset, extent.legalMin, extent.legalMax);
         Raw residual = 0;
         if (!SubRaw(nextOffset, settled, residual)) return false;

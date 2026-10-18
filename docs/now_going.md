@@ -1,7 +1,8 @@
 # Molga Engine - 프로젝트 현황
 
-> 갱신일: **2026-10-04 (Asia/Seoul)**
-> 확인 기준: branch `system_manage`, HEAD `dab2f78` (2026-10-02, PR #26 병합).
+> 갱신일: **2026-10-18**
+> 확인 기준: branch `claude/brave-carson-cv9y49`, 기반 HEAD `dcd0deb` (`c7096dd`, PR #27 병합 위의 GCC 수정 커밋)에 Step 5e amendment 구현을 얹은 상태(이 커밋).
+> 검증 환경: **Linux GCC 13 Debug**. macOS는 이번에 다시 실행하지 않았다.
 > 이 문서는 진행 상태와 재개 지점의 요약이다. 승인된 설계와 실행 하위 계획을 대체하지 않는다.
 
 ## 현재 위치와 즉시 재개 지점
@@ -11,13 +12,13 @@
 보완까지 코드에 반영돼 있다. 포커스·캡처 상태 관리와 실제 프레임 입력 경로의 전환은
 아직 남아 있다.
 
-**다음 순서: Task 11.3 Step 5e 스크롤 수렴성 amendment → Task 12.2 → Task 12.3
-→ IME·텍스트 편집 → 에디터 저작·마이그레이션 → 패키징·최종 qualification.**
+**다음 순서: Task 12.2 → Task 12.3 → IME·텍스트 편집 → 에디터 저작·마이그레이션
+→ 패키징·최종 qualification.**
 
-스크롤 수렴성 수정은 2026-10-01에 방향이 승인됐지만 코드에는 아직 반영되지 않았다.
-`Task 12.2` 전에 별도 커밋으로 닫도록 지정된 선행 작업이므로 건너뛰지 않는다.
-**현재 HEAD의 전체 테스트 통과는 재확인되지 않았다.** 구현 상태와 검증 상태는 아래에서
-별도로 기록한다.
+Task 11.3 Step 5e 스크롤 수렴성 amendment는 2026-10-18에 구현·검증을 마쳤다(이 커밋,
+Linux GCC 13 Debug). 승인된 네 가지 수식 변경이 `UIScrollSystem`에 반영됐고
+`test_ui_scroll`은 완료까지 실행돼 통과했다. **전체 Debug·Release·ASan·UBSan 통과와
+macOS 재실행은 확인되지 않았다.** 구현 상태와 검증 상태는 아래에서 별도로 기록한다.
 
 ## 현재 권위와 지원 범위
 
@@ -49,11 +50,11 @@ signing/notarization, Intel/Universal 2, Linux, Windows, older-macOS qualificati
 아래의 **반영됨**은 커밋·코드·하위 계획의 구현 기록을 뜻한다. 이번 점검에서 해당
 단계의 모든 승인 기준을 새로 통과했다는 뜻은 아니다.
 
-| 실행 단계 | 범위 | 2026-10-04 상태 |
+| 실행 단계 | 범위 | 상태 (2026-10-04 기준, 03행은 2026-10-18 갱신) |
 |---|---|---|
 | 01 · Milestone 1–3 | 고정 의존성, ICU 수명주기, Unicode 분석, 26.6 고정소수점 | 선행 구현과 테스트 존재 |
 | 02 · Milestone 4–8 | 폰트·패밀리, shaping, atlas, 문단 배치·BiDi hit testing, 공통 텍스트 소비자 전환 | 반영됨. 하위 계획 종료 기록 존재 |
-| 03 · Milestone 9–11 | UI identity·스키마, 레이아웃 스냅샷, 클리핑, 스크롤 상태 | 반영됨. Step 5e 수렴성 amendment는 미반영 |
+| 03 · Milestone 9–11 | UI identity·스키마, 레이아웃 스냅샷, 클리핑, 스크롤 상태 | 반영됨. Step 5e 수렴성 amendment는 2026-10-18에 반영(이 커밋) |
 | 04 · Task 12.1 | 순서 있는 UI 이벤트, 스냅샷 N 기준 타깃 계획·결과 합산 | `f9ac229`로 반영됨 |
 | 12.1 포인터 소유권 amendment | 장식 UI의 조상 라우팅, 클릭 차단, self-or-ancestor 스크롤 연결 | `5c2fc17`로 반영됨 |
 | 04 · Task 12.2 | identity 기반 포커스·캡처·탐색·단일 이벤트 스크롤 | 미구현 |
@@ -76,6 +77,13 @@ canvas-root 활성 상태 관련 선행 결함도 이 작업의 구현 기록에
 라우팅될 때 클릭으로 판정하며, 스크롤 대상 목록은 자신의 scroll view 또는 조상부터
 안쪽→바깥쪽 순서로 고정한다.
 
+Step 5e amendment(2026-10-18)는 속도 감쇠를 0 방향 절단(`MulQ6TowardZero`)으로 바꾸고,
+양수 감속률·복귀율의 최소 1 raw 바닥과 overscroll 보정의 `[1, |overscroll|]` 제한을
+추가해 탄성/감속 재귀가 유한 tick 안에 정지하게 했다. settle clause와 이미 못 박힌
+값은 바뀌지 않았다. 상세와 mutation 기록은
+[하위 계획 03](superpowers/plans/2026-08-20-ui-text/03-ui-layout-rendering.md)의
+`Implementation record — Step 5e amendment (2026-10-18)`에 있다.
+
 ### 실제 입력 경로는 아직 legacy
 
 `UIInputRouter::PlanNext`는 존재하지만 Game View와 standalone runtime은 여전히
@@ -89,38 +97,30 @@ canvas-root 활성 상태 관련 선행 결함도 이 작업의 구현 기록에
 
 ## 다음 작업과 이월 사항
 
-### 1. Task 11.3 Step 5e — 승인된 스크롤 수렴성 amendment
+### 1. Task 11.3 Step 5e — 승인된 스크롤 수렴성 amendment (완료, 2026-10-18)
 
 권위: [하위 계획 03](superpowers/plans/2026-08-20-ui-text/03-ui-layout-rendering.md)의
-`Resolution of the Step 5e decision (2026-10-01)`.
-`dac2b7e`는 **결정 문서 커밋**이며, 구현 완료 커밋이 아니다.
-대상은 `src/UI/UIScrollSystem.cpp`와 `tests/test_ui_scroll.cpp`다.
+`Resolution of the Step 5e decision (2026-10-01)`와 같은 문서의
+`Implementation record — Step 5e amendment (2026-10-18)`.
+`dac2b7e`는 결정 문서 커밋이고, 구현은 이 커밋(`(이 커밋)`)이다.
+대상은 `src/UI/UIScrollSystem.{h,cpp}`와 `tests/test_ui_scroll.cpp`다.
 
-현재 `StepAxis`는 감쇠에도 `MulQ6NearestAway`를 사용하고 `decayStep`과 `returnStep`을
-`[0,64]`로 제한한다. 예를 들어 retained=48이면 속도가
-`96 → 72 → 54 → … → 3 → 2 → 2 …`에 머물 수 있고, 작은 overscroll의 복귀량도
-0으로 반올림될 수 있다.
-
-| 승인된 변경 | 의도 |
+| 승인된 변경 | 구현 |
 |---|---|
-| 속도 감쇠에 한해 `MulQ6TowardZero` 사용 | 반올림으로 생기는 0이 아닌 고정점 제거 |
-| 양수 deceleration rate의 decayStep을 최소 1 raw로 제한 | 작은 양수 감속률도 실제 감쇠하도록 보장 |
-| 양수 elasticity rate의 returnStep을 최소 1 raw로 제한 | 작은 양수 복귀율도 실제 복귀하도록 보장 |
-| overscroll 보정량의 크기를 최소 1 raw, 최대 overscroll 크기로 제한 | 복귀 정체를 없애되 합법 경계를 넘어가지 않도록 제한 |
+| 속도 감쇠에 한해 `MulQ6TowardZero` 사용 | 반영. 0이 아닌 고정점 제거 |
+| 양수 deceleration rate의 decayStep을 최소 1 raw로 제한 | 반영. 감속률이 양수일 때만 바닥 1 |
+| 양수 elasticity rate의 returnStep을 최소 1 raw로 제한 | 반영 |
+| overscroll 보정량을 같은 부호로 최소 1 raw, 최대 overscroll 크기로 제한 | 반영 |
 
-재개 시 닫아야 할 완료 조건은 다음과 같다. 아래 체크박스는 승인 여부가 아니라
-**구현·검증 완료 여부**를 나타내며, 현재는 모두 미완료다.
+- [x] 승인된 네 가지 수식 변경을 구현하고 기존 hand fixture와 settle clause를 보존했다.
+- [x] rate·초기 상태 격자(780 상태)가 1024 tick 안에 속도 0 및 합법 offset에 도달하는 수렴성 테스트를 추가·통과시켰다. 감속률 0은 승인 본문이 `retained = 64`를 유지하므로 격자에서 제외했다.
+- [x] 변경을 각각 제거하는 mutation(M1a, M1b, M2, M2b, M3, M4, M4s, M5)이 모두 테스트를 실패시킨다.
+- [x] `test_ui_scroll`이 완료까지 실행됐다: 51 cases / 70071 assertions 통과, ctest 54.6초(Linux GCC 13 Debug).
 
-- [ ] 승인된 네 가지 수식 변경을 구현하고 기존 hand fixture와 settle clause를 보존한다.
-- [ ] 승인된 rate·초기 상태 격자에서 유한 tick 안에 속도 0 및 합법 offset에 도달하는 수렴성 테스트를 추가·통과시킨다.
-- [ ] 네 가지 변경을 각각 제거하면 해당 테스트가 실패하는지 독립적으로 mutation-check한다.
-- [ ] `test_ui_scroll`의 완료 결과를 확보하고, `Task 12.2` 전에 별도 구현 커밋으로 닫는다.
-
-승인 근거는 `03-ui-layout-rendering.md:3875–3919`, 미반영 코드의 근거는
-`src/UI/UIScrollSystem.cpp:610–670`이다. 두 범위는 이번 문서 보완에서도 직접 대조했다.
-
-별도로 `test_ui_scroll`은 제공된 2026-10-04 선행 점검 기록에서 명령 시간제한 안에 완료되지 않았다.
-지연 위치를 확인해야 하며, 수렴성 결함이 이 실행 지연의 원인이라고 단정하지 않는다.
+이전 점검에서 `test_ui_scroll`이 끝나지 않았던 것은 무한 루프나 ctest 시간제한이 아니라
+에이전트 셸 명령의 55~65초 제한 때문이었다. 이 suite는 fixture마다 실제 텍스트 런타임을
+세우므로 원래 50초대가 걸린다. `tests/CMakeLists.txt`의 `TIMEOUT 600`이 적용되므로
+`ctest --preset debug`의 `--timeout 60`은 이 테스트에 걸리지 않는다.
 
 ### 2. Task 12.2 — 포커스·캡처·탐색·단일 이벤트 스크롤
 
@@ -323,6 +323,29 @@ smoke report가 존재한다. 이 기능 목록은 이번 갱신에서 전부 �
 
 ## 검증 현황과 완료 기준
 
+### 2026-10-18 Step 5e amendment 검증 — Linux GCC 13 Debug (macOS 재실행 없음)
+
+환경은 Linux, GCC 13, Debug(`build/debug`, Ninja)다. 이 컨테이너에는 display/Vulkan이 없다.
+아래 2026-10-04 소절들은 당시 기록이며 이번 결과로 갱신하지 않았다.
+
+| 검증 | 관찰 결과 |
+|---|---|
+| `ctest --test-dir build/debug -R '^test_ui_scroll$'` | 1/1 통과, 54.6초. doctest 51 cases / 70071 assertions, 실패 0 (mutation 복원 뒤 재실행 포함) |
+| `ctest --test-dir build/debug -R '^(test_ui_layout\|test_ui_input)$'` | 2/2 통과, 합계 18.4초 (`test_ui_input` 10.5초) |
+| Step 5e mutation 8종 | 모두 실패로 관찰됨. 표는 하위 계획 03의 구현 기록 |
+| 느린 케이스 상위 (`-d`) | 2.90초, 2.81초, 2.07초, 2.06초. 새 수렴성 케이스 1.25초 |
+
+오케스트레이터가 같은 Linux 환경에서 잰 기준선: 단위 suite
+(`ctest -L unit -LE "smoke|pixel|e2e"`) **97/100 통과**. 실패 3개는 다음과 같다.
+
+- `test_ui_render_clip`, `test_gpu_retirement` — GPU 호스트가 필요하다(이 컨테이너에는 display/Vulkan이 없다).
+- `test_text` — 단독 실행은 통과하고 suite(병렬) 실행 안에서 `test_text.cpp:1312` assertion으로
+  실패한다. 원인 미확인, 이번 변경과 무관한 기존 결함으로 별도 추적한다.
+
+이번 변경과 별개로 GCC 13의 `-Wchanges-meaning` 때문에 `test_ui_input`/`test_ui_scroll`
+fixture 접근자의 `World`를 한정한 수정 커밋 `dcd0deb`가 선행한다.
+전체 Debug·Release·ASan·UBSan 통과와 macOS 결과는 이번에 확인하지 않았다.
+
 ### 2026-10-04 선행 코드 점검 기록 — 이번 문서 보완의 실행 결과와 구분
 
 아래 build/test 결과는 사용자 제공 점검 보고와 기존 현황 문서에 기록된 같은 HEAD의
@@ -384,9 +407,12 @@ editor/runtime/copied app parity 증거는 하위 계획 07의 최종 qualificat
 
 | 커밋 | 날짜 | 의미 |
 |---|---|---|
-| `dab2f78` | 2026-10-02 | PR #26 병합, 이번 현황 확인 HEAD |
+| (이 커밋) | 2026-10-18 | Task 11.3 Step 5e 수렴성 amendment 구현·테스트·구현 기록 |
+| `dcd0deb` | 2026-10-18 | GCC 13 `-Wchanges-meaning` 대응: UI test fixture 접근자의 `World` 한정 |
+| `c7096dd` | 2026-10-18 | PR #27 병합 |
+| `dab2f78` | 2026-10-02 | PR #26 병합, 2026-10-04 현황 확인 HEAD |
 | `5c2fc17` | 2026-10-02 | 비상호작용 UI의 nearest-interactable-owner 라우팅 구현 |
-| `dac2b7e` | 2026-10-01 | Step 5e 수렴성 수정 결정 문서화 — 구현은 미반영 |
+| `dac2b7e` | 2026-10-01 | Step 5e 수렴성 수정 결정 문서화 — 구현은 2026-10-18 (이 커밋) |
 | `f9ac229` | 2026-10-01 | Task 12.1 ordered events와 snapshot-N target planning |
 | `e740457` | 2026-09-09 | Task 11.3 identity-keyed scroll state |
 | `428aa69` | 2026-09-09 | render queue/GPU pass의 snapshot scissor 적용 |

@@ -3748,6 +3748,13 @@ files. It also owns routing `NotifyUIWorldReleased` into
           nextVelocity = 0
   ```
 
+  *Amended 2026-10-01 and implemented 2026-10-18: the recurrence above is the original
+  approved text. Four places differ in the landed code — velocity decay uses
+  `MulQ6TowardZero`, a positive deceleration/elasticity rate floors `decayStep`/`returnStep`
+  at 1 raw, and a nonzero overscroll's `correction` is clamped to `[1, |overscroll|]` with
+  the overscroll's sign. See "Resolution of the Step 5e decision (2026-10-01)" and
+  "Implementation record — Step 5e amendment (2026-10-18)" below. The settle clause is unchanged.*
+
 - [x] **Step 5f: Fail closed on arithmetic errors and lock the hand fixture.**
 
   The hand fixture computes `integrated=96`, `retained=48`, `nextVelocity=96`, `overscroll=96`, `returnStep=32`, `correction=48`, and `nextOffset=48`. Any invalid delta or checked-arithmetic failure leaves the prior state unchanged, records the identity in a runtime fail-closed set until its authored revision/world changes, and emits one rate-limited `LayoutInvalid`; it never publishes a partial/wrapped state.
@@ -3917,6 +3924,107 @@ convergence property test over a grid of authored rates and initial states —
 including the non-converging sequence `96 -> 72 -> ... -> 3 -> 2 -> 2` at
 `retained = 48` — asserting rest (velocity 0, offset legal) within a bounded number
 of ticks, and mutation-check each of the four changes independently.
+
+#### Implementation record — Step 5e amendment (2026-10-18)
+
+Branch `claude/brave-carson-cv9y49`, commit (이 커밋). Environment: **Linux, GCC 13,
+Debug** (`build/debug`, Ninja). macOS was not re-run.
+
+**What landed.** `MulQ6TowardZero` (declared in `src/UI/UIScrollSystem.h`, defined after
+`MulQ6NearestAway`; a signed `int64_t` division, which is truncation toward zero, with the
+same final `int32_t` range check and no saturation or wrap). `StepAxis` differs from the
+original Step 5e text in exactly the four places the resolution lists: the velocity decay
+multiply, `decayFloor` (1 only when the authored deceleration is positive), `returnFloor`
+(1 only when the authored elasticity is positive), and the sign-preserving
+`correction` clamp to `[1, |overscroll|]` when `overscroll != 0 && returnStep > 0`. Every
+other multiply stays `MulQ6NearestAway`, because the hand-pinned values stand on it. The
+settle clause is untouched.
+
+**Result.** `test_ui_scroll`: **51 cases / 70071 assertions, 0 failed** (46 cases before
+this change; five added). `ctest --test-dir build/debug -R '^test_ui_scroll$'` completed in
+**54.6 s** wall (a second full run with `-d` took 53.4 s). `test_ui_layout` and
+`test_ui_input` also pass (18.4 s for the pair). Slowest cases (`-d`): 2.90 s "the label
+payload sink reports only what it can remember", 2.81 s "scroll consumes exact
+deterministic UI ticks", 2.07 s "a disabled axis consumes no displacement it was given",
+2.06 s "inertia off leaves velocity at zero and inertia on records the impulse". The new
+property case takes 1.25 s; the fixture-free `MulQ6TowardZero` case takes 7 microseconds.
+
+**Why the earlier `test_ui_scroll` run "timed out" — it did not.** Nothing loops without
+terminating (the only convergence-shaped loop is the 200-tick one in the clip-strand
+case, which uses `SetInertia(false)` and `SetElasticity(1.0f)` to avoid the old fixed
+points). The earlier runs were killed by the 55–65 s *agent shell command* limit, not by
+ctest. The suite is slow by construction: every `UIScrollFixture` builds a real
+`ScrollTextRuntime` (13 fonts and metas copied into a temp tree) and a real snapshot,
+about one second per fixture case, ~55 fixtures. ctest's `--timeout 60` in the preset
+applies only to tests *without* a `TIMEOUT` property; `test_ui_scroll` carries
+`TIMEOUT 600` (`tests/CMakeLists.txt:721`), so 600 s governs under `ctest --preset debug`
+as well. No test was skipped or weakened.
+
+**New cases (`tests/test_ui_scroll.cpp`).**
+
+| Case | What it pins |
+|---|---|
+| `MulQ6TowardZero truncates toward zero and refuses to wrap` | `2*48 -> 1`, `1*63 -> 0`, `54*48 -> 40` (the first place the old column splits), both signs, `INT32_MIN*64` fits, `INT32_MIN*65` and `INT32_MAX^2` fail |
+| `velocity decay at retained=48 reaches zero instead of parking at 2` | velocities `72,54,40,30,22,16,12,9,6,4,3,2,0`, offsets `-296 ... -226`, then rest (`StepRaw` returns false). The old column is `... 41, 31, 23, 17, 13, 10, 8, 6, 5, 4, 3, 2, 2, 2` |
+| `a positive rate that rounds to nothing in one tick still makes progress` | one arm per floor: deceleration 1 raw (`64 -> 63`), elasticity 1 raw (`100 -> 98`), the authored-default return rate 8 raw parking at 15 (`15 -> 14 -> ... -> 0`), and the negative side (`-655 -> -654`) |
+| `every positive authored rate in the grid comes to rest within a bounded number of ticks` | 780 states (624 Elastic and 156 Clamped; delta in {1,16,64}, elasticity in {1,8,128,4096}, deceleration in {1,56,64,4096}, 13 starts), each at rest within 1024 ticks and unchanged by one more tick. One fixture, early exit at rest, 21 rebuilds |
+| `the settle clause still closes the last raw one tick early` | overscroll 2 closed in the same tick; deceleration 0 leaves `v=64` at 64 (the floor is positive-only); `v=1` is closed by the settle clause alone |
+
+Deceleration 0 is deliberately **not** in the property grid: the approved text keeps
+`retained = 64` there, so the view legitimately never rests (Elastic with elasticity 8
+at delta 16 and state `(0, 2)` stays `(0, 2)` with `changed == false`; Clamped `v=1` at delta 1 never
+moves because `Q6(1, 1) = 0`). The 1024-tick bound is derived, not tuned: with
+`decayStep >= 1` the retained factor is at most 63, so `|v| <= 4096` drops below 64 within
+265 ticks and then loses at least 1 raw per tick (truncation), reaching 0 within 328
+ticks; an elastic overscroll of at most `max(64, 640/2) = 320` then closes at 1 raw per
+tick or faster, so at most 648 in total. The worst observed (planner/reviewer simulation of
+the amended recurrence) was 468 ticks.
+
+**Pinned values are unchanged** (simulated beforehand, then covered by the untouched
+assertions): the Step 5f hand fixture `(48, 96)` and its second step `(36, 72)`, the
+`-256,-256` fixture `(-320, -200)`, the `-160`/`-185` clip fixtures, the `(1, 1)` settle
+case `(0, 0)` and the 200-tick strand case, which still ends at 0. The only edits to
+existing cases are comments: the clip-strand case (the reasons for `inertia=false` and
+`elasticity=1.0` are now historical — those values stay to keep the pinned numbers) and
+the older settle case (its fixed-point justification is now historical; its title still
+says "a recurrence that cannot close itself", which is no longer true, so a note points to
+the new settle case as the guard for that clause).
+
+**Mutation check.** Every mutant was applied to `src/UI/UIScrollSystem.cpp`, built, and run
+against the named cases; the amended file was then restored from a checksummed copy
+(`sha256sum -c`) after each. All eight were killed.
+
+| # | Mutation | Case run | Observed failure |
+|---|---|---|---|
+| M1a | `q6TowardZero(velocity, retained, ...)` -> `q6(...)` (the old rounding) | `velocity decay at retained=48...` | `test_ui_scroll.cpp:1763` `41 == 40` at `i=2` (then `31/30`, `23/22`, ... and offsets) |
+| M1a | same | `every positive authored rate...` | `:1863` `CHECK(ticks < kTickBound)` `1024 < 1024`, `:1864` `REQUIRE(atRest())`; first at Elastic, elasticity 1, deceleration 1, delta 1, start `(-320, 96)` |
+| M1b | `MulQ6TowardZero` rounds nearest-away (`+-32` before the divide) | `MulQ6TowardZero truncates...` | `:620` `2 == 1`, `:621` `-2 == -1`, `:623` `1 == 0`, `:624` `-1 == 0`, `:629` `41 == 40`, `:630` `-41 == -40` |
+| M1b | same | `velocity decay at retained=48...` | `:1763` `41 == 40` at `i=2` |
+| M2 | `decayFloor = 0` | `a positive rate that...` | `:1782` `64 == 63` |
+| M2 | same | `every positive authored rate...` | `:1863` `1024 < 1024`, `:1864` `REQUIRE(atRest())`; first at elasticity 1, deceleration 1, delta 1, start `(-320, 96)` |
+| M2b | `decayFloor = 1` unconditionally (also for deceleration 0) | `the settle clause still...` | `:1897` `63 == 64` (the deceleration-0 arm) |
+| M3 | `returnFloor = 0` | `a positive rate that...` | `:1789` `REQUIRE(f.StepRaw(16))` is false (state unchanged, case aborts) |
+| M3 | same | `every positive authored rate...` | `:1863` `1024 < 1024`, `:1864` `REQUIRE(atRest())`; first at elasticity 1, deceleration 1, delta 1, start `(-320, -4096)` |
+| M4 | delete the `correction` clamp block | `a positive rate that...` | `:1798` `REQUIRE(f.StepRaw(16))` is false (the 15 raw arm parks) |
+| M4 | same | `every positive authored rate...` | `:1863` `1024 < 1024`, `:1864` `REQUIRE(atRest())`; first at elasticity 1, deceleration 1, delta 1, start `(-320, -4096)` |
+| M4s | positive-sign clamp `ClampRaw(correction, 1, overscroll)` for both signs | `a positive rate that...` | `:1810` `-656 == -654` (the negative arm) |
+| M4s | same | `every positive authored rate...` | `:1863` `1024 < 1024`, `:1864` `REQUIRE(atRest())`; first at elasticity 1, deceleration 1, delta 1, start `(-320, -4096)` |
+| M5 | delete the settle `if` block | `the settle clause still...` | `:1891` `1 == 0` (overscroll-2 arm), `:1901` `REQUIRE(f.StepRaw(16))` is false (`v=1` arm) |
+| M5 | same | `velocity decay at retained=48...` | `:1763` `1 == 0` at `i=12`, `:1767` `CHECK_FALSE(f.StepRaw(16))` is true |
+| M5 | same | `the elastic settle clause...` (the older case), `every positive authored rate...` | **both still pass** |
+
+M5's last row is the reason the new settle case exists: after the amendment the recurrence
+closes the `(1, 1)` state on its own, so the older settle case and the property test no
+longer depend on the settle clause, and only the new case plus the 48-sequence tail guard it.
+After the last restore the full `test_ui_scroll` was rebuilt and re-run green.
+
+**Equivalent (unobservable) mutants, recorded rather than hidden.** The `<= |overscroll|`
+upper bound of the correction clamp cannot be observed: `returnStep <= 64` already gives
+`|Q6(overscroll, returnStep)| <= |overscroll|`, so the bound is a declaration, not a
+behaviour. Likewise the `returnStep > 0` condition and the `elasticity > 0` floor condition
+cannot be told apart from removing them (making the condition always true) on an Elastic view, because `ResolveScroll` already
+requires a positive elasticity for it. The sign of the clamp, which is observable, is
+covered by M4s.
 
 ## Final Verification
 
