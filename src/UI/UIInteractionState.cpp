@@ -3,6 +3,7 @@
 #include "UI/UIRuntimeInvalidation.h"
 
 #include <algorithm>
+#include <unordered_set>
 #include <utility>
 
 namespace molga::ui {
@@ -87,6 +88,9 @@ std::size_t UISurfaceKeyHash::operator()(const UISurfaceKey& key) const noexcept
 struct UIInteractionStateTable::Impl {
     std::unordered_map<UISurfaceKey, UISurfaceInteractionState, UISurfaceKeyHash>
         surfaces;
+    // 소진 Blocker를 이미 보고한 월드 세대. 거절된 Apply마다 같은 Blocker를
+    // 되풀이하지 않는다("한 번"). 월드가 놓이면 함께 지운다.
+    std::unordered_set<std::uint64_t> exhaustionReported;
 };
 
 UIInteractionStateTable::UIInteractionStateTable()
@@ -161,7 +165,8 @@ bool UIInteractionStateTable::Apply(UISurfaceKey key,
         // 그대로 보이고 캐시가 통째로 우회된다.
         if (!UIRuntimeInvalidationClock::Advance(
                 UIRuntimeGenerationKind::SemanticDirty)) {
-            if (sink) {
+            if (sink &&
+                impl_->exhaustionReported.insert(key.worldGeneration).second) {
                 molga::text::TextDiagnostic diagnostic;
                 diagnostic.code = molga::text::TextDiagnosticCode::LayoutInvalid;
                 diagnostic.severity = molga::text::TextSeverity::Blocker;
@@ -218,6 +223,7 @@ bool UIInteractionStateTable::ClearIdentityEverywhere(
 
 void UIInteractionStateTable::OnWorldReleased(std::uint64_t worldGeneration) {
     if (worldGeneration == 0) return;
+    impl_->exhaustionReported.erase(worldGeneration);
     for (auto it = impl_->surfaces.begin(); it != impl_->surfaces.end();) {
         it = it->first.worldGeneration == worldGeneration
                  ? impl_->surfaces.erase(it)

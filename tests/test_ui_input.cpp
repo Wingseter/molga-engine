@@ -39,6 +39,7 @@
 #include "UI/UIRuntimeIdentity.h"
 #include "UI/UIRuntimeInvalidation.h"
 #include "UI/UIScrollSystem.h"
+#include "UI/UISystem.h"
 #include "UI/UITextInputVisualState.h"
 
 #include <algorithm>
@@ -3372,6 +3373,21 @@ TEST_CASE("releasing a world drops its interaction surfaces") {
     CHECK(SemanticGeneration() == before);
 }
 
+TEST_CASE("the production release seam reclaims the interaction surfaces") {
+    UIFrozenInputFixture f;
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    const auto gen = f.World().Generation();
+    auto next = table.SurfaceOrEmpty({kSurfaceWindow, gen});
+    next.focused = f.ComboSelectableIdentity();
+    REQUIRE(table.Apply({kSurfaceWindow, gen}, next, nullptr, "test", 0));
+    f.HighButton().ApplyPointerState(true, true, false);  // 레거시 표면도 하나
+    REQUIRE(table.SurfaceCountForWorld(gen) == 2);
+
+    // 직접 표를 부르지 않는다: World가 알리는 바로 그 길(UISystem)이다.
+    UISystem::Get().OnWorldReleased(gen);
+    CHECK(table.SurfaceCountForWorld(gen) == 0);
+}
+
 // ── Task 12.2 Step B: 라우터가 hover/press/click의 유일한 권위 ───────────────
 namespace {
 
@@ -3434,8 +3450,14 @@ TEST_CASE("the router, not the live interactable flag, decides a click") {
     CHECK((release.record.actionMask & UIEventActionBit(UIEventAction::Click)) != 0);
     CHECK((release.record.actionMask & UIEventActionBit(UIEventAction::Release)) != 0);
     CHECK(f.HighButton().WasClickedThisFrame());
-    // 눌림은 풀렸고 캡처도 풀렸다.
-    CHECK_FALSE(f.HighButton().IsPressed());
+    // 표 자체를 본다: IsPressed()/IsHovered()는 꺼진 버튼에서 getter가 가려 주므로
+    // 항목이 실제로 어떻게 쓰였는지는 표에서만 보인다.
+    const auto entry =
+        molga::ui::UIInteractionStateTable::Get().ButtonState(
+            SurfaceKeyOf(f), f.HighButtonIdentity());
+    CHECK(entry.clickedThisFrame);
+    CHECK(entry.hovered);
+    CHECK_FALSE(entry.pressed);
     CHECK_FALSE(SurfaceOf(f).pointerCapture.has_value());
 }
 
@@ -3612,8 +3634,11 @@ TEST_CASE("a release whose captured target no longer resolves still clears resid
     CHECK(f.HighButtonClicks() == 0);
     const auto surface = SurfaceOf(f);
     CHECK_FALSE(surface.pointerCapture.has_value());
-    // 낡은 항목의 hover는 Revalidate(Step C)가 치운다. 눌림은 여기서 풀린다.
-    for (const auto& entry : surface.buttons) CHECK_FALSE(entry.second.pressed);
+    // 사라진 대상의 항목과 hover는 같은 놓기가 함께 치운다(낡은 id가 남지 않는다).
+    CHECK(surface.buttons.count(high) == 0);
+    CHECK_FALSE(surface.hovered.has_value());
+    CHECK(molga::ui::UIInteractionStateTable::Get().SurfaceCountForWorld(
+              f.World().Generation()) == 0);
 }
 
 TEST_CASE("press, hover and release each publish one semantic generation and a repeat publishes none") {
@@ -3675,6 +3700,12 @@ TEST_CASE("an exhausted semantic generation fails closed on press and click") {
         CHECK(f.Diagnostics().CountSeverity(molga::text::TextSeverity::Blocker) == 1);
         CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::LayoutInvalid,
                                         "ui.input") == 1);
+        // 거절된 두 번째 발송도 Blocker를 되풀이하지 않는다("한 번").
+        const auto again = DispatchOne(f, *n, plans[0]);
+        CHECK_FALSE(again.result.callbackDelivered);
+        CHECK(f.Diagnostics().CountSeverity(molga::text::TextSeverity::Blocker) == 1);
+        CHECK(f.Diagnostics().CountFrom(TextDiagnosticCode::LayoutInvalid,
+                                        "ui.input") == 1);
     }
     // 정상 시계에서 누른 뒤, 소진된 시계에서 놓으면 클릭이 나가지 않는다.
     REQUIRE(DispatchOne(f, *n, plans[0]).result.callbackDelivered);
@@ -3689,6 +3720,8 @@ TEST_CASE("an exhausted semantic generation fails closed on press and click") {
         CHECK(f.HighButtonClicks() == 0);
         // 이전 상태가 그대로 보인다.
         CHECK(f.HighButton().IsPressed());
+        // 같은 월드에서 소진이 다시 거절해도 Blocker는 여전히 하나다.
+        CHECK(f.Diagnostics().CountSeverity(molga::text::TextSeverity::Blocker) == 1);
     }
 }
 

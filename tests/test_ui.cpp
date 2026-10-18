@@ -132,6 +132,40 @@ TEST_CASE("UIButton gives pointer capture to only the topmost draw-order target"
     CHECK_FALSE(high->GetComponent<UIButton>()->WasClickedThisFrame());
 }
 
+TEST_CASE("a steady legacy hover advances the semantic generation only on the first frame") {
+    World world;
+    auto canvas = MakeCanvas(world);
+    auto buttonObject = MakeButton(world, canvas.get(), "Button", 0);
+    auto* button = buttonObject->GetComponent<UIButton>();
+    const auto semantic = [] {
+        return molga::ui::UIRuntimeInvalidationClock::Current()
+            .semanticDirtyGeneration;
+    };
+    const UIPointerState hover{{400.0f, 300.0f}, false, false, false, true};
+
+    UISystem::Get().ResetPointerCapture();
+    const auto start = semantic();
+    UISystem::Get().ProcessInput(world, {800.0f, 600.0f}, hover);
+    REQUIRE(button->IsHovered());
+    CHECK(semantic() == start + 1);
+
+    // 같은 hover가 이어지는 프레임: 보이는 변화가 없으니 세대도 그대로다.
+    UISystem::Get().ProcessInput(world, {800.0f, 600.0f}, hover);
+    CHECK(button->IsHovered());
+    CHECK(semantic() == start + 1);
+    UISystem::Get().ProcessInput(world, {800.0f, 600.0f}, hover);
+    CHECK(semantic() == start + 1);
+
+    // 클릭 비트는 여전히 프레임마다 풀린다.
+    UISystem::Get().ProcessInput(
+        world, {800.0f, 600.0f}, {{400.0f, 300.0f}, true, true, false, true});
+    UISystem::Get().ProcessInput(
+        world, {800.0f, 600.0f}, {{400.0f, 300.0f}, false, false, true, true});
+    CHECK(button->WasClickedThisFrame());
+    UISystem::Get().ProcessInput(world, {800.0f, 600.0f}, hover);
+    CHECK_FALSE(button->WasClickedThisFrame());
+}
+
 TEST_CASE("UIButton release outside its captured rect does not click") {
     World world;
     auto canvas = MakeCanvas(world);

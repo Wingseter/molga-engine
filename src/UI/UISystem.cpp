@@ -72,10 +72,15 @@ std::vector<ButtonEntry> GatherButtons(
         ++traversal;
         if (!object) continue;
         auto* button = object->GetComponent<UIButton>();
-        if (button) button->ApplyPointerState(false, false, false);
         auto* rect = object->GetComponent<RectTransform>();
         if (!button || !rect || !IsHierarchyActive(object.get()) ||
-            !button->IsEnabled() || !rect->IsEnabled() || !ActiveCanvas(object.get())) continue;
+            !button->IsEnabled() || !rect->IsEnabled() || !ActiveCanvas(object.get())) {
+            // 제외된 버튼만 여기서 비운다. 포함된 버튼은 ProcessInput이 매 프레임
+            // (clicked=false로) 다시 쓰므로 미리 비우면 steady hover가 true->false->true로
+            // 의미 세대를 두 번 올린다.
+            if (button) button->ApplyPointerState(false, false, false);
+            continue;
+        }
         result.push_back({object.get(), button, rect->GetScreenRect(viewport),
                           CanvasOrder(object.get()), button->GetSortingOrder(), traversal});
     }

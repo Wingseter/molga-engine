@@ -540,6 +540,9 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
             UISurfaceInteractionState next = table.SurfaceOrEmpty(key);
             next.pointerCapture.reset();
             clearPressed(next);
+            // 사라진 대상의 항목과 hover도 함께 치운다. 낡은 id가 표에 남지 않는다.
+            next.buttons.erase(stageTarget->runtimeTarget);
+            if (next.hovered == stageTarget->runtimeTarget) next.hovered.reset();
             (void)commit(std::move(next), stageTarget->runtimeTarget.objectId);
         }
         return result;
