@@ -4224,3 +4224,131 @@ TEST_CASE("the scroll handler echoes an ineligible plan without touching any sta
     CHECK(accumulator.Merge(result) == UIEventMergeStatus::Merged);
     CHECK(InnerY(f) == kInnerMid);
 }
+
+// ── Task 12.3 Step 4: 계획 상태의 표면 봉인과 주 버튼 전용 ──────────────────
+TEST_CASE("a planning state seeded for another surface plans nothing") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onHigh = PxPoint(10.0f, 10.0f);
+
+    // 다른 창으로 씨앗을 받은 상태. 이벤트와 인자 창은 모두 맞지만 상태가 남의 것이다.
+    UIPlanningState wrongWindow = f.InitialPlanningState();
+    wrongWindow.surfaceWindowId = kForeignWindow;
+    const auto foreignWindowPlan = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(), f.PointerDown(900, onHigh), wrongWindow);
+    CHECK_FALSE(foreignWindowPlan.surfaceEligible);
+    CHECK_FALSE(foreignWindowPlan.targetFromSnapshotN.has_value());
+    CHECK_FALSE(wrongWindow.pointerValid);
+    CHECK_FALSE(wrongWindow.pointerCapture.has_value());
+    CHECK_FALSE(wrongWindow.hovered.has_value());
+
+    // 다른 월드 세대로 씨앗을 받은 상태.
+    UIPlanningState wrongGeneration = f.InitialPlanningState();
+    wrongGeneration.surfaceWorldGeneration = f.World().Generation() + 1;
+    const auto foreignGenerationPlan = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(), f.PointerDown(901, onHigh), wrongGeneration);
+    CHECK_FALSE(foreignGenerationPlan.surfaceEligible);
+    CHECK_FALSE(foreignGenerationPlan.targetFromSnapshotN.has_value());
+    CHECK_FALSE(wrongGeneration.pointerValid);
+    CHECK_FALSE(wrongGeneration.pointerCapture.has_value());
+
+    // 씨앗을 받지 않은 기본 상태(창 0)도 같다.
+    UIPlanningState bare;
+    CHECK_FALSE(f.Router()
+                    .PlanNext(*n, f.SurfaceWindowId(), f.PointerDown(902, onHigh),
+                              bare)
+                    .surfaceEligible);
+    CHECK_FALSE(bare.pointerValid);
+
+    // 대조군: 올바르게 씨앗을 받은 상태는 같은 이벤트를 계획한다.
+    UIPlanningState good = f.InitialPlanningState();
+    const auto plan = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(), f.PointerDown(903, onHigh), good);
+    CHECK(plan.surfaceEligible);
+    REQUIRE(plan.targetFromSnapshotN.has_value());
+    CHECK(*plan.targetFromSnapshotN == f.HighButtonIdentity());
+    CHECK(good.pointerCapture == f.HighButtonIdentity());
+}
+
+TEST_CASE("a non-primary pointer button projects like motion and never presses, captures, clicks or focuses") {
+    UIFrozenInputFixture f;
+    const auto n = f.BuildSnapshot();
+    const FixedPoint onHigh = PxPoint(10.0f, 10.0f);
+    const FixedPoint onCombo = PxPoint(210.0f, 10.0f);
+    const molga::ui::UISurfaceKey key{kSurfaceWindow, f.World().Generation()};
+    auto& table = molga::ui::UIInteractionStateTable::Get();
+    molga::ui::UIFocusSystem focus;
+
+    const auto withButton = [](UIInputEvent event, Input::MouseButton button) {
+        event.control = static_cast<std::uint32_t>(button);
+        return event;
+    };
+    const auto dispatch = [&](const PlannedUIEvent& plan) {
+        (void)f.Router().HandleEvent(f.World(), *n, plan, f.Diagnostics());
+        (void)focus.HandleEvent(f.World(), *n, plan, f.Diagnostics());
+    };
+
+    for (const Input::MouseButton other :
+         {Input::MouseButton::Right, Input::MouseButton::Middle,
+          Input::MouseButton::X1}) {
+        UIPlanningState state = f.InitialPlanningState();
+        const auto press = f.Router().PlanNext(
+            *n, f.SurfaceWindowId(),
+            withButton(f.PointerDown(910, onCombo), other), state);
+        CHECK(press.surfaceEligible);
+        // 투사는 움직임과 같다: 포인터와 hover만. 캡처도 포커스도 없다.
+        CHECK(state.pointerValid);
+        CHECK(state.pointer == onCombo);
+        CHECK(state.hovered == f.ComboButtonIdentity());
+        CHECK_FALSE(state.pointerCapture.has_value());
+        CHECK_FALSE(state.focused.has_value());
+        CHECK_FALSE(press.focusTargetFromSnapshotN.has_value());
+        CHECK_FALSE(press.textInputTargetFromSnapshotN.has_value());
+        dispatch(press);
+        CHECK_FALSE(table.SurfaceOrEmpty(key).pointerCapture.has_value());
+        CHECK_FALSE(table.SurfaceOrEmpty(key).focused.has_value());
+        CHECK_FALSE(table.ButtonState(key, f.ComboButtonIdentity()).pressed);
+
+        const auto release = f.Router().PlanNext(
+            *n, f.SurfaceWindowId(),
+            withButton(f.PointerUp(911, onCombo), other), state);
+        dispatch(release);
+        CHECK_FALSE(table.SurfaceOrEmpty(key).pointerCapture.has_value());
+        CHECK_FALSE(table.SurfaceOrEmpty(key).focused.has_value());
+        CHECK_FALSE(table.ButtonState(key, f.ComboButtonIdentity()).clickedThisFrame);
+        CHECK(f.ComboButtonClicks() == 0);
+    }
+
+    // 왼쪽 드래그 중의 오른쪽 버튼은 캡처를 훔치지도 풀지도 않는다.
+    UIPlanningState state = f.InitialPlanningState();
+    const auto leftDown = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(), f.PointerDown(920, onHigh), state);
+    dispatch(leftDown);
+    REQUIRE(state.pointerCapture == f.HighButtonIdentity());
+    const auto rightDown = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(),
+        withButton(f.PointerDown(921, onCombo), Input::MouseButton::Right), state);
+    dispatch(rightDown);
+    const auto rightUp = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(),
+        withButton(f.PointerUp(922, onCombo), Input::MouseButton::Right), state);
+    dispatch(rightUp);
+    CHECK(state.pointerCapture == f.HighButtonIdentity());
+    CHECK(table.SurfaceOrEmpty(key).pointerCapture == f.HighButtonIdentity());
+    CHECK(f.HighButtonClicks() == 0);
+    // 왼쪽을 같은 버튼 위에서 놓으면 클릭은 정확히 한 번이다(주 버튼은 여전히 클릭한다).
+    const auto leftUp = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(), f.PointerUp(923, onHigh), state);
+    dispatch(leftUp);
+    CHECK(f.HighButtonClicks() == 1);
+    CHECK_FALSE(table.SurfaceOrEmpty(key).pointerCapture.has_value());
+
+    // 대조군: control이 Left인 눌림은 캡처하고 포커스한다.
+    UIPlanningState left = f.InitialPlanningState();
+    const auto leftOnCombo = f.Router().PlanNext(
+        *n, f.SurfaceWindowId(),
+        withButton(f.PointerDown(930, onCombo), Input::MouseButton::Left), left);
+    CHECK(left.pointerCapture == f.ComboButtonIdentity());
+    CHECK(left.focused.has_value());
+    CHECK(leftOnCombo.focusTargetFromSnapshotN.has_value());
+}

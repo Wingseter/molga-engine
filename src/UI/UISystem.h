@@ -3,8 +3,15 @@
 #include "Common/Types.h"
 #include "UI/UILayoutSystem.h"
 
+#include "UI/UIFocusSystem.h"
+#include "UI/UIInputEvent.h"
+#include "UI/UIInputRouter.h"
+#include "UI/UIInteractionState.h"
+
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class GameObject;
@@ -88,6 +95,30 @@ public:
 
     void OnWorldReleased(std::uint64_t worldGeneration);
 
+    // ── Task 12.3 Step 4: 순서 있는 이벤트 배치를 도는 유일한 루프 ──────────
+    // 한 프레임의 UI 입력은 전부 여기를 지난다. 순서는 이렇다:
+    //   1 의존물/창 가드  2 스냅샷 N 빌드  3 Revalidate  4 클릭 가장자리 정리 + 씨앗
+    //   5 시퀀스 장부 검증(배치 전체)  6 계획(PlanNext + ProjectEvent)  7 발송
+    //   (이벤트마다 라우터 -> 포커스 -> 스크롤 -> Revalidate)  8 tick  9 N+1 게시.
+    // 라우팅·포커스·스크롤은 배치 내내 N만 본다. 콜백은 N+1에만 보이는 것을 바꿀 수 있다.
+    // N+1은 많아야 한 번 빌드되고 그 뒤에는 다시 빌드하지 않는다.
+    molga::ui::UIFrameResult ProcessFrame(
+        World& world, const molga::ui::UIFrameInput& input,
+        molga::text::TextLayoutService& textLayout,
+        molga::text::TextDiagnosticSink& textDiagnostics);
+
+    // Game View 패널 이탈: hover/capture/pressed만. 키보드·게임패드 포커스는 남는다.
+    void OnSurfacePointerDeparted(molga::WindowId windowId,
+                                  std::uint64_t worldGeneration,
+                                  molga::text::TextDiagnosticSink& textDiagnostics);
+
+    // 관찰 seam. 장부와 기하 빌드 수는 밖에서 이 값으로만 보인다.
+    std::uint64_t LayoutGeometryBuildCountForTesting() const noexcept;
+    std::uint64_t LastCompletedNativeSequenceForTesting(
+        molga::ui::UISurfaceKey) const noexcept;
+    std::uint64_t LastCompletedTickForTesting(
+        molga::ui::UISurfaceKey) const noexcept;
+
     // ── Task 11.2 Step 7d/7g: 장치 수명 사건의 유일한 라우팅 ────────────────
     // 배치 시스템은 하나뿐이고 그 소유자는 UISystem이므로, 장치를 만드는 쪽과
     // 부수는 쪽은 이 두 함수만 안다. 소유자를 건너뛰고 UILayoutSystem을 직접
@@ -114,4 +145,28 @@ private:
     // 소유하며, 여기에 사본을 두면 그 사본이 진짜와 갈릴 수 있다.
     const molga::ui::UITextInputVisualStateProvider* inputVisualStates_ = nullptr;
     molga::text::TextLayoutService* textLayout_ = nullptr;
+
+    // ── Task 12.3 Step 4: 프레임 오케스트레이터가 소유하는 상태 ─────────────
+    // 라우터/포커스는 데이터 멤버가 없는 규칙 묶음이다. 상태는 표면 표에 산다.
+    molga::ui::UIInputRouter inputRouter_;
+    molga::ui::UIFocusSystem focusSystem_;
+    // 표면별 "마지막으로 끝까지 처리한" 네이티브 시퀀스/tick 인덱스. 재생과 역행을
+    // 거절하는 장부이고, 월드 세대가 은퇴하면 그 세대의 키를 지운다.
+    std::unordered_map<molga::ui::UISurfaceKey, std::uint64_t,
+                       molga::ui::UISurfaceKeyHash>
+        lastCompletedNativeSequenceBySurface_;
+    std::unordered_map<molga::ui::UISurfaceKey, std::uint64_t,
+                       molga::ui::UISurfaceKeyHash>
+        lastCompletedTickBySurface_;
+    // 월드 세대당 한 번만 보고하는 장부.
+    std::unordered_set<std::uint64_t> depsReported_;
+    std::unordered_set<std::uint64_t> reflowDeferredReported_;
 };
+
+namespace molga::ui::detail {
+// 시험 seam: N+1을 게시한 **직후**, 반환 직전에 불린다. 프로덕션은 설치하지 않는다.
+// 여기서 일어난 무효화만 ReflowDeferred로 보고되고, 같은 프레임에 다시 빌드하지
+// 않는다.
+using UIFramePublicationObserver = void (*)(World&, const UISnapshot&);
+void SetUIFramePublicationObserverForTest(UIFramePublicationObserver) noexcept;
+}  // namespace molga::ui::detail

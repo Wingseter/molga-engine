@@ -3,6 +3,7 @@
 #include "Core/World.h"
 #include "ECS/Component.h"
 #include "ECS/Components/UIButton.h"
+#include "Systems/Input.h"
 #include "Text/TextDiagnostic.h"
 #include "UI/UIInteractionState.h"
 #include "UI/UIRuntimeIdentity.h"
@@ -119,6 +120,12 @@ void FreezeRoute(PlannedUIEvent& plan, const UIHitTargetSnapshot& route) {
     plan.focusTargetFromSnapshotN = route.focusTarget;
     plan.textInputTargetFromSnapshotN = route.textInputTarget;
     plan.scrollTargetsFromSnapshotN = route.scrollTargets;
+}
+
+// PointerButton.control은 Input::MouseButton이다. 왼쪽만 주 버튼이다.
+bool IsPrimaryPointerButton(const UIInputEvent& event) noexcept {
+    return event.kind != UIInputEventKind::PointerButton ||
+           event.control == static_cast<std::uint32_t>(Input::MouseButton::Left);
 }
 
 TextDiagnostic MakeReferenceInvalid(const char* message,
@@ -300,6 +307,12 @@ PlannedUIEvent UIInputRouter::PlanNext(const UISnapshot& n,
     if (event.windowId != surfaceWindowId) return plan;
     // 다른 표면의 스냅샷으로는 이 표면의 대상을 이름할 수 없다. fail-closed.
     if (n.surfaceWindowId != surfaceWindowId) return plan;
+    // 투사 상태 자신도 이 표면의 것이어야 한다. 다른 창/세대로 씨앗을 받은 상태는
+    // 남의 포커스와 캡처를 들고 있으므로, 읽지도 고치지도 않고 돌아간다.
+    if (projected.surfaceWindowId != surfaceWindowId ||
+        projected.surfaceWorldGeneration != n.worldGeneration) {
+        return plan;
+    }
 
     plan.surfaceEligible = true;
 
@@ -330,10 +343,13 @@ PlannedUIEvent UIInputRouter::PlanNext(const UISnapshot& n,
             projected.pointerValid = true;
 
             const UIHitTargetSnapshot* route = nullptr;
-            const bool press =
-                event.kind == UIInputEventKind::PointerButton && event.active;
-            const bool release =
-                event.kind == UIInputEventKind::PointerButton && !event.active;
+            // 주 버튼(왼쪽)만 누름/놓기다. 다른 버튼은 포인터 움직임처럼 투사한다:
+            // 위치와 hover만 갱신하고 캡처·클릭·포커스는 없다(사용자 결정 2026-10-18).
+            const bool primaryButton = IsPrimaryPointerButton(event);
+            const bool press = event.kind == UIInputEventKind::PointerButton &&
+                               event.active && primaryButton;
+            const bool release = event.kind == UIInputEventKind::PointerButton &&
+                                 !event.active && primaryButton;
 
             if (press) {
                 route = PointerActionRouteAt(n, projected.pointer);
@@ -378,7 +394,17 @@ PlannedUIEvent UIInputRouter::PlanNext(const UISnapshot& n,
                 if (!release) route = under;
             }
 
-            if (route) FreezeRoute(plan, *route);
+            if (route) {
+                if (event.kind == UIInputEventKind::PointerButton &&
+                    !primaryButton) {
+                    // 동작 대상(hover용)만 얼린다. 포커스·텍스트·스크롤 대상이 있으면
+                    // 이 버튼이 포커스를 옮기고 입력창을 활성화할 수 있다.
+                    plan.targetFromSnapshotN = route->target;
+                    plan.canonicalTargetFromSnapshotN = route->canonicalTarget;
+                } else {
+                    FreezeRoute(plan, *route);
+                }
+            }
             return plan;
         }
 
@@ -492,6 +518,7 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
         const bool pointer = event.kind == UIInputEventKind::PointerMotion ||
                              event.kind == UIInputEventKind::PointerButton;
         if (!pointer) return result;
+        const bool primaryButton = IsPrimaryPointerButton(event);
 
         UISurfaceInteractionState next = table.SurfaceOrEmpty(key);
         if (!event.logicalPointValid) {
@@ -501,13 +528,14 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
             clearHovered(next);
             clearPressed(next);
         } else if (event.kind == UIInputEventKind::PointerButton &&
-                   event.active) {
+                   event.active && primaryButton) {
             // 아무것도 없는 곳에서의 누름.
             next.pointerCapture.reset();
             next.hovered.reset();
             clearPressed(next);
             clearHovered(next);
-        } else if (event.kind == UIInputEventKind::PointerButton) {
+        } else if (event.kind == UIInputEventKind::PointerButton &&
+                   primaryButton) {
             // 잡힌 눌림이 없는(혹은 N이 놓아 준) 놓기. hover는 두고 눌림만 푼다.
             next.pointerCapture.reset();
             clearPressed(next);
@@ -557,7 +585,13 @@ UIEventHandlerResult UIInputRouter::HandleEvent(
     // 클릭 콜백은 이 함수의 마지막 일이다. 콜백이 이 컴포넌트를 지울 수 있다.
     bool invokeClick = false;
 
-    switch (planned.event.kind) {
+    // 주 버튼이 아닌 버튼은 포인터 움직임으로 처리한다(눌림·캡처·클릭 없음).
+    UIInputEventKind effectiveKind = planned.event.kind;
+    if (effectiveKind == UIInputEventKind::PointerButton &&
+        !IsPrimaryPointerButton(planned.event)) {
+        effectiveKind = UIInputEventKind::PointerMotion;
+    }
+    switch (effectiveKind) {
         case UIInputEventKind::PointerButton: {
             UISurfaceInteractionState next = table.SurfaceOrEmpty(key);
             if (planned.event.active) {

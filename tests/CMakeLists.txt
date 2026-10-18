@@ -750,6 +750,15 @@ target_compile_definitions(test_ui_focus PRIVATE
 # Per-case fixture isolation (see test_ui_input) in Debug can exceed the preset's 60 s cap.
 set_tests_properties(test_ui_focus PROPERTIES TIMEOUT 600)
 
+# Task 12.3 Step 4: UISystem::ProcessFrame, the one ordered-event loop. Real World,
+# real UILayoutSystem snapshots; the text service needs a one-face font tree copied
+# per case like test_ui_focus.
+molga_add_text_test(test_ui_frame test_ui_frame.cpp)
+target_include_directories(test_ui_frame PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(test_ui_frame PRIVATE
+    MOLGA_TEXT_QUALIFICATION_SOURCE_ROOT="${CMAKE_SOURCE_DIR}/tests/fixtures/text")
+set_tests_properties(test_ui_frame PROPERTIES TIMEOUT 600)
+
 # Task 8.2 Step 0: UILabel now reaches HarfBuzz through the shared pipeline.
 molga_add_text_test(test_ui test_ui.cpp)
 target_include_directories(test_ui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

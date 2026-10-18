@@ -204,6 +204,22 @@ bool UIInteractionStateTable::Apply(UISurfaceKey key,
     return true;
 }
 
+void UIInteractionStateTable::ClearClickedThisFrame(UISurfaceKey key) {
+    const UISurfaceInteractionState* current = Surface(key);
+    if (!current) return;
+    UISurfaceInteractionState next = *current;
+    bool any = false;
+    for (auto& entry : next.buttons) {
+        if (entry.second.clickedThisFrame) {
+            entry.second.clickedThisFrame = false;
+            any = true;
+        }
+    }
+    if (!any) return;
+    // 클릭 가장자리만 다른 변경이라 Apply는 의미 세대를 올리지 않고 저장한다.
+    (void)Apply(key, std::move(next), nullptr, "ui.frame", 0);
+}
+
 bool UIInteractionStateTable::ClearIdentityEverywhere(
     const UIRuntimeTargetIdentity& id, molga::text::TextDiagnosticSink* sink) {
     if (!id) return true;

@@ -95,6 +95,11 @@ public:
                molga::text::TextDiagnosticSink* sink, const char* subsystem,
                unsigned int sceneObjectId, bool* changed = nullptr);
 
+    // 프레임 시작: 이 표면의 모든 버튼 항목에서 클릭 가장자리만 지운다. 보이는
+    // 상태가 아니므로 의미 세대를 올리지 않는다(Apply가 clickedThisFrame만 다른
+    // 변경을 보이지 않는 것으로 취급한다). 표면이 없으면 아무것도 하지 않는다.
+    void ClearClickedThisFrame(UISurfaceKey);
+
     // 이 식별자의 버튼 항목·hover·capture·focus를 그 세대의 모든 표면에서
     // 지운다(비활성/상호작용 불가 정리). 표면마다 Apply를 지난다.
     bool ClearIdentityEverywhere(const UIRuntimeTargetIdentity&,

@@ -431,9 +431,241 @@ void UISystem::OnWorldReleased(std::uint64_t worldGeneration) {
     molga::ui::UIScrollSystem::Get().OnWorldReleased(worldGeneration);
     // 포커스/캡처/hover/pressed 표도 같은 seam에서 회수한다.
     molga::ui::UIInteractionStateTable::Get().OnWorldReleased(worldGeneration);
+    // 프레임 장부와 한 번만 보고하는 장부도 그 세대의 것을 놓는다.
+    const auto eraseGeneration = [worldGeneration](auto& ledger) {
+        for (auto it = ledger.begin(); it != ledger.end();) {
+            if (it->first.worldGeneration == worldGeneration) {
+                it = ledger.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+    eraseGeneration(lastCompletedNativeSequenceBySurface_);
+    eraseGeneration(lastCompletedTickBySurface_);
+    depsReported_.erase(worldGeneration);
+    reflowDeferredReported_.erase(worldGeneration);
 }
 
 void UISystem::ResetPointerCapture() {
     capturedOwner_ = nullptr;
     capturedObjectId_ = 0;
+}
+
+// ── Task 12.3 Step 4: ProcessFrame ───────────────────────────────────────────
+namespace {
+molga::ui::detail::UIFramePublicationObserver g_publicationObserver = nullptr;
+
+void ReportFrame(molga::text::TextDiagnosticSink& sink,
+                 molga::text::TextDiagnosticCode code,
+                 molga::text::TextSeverity severity, const char* message,
+                 const char* remediation) {
+    molga::text::TextDiagnostic diagnostic;
+    diagnostic.code = code;
+    diagnostic.severity = severity;
+    diagnostic.subsystem = "ui.frame";
+    diagnostic.message = message;
+    diagnostic.remediation = remediation;
+    sink.Report(std::move(diagnostic));
+}
+}  // namespace
+
+namespace molga::ui::detail {
+void SetUIFramePublicationObserverForTest(UIFramePublicationObserver observer) noexcept {
+    g_publicationObserver = observer;
+}
+}  // namespace molga::ui::detail
+
+molga::ui::UIFrameResult UISystem::ProcessFrame(
+    World& world, const molga::ui::UIFrameInput& input,
+    molga::text::TextLayoutService& textLayout,
+    molga::text::TextDiagnosticSink& sink) {
+    using namespace molga::ui;
+    using molga::text::TextDiagnosticCode;
+    using molga::text::TextSeverity;
+
+    UIFrameResult result;
+    result.frameIndex = input.frameIndex;
+
+    // 1. 가드. 설치된 편집 상태 제공자가 없으면 빌드할 수 없다(서비스는 인자다).
+    if (inputVisualStates_ == nullptr) {
+        if (depsReported_.insert(world.Generation()).second) {
+            ReportFrame(sink, TextDiagnosticCode::LayoutInvalid, TextSeverity::Error,
+                        "UISystem::ProcessFrame ran before the layout dependencies "
+                        "were installed; this frame processed no input",
+                        "call InstallLayoutDependencies once at startup");
+        }
+        return result;
+    }
+    if (input.windowId == 0) {
+        ReportFrame(sink, TextDiagnosticCode::ReferenceInvalid, TextSeverity::Error,
+                    "a UI frame named window 0; window 0 is not a surface",
+                    "pass the exact surface window id");
+        return result;
+    }
+
+    // 2. 스냅샷 N. 이 배치의 라우팅·포커스·스크롤은 전부 N만 본다.
+    UISnapshotPtr n = layout_.Build(world, input.windowId, input.logicalViewport,
+                                    *inputVisualStates_, textLayout, sink);
+    if (!n) return result;  // Build가 이유를 보고했다.
+    if (n->surfaceWindowId != input.windowId ||
+        n->worldGeneration != world.Generation()) {
+        ReportFrame(sink, TextDiagnosticCode::ReferenceInvalid, TextSeverity::Error,
+                    "the layout snapshot does not belong to this frame's surface "
+                    "window and world generation",
+                    "build the snapshot for the frame's own surface");
+        return result;
+    }
+    result.interactionSnapshot = n;
+
+    // 3. 프레임 시작: 사라진 대상을 정리한다.
+    focusSystem_.Revalidate(world, *n, sink);
+
+    // 4. 클릭 가장자리를 지우고 투사 상태를 표와 호스트 씨앗에서 세운다. 배치마다
+    // 새로 세우므로 투사 도중의 hover 발산은 다음 프레임으로 넘어가지 않는다.
+    const UISurfaceKey key{input.windowId, n->worldGeneration};
+    auto& table = UIInteractionStateTable::Get();
+    table.ClearClickedThisFrame(key);
+    UIPlanningState state;
+    state.surfaceWindowId = key.windowId;
+    state.surfaceWorldGeneration = key.worldGeneration;
+    {
+        const UISurfaceInteractionState surface = table.SurfaceOrEmpty(key);
+        state.focused = surface.focused;
+        state.pointerCapture = surface.pointerCapture;
+        state.hovered = surface.hovered;
+    }
+    state.pointer = input.pointerAtBatchStart;
+    state.pointerValid = input.pointerAtBatchStartValid;
+    state.nativeWindowFocused = input.nativeWindowFocusedAtBatchStart;
+
+    // 5. 시퀀스 장부: 배치 전체를 먼저 검증한다. 0, 같은 번호, 역행, 이미 처리한
+    // 번호가 하나라도 있으면 아무것도 계획하거나 발송하지 않는다.
+    std::vector<PlannedUIEvent> plans;
+    bool sequencesValid = true;
+    if (!input.orderedEvents.empty()) {
+        const auto found = lastCompletedNativeSequenceBySurface_.find(key);
+        std::uint64_t previous =
+            found == lastCompletedNativeSequenceBySurface_.end() ? 0 : found->second;
+        for (const UIInputEvent& event : input.orderedEvents) {
+            if (event.sequence == 0 || event.sequence <= previous) {
+                sequencesValid = false;
+                break;
+            }
+            previous = event.sequence;
+        }
+        if (!sequencesValid) {
+            ReportFrame(sink, TextDiagnosticCode::ReferenceInvalid, TextSeverity::Error,
+                        "the native input sequence is zero, repeated, out of order or "
+                        "already processed; the whole batch was rejected",
+                        "the host allocates strictly increasing sequence numbers");
+        }
+    }
+
+    if (sequencesValid && !input.orderedEvents.empty()) {
+        // 6. 계획. N만 읽고 콜백은 하나도 부르지 않는다.
+        plans.reserve(input.orderedEvents.size());
+        for (const UIInputEvent& event : input.orderedEvents) {
+            PlannedUIEvent plan =
+                inputRouter_.PlanNext(*n, input.windowId, event, state);
+            focusSystem_.ProjectEvent(*n, plan, state);
+            plans.push_back(std::move(plan));
+        }
+        lastCompletedNativeSequenceBySurface_[key] =
+            input.orderedEvents.back().sequence;
+
+        // 7. 발송. 이벤트마다 라우터 -> 포커스 -> 스크롤 순서로 합치고, 콜백이 대상을
+        // 지웠을 수 있으므로 매번 정리한다. 거절된 합침은 누산기가 이미 보고했다.
+        result.dispatches.reserve(plans.size());
+        bool worldReplaced = false;
+        for (const PlannedUIEvent& planned : plans) {
+            UIEventDispatchAccumulator audit(planned, sink);
+            if (!worldReplaced) {
+                (void)audit.Merge(inputRouter_.HandleEvent(world, *n, planned, sink));
+                (void)audit.Merge(focusSystem_.HandleEvent(world, *n, planned, sink));
+                (void)audit.Merge(
+                    UIScrollSystem::Get().HandleEvent(world, *n, planned, sink));
+                focusSystem_.Revalidate(world, *n, sink);
+                // 콜백이 씬을 바꿨다면 남은 계획은 은퇴한 세대의 이름을 든다. 발송하지
+                // 않고 감사 기록만 남긴다 — 죽은 세대의 표에 다시 쓰지 않는다.
+                if (world.Generation() != n->worldGeneration) {
+                    worldReplaced = true;
+                    ReportFrame(sink, TextDiagnosticCode::ReferenceInvalid,
+                                TextSeverity::Warning,
+                                "an input callback replaced the world; the rest of "
+                                "the batch was not delivered",
+                                "events after a scene transition belong to the "
+                                "retired world");
+                }
+            }
+            result.dispatches.push_back(std::move(audit).Finish());
+        }
+        if (worldReplaced) {
+            // 은퇴한 세대의 장부는 OnWorldReleased가 이미 지웠다. 다시 쓰지 않는다.
+            lastCompletedNativeSequenceBySurface_.erase(key);
+        }
+    }
+
+    // 8. tick: 묶음 전체를 검증하고 한 번만 소비한다.
+    const bool worldStillN = world.Generation() == n->worldGeneration;
+    if (worldStillN && !input.uiTicks.empty()) {
+        const auto found = lastCompletedTickBySurface_.find(key);
+        const std::uint64_t last =
+            found == lastCompletedTickBySurface_.end() ? 0 : found->second;
+        if (!UIDeterministicTickBatchIsValid(input.uiTicks) ||
+            input.uiTicks.front().tickIndex <= last) {
+            ReportFrame(sink, TextDiagnosticCode::LayoutInvalid, TextSeverity::Error,
+                        "the UI tick batch is invalid or was already consumed; no "
+                        "tick of it was applied",
+                        "ticks are strictly increasing, 1 to 64 raw seconds each, "
+                        "and each index is consumed once");
+        } else {
+            for (const UIDeterministicTick& tick : input.uiTicks) {
+                (void)UIScrollSystem::Get().AdvanceTick(world, *n, tick, sink);
+            }
+            lastCompletedTickBySurface_[key] = input.uiTicks.back().tickIndex;
+        }
+    }
+
+    // 9. N+1. 아무것도 바뀌지 않았다면 캐시가 같은 포인터를 돌려준다. 여기서 한 번만
+    // 짓고 다시 짓지 않는다: 게시 뒤에 얻은 무효화 세대는 다음 프레임의 일이다.
+    result.renderSnapshot =
+        layout_.Build(world, input.windowId, input.logicalViewport,
+                      *inputVisualStates_, textLayout, sink);
+    if (result.renderSnapshot && g_publicationObserver) {
+        const UIRuntimeGenerationSnapshot published = UIRuntimeInvalidationClock::Current();
+        g_publicationObserver(world, *result.renderSnapshot);
+        const UIRuntimeGenerationSnapshot after = UIRuntimeInvalidationClock::Current();
+        if ((after.semanticDirtyGeneration != published.semanticDirtyGeneration ||
+             after.scrollDisplacementGeneration != published.scrollDisplacementGeneration) &&
+            reflowDeferredReported_.insert(world.Generation()).second) {
+            ReportFrame(sink, TextDiagnosticCode::ReflowDeferred, TextSeverity::Warning,
+                        "a UI mutation happened after this frame's layout was "
+                        "published; it appears next frame",
+                        "mutate UI state before ProcessFrame returns the snapshot");
+        }
+    }
+    return result;
+}
+
+void UISystem::OnSurfacePointerDeparted(
+    molga::WindowId windowId, std::uint64_t worldGeneration,
+    molga::text::TextDiagnosticSink& textDiagnostics) {
+    focusSystem_.ClearPointerState(windowId, worldGeneration, textDiagnostics);
+}
+
+std::uint64_t UISystem::LayoutGeometryBuildCountForTesting() const noexcept {
+    return layout_.GeometryBuildCount();
+}
+
+std::uint64_t UISystem::LastCompletedNativeSequenceForTesting(
+    molga::ui::UISurfaceKey key) const noexcept {
+    const auto found = lastCompletedNativeSequenceBySurface_.find(key);
+    return found == lastCompletedNativeSequenceBySurface_.end() ? 0 : found->second;
+}
+
+std::uint64_t UISystem::LastCompletedTickForTesting(
+    molga::ui::UISurfaceKey key) const noexcept {
+    const auto found = lastCompletedTickBySurface_.find(key);
+    return found == lastCompletedTickBySurface_.end() ? 0 : found->second;
 }
