@@ -4,6 +4,12 @@
 namespace {
 const auto g_timeOrigin = std::chrono::steady_clock::now();
 
+std::uint64_t MonotonicNanoseconds() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - g_timeOrigin).count());
+}
+
 float MonotonicSeconds() {
     return std::chrono::duration<float>(
         std::chrono::steady_clock::now() - g_timeOrigin).count();
@@ -12,6 +18,8 @@ float MonotonicSeconds() {
 
 float Time::deltaTime = 0.0f;
 float Time::lastTime = 0.0f;
+std::uint64_t Time::lastNanoseconds = 0;
+std::uint64_t Time::elapsedNanoseconds = 0;
 float Time::currentTime = 0.0f;
 float Time::fps = 0.0f;
 int Time::frameCount = 0;
@@ -26,6 +34,8 @@ float Time::accumulator = 0.0f;
 void Time::Init() {
     lastTime = MonotonicSeconds();
     currentTime = lastTime;
+    lastNanoseconds = MonotonicNanoseconds();
+    elapsedNanoseconds = 0;
     deltaTime = 0.0f;
     fps = 0.0f;
     frameCount = 0;
@@ -35,6 +45,10 @@ void Time::Init() {
 }
 
 void Time::Update() {
+    // UI tick 시계가 쓰는 정수 표본은 float 초와 별개로 한 번만 잰다.
+    const std::uint64_t nowNanoseconds = MonotonicNanoseconds();
+    elapsedNanoseconds = nowNanoseconds - lastNanoseconds;
+    lastNanoseconds = nowNanoseconds;
     currentTime = MonotonicSeconds();
     deltaTime = currentTime - lastTime;
 

@@ -6,8 +6,10 @@
 #include "Editor/SceneDocument.h"
 #include "Rendering/GameOutputRenderer.h"
 #include "Rendering/OutputPresentationLayout.h"
+#include "Core/MolgaTime.h"
 #include "Systems/Input.h"
 #include "Text/TextDiagnostic.h"
+#include "UI/UIFixedTickClock.h"
 #include "UI/UISurfaceCoordinateMapping.h"
 #include "doctest.h"
 
@@ -17,6 +19,7 @@
 #include <fstream>
 #include <limits>
 #include <memory>
+#include <thread>
 
 using namespace molga;
 
@@ -797,4 +800,120 @@ TEST_CASE("MapNativeInputBatch reports non-finite values once and keeps the sequ
     CHECK(CountDiagnostics(sink, molga::text::TextDiagnosticCode::LayoutInvalid,
                            "ui.frame") == 1);
     CHECK(sink.Diagnostics().size() == 1);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Task 12.3 Step 3: 프로덕션 고정 UI tick 시계.
+//
+// 1/64초 = 15'625'000ns. 경과 시간이 인자로 도착하므로 시계는 벽시계를 읽지
+// 않는다. 산수: 7ms는 한 걸음에 못 미쳐 이월(7ms), +9ms = 16ms >= 15.625ms이면
+// tick 1(이월 0.375ms), +31.25ms = 31.625ms이면 tick 2,3(이월 0.375ms).
+// ═══════════════════════════════════════════════════════════════════════════
+TEST_CASE("UIFixedTickClock emits one 1/64 s tick per complete interval and keeps the carry") {
+    using molga::ui::UIDeterministicTick;
+    using molga::ui::UIFixedTickClock;
+    static_assert(UIFixedTickClock::StepNanoseconds == 15'625'000,
+                  "one tick is exactly 1/64 s");
+
+    molga::text::VectorTextDiagnosticSink sink;
+    UIFixedTickClock clock;
+    UIFixedTickClock twin;
+    const std::uint64_t elapsed[] = {7'000'000, 9'000'000, 31'250'000};
+    std::vector<UIDeterministicTick> all;
+    std::vector<std::vector<UIDeterministicTick>> perCall;
+    for (std::uint64_t ns : elapsed) {
+        perCall.push_back(clock.AdvanceElapsedNanoseconds(ns, sink));
+        const auto again = twin.AdvanceElapsedNanoseconds(ns, sink);
+        // 두 인스턴스는 같은 입력에서 같은 값을 낸다.
+        CHECK(again == perCall.back());
+        all.insert(all.end(), perCall.back().begin(), perCall.back().end());
+    }
+    CHECK(perCall[0].empty());
+    REQUIRE(perCall[1].size() == 1);
+    REQUIRE(perCall[2].size() == 2);
+    CHECK(perCall[1][0].tickIndex == 1);
+    CHECK(perCall[2][0].tickIndex == 2);
+    CHECK(perCall[2][1].tickIndex == 3);
+    for (const UIDeterministicTick& tick : all) {
+        CHECK(tick.deltaSeconds.Raw() == 1);
+    }
+    REQUIRE(all.size() == 3);
+    CHECK(molga::ui::UIDeterministicTickBatchIsValid(all));
+    CHECK(molga::ui::DecodeCanonicalTicks(molga::ui::EncodeCanonicalTicks(all)) == all);
+
+    // 이월이 보존된다: 남은 0.375ms + 15.25ms = 15.625ms 정확히 한 걸음.
+    const auto exact = clock.AdvanceElapsedNanoseconds(15'250'000, sink);
+    REQUIRE(exact.size() == 1);
+    CHECK(exact[0].tickIndex == 4);
+    // 0은 시간이 흐르지 않은 것이다: tick도 진단도 없다.
+    CHECK(clock.AdvanceElapsedNanoseconds(0, sink).empty());
+    // 한 번에 많은 걸음: 1초 = 64 tick, 인덱스는 이어진다.
+    const auto second = clock.AdvanceElapsedNanoseconds(1'000'000'000, sink);
+    REQUIRE(second.size() == 64);
+    CHECK(second.front().tickIndex == 5);
+    CHECK(second.back().tickIndex == 68);
+    CHECK(sink.Diagnostics().empty());
+}
+
+TEST_CASE("UIFixedTickClock fails closed before its index can wrap or its carry overflow") {
+    using molga::ui::UIFixedTickClock;
+    {
+        molga::text::VectorTextDiagnosticSink sink;
+        UIFixedTickClock clock = UIFixedTickClock::WithNextTickIndexForTesting(
+            std::numeric_limits<std::uint64_t>::max());
+        // 인덱스를 쓸 수 없으니 tick을 내지 않고 Blocker 한 번.
+        CHECK(clock.AdvanceElapsedNanoseconds(
+                       UIFixedTickClock::StepNanoseconds, sink).empty());
+        REQUIRE(CountDiagnostics(sink, molga::text::TextDiagnosticCode::LayoutInvalid,
+                                 "ui.frame") == 1);
+        CHECK(sink.Diagnostics()[0].severity == molga::text::TextSeverity::Blocker);
+        // 두 번째 호출은 조용하다.
+        CHECK(clock.AdvanceElapsedNanoseconds(
+                       UIFixedTickClock::StepNanoseconds, sink).empty());
+        CHECK(sink.Diagnostics().size() == 1);
+    }
+    {
+        // 마지막으로 쓸 수 있는 인덱스(UINT64_MAX-1)까지는 낸다.
+        molga::text::VectorTextDiagnosticSink sink;
+        UIFixedTickClock clock = UIFixedTickClock::WithNextTickIndexForTesting(
+            std::numeric_limits<std::uint64_t>::max() - 1);
+        const auto ticks = clock.AdvanceElapsedNanoseconds(
+            2 * UIFixedTickClock::StepNanoseconds, sink);
+        REQUIRE(ticks.size() == 1);
+        CHECK(ticks[0].tickIndex == std::numeric_limits<std::uint64_t>::max() - 1);
+        CHECK(CountDiagnostics(sink, molga::text::TextDiagnosticCode::LayoutInvalid,
+                               "ui.frame") == 1);
+    }
+    {
+        // 이월 + 경과가 넘치면 아무것도 내지 않고 이월은 그대로다.
+        molga::text::VectorTextDiagnosticSink sink;
+        UIFixedTickClock clock;
+        CHECK(clock.AdvanceElapsedNanoseconds(7'000'000, sink).empty());
+        CHECK(clock.AdvanceElapsedNanoseconds(
+                       std::numeric_limits<std::uint64_t>::max(), sink).empty());
+        CHECK(CountDiagnostics(sink, molga::text::TextDiagnosticCode::LayoutInvalid,
+                               "ui.frame") == 1);
+        // 이월 7ms가 살아 있다: 8.625ms를 더하면 한 걸음.
+        const auto ticks = clock.AdvanceElapsedNanoseconds(8'625'000, sink);
+        REQUIRE(ticks.size() == 1);
+        CHECK(ticks[0].tickIndex == 1);
+    }
+}
+
+TEST_CASE("Time records one monotonic elapsed sample per Update") {
+    Time::Init();
+    CHECK(Time::GetElapsedNanoseconds() == 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    Time::Update();
+    const std::uint64_t first = Time::GetElapsedNanoseconds();
+    CHECK(first >= 3'000'000);
+    CHECK(first < 5'000'000'000ULL);
+    // 샘플은 Update가 기록한 한 값이다: 읽기만으로는 변하지 않는다.
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    CHECK(Time::GetElapsedNanoseconds() == first);
+    Time::Update();
+    CHECK(Time::GetElapsedNanoseconds() >= 2'000'000);
+    // Init은 표본을 되돌린다.
+    Time::Init();
+    CHECK(Time::GetElapsedNanoseconds() == 0);
 }
