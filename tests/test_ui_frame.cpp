@@ -993,3 +993,56 @@ TEST_CASE("a surface pointer departure keeps keyboard focus") {
     CHECK_FALSE(f.Surface().hovered.has_value());
     CHECK(f.Focused() == f.BSelectableIdentity());
 }
+
+// Task 12.3 Step 6: 프로덕션에서 라우터는 실제 표면 {창, 세대}에 hover/눌림을 쓰고, 레이아웃
+// 빌드(Step 8까지)는 표면 구분 없이 읽는다. 게시된 N+1의 버튼 색이 그것을 보여 줘야 한다.
+namespace {
+const Color* SolidColorOf(const UISnapshot& snapshot,
+                          const UIRuntimeTargetIdentity& source) {
+    for (const auto& item : snapshot.renderItems) {
+        if (!(item.source == source)) continue;
+        if (const auto* solid = std::get_if<molga::ui::UISolidRectSnapshot>(&item.payload)) {
+            return &solid->color;
+        }
+    }
+    return nullptr;
+}
+}  // namespace
+
+TEST_CASE("the published render snapshot shows the router's hover and press colours") {
+    UIFrameFixture f;
+    UIButton& high = f.HighButton();
+    high.SetNormalColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
+    high.SetHoverColor(Color(0.2f, 0.6f, 0.2f, 1.0f));
+    high.SetPressedColor(Color(0.7f, 0.2f, 0.2f, 1.0f));
+    const UISnapshotPtr cold = f.BuildN();
+    REQUIRE(cold != nullptr);
+    REQUIRE(SolidColorOf(*cold, f.HighIdentity()) != nullptr);
+    CHECK(*SolidColorOf(*cold, f.HighIdentity()) == high.GetNormalColor());
+
+    // 모션만: hover 색.
+    const UIFrameResult hovered = f.Run({UIFrameFixture::Move(1, UIFrameFixture::OnHigh())});
+    REQUIRE(hovered.renderSnapshot != nullptr);
+    REQUIRE(SolidColorOf(*hovered.renderSnapshot, f.HighIdentity()) != nullptr);
+    CHECK(*SolidColorOf(*hovered.renderSnapshot, f.HighIdentity()) == high.GetHoverColor());
+
+    // 누름: pressed 색.
+    const UIFrameResult pressed = f.Run({UIFrameFixture::Down(2, UIFrameFixture::OnHigh())});
+    REQUIRE(pressed.renderSnapshot != nullptr);
+    REQUIRE(SolidColorOf(*pressed.renderSnapshot, f.HighIdentity()) != nullptr);
+    CHECK(*SolidColorOf(*pressed.renderSnapshot, f.HighIdentity()) == high.GetPressedColor());
+
+    // 놓기: hover 색으로 돌아온다(포인터는 아직 위에 있다).
+    const UIFrameResult released = f.Run({UIFrameFixture::Up(3, UIFrameFixture::OnHigh())});
+    REQUIRE(released.renderSnapshot != nullptr);
+    REQUIRE(SolidColorOf(*released.renderSnapshot, f.HighIdentity()) != nullptr);
+    CHECK(*SolidColorOf(*released.renderSnapshot, f.HighIdentity()) == high.GetHoverColor());
+
+    // 표면 이탈 뒤 다시 지으면 기본 색이다.
+    UISystem::Get().OnSurfacePointerDeparted(kSurfaceWindow, f.World().Generation(),
+                                             f.Diagnostics());
+    const UISnapshotPtr after = f.BuildN();
+    REQUIRE(after != nullptr);
+    REQUIRE(SolidColorOf(*after, f.HighIdentity()) != nullptr);
+    CHECK(*SolidColorOf(*after, f.HighIdentity()) == high.GetNormalColor());
+}

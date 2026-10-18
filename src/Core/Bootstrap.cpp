@@ -805,6 +805,7 @@ bool QueryWindowMetrics(WindowId windowId, WindowMetrics& metrics) {
         ? static_cast<float>(metrics.pixelHeight) /
               static_cast<float>(metrics.logicalHeight)
         : 1.0f;
+    metrics.pixelDensity = SDL_GetWindowPixelDensity(window);
     metrics.focused = (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
     return true;
 }

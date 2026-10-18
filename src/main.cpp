@@ -486,8 +486,8 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // Project selection loop (if no project loaded yet)
     while (!host->ShouldClose() && !projectLoaded) {
         host->PollEvents();
-        // Task 12.3: 배치를 가져가지 않으면 다음 폴링이 거절된다. UI 소비자가
-        // 이 자리를 대신하기 전까지는 버린다.
+        // Task 12.3: 프로젝트 선택 화면에는 UI 월드가 없다. 배치는 폴링마다 한 번
+        // 가져가야 하므로(안 가져가면 다음 폴링이 거절된다) 여기서 가져가 버린다.
         (void)host->TakeNativeInputBatch();
         if (host->ShouldClose()) break;
 
@@ -558,8 +558,9 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
         // Main editor loop
         while (!host->ShouldClose()) {
             host->PollEvents();
-            // Task 12.3: 소비자가 생기기 전까지 버린다(안 가져가면 폴링이 막힌다).
-            (void)host->TakeNativeInputBatch();
+            // Task 12.3: 배치는 반복마다 정확히 한 번 가져가 Game View에 넘긴다(play
+            // 월드가 없어도 가져간다). 이번 프레임의 UI 입력은 이 한 값뿐이다.
+            Editor::Get().SetFrameNativeInput(host->TakeNativeInputBatch());
             if (host->ShouldClose()) break;
             Time::Update();
             // Task 6.3: 프레임 번호가 정해진 바로 다음, 어떤 텍스트도 큐에
@@ -703,6 +704,10 @@ int RunEditorAfterPaths(int argc, char* argv[], bool textSeamRequested,
     // 소비자의 **이름만** 넘기고(값을 넘기면 host가 두 번째 소유자가 된다),
     // 결과가 Complete가 아닌 동안에는 돌아가지 않는다.
     host->RegisterGpuConsumers(renderer.get(), &TextRenderer::Get());
+    // Game View가 프레임 사이에 쥘 수 있는 UI 스냅샷은 수명 토큰을 든다. 이 단계에서는
+    // 소유권만 놓는다 — 월드도 UISystem도 건드리지 않는다(월드는 이미 죽었을 수 있다).
+    host->RegisterEngineSnapshotReleaser(
+        [] { Editor::Get().ReleaseRetainedUISnapshots(); });
     ShutdownEngineOrExit(host, textDiagnostics);
     // Complete 뒤에만 놓는다. 막힌 상태에서 여기 도달하지 않는 것은
     // ShutdownEngineOrExit이 보장한다.

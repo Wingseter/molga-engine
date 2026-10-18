@@ -420,6 +420,20 @@ void Editor::RenderGUI() {
   buildMgr.RenderBuildWindow(sceneOps.GetCurrentPath());
 }
 
+void Editor::SetFrameNativeInput(molga::platform::NativeInputBatch&& batch) {
+    if (auto* gameView = windowManager.GetAs<GameViewWindow>(
+            EditorConstants::WIN_GAME)) {
+        gameView->SetFrameNativeInput(std::move(batch));
+    }
+}
+
+void Editor::ReleaseRetainedUISnapshots() {
+    if (auto* gameView = windowManager.GetAs<GameViewWindow>(
+            EditorConstants::WIN_GAME)) {
+        gameView->ReleaseRetainedUISnapshots();
+    }
+}
+
 void Editor::ProcessPlayUIInput() {
     if (auto* gameView = windowManager.GetAs<GameViewWindow>(
             EditorConstants::WIN_GAME)) {

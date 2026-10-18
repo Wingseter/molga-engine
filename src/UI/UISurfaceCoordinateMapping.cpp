@@ -2,6 +2,7 @@
 
 #include "Text/TextDiagnostic.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -79,6 +80,30 @@ std::optional<molga::FixedPoint> UISurfaceCoordinateMapping::WindowPixelToCanvas
     return canvasToOutput.ToLogicalPoint(outputX, outputY);
 }
 
+void UISurfaceCoordinateMapping::ClipVisibleWindowPixels(
+    double minX, double minY, double maxX, double maxY) noexcept {
+    if (!std::isfinite(minX) || !std::isfinite(minY) || !std::isfinite(maxX) ||
+        !std::isfinite(maxY)) {
+        // 빈 영역: 반열린 [0,0)에는 점이 없다.
+        visibleWindowPixelsValid = true;
+        visibleWindowPixelMinX = visibleWindowPixelMinY = 0.0;
+        visibleWindowPixelMaxX = visibleWindowPixelMaxY = 0.0;
+        return;
+    }
+    if (!visibleWindowPixelsValid) {
+        visibleWindowPixelsValid = true;
+        visibleWindowPixelMinX = minX;
+        visibleWindowPixelMinY = minY;
+        visibleWindowPixelMaxX = maxX;
+        visibleWindowPixelMaxY = maxY;
+        return;
+    }
+    visibleWindowPixelMinX = std::max(visibleWindowPixelMinX, minX);
+    visibleWindowPixelMinY = std::max(visibleWindowPixelMinY, minY);
+    visibleWindowPixelMaxX = std::min(visibleWindowPixelMaxX, maxX);
+    visibleWindowPixelMaxY = std::min(visibleWindowPixelMaxY, maxY);
+}
+
 std::optional<UISurfaceCoordinateMapping> MakeEmbeddedSurfaceMapping(
     const molga::OutputPresentationLayout& presentation,
     double imageOriginWindowPointX, double imageOriginWindowPointY,
@@ -128,6 +153,13 @@ std::optional<UISurfaceCoordinateMapping> MakeStandaloneSurfaceMapping(
     std::uint64_t deviceGeneration) noexcept {
     return MakeEmbeddedSurfaceMapping(presentation, 0.0, 0.0, 1.0, 1.0, 1.0,
                                       deviceGeneration);
+}
+
+void DropUnfocusedPanelInput(UIFrameInput& input) noexcept {
+    input.orderedEvents.clear();
+    input.pointerAtBatchStart = {};
+    input.pointerAtBatchStartValid = false;
+    input.nativeWindowFocusedAtBatchStart = false;
 }
 
 std::optional<UIFrameInput> MapNativeInputBatch(

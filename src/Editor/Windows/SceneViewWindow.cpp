@@ -748,6 +748,8 @@ void SceneViewWindow::DrawSprites() {
 
 molga::ui::UISnapshotPtr SceneViewWindow::BuildUiSnapshot(float vpW, float vpH) {
     if (!world_ || !textDiagnostics_) return nullptr;
+    // 창 0은 UI 표면이 아니다. UI 층 없이 그리고, 프레임마다 진단을 내지 않는다.
+    if (platformWindow_ == 0) return nullptr;
     // 패널 픽셀에 1:1로 놓이는 논리 뷰포트. 26.6 raw(정수 픽셀 * 64)가 int32에
     // 담기는 범위에서만 지어낸다.
     constexpr int kMaxPixels = 0x7fffffff / 64;

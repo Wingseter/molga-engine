@@ -8,6 +8,7 @@
 #include "SceneOperations.h"
 #include "BuildManager.h"
 #include "Core/Profiling/FrameProfile.h"
+#include "Platform/NativeInputEvent.h"
 // Task 10.2 Step 9b: 활성 월드에서 오브젝트 목록을 유도하는 접근자가 헤더에
 // 인라인으로 있어야 한다. Editor.cpp를 링크하지 않고 Editor 명령만 링크하는
 // 테스트 타깃(test_editor_undo_dirty)이 그 접근자를 쓴다.
@@ -105,8 +106,14 @@ public:
     void SetSceneViewResources(Renderer* renderer, Shader* shader,
                                TextRenderer* textRenderer,
                                molga::text::TextDiagnosticSink* textDiagnostics);
+    // Task 12.3 Step 6: 이번 루프 반복의 네이티브 입력 배치를 Game View에 넘긴다(반복마다
+    // 한 번, Game View가 없거나 play가 아니어도 가져가서 넘긴다).
+    void SetFrameNativeInput(molga::platform::NativeInputBatch&& batch);
     void ProcessPlayUIInput();
     void ResetPlayUIInput();
+    // 종료 단계용: Game View가 쥔 스냅샷의 소유권만 놓는다. 월드도 UISystem도 건드리지
+    // 않는다(EngineShutdown 시점에 world는 이미 죽었을 수 있다).
+    void ReleaseRetainedUISnapshots();
 
 private:
     Editor() = default;

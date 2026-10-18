@@ -6,9 +6,12 @@
 #include "Editor/ImGuiTextureBridge.h"
 #include "Editor/Project.h"
 #include "Core/World.h"
+#include "Core/MolgaTime.h"
 #include "Rendering/GameOutputRenderer.h"
+#include "Rendering/GraphicsDevice.h"
 #include "Rendering/Renderer.h"
 #include "Systems/Input.h"
+#include "UI/UISurfaceCoordinateMapping.h"
 #include "UI/UISystem.h"
 
 #include <algorithm>
@@ -33,7 +36,22 @@ GameViewWindow::GameViewWindow()
 }
 
 GameViewWindow::~GameViewWindow() {
-    ResetPlayInput();
+    // 소멸 시점에는 world_가 이미 죽었을 수 있다(play 월드는 ExitPlay가 먼저 부순다).
+    // 그래서 월드를 건드리는 ResetPlayInput 대신 스크립트 쪽 입력과 소유권만 놓는다.
+    inputFocused_ = false;
+    imageValid_ = false;
+    Input::DiscardPendingScroll(inputSourceWindow_);
+    Input::ReleaseAll();
+    ReleaseRetainedUISnapshots();
+}
+
+void GameViewWindow::SetFrameNativeInput(molga::platform::NativeInputBatch&& batch) {
+    pendingBatch_ = std::move(batch);
+}
+
+void GameViewWindow::ReleaseRetainedUISnapshots() {
+    renderSnapshot_.reset();
+    pendingBatch_ = {};
 }
 
 void GameViewWindow::SetSceneResources(
@@ -151,6 +169,7 @@ void GameViewWindow::DrawToolbar() {
 void GameViewWindow::OnGUI() {
     if (!isOpen) {
         LoseInputFocus();
+        renderSnapshot_.reset();
         return;
     }
 
@@ -159,6 +178,7 @@ void GameViewWindow::OnGUI() {
     if (!isOpen) LoseInputFocus();
     if (!visible) {
         LoseInputFocus();
+        renderSnapshot_.reset();
         ImGui::End();
         return;
     }
@@ -181,15 +201,28 @@ void GameViewWindow::OnGUI() {
     logicalOutput_ = RequestedLogicalSize();
     if (outputTarget_.IsValid() && renderer_ && spriteShader_ && world_ &&
         textRenderer_ && textDiagnostics_) {
-        // Task 12.3 Step 5: UI 층은 이번 프레임의 스냅샷 하나로만 그려진다. 입력 경로는
-        // 아직 레거시(Step 6)라 이 표면은 그리기 전용이다. 스냅샷은 이 호출이 끝날
-        // 때까지만 쥔다 — 프레임을 넘겨 쥐면 장치 종료를 막는 수명 토큰을 든다.
-        molga::ui::UISnapshotPtr uiSnapshot;
-        if (const auto uiViewport = molga::GameOutputRenderer::UiLogicalViewport(
-                RequestedScaleMode(), logicalOutput_, activeOutput_)) {
+        // Task 12.3 Step 6: UI 층은 ProcessPlayInput가 이번 프레임에 게시한 N+1 하나로
+        // 그려진다. 입력이 없는 프레임(편집 모드, 일시정지, 포커스 없는 패널의 입력
+        // 생략 등)은 같은 표면으로 직접 짓는다. 가져가는 즉시 멤버를 비운다 — 프레임을
+        // 넘겨 쥐면 장치 종료를 막는 수명 토큰을 든다.
+        molga::ui::UISnapshotPtr uiSnapshot = std::move(renderSnapshot_);
+        renderSnapshot_.reset();
+        const auto uiViewport = molga::GameOutputRenderer::UiLogicalViewport(
+            RequestedScaleMode(), logicalOutput_, activeOutput_);
+        const molga::WindowId uiWindow = ViewportWindowId(ImGui::GetWindowViewport());
+        // 해상도가 이 프레임에 바뀌었거나 표면/세대가 달라졌다면 입력 단계의 스냅샷은
+        // 이 출력과 맞지 않는다: 버리고 다시 짓는다(맞지 않는 채로 그리면 거절 진단이
+        // 매 프레임 난다).
+        if (uiSnapshot &&
+            (!uiViewport || uiSnapshot->logicalViewport != *uiViewport ||
+             uiSnapshot->surfaceWindowId != uiWindow ||
+             uiSnapshot->worldGeneration != world_->Generation())) {
+            uiSnapshot.reset();
+        }
+        // 창 0은 UI 표면이 아니다: UI 층 없이 그린다(프레임마다 진단을 내지 않는다).
+        if (!uiSnapshot && uiViewport && uiWindow != 0) {
             uiSnapshot = UISystem::Get().BuildLayout(
-                *world_, ViewportWindowId(ImGui::GetWindowViewport()), *uiViewport,
-                *textDiagnostics_);
+                *world_, uiWindow, *uiViewport, *textDiagnostics_);
         }
         molga::GameOutputRequest request{activeOutput_, logicalOutput_,
                                          RequestedScaleMode(), &outputTarget_};
@@ -235,11 +268,12 @@ void GameViewWindow::OnGUI() {
     const molga::WindowId platformWindow = ViewportWindowId(platformViewport);
     molga::WindowMetrics platformMetrics;
     if (molga::QueryWindowMetrics(platformWindow, platformMetrics)) {
-        if (platformMetrics.logicalWidth > 0 && platformMetrics.pixelWidth > 0) {
-            framebufferScale.x = platformMetrics.scaleX;
-        }
-        if (platformMetrics.logicalHeight > 0 && platformMetrics.pixelHeight > 0) {
-            framebufferScale.y = platformMetrics.scaleY;
+        // 창 점 -> 창 물리 픽셀 배율의 출처는 하나다: 호스트의 포인터 씨앗과 같은
+        // SDL 픽셀 밀도(없을 때만 픽셀/논리 크기). 렌더 배치(이 레이아웃)와 입력
+        // 매핑이 같은 값을 쓰므로 둘이 한 픽셀씩 어긋나지 않는다.
+        if (const auto scale = molga::ResolveWindowPixelsPerPoint(platformMetrics)) {
+            framebufferScale.x = static_cast<float>(scale->x);
+            framebufferScale.y = static_cast<float>(scale->y);
         }
     }
     layout_ = molga::GameViewLayout::Calculate(
@@ -267,12 +301,18 @@ void GameViewWindow::OnGUI() {
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
             Input::DiscardPendingScroll(inputSourceWindow_);
             inputFocused_ = true;
-            rawMouseWasDown_ = false;
             ImGui::SetWindowFocus();
         }
     } else {
         ImGui::Dummy(ImVec2(std::max(available.x, 1.0f),
                            std::max(available.y, 1.0f)));
+    }
+    // 자식 창의 보이는 영역(스크롤바 제외). 입력 단계가 다음 프레임에 쓴다.
+    {
+        const ImRect clip = ImGui::GetCurrentWindow()->ClipRect;
+        childClipValid_ = true;
+        childClipMin_ = clip.Min;
+        childClipMax_ = clip.Max;
     }
 
     if (inputFocused_ &&
@@ -301,24 +341,37 @@ void GameViewWindow::OnGUI() {
     ImGui::End();
 }
 
+void GameViewWindow::DepartUIPointer() {
+    // world_를 읽지 않는다: 씬 전환 커밋 직후에는 옛 월드가 이미 파괴돼 있다. 마지막으로
+    // 프레임을 처리한 표면의 이름(창, 세대)만 쓴다. 이미 해제된 세대의 표는 비어
+    // 있으므로 이탈은 아무것도 만들지 않는다.
+    if (!textDiagnostics_ || uiSurfaceWindow_ == 0 || uiSurfaceWorldGeneration_ == 0) {
+        return;
+    }
+    UISystem::Get().OnSurfacePointerDeparted(
+        uiSurfaceWindow_, uiSurfaceWorldGeneration_, *textDiagnostics_);
+}
+
 void GameViewWindow::LoseInputFocus() {
-    if (!inputFocused_ && !rawMouseWasDown_) return;
+    if (!inputFocused_) return;
     inputFocused_ = false;
-    rawMouseWasDown_ = false;
     Input::DiscardPendingScroll(inputSourceWindow_);
     Input::ReleaseAll();
-    UISystem::Get().ResetPointerCapture();
+    DepartUIPointer();
 }
 
 void GameViewWindow::ProcessPlayInput() {
-    if (!isOpen || !inputFocused_ || !imageValid_ || platformViewportId_ == 0 ||
-        !ImGui::GetCurrentContext() || !world_ || !activeOutput_.IsValid()) {
+    // 배치는 UI 월드가 있든 없든 이 프레임에 한 번 가져간다. 이전 프레임의 N+1은
+    // 소유하지 않는다.
+    molga::platform::NativeInputBatch batch = std::move(pendingBatch_);
+    pendingBatch_ = {};
+    renderSnapshot_.reset();
+
+    if (!isOpen || !imageValid_ || platformViewportId_ == 0 ||
+        !ImGui::GetCurrentContext() || !world_ || !activeOutput_.IsValid() ||
+        !textRenderer_ || !textDiagnostics_) {
         if (inputFocused_) LoseInputFocus();
-        else {
-            Input::ReleaseAll();
-            UISystem::Get().ResetPointerCapture();
-            rawMouseWasDown_ = false;
-        }
+        else Input::ReleaseAll();
         return;
     }
 
@@ -326,9 +379,9 @@ void GameViewWindow::ProcessPlayInput() {
     const molga::WindowId nativeWindow = ViewportWindowId(viewport);
     molga::WindowMetrics nativeMetrics;
     if (!viewport || nativeWindow == 0 ||
-        !molga::QueryWindowMetrics(nativeWindow, nativeMetrics) ||
-        !nativeMetrics.focused) {
-        LoseInputFocus();
+        !molga::QueryWindowMetrics(nativeWindow, nativeMetrics)) {
+        if (inputFocused_) LoseInputFocus();
+        else Input::ReleaseAll();
         return;
     }
     if (nativeWindow != inputSourceWindow_) {
@@ -336,19 +389,76 @@ void GameViewWindow::ProcessPlayInput() {
         inputSourceWindow_ = nativeWindow;
         Input::DiscardPendingScroll(inputSourceWindow_);
     }
+
+    // ── UI 프레임: 배치를 한 번 매핑해 ProcessFrame에 넘긴다 ─────────────────
+    // 진입 시점의 포커스로 이벤트를 거른다. 네이티브 포커스가 이 배치 안에서 사라졌다면
+    // 배치의 WindowFocus(false)가 UI 포커스 시스템에 닿아야 하므로, 아래 LoseInputFocus는
+    // ProcessFrame **뒤**에 부른다.
+    const bool focusedOnEntry = inputFocused_;
+    const molga::OutputPresentationLayout inputPresentation =
+        molga::OutputPresentationLayout::Calculate(
+            RequestedScaleMode(), RequestedLogicalSize(), activeOutput_);
+    const auto uiViewport = molga::GameOutputRenderer::UiLogicalViewport(
+        RequestedScaleMode(), RequestedLogicalSize(), activeOutput_);
+    // 점 -> 물리 픽셀 배율은 레이아웃이 쓰는 framebufferScale 하나다(OnGUI가 SDL 밀도로
+    // 정했다). 매핑과 배치 매핑이 같은 값을 쓴다.
+    const double pixelsPerPointX = layout_.framebufferScale.x;
+    const double pixelsPerPointY = layout_.framebufferScale.y;
+    const molga::GraphicsDevice* device = molga::GraphicsDevice::Current();
+    auto mapping = molga::ui::MakeEmbeddedSurfaceMapping(
+        inputPresentation, imageScreenOrigin_.x - viewport->Pos.x,
+        imageScreenOrigin_.y - viewport->Pos.y, pixelsPerPointX, pixelsPerPointY,
+        layout_.physicalPixelsPerTexel, device ? device->Generation() : 0);
+    if (mapping && childClipValid_) {
+        mapping->ClipVisibleWindowPixels(
+            (childClipMin_.x - viewport->Pos.x) * pixelsPerPointX,
+            (childClipMin_.y - viewport->Pos.y) * pixelsPerPointY,
+            (childClipMax_.x - viewport->Pos.x) * pixelsPerPointX,
+            (childClipMax_.y - viewport->Pos.y) * pixelsPerPointY);
+    }
+    if (mapping && uiViewport) {
+        auto input = molga::ui::MapNativeInputBatch(
+            batch, nativeWindow, *mapping, pixelsPerPointX, pixelsPerPointY,
+            *textDiagnostics_);
+        if (input) {
+            if (!focusedOnEntry) molga::ui::DropUnfocusedPanelInput(*input);
+            input->logicalViewport = *uiViewport;
+            // tick은 ProcessFrame을 부르는 프레임에서만 진행한다: 일시정지·편집 구간의
+            // 시간은 UI 시간이 아니다.
+            input->uiTicks = tickClock_.AdvanceElapsedNanoseconds(
+                Time::GetElapsedNanoseconds(), *textDiagnostics_);
+            input->frameIndex = ++frameIndex_;
+            uiSurfaceWindow_ = nativeWindow;
+            uiSurfaceWorldGeneration_ = world_->Generation();
+            molga::ui::UIFrameResult result = UISystem::Get().ProcessFrame(
+                *world_, *input, textRenderer_->LayoutService(), *textDiagnostics_);
+            renderSnapshot_ = std::move(result.renderSnapshot);
+        }
+    }
+
+    // 포커스 없는 패널: 스크립트 입력은 풀어 두고 끝낸다(이전 동작).
+    if (!focusedOnEntry) {
+        Input::ReleaseAll();
+        return;
+    }
+    if (!nativeMetrics.focused) {
+        LoseInputFocus();
+        renderSnapshot_.reset();  // 이탈로 바뀐 hover/눌림 색을 OnGUI가 새로 짓는다.
+        return;
+    }
     molga::WindowPointerState pointer;
     if (!molga::QueryWindowPointer(nativeWindow, pointer)) {
         LoseInputFocus();
+        renderSnapshot_.reset();
         return;
     }
+
+    // ── 스크립트 입력(UI가 아니다): 기존 스냅샷 경로는 그대로다 ───────────────
     const molga::GameViewPoint screen{
         pointer.x + viewport->Pos.x,
         pointer.y + viewport->Pos.y};
     const auto targetPixel = layout_.ScreenToGamePixel(
         screen, {imageScreenOrigin_.x, imageScreenOrigin_.y});
-    const molga::OutputPresentationLayout inputPresentation =
-        molga::OutputPresentationLayout::Calculate(
-            RequestedScaleMode(), RequestedLogicalSize(), activeOutput_);
     const auto logicalPixel = targetPixel
         ? inputPresentation.FramebufferToLogical({targetPixel->x, targetPixel->y})
         : std::nullopt;
@@ -374,25 +484,13 @@ void GameViewWindow::ProcessPlayInput() {
         }
     }
     Input::ApplySnapshot(snapshot);
-
-    const bool rawDown = pointer.leftDown;
-    const bool pointerValid = logicalPixel.has_value();
-    if (!pointerValid) UISystem::Get().ResetPointerCapture();
-    UISystem::Get().ProcessInput(
-        *world_,
-        {static_cast<float>(inputPresentation.logicalSize.width),
-         static_cast<float>(inputPresentation.logicalSize.height)},
-        {{mappedX, mappedY}, pointerValid && rawDown,
-         pointerValid && rawDown && !rawMouseWasDown_,
-         pointerValid && !rawDown && rawMouseWasDown_, pointerValid});
-    rawMouseWasDown_ = rawDown;
 }
 
 void GameViewWindow::ResetPlayInput() {
     inputFocused_ = false;
     imageValid_ = false;
-    rawMouseWasDown_ = false;
     Input::DiscardPendingScroll(inputSourceWindow_);
     Input::ReleaseAll();
-    UISystem::Get().ResetPointerCapture();
+    DepartUIPointer();
+    ReleaseRetainedUISnapshots();
 }

@@ -614,6 +614,191 @@ TEST_CASE("UISurfaceCoordinateMapping maps standalone 1x, 2x and cropped output"
         OutputPresentationLayout{}, 3).has_value());
 }
 
+// Task 12.3 Step 6: 100% Game View에서 스크롤바가 있으면 이미지가 자식 창의 보이는 영역
+// 밖으로 삐져나온다. 그 밖의 점은 UI에 닿으면 안 된다.
+TEST_CASE("a clipped Game View panel hides the part under the scrollbar") {
+    // 320x180 논리, 1:1 대상, 이미지 원점 (10,20)점, 2x 밀도, 텍셀 하나 = 2 창 픽셀.
+    // 이미지는 창 픽셀 x 20..660, y 40..400.
+    const OutputPresentationLayout fit =
+        OutputPresentationLayout::IntegerFit({320, 180}, {320, 180});
+    auto mapping = molga::ui::MakeEmbeddedSurfaceMapping(
+        fit, 10.0, 20.0, 2.0, 2.0, 2.0, 3);
+    REQUIRE(mapping.has_value());
+    CheckPoint(mapping->WindowPixelToCanvas(600.0, 100.0), 290 * 64, 30 * 64);
+
+    // 자식 창의 보이는 영역이 x < 500, y < 300 (스크롤바가 나머지를 가린다).
+    mapping->ClipVisibleWindowPixels(0.0, 0.0, 500.0, 300.0);
+    CheckPoint(mapping->WindowPixelToCanvas(499.0, 299.0), 239 * 64 + 32, 129 * 64 + 32);
+    CHECK_FALSE(mapping->WindowPixelToCanvas(500.0, 100.0).has_value());
+    CHECK_FALSE(mapping->WindowPixelToCanvas(600.0, 100.0).has_value());
+    CHECK_FALSE(mapping->WindowPixelToCanvas(100.0, 300.0).has_value());
+    // 이미지 자체의 경계는 그대로다: 이미지 왼쪽 위 바깥은 여전히 밖.
+    CHECK_FALSE(mapping->WindowPixelToCanvas(19.0, 100.0).has_value());
+    CheckPoint(mapping->WindowPixelToCanvas(20.0, 40.0), 0, 0);
+
+    // 이미지보다 큰 클립은 아무것도 넓히지 않는다.
+    auto wide = molga::ui::MakeEmbeddedSurfaceMapping(fit, 10.0, 20.0, 2.0, 2.0, 2.0, 3);
+    REQUIRE(wide.has_value());
+    wide->ClipVisibleWindowPixels(-1000.0, -1000.0, 5000.0, 5000.0);
+    CHECK_FALSE(wide->WindowPixelToCanvas(19.0, 100.0).has_value());
+    CHECK_FALSE(wide->WindowPixelToCanvas(660.0, 100.0).has_value());
+    CHECK(wide->WindowPixelToCanvas(659.0, 399.0).has_value());
+
+    // 교집합이 비면 아무 점도 보이지 않는다.
+    auto disjoint = molga::ui::MakeEmbeddedSurfaceMapping(fit, 10.0, 20.0, 2.0, 2.0, 2.0, 3);
+    REQUIRE(disjoint.has_value());
+    disjoint->ClipVisibleWindowPixels(700.0, 700.0, 800.0, 800.0);
+    CHECK_FALSE(disjoint->WindowPixelToCanvas(100.0, 100.0).has_value());
+    CHECK_FALSE(disjoint->WindowPixelToCanvas(750.0, 750.0).has_value());
+
+    // 비유한 클립은 fail-closed다.
+    auto bad = molga::ui::MakeEmbeddedSurfaceMapping(fit, 10.0, 20.0, 2.0, 2.0, 2.0, 3);
+    REQUIRE(bad.has_value());
+    bad->ClipVisibleWindowPixels(0.0, 0.0, std::numeric_limits<double>::infinity(), 300.0);
+    CHECK_FALSE(bad->WindowPixelToCanvas(100.0, 100.0).has_value());
+
+    // 제한이 없던 매핑(분리 창 전체)에도 클립은 적용된다.
+    molga::ui::UISurfaceCoordinateMapping open;
+    open.canvasToOutput = mapping->canvasToOutput;
+    open.ClipVisibleWindowPixels(0.0, 0.0, 100.0, 100.0);
+    CHECK(open.visibleWindowPixelsValid);
+    CHECK(open.WindowPixelToCanvas(50.0, 50.0).has_value());
+    CHECK_FALSE(open.WindowPixelToCanvas(100.0, 50.0).has_value());
+}
+
+// 두 소유자(Game View, 런타임)의 매핑 캔버스와 UIFrameInput::logicalViewport는 같은
+// 표시 배치의 같은 논리 크기여야 한다. 어긋나면 RenderUiLayer가 스냅샷을 거절한다.
+TEST_CASE("the mapping canvas is exactly the UI logical viewport for every scale mode") {
+    struct Case {
+        molga::GameOutputScaleMode mode;
+        PixelSize logical;
+        PixelSize target;
+    };
+    const Case cases[] = {
+        {molga::GameOutputScaleMode::Native, {320, 180}, {800, 600}},
+        {molga::GameOutputScaleMode::IntegerFit, {320, 180}, {800, 600}},
+        {molga::GameOutputScaleMode::IntegerFit, {320, 180}, {160, 90}},
+        {molga::GameOutputScaleMode::IntegerFit, {5, 4}, {4, 3}},
+        {molga::GameOutputScaleMode::Native, {5, 4}, {1920, 1080}},
+    };
+    for (const Case& c : cases) {
+        CAPTURE(c.target.width);
+        const OutputPresentationLayout presentation =
+            OutputPresentationLayout::Calculate(c.mode, c.logical, c.target);
+        const auto viewport =
+            molga::GameOutputRenderer::UiLogicalViewport(c.mode, c.logical, c.target);
+        const auto embedded = molga::ui::MakeEmbeddedSurfaceMapping(
+            presentation, 3.0, 4.0, 2.0, 2.0, 1.5, 9);
+        const auto standalone = molga::ui::MakeStandaloneSurfaceMapping(presentation, 9);
+        REQUIRE(viewport.has_value());
+        REQUIRE(embedded.has_value());
+        REQUIRE(standalone.has_value());
+        CHECK(embedded->canvasToOutput.logicalViewport.width == viewport->width);
+        CHECK(embedded->canvasToOutput.logicalViewport.height == viewport->height);
+        CHECK(standalone->canvasToOutput.logicalViewport.width == viewport->width);
+        CHECK(standalone->canvasToOutput.logicalViewport.height == viewport->height);
+    }
+}
+
+// 씨앗(호스트가 점 x 밀도를 내림한 정수 창 픽셀)과 같은 자리의 첫 모션 이벤트(점)는
+// 같은 밀도로 같은 캔버스 점이 된다.
+TEST_CASE("the batch-start seed and a motion at the same pixel map to the same canvas point") {
+    using molga::platform::NativeInputBatch;
+    using molga::platform::NativeInputEvent;
+    using molga::platform::NativeInputEventKind;
+    using molga::platform::NativeSurfaceBatchStart;
+    constexpr molga::WindowId kSurface = 30;
+    const OutputPresentationLayout presentation =
+        OutputPresentationLayout::IntegerFit({320, 180}, {640, 360});
+    // 이미지 원점 (5,7)점, 밀도 2.0 (Game View 레이아웃의 framebufferScale), 텍셀 하나 =
+    // 2 창 픽셀.
+    const double density = 2.0;
+    const auto mapping = molga::ui::MakeEmbeddedSurfaceMapping(
+        presentation, 5.0, 7.0, density, density, 2.0, 3);
+    REQUIRE(mapping.has_value());
+
+    // 창 점 (55, 82) = 창 물리 픽셀 (110, 164): 정수 픽셀이므로 내림이 값을 바꾸지 않는다.
+    NativeSurfaceBatchStart seed;
+    seed.windowId = kSurface;
+    molga::platform::SeedPointerFromWindowPoint(seed, 55.0f, 82.0f, density);
+    REQUIRE(seed.pointerWindowPixelValid);
+    CHECK(seed.pointerWindowPixelX == 110);
+    CHECK(seed.pointerWindowPixelY == 164);
+    NativeInputEvent motion;
+    motion.sequence = 1;
+    motion.windowId = kSurface;
+    motion.kind = NativeInputEventKind::PointerMotion;
+    motion.x = 55.0f;
+    motion.y = 82.0f;
+    NativeInputBatch batch;
+    batch.surfaceStarts = {seed};
+    batch.events = {motion};
+    molga::text::VectorTextDiagnosticSink sink;
+    const auto input = molga::ui::MapNativeInputBatch(
+        batch, kSurface, *mapping, density, density, sink);
+    REQUIRE(input.has_value());
+    REQUIRE(input->pointerAtBatchStartValid);
+    REQUIRE(input->orderedEvents.size() == 1);
+    REQUIRE(input->orderedEvents[0].logicalPointValid);
+    CHECK(input->pointerAtBatchStart == input->orderedEvents[0].logicalPoint);
+}
+
+TEST_CASE("window metrics resolve one pixels-per-point source, density first") {
+    molga::WindowMetrics metrics;
+    metrics.logicalWidth = 800;
+    metrics.logicalHeight = 600;
+    metrics.pixelWidth = 1600;
+    metrics.pixelHeight = 1200;
+    metrics.pixelDensity = 2.0f;
+    auto scale = molga::ResolveWindowPixelsPerPoint(metrics);
+    REQUIRE(scale.has_value());
+    CHECK(scale->x == doctest::Approx(2.0));
+    CHECK(scale->y == doctest::Approx(2.0));
+
+    // 밀도 조회가 실패하면 픽셀/논리 크기다. 축마다 따로 계산한다.
+    metrics.pixelDensity = 0.0f;
+    metrics.pixelWidth = 1200;
+    metrics.pixelHeight = 900;
+    scale = molga::ResolveWindowPixelsPerPoint(metrics);
+    REQUIRE(scale.has_value());
+    CHECK(scale->x == doctest::Approx(1.5));
+    CHECK(scale->y == doctest::Approx(1.5));
+
+    // 밀도가 비유한/음수여도 같다. 둘 다 안 되면 배율을 지어내지 않는다.
+    metrics.pixelDensity = std::numeric_limits<float>::quiet_NaN();
+    CHECK(molga::ResolveWindowPixelsPerPoint(metrics).has_value());
+    metrics.pixelDensity = -1.0f;
+    CHECK(molga::ResolveWindowPixelsPerPoint(metrics).has_value());
+    metrics.logicalWidth = 0;
+    CHECK_FALSE(molga::ResolveWindowPixelsPerPoint(metrics).has_value());
+}
+
+TEST_CASE("an unfocused panel drops its events and seeds but keeps its ticks") {
+    molga::ui::UIFrameInput input;
+    input.frameIndex = 7;
+    input.windowId = 30;
+    input.logicalViewport = {molga::Fixed26_6::FromRaw(320 * 64),
+                             molga::Fixed26_6::FromRaw(180 * 64)};
+    molga::ui::UIInputEvent event;
+    event.sequence = 5;
+    input.orderedEvents = {event, event};
+    input.uiTicks = {{1, molga::Fixed26_6::FromRaw(1)}};
+    input.pointerAtBatchStart = {molga::Fixed26_6::FromRaw(64),
+                                 molga::Fixed26_6::FromRaw(128)};
+    input.pointerAtBatchStartValid = true;
+    input.nativeWindowFocusedAtBatchStart = true;
+
+    molga::ui::DropUnfocusedPanelInput(input);
+    CHECK(input.orderedEvents.empty());
+    CHECK_FALSE(input.pointerAtBatchStartValid);
+    CHECK_FALSE(input.nativeWindowFocusedAtBatchStart);
+    CHECK(input.pointerAtBatchStart.x.Raw() == 0);
+    CHECK(input.frameIndex == 7);
+    CHECK(input.windowId == 30);
+    CHECK(input.logicalViewport.width.Raw() == 320 * 64);
+    CHECK(input.uiTicks.size() == 1);
+}
+
 TEST_CASE("MapNativeInputBatch preserves order, sequence and signed values") {
     using molga::platform::NativeInputBatch;
     using molga::platform::NativeInputEvent;
