@@ -15,9 +15,10 @@
 **다음 순서: Task 12.3 → IME·텍스트 편집 → 에디터 저작·마이그레이션
 → 패키징·최종 qualification.**
 
-Task 12.2는 2026-10-18에 구현·검증을 마쳤다(Linux GCC 13 Debug, 커밋 `7f57c71`…`b9c0444`).
-단위 suite는 101개 중 98개 통과, 실패 3개는 기존 결함(아래 검증 현황)이다. **Release·ASan·UBSan과
-macOS 재실행은 하지 않았다.** 구현 상태와 검증 상태는 아래에서 별도로 기록한다.
+Task 12.2는 2026-10-18에 구현·검증을 마쳤다(Linux GCC 13, 커밋 `7f57c71`…`6c8431d`).
+단위 suite(`b9c0444` 기준)는 101개 중 98개 통과, 실패 3개는 기존 결함(아래 검증 현황)이다. ASan은 UI
+상호작용 4개 타깃(`test_ui_focus`·`test_ui_input`·`test_ui`·`test_ui_scroll`)만 실행해 통과했다.
+**Release·UBSan·macOS 재실행과 나머지 단위 suite의 ASan은 하지 않았다.** 구현 상태와 검증 상태는 아래에서 별도로 기록한다.
 Task 11.3 Step 5e 스크롤 수렴성 amendment는 `c72ac61`에 반영돼 있다.
 
 ## 현재 권위와 지원 범위
@@ -139,7 +140,7 @@ Step 5e amendment(2026-10-18)는 속도 감쇠를 0 방향 절단(`MulQ6TowardZe
 ### 2. Task 12.2 — 포커스·캡처·탐색·단일 이벤트 스크롤 (완료, 2026-10-18)
 
 권위: [하위 계획 04](superpowers/plans/2026-08-20-ui-text/04-ui-interaction-ime.md)의
-`Task 12.2`와 그 구현 기록. 계획의 단일 커밋 대신 7개 코드 커밋으로 반영됐다.
+`Task 12.2`와 그 구현 기록. 계획의 단일 커밋 대신 8개 코드 커밋으로 반영됐다.
 
 | 커밋 | 내용 |
 |---|---|
@@ -150,6 +151,7 @@ Step 5e amendment(2026-10-18)는 속도 감쇠를 0 방향 절단(`MulQ6TowardZe
 | `58f0b8c` | Step D: 명시적/자동 방향 탐색, `UINavigationCandidateLess` |
 | `f1a5667` | 수정: `Revalidate`의 다른 월드 스냅샷 방어, `ui.focus` 진단 사실당 1회 |
 | `b9c0444` | Step E: `UIScrollSystem::HandleEvent`, `ScrollAxisOf` |
+| `6c8431d` | 수정(ASan): `UIButton::ClearRuntimePointerState`가 `CaptureTarget` 대신 식별자를 직접 만든다 — `Objects()`를 제자리에서 비우는 도중의 `OnDisable`이 해제된 슬롯을 순회하지 않는다. 파괴된 버튼은 표 항목이 지워진다 |
 
 - [x] 컴포넌트 교체·삭제·비활성·상호작용 불가·월드 해제·pointer departure·native focus loss가 정확한 전체 identity로 구분된다.
 - [x] hover/pressed/clicked 상태가 router-owned 표로 이동했고 R7(두 클릭 권위, capture 상실 뒤 잔여 pressed)이 닫혔다.
@@ -185,7 +187,9 @@ Game View와 standalone runtime을 새 경로에 연결한다. 콜백이 RenderS
 - `UILayoutSystem.cpp`의 `button->CurrentColor()`(any-surface OR)를
   `ButtonState({surfaceWindowId, world.Generation()}, …)`로 바꾸고, 레거시 표면 키 `{0, gen}`,
   `UIButton::ApplyPointerState`, `UISystem::{capturedOwner_, capturedObjectId_, ResetPointerCapture}`를 지운다.
-  레거시 표면과 죽은 identity는 `Revalidate`(라우터 표면만 순회)/월드 해제 전까지 표에 남는다.
+  파괴된 오브젝트의 `UIButton` 항목은 `OnDisable`이 지운다(`6c8431d`). 그 밖의 죽은 identity(포커스된
+  `UISelectable`, 다른 소유자가 붙든 채 월드에서 빠진 오브젝트, `OnDisable` 없이 꺼진 컴포넌트)와 레거시
+  표면은 `Revalidate`(라우터 표면만 순회)/월드 해제 전까지 표에 남는다.
 - `Revalidate`는 N이 더는 게시하지 않는 기록(예: 비활성 `UICanvas` 서브트리)의 포커스를 유지한다 —
   key 계획이 대상 없이 끝날 뿐 무해하다. 자동 탐색은 clip/mask로 가려진 기록(빈 `logicalClip`)을 고를
   수 있다 — 권위 문서가 침묵한다.
@@ -386,7 +390,18 @@ smoke report가 존재한다. 이 기능 목록은 이번 갱신에서 전부 �
   (`an authored family wins over a legacy single-face pick`). `-tc`로 그 케이스 하나만 고르면 통과한다.
   `c72ac61`에서 이미 존재한 결함이며 원인은 미확인이다. 별도로 추적한다.
 
-**실행하지 않은 것:** Release, ASan, UBSan, macOS.
+**ASan(`build/asan`, 수정 커밋 `6c8431d` 이후):** `test_ui_focus`·`test_ui_input`·`test_ui`·`test_ui_scroll`
+4/4 통과. `ASAN_OPTIONS=new_delete_type_mismatch=0`으로 실행했다 — 빌드 중 실행되는 서드파티 DXC 셰이더
+컴파일러가 이 검사에 걸리기 때문이며, 누수 검사는 켜 두었다. 첫 ASan 실행이 `UIButton::OnDisable`의
+heap-use-after-free(`World::Objects()`를 제자리에서 비우는 도중의 `World::FindById` 순회)를 찾았고 `6c8431d`가
+고쳤다. 수정 뒤 Debug에서 `test_ui_input`(75 cases, 15.6초)·`test_ui_focus`(17 cases, 5.2초)를 다시 돌려
+통과했다. 위 표의 나머지 수치는 `b9c0444` 기준이다.
+
+**실행하지 않은 것:** Release, UBSan, macOS, 나머지 단위 suite의 ASan.
+
+**별도 추적(기존 결함):** 같은 순회 문제가 스크립트에도 있다 — `GameObject::InvokeOnDisable`이
+`ScriptInvocationBoundary::Resolve`를 거쳐 `World::FindById`를 부르므로, 장면 열기·프리팹 undo·`RemoveByIds`
+꼬리 삭제가 두 번째 이후 오브젝트의 `Script`에서 해제된 슬롯을 읽을 수 있다. 12.2가 만든 결함이 아니며 별도 작업으로 다룬다.
 
 ### 2026-10-18 Step 5e amendment 검증 — Linux GCC 13 Debug (macOS 재실행 없음)
 

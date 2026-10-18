@@ -1042,7 +1042,7 @@ a stale snapshot` guards it.
 
 #### Implementation record — Task 12.2 (2026-10-18)
 
-Landed as eight commits on `claude/brave-carson-cv9y49` instead of Step 9's single
+Landed as ten commits on `claude/brave-carson-cv9y49` instead of Step 9's single
 commit (the red gate and the review loop made one commit per step the honest unit):
 
 | Commit | Content |
@@ -1054,7 +1054,9 @@ commit (the red gate and the review loop made one commit per step the honest uni
 | `58f0b8c` | Step D: explicit and automatic navigation projected from snapshot N, `UINavigationCandidateLess` |
 | `f1a5667` | fix after the C–D review: foreign-snapshot guard in `Revalidate`, once-per-fact `ui.focus` reports |
 | `b9c0444` | Step E: `UIScrollSystem::HandleEvent`, `ScrollAxisOf` |
-| (이 커밋) | this record and `docs/now_going.md` |
+| `b2d2403` | this record and `docs/now_going.md` |
+| `6c8431d` | fix after ASan: `UIButton::ClearRuntimePointerState` builds the identity directly (world generation, object id, runtime type id, instance id) instead of through `CaptureTarget`, so `OnDisable` during an in-place teardown of `World::Objects()` no longer walks freed slots (heap-use-after-free); destroying a button now clears its table entries |
+| (이 커밋) | ASan record and the `6c8431d` semantics |
 
 **User decisions (2026-10-18).**
 - **Q1 — `UIInputEvent::control` domain: engine enums.** `Key` = `static_cast<uint32_t>(Input::KeyCode)`
@@ -1181,8 +1183,16 @@ to move nothing).
 - `OnNativeWindowFocusLost(WindowId)` clears **every generation** of that window.
 - The test fixture's `Dispatch` does not call `Revalidate`; tests call it where the lifecycle needs it.
 - `SetEnabledFromSerializedState(false)` disables a component without `OnDisable`, so `Revalidate` is the
-  only cleanup for that path (the lifecycle matrix uses it on purpose). `RemoveComponent` and a running
-  world's `SetActive(false)` clean up through `OnDisable` first, which pre-empts `Revalidate`.
+  only cleanup for that path (the lifecycle matrix uses it on purpose). `RemoveComponent`, a running
+  world's `SetActive(false)`, and destroying the GameObject (`World::RemoveByIds` when the World held the
+  last reference, a scene replaced through `Objects()`, `World::Clear`/teardown) clean up through
+  `UIButton::OnDisable` first, which pre-empts `Revalidate`. `OnDisable` clears by an identity built
+  directly from the owner's world generation, object id, runtime type id and instance id, without the
+  `World::FindById` membership check: during an in-place teardown of `objects_` that walk reads freed
+  slots (fix `6c8431d`). Component instance ids are process-unique and never reused, so that identity can
+  only name the component being disabled. An object removed while another owner still holds it (an
+  editor delete kept for undo) is not destroyed and gets no `OnDisable`; its entries stay until
+  `Revalidate`, a stale release, or world release.
 - **Step 3's red gate was not run as written**, so Step 3 stays unticked: for Steps C and D the code
   was written before the tests; for Step E the tests were written first but the failing build was not
   executed separately. The mutation runs below are the evidence that the tests discriminate. Step 9 stays
@@ -1221,7 +1231,12 @@ separately and not a 12.2 regression. The registered test count is 110 (109 + `t
 `rg 'orderedEvents' src/UI` still finds only the `UIFrameInput` field and its comment; the
 `Drain(Text|NativeText)|PendingTextEvents|vector<.*PlannedUIEvent>` search finds nothing in
 `src/UI src/Platform src/Core`; `ApplyPointerState` appears only in `UIButton.*`, `UISystem.cpp` (legacy) and
-a comment. **Not run:** Release, ASan, UBSan, macOS.
+a comment. **ASan (Linux GCC 13, `build/asan`, after fix `6c8431d`):** `test_ui_focus`, `test_ui_input`,
+`test_ui` and `test_ui_scroll` 4/4 passed with `ASAN_OPTIONS=new_delete_type_mismatch=0` (the third-party
+DXC shader compiler run during the build trips that check; leak detection stayed on). The first ASan run
+found the `UIButton::OnDisable` heap-use-after-free fixed in `6c8431d`. After that fix, Debug
+`test_ui_input` (75 cases, 15.6 s) and `test_ui_focus` (17 cases, 5.2 s) were re-run and passed; the other
+Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan for the rest of the unit suite.
 
 **Carried forward, each with an owner.**
 - **Task 12.3.** Seed `UIPlanningState` from `UIInteractionStateTable::Surface`; reconcile the router's
@@ -1234,7 +1249,9 @@ a comment. **Not run:** Release, ASan, UBSan, macOS.
   next write or world release — 12.3 owns the per-frame reset. Switch `UILayoutSystem.cpp` (the
   `CurrentColor()` call in `Build`) to `ButtonState({surfaceWindowId, world.Generation()}, …)`, then delete
   the legacy surface key, `UIButton::ApplyPointerState`, and `UISystem::{capturedOwner_, capturedObjectId_,
-  ResetPointerCapture}`. Dead identities and the legacy `{0, gen}` surface stay in the table until
+  ResetPointerCapture}`. A destroyed object's `UIButton` entries are cleared by its `OnDisable` (`6c8431d`); other dead
+  identities (a focused `UISelectable`, an object removed while another owner holds it, a component
+  disabled without `OnDisable`) and the legacy `{0, gen}` surface stay in the table until
   `Revalidate`/`OnWorldReleased` (`Revalidate` walks router surfaces only); harmless because identities are
   never reused, but a leak until then. `Revalidate` keeps a focus whose record N no longer publishes (for
   example a disabled `UICanvas` subtree): key plans become targetless. Automatic navigation may choose a
