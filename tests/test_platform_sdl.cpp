@@ -456,6 +456,48 @@ TEST_CASE("a native batch finds one surface seed and refuses duplicates") {
     CHECK_FALSE(c == a);
 }
 
+TEST_CASE("the pointer seed is floor(point x density) and never invents a position") {
+    using molga::platform::NativeSurfaceBatchStart;
+    using molga::platform::SeedPointerFromWindowPoint;
+    NativeSurfaceBatchStart start;
+
+    // 정상: floor(점 * 밀도). 음수는 floor(내림)이다.
+    SeedPointerFromWindowPoint(start, 10.75f, 4.5f, 2.0);
+    CHECK(start.pointerWindowPixelValid);
+    CHECK(start.pointerWindowPixelX == 21);
+    CHECK(start.pointerWindowPixelY == 9);
+    SeedPointerFromWindowPoint(start, -0.25f, 3.0f, 2.0);
+    CHECK(start.pointerWindowPixelValid);
+    CHECK(start.pointerWindowPixelX == -1);
+    CHECK(start.pointerWindowPixelY == 6);
+    // 진짜 (0,0)은 유효하다.
+    SeedPointerFromWindowPoint(start, 0.0f, 0.0f, 1.0);
+    CHECK(start.pointerWindowPixelValid);
+    CHECK(start.pointerWindowPixelX == 0);
+    CHECK(start.pointerWindowPixelY == 0);
+
+    // 밀도 조회 실패(SDL은 0.0을 낸다)나 비정상 밀도는 (0,0) 유효 씨앗이 아니라 무효다.
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    for (double density : {0.0, -1.0, nan, inf}) {
+        NativeSurfaceBatchStart failed;
+        failed.pointerWindowPixelX = 77;   // 이전 값이 남지 않는다
+        failed.pointerWindowPixelValid = true;
+        SeedPointerFromWindowPoint(failed, 12.0f, 34.0f, density);
+        CHECK_FALSE(failed.pointerWindowPixelValid);
+        CHECK(failed.pointerWindowPixelX == 0);
+        CHECK(failed.pointerWindowPixelY == 0);
+    }
+    // 비유한 점과 int32 범위 밖은 무효다.
+    NativeSurfaceBatchStart bad;
+    SeedPointerFromWindowPoint(bad, std::numeric_limits<float>::quiet_NaN(), 1.0f, 1.0);
+    CHECK_FALSE(bad.pointerWindowPixelValid);
+    SeedPointerFromWindowPoint(bad, 3.0e9f, 1.0f, 1.0);
+    CHECK_FALSE(bad.pointerWindowPixelValid);
+    SeedPointerFromWindowPoint(bad, 1.0f, -3.0e9f, 1.0);
+    CHECK_FALSE(bad.pointerWindowPixelValid);
+}
+
 // 호스트 수준: 창이 필요하므로 macOS(디스플레이가 있는 환경)에서만 돈다.
 TEST_CASE("EngineHost hands a native batch over exactly once") {
     WindowConfig config;
@@ -502,7 +544,8 @@ TEST_CASE("EngineHost hands a native batch over exactly once") {
     CHECK(ours[0].keyModifiers.control);
     CHECK(ours[1].kind == NativeInputEventKind::Scroll);
     CHECK(ours[1].deltaY == -2.0f);
-    CHECK(ours[1].sequence > ours[0].sequence);
+    // 사이의 TEXT_INPUT이 시퀀스 하나를 소비했다: 간격이 2 이상이다.
+    CHECK(ours[1].sequence >= ours[0].sequence + 2);
     // 창 하나당 씨앗 하나.
     REQUIRE(batch.FindSurface(windowId) != nullptr);
 
@@ -527,6 +570,36 @@ TEST_CASE("EngineHost hands a native batch over exactly once") {
         }
     }
     CHECK(sawA);
+
+    molga::text::VectorTextDiagnosticSink shutdownSink;
+    CHECK(EngineShutdown(host, shutdownSink) == EngineShutdownStatus::Complete);
+}
+
+// 호스트 수준(macOS): 시퀀스가 소진되면 호스트는 이벤트 하나씩만 처리하고 아무것도
+// 배치에 넣지 않지만, 종료 요청은 여전히 닫는다.
+TEST_CASE("an exhausted native sequence still honors a quit request and appends nothing") {
+    WindowConfig config;
+    config.title = "Molga native exhaustion";
+    config.width = 320;
+    config.height = 180;
+    config.visible = false;
+    auto host = EngineInit(config);
+    REQUIRE(host);
+    // 창 시작 이벤트가 큐에 남아 있을 수 있어 먼저 비운다.
+    host->PollEvents();
+    (void)host->TakeNativeInputBatch();
+
+    {
+        molga::platform::ScopedNativeInputSequenceForTesting guard(
+            std::numeric_limits<std::uint64_t>::max());
+        SDL_Event quit{};
+        quit.type = SDL_EVENT_QUIT;
+        Push(quit);
+        host->PollEvents();
+        const molga::platform::NativeInputBatch batch = host->TakeNativeInputBatch();
+        CHECK(host->ShouldClose());
+        CHECK(batch.events.empty());
+    }
 
     molga::text::VectorTextDiagnosticSink shutdownSink;
     CHECK(EngineShutdown(host, shutdownSink) == EngineShutdownStatus::Complete);

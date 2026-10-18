@@ -544,7 +544,8 @@ TEST_CASE("UISurfaceCoordinateMapping maps standalone 1x, 2x and cropped output"
     CHECK_FALSE(embeddedCrop->WindowPixelToCanvas(9.5, 20.0).has_value());
     CHECK_FALSE(embeddedCrop->WindowPixelToCanvas(14.0, 20.0).has_value());
 
-    // 분리된 창: 원점 (0,0), 2x 밀도, 텍셀 하나 = 2 창 픽셀 -> 논리 픽셀 = 4 창 픽셀.
+    // 분리된 창: 원점 (0,0), 2x 밀도, 텍셀 하나 = 2 창 픽셀, scale 1 -> 논리 픽셀 =
+    // 2 창 픽셀.
     const OutputPresentationLayout fit =
         OutputPresentationLayout::IntegerFit({320, 180}, {320, 180});
     const auto detached = molga::ui::MakeEmbeddedSurfaceMapping(
@@ -553,6 +554,19 @@ TEST_CASE("UISurfaceCoordinateMapping maps standalone 1x, 2x and cropped output"
     CHECK(detached->windowPixelsPerOutputPixelX == doctest::Approx(2.0));
     CheckPoint(detached->WindowPixelToCanvas(320.0, 180.0), 160 * 64, 90 * 64);
     CHECK_FALSE(detached->WindowPixelToCanvas(640.0, 100.0).has_value());
+
+    // 0이 아닌 원점 (5,7)점 + 2x 밀도: 이미지 원점 = 창 픽셀 (10,14). 논리 (100,50)은
+    // 창 픽셀 (10 + 2*100, 14 + 2*50) = (210, 114)이고, 원점 바로 안쪽/바깥을 가른다.
+    const auto offset = molga::ui::MakeEmbeddedSurfaceMapping(
+        fit, 5.0, 7.0, 2.0, 2.0, 2.0, 3);
+    REQUIRE(offset.has_value());
+    CheckPoint(offset->WindowPixelToCanvas(10.0, 14.0), 0, 0);
+    CheckPoint(offset->WindowPixelToCanvas(210.0, 114.0), 100 * 64, 50 * 64);
+    CHECK_FALSE(offset->WindowPixelToCanvas(9.0, 14.0).has_value());
+    CHECK_FALSE(offset->WindowPixelToCanvas(10.0, 13.0).has_value());
+    // 오른쪽/아래 끝은 반열린 구간: 10 + 640 = 650 은 밖이다.
+    CHECK(offset->WindowPixelToCanvas(649.0, 14.0).has_value());
+    CHECK_FALSE(offset->WindowPixelToCanvas(650.0, 14.0).has_value());
 
     // 잘못된 입력은 매핑을 만들지 않는다.
     CHECK_FALSE(molga::ui::MakeEmbeddedSurfaceMapping(
@@ -802,6 +816,92 @@ TEST_CASE("MapNativeInputBatch reports non-finite values once and keeps the sequ
     CHECK(sink.Diagnostics().size() == 1);
 }
 
+TEST_CASE("MapNativeInputBatch rejects an unusable pixel scale once and leaves every pointer invalid") {
+    using molga::platform::NativeInputBatch;
+    using molga::platform::NativeInputEvent;
+    using molga::platform::NativeInputEventKind;
+    using molga::platform::NativeSurfaceBatchStart;
+
+    const OutputPresentationLayout presentation =
+        OutputPresentationLayout::IntegerFit({320, 180}, {800, 600});
+    const auto mapping = molga::ui::MakeStandaloneSurfaceMapping(presentation, 3);
+    REQUIRE(mapping.has_value());
+
+    NativeInputEvent key;
+    key.sequence = 7;
+    key.windowId = 10;
+    key.kind = NativeInputEventKind::Key;
+    key.control = 40;
+    key.active = true;
+    NativeInputEvent motion;
+    motion.sequence = 8;
+    motion.windowId = 10;
+    motion.kind = NativeInputEventKind::PointerMotion;
+    motion.x = 400.0f;
+    motion.y = 300.0f;
+    NativeInputEvent scroll;
+    scroll.sequence = 9;
+    scroll.windowId = 10;
+    scroll.kind = NativeInputEventKind::Scroll;
+    scroll.deltaY = 2.0f;
+    scroll.x = 400.0f;
+    scroll.y = 300.0f;
+    NativeInputEvent axis;
+    axis.sequence = 10;
+    axis.windowId = 10;
+    axis.kind = NativeInputEventKind::GamepadAxis;
+    axis.axisValue = 0.5f;
+    NativeSurfaceBatchStart seed;
+    seed.windowId = 10;
+    seed.nativeWindowFocused = true;
+    seed.pointerWindowPixelX = 400;
+    seed.pointerWindowPixelY = 300;
+    seed.pointerWindowPixelValid = true;
+    NativeInputBatch batch;
+    batch.events = {key, motion, scroll, axis};
+    batch.surfaceStarts = {seed};
+
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double inf = std::numeric_limits<double>::infinity();
+    const double scales[][2] = {{0.0, 1.0}, {1.0, 0.0}, {-1.0, 1.0}, {1.0, -2.0},
+                                {nan, 1.0}, {1.0, nan}, {inf, 1.0}, {1.0, inf}};
+    for (const auto& scale : scales) {
+        molga::text::VectorTextDiagnosticSink sink;
+        const auto input = molga::ui::MapNativeInputBatch(
+            batch, 10, *mapping, scale[0], scale[1], sink);
+        REQUIRE(input.has_value());
+        // 진단은 배치당 정확히 한 번.
+        CHECK(CountDiagnostics(sink, molga::text::TextDiagnosticCode::LayoutInvalid,
+                               "ui.frame") == 1);
+        CHECK(sink.Diagnostics().size() == 1);
+        // 순서·시퀀스·비포인터 필드는 그대로 옮긴다.
+        CHECK(input->nativeWindowFocusedAtBatchStart);
+        REQUIRE(input->orderedEvents.size() == 4);
+        CHECK(input->orderedEvents[0].sequence == 7);
+        CHECK(input->orderedEvents[0].control == 40);
+        CHECK(input->orderedEvents[0].active);
+        CHECK(input->orderedEvents[1].sequence == 8);
+        CHECK(input->orderedEvents[2].sequence == 9);
+        CHECK(input->orderedEvents[2].logicalDelta.y.Raw() == 2 * 64);
+        CHECK(input->orderedEvents[3].sequence == 10);
+        CHECK(input->orderedEvents[3].axisValue.Raw() == 32);
+        // 모든 포인터가 무효다: 씨앗도 이벤트도 (0,0)을 지어내지 않는다.
+        CHECK_FALSE(input->pointerAtBatchStartValid);
+        for (const auto& event : input->orderedEvents) {
+            CHECK_FALSE(event.logicalPointValid);
+        }
+    }
+
+    // 정상 배율이면 같은 배치가 진단 없이 모두 유효하다.
+    molga::text::VectorTextDiagnosticSink goodSink;
+    const auto good = molga::ui::MapNativeInputBatch(batch, 10, *mapping, 1.0, 1.0, goodSink);
+    REQUIRE(good.has_value());
+    CHECK(good->pointerAtBatchStartValid);
+    CHECK(good->orderedEvents[1].logicalPointValid);
+    CHECK(good->orderedEvents[2].logicalPointValid);
+    CHECK(goodSink.Diagnostics().empty());
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Task 12.3 Step 3: 프로덕션 고정 UI tick 시계.
 //
@@ -847,12 +947,54 @@ TEST_CASE("UIFixedTickClock emits one 1/64 s tick per complete interval and keep
     CHECK(exact[0].tickIndex == 4);
     // 0은 시간이 흐르지 않은 것이다: tick도 진단도 없다.
     CHECK(clock.AdvanceElapsedNanoseconds(0, sink).empty());
-    // 한 번에 많은 걸음: 1초 = 64 tick, 인덱스는 이어진다.
+    // 한 번에 많은 걸음: 1초 = 64걸음이지만 한 호출은 16 tick(0.25초)에서 멈춘다.
+    // 초과분은 버려지고 이월은 total % Step = 0이며 인덱스는 이어진다.
+    static_assert(UIFixedTickClock::MaxTicksPerCall == 16, "0.25 s per call");
     const auto second = clock.AdvanceElapsedNanoseconds(1'000'000'000, sink);
-    REQUIRE(second.size() == 64);
+    REQUIRE(second.size() == 16);
     CHECK(second.front().tickIndex == 5);
-    CHECK(second.back().tickIndex == 68);
+    CHECK(second.back().tickIndex == 20);
+    // 버려진 48걸음이 이월로 되살아나지 않는다: 이월 0이므로 한 걸음 모자라면 tick 없음.
+    CHECK(clock.AdvanceElapsedNanoseconds(UIFixedTickClock::StepNanoseconds - 1, sink).empty());
+    const auto next = clock.AdvanceElapsedNanoseconds(1, sink);
+    REQUIRE(next.size() == 1);
+    CHECK(next[0].tickIndex == 21);
     CHECK(sink.Diagnostics().empty());
+}
+
+TEST_CASE("UIFixedTickClock caps one call at 16 ticks and keeps the sub-step remainder") {
+    using molga::ui::UIFixedTickClock;
+    molga::text::VectorTextDiagnosticSink sink;
+    UIFixedTickClock clock;
+    UIFixedTickClock twin;
+
+    // 정확히 16걸음은 상한 안이다.
+    const auto exact = clock.AdvanceElapsedNanoseconds(
+        16 * UIFixedTickClock::StepNanoseconds, sink);
+    CHECK(exact.size() == 16);
+    CHECK(twin.AdvanceElapsedNanoseconds(16 * UIFixedTickClock::StepNanoseconds, sink) == exact);
+    // 17걸음 + 3ms: 16 tick, 이월 = total % Step = 3ms(버려진 한 걸음은 사라진다).
+    const std::uint64_t stalled = 17 * UIFixedTickClock::StepNanoseconds + 3'000'000;
+    const auto capped = clock.AdvanceElapsedNanoseconds(stalled, sink);
+    REQUIRE(capped.size() == 16);
+    CHECK(capped.front().tickIndex == 17);
+    CHECK(capped.back().tickIndex == 32);
+    // 이월 3ms가 살아 있다: 12.625ms를 더하면 정확히 한 걸음, 모자라면 없음.
+    CHECK(clock.AdvanceElapsedNanoseconds(12'624'999, sink).empty());
+    const auto one = clock.AdvanceElapsedNanoseconds(1, sink);
+    REQUIRE(one.size() == 1);
+    CHECK(one[0].tickIndex == 33);
+
+    // 같은 입력을 받은 두 시계는 같은 상태다(소유자마다 달라지지 않는다).
+    CHECK(twin.AdvanceElapsedNanoseconds(stalled, sink) == capped);
+    CHECK(twin.AdvanceElapsedNanoseconds(12'624'999, sink).empty());
+    CHECK(twin.AdvanceElapsedNanoseconds(1, sink) == one);
+    // 매우 큰 정지도 16 tick이고 진단이 없다.
+    UIFixedTickClock big;
+    CHECK(big.AdvanceElapsedNanoseconds(3'600'000'000'000ULL, sink).size() == 16);
+    CHECK(sink.Diagnostics().empty());
+    // 상한 안의 tick 열은 한 묶음으로 유효하다.
+    CHECK(molga::ui::UIDeterministicTickBatchIsValid(capped));
 }
 
 TEST_CASE("UIFixedTickClock fails closed before its index can wrap or its carry overflow") {
@@ -903,17 +1045,25 @@ TEST_CASE("UIFixedTickClock fails closed before its index can wrap or its carry 
 TEST_CASE("Time records one monotonic elapsed sample per Update") {
     Time::Init();
     CHECK(Time::GetElapsedNanoseconds() == 0);
+    // Init과 첫 Update 사이(프로젝트 선택·씬 로드)는 UI 시간이 아니다: 첫 표본은 0.
     std::this_thread::sleep_for(std::chrono::milliseconds(3));
     Time::Update();
-    const std::uint64_t first = Time::GetElapsedNanoseconds();
-    CHECK(first >= 3'000'000);
-    CHECK(first < 5'000'000'000ULL);
+    CHECK(Time::GetElapsedNanoseconds() == 0);
+    // 둘째 Update부터 직전 Update 이후의 실제 간격이다.
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    Time::Update();
+    const std::uint64_t second = Time::GetElapsedNanoseconds();
+    CHECK(second >= 3'000'000);
+    CHECK(second < 5'000'000'000ULL);
     // 샘플은 Update가 기록한 한 값이다: 읽기만으로는 변하지 않는다.
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    CHECK(Time::GetElapsedNanoseconds() == first);
+    CHECK(Time::GetElapsedNanoseconds() == second);
     Time::Update();
     CHECK(Time::GetElapsedNanoseconds() >= 2'000'000);
-    // Init은 표본을 되돌린다.
+    // Init은 표본을 되돌리고 첫 Update는 다시 0을 기록한다.
     Time::Init();
+    CHECK(Time::GetElapsedNanoseconds() == 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    Time::Update();
     CHECK(Time::GetElapsedNanoseconds() == 0);
 }

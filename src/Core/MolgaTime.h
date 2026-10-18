@@ -13,7 +13,8 @@ public:
     static int GetFrameCount() { return frameCount; }
 
     // Update가 기록한 마지막 프레임 간격(나노초, steady_clock). Init 직후와 첫
-    // Update 전에는 0이다. deltaTime과 달리 0.25초로 자르지 않은 원본 표본이며,
+    // Update 전에는 0이고, 첫 Update도 0을 기록한다(Init 이후 로딩 시간은 UI
+    // 시간이 아니다). deltaTime과 달리 0.25초로 자르지 않은 원본 표본이며,
     // 프레임 소유자가 한 프레임에 한 번 읽어 UI tick 시계에 넘긴다.
     static std::uint64_t GetElapsedNanoseconds() { return elapsedNanoseconds; }
 
@@ -39,6 +40,7 @@ private:
     static float lastTime;
     static std::uint64_t lastNanoseconds;
     static std::uint64_t elapsedNanoseconds;
+    static bool firstUpdatePending;
     static float currentTime;
     static float fps;
     static int frameCount;

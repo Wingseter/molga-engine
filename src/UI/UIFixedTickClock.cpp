@@ -35,6 +35,10 @@ std::vector<UIDeterministicTick> UIFixedTickClock::AdvanceElapsedNanoseconds(
     const std::uint64_t total = carryNanoseconds_ + elapsedNanoseconds;
     std::uint64_t remaining = total / StepNanoseconds;
     std::uint64_t carry = total % StepNanoseconds;
+    // 한 호출이 내는 tick은 최대 MaxTicksPerCall(0.25초). 디버거 정지 같은 긴
+    // 정지 뒤에 UI가 수백 tick을 몰아 돌지 않도록 초과분은 버린다. 입력만의
+    // 순수 함수라 두 소유자가 같다. 정지는 정상이므로 진단은 없다.
+    if (remaining > MaxTicksPerCall) remaining = MaxTicksPerCall;
 
     while (remaining > 0) {
         // 다음 인덱스가 UINT64_MAX이면 그 다음은 감긴다. 감기기 전에 멈춘다.

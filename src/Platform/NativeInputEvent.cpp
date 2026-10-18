@@ -1,6 +1,7 @@
 #include "Platform/NativeInputEvent.h"
 
 #include <atomic>
+#include <cmath>
 #include <limits>
 
 namespace molga::platform {
@@ -19,6 +20,25 @@ const NativeSurfaceBatchStart* NativeInputBatch::FindSurface(
         found = &start;
     }
     return found;
+}
+
+void SeedPointerFromWindowPoint(NativeSurfaceBatchStart& start, float x, float y,
+                                double pixelDensity) noexcept {
+    start.pointerWindowPixelX = 0;
+    start.pointerWindowPixelY = 0;
+    start.pointerWindowPixelValid = false;
+    if (!std::isfinite(pixelDensity) || pixelDensity <= 0.0) return;
+    const double px = std::floor(static_cast<double>(x) * pixelDensity);
+    const double py = std::floor(static_cast<double>(y) * pixelDensity);
+    constexpr double kMin = static_cast<double>(std::numeric_limits<std::int32_t>::min());
+    constexpr double kMax = static_cast<double>(std::numeric_limits<std::int32_t>::max());
+    if (!std::isfinite(px) || !std::isfinite(py) || px < kMin || px > kMax ||
+        py < kMin || py > kMax) {
+        return;
+    }
+    start.pointerWindowPixelX = static_cast<std::int32_t>(px);
+    start.pointerWindowPixelY = static_cast<std::int32_t>(py);
+    start.pointerWindowPixelValid = true;
 }
 
 std::optional<std::uint64_t> AcquireNativeInputSequence() noexcept {

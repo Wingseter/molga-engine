@@ -73,6 +73,12 @@ struct NativeSurfaceBatchStart {
     }
 };
 
+// 창 점 좌표(x, y)와 창 픽셀 밀도로 포인터 씨앗을 채운다: floor(점 * 밀도)를
+// int32로 검사해 넣는다. 밀도가 유한한 양수가 아니거나(SDL의 조회 실패는 0.0)
+// 값이 비유한/범위 밖이면 씨앗을 유효하게 만들지 않는다 — (0,0)을 지어내지 않는다.
+void SeedPointerFromWindowPoint(NativeSurfaceBatchStart& start, float x, float y,
+                                double pixelDensity) noexcept;
+
 // take-once 배치. 호스트가 폴링마다 하나 만들고, 소비자가 정확히 한 번 가져간다.
 struct NativeInputBatch {
     std::vector<NativeInputEvent> events;

@@ -23,6 +23,10 @@ public:
     // 1/64초. 모든 tick의 deltaSeconds raw는 1이다.
     static constexpr std::uint64_t StepNanoseconds = 15'625'000;
 
+    // 한 호출이 내는 tick의 상한(16 = 0.25초). 사용자 결정으로 권위 문서의 "상한
+    // 없음"에서 벗어난다: 상한을 넘는 완전한 걸음은 버려지고 이월은 total % Step이다.
+    static constexpr std::uint64_t MaxTicksPerCall = 16;
+
     // 이월 + 경과 안의 완전한 걸음마다 tick 하나. 인덱스가 감기기 직전이거나
     // 이월 합이 넘치면 tick을 내지 않고 진단을 낸다(Blocker/Error, "ui.frame").
     std::vector<UIDeterministicTick> AdvanceElapsedNanoseconds(

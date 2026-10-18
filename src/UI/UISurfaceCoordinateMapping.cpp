@@ -149,8 +149,19 @@ std::optional<UIFrameInput> MapNativeInputBatch(
     UIFrameInput input;
     input.windowId = surfaceWindowId;
     input.nativeWindowFocusedAtBatchStart = seed->nativeWindowFocused;
+    // 점 -> 픽셀 배율이 유한한 양수가 아니면 포인터 좌표를 믿을 수 없다. 진단 한 번,
+    // 씨앗과 모든 이벤트의 포인터를 무효로 두고 순서·시퀀스·비포인터 필드는 그대로 옮긴다.
+    const bool scaleUsable = PositiveFinite(windowPixelsPerPointX) &&
+                             PositiveFinite(windowPixelsPerPointY);
+    if (!scaleUsable) {
+        Report(sink, molga::text::TextDiagnosticCode::LayoutInvalid,
+               "the window pixels-per-point scale is not a finite positive "
+               "number",
+               "pass the window's pixel density; every pointer in this batch "
+               "was left invalid");
+    }
     // 씨앗은 이미 창 물리 픽셀이다. 없으면 (0,0)을 지어내지 않는다.
-    if (seed->pointerWindowPixelValid) {
+    if (scaleUsable && seed->pointerWindowPixelValid) {
         const auto point = mapping.WindowPixelToCanvas(
             static_cast<double>(seed->pointerWindowPixelX),
             static_cast<double>(seed->pointerWindowPixelY));
@@ -208,7 +219,7 @@ std::optional<UIFrameInput> MapNativeInputBatch(
         const bool pointerKind = native.kind == Kind::PointerMotion ||
                                  native.kind == Kind::PointerButton ||
                                  native.kind == Kind::Scroll;
-        if (pointerKind && native.windowId == surfaceWindowId) {
+        if (scaleUsable && pointerKind && native.windowId == surfaceWindowId) {
             const double pixelX =
                 static_cast<double>(native.x) * windowPixelsPerPointX;
             const double pixelY =

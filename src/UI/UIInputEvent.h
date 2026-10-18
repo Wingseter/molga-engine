@@ -76,7 +76,7 @@ struct UIInputEvent {
     //   Key           -> static_cast<uint32_t>(Input::KeyCode) (HID 위치, 배열 무관)
     //   GamepadButton -> Input::GamepadButton
     //   GamepadAxis   -> Input::GamepadAxis
-    //   PointerButton -> Input::MouseButton (Task 13.2가 채운다)
+    //   PointerButton -> Input::MouseButton (Task 12.3 호스트 수집이 채운다)
     // 이 값을 해석하는 곳은 UINavigationDirectionOf(UIFocusSystem)와
     // ScrollAxisOf(UIScrollSystem) 둘뿐이다.
     std::uint32_t control = 0;

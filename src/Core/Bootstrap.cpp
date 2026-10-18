@@ -269,18 +269,9 @@ void BuildSurfaceStarts(molga::platform::NativeInputBatch& batch) {
             float x = 0.0f;
             float y = 0.0f;
             SDL_GetMouseState(&x, &y);
-            // 창 점 -> 창 물리 픽셀. 비유한/범위 밖이면 유효하지 않다.
-            const double density = SDL_GetWindowPixelDensity(window);
-            const double px = std::floor(static_cast<double>(x) * density);
-            const double py = std::floor(static_cast<double>(y) * density);
-            constexpr double kMin = static_cast<double>(std::numeric_limits<std::int32_t>::min());
-            constexpr double kMax = static_cast<double>(std::numeric_limits<std::int32_t>::max());
-            if (std::isfinite(px) && std::isfinite(py) && px >= kMin &&
-                px <= kMax && py >= kMin && py <= kMax) {
-                start.pointerWindowPixelX = static_cast<std::int32_t>(px);
-                start.pointerWindowPixelY = static_cast<std::int32_t>(py);
-                start.pointerWindowPixelValid = true;
-            }
+            // 창 점 -> 창 물리 픽셀. 밀도 조회 실패/비유한/범위 밖이면 유효하지 않다.
+            molga::platform::SeedPointerFromWindowPoint(
+                start, x, y, SDL_GetWindowPixelDensity(window));
         }
         batch.surfaceStarts.push_back(start);
     }
