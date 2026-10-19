@@ -16,7 +16,6 @@
 #include "Common/Fixed26_6.h"
 #include "Text/TextDiagnostic.h"
 #include "Text/TextLayoutTypes.h"
-#include "UI/UIHierarchy.h"
 #include "UI/UIInteractionState.h"
 #include "UI/UILayoutSystem.h"
 #include "UI/UIRuntimeIdentity.h"
@@ -24,69 +23,7 @@
 
 #include <algorithm>
 #include <optional>
-#include <tuple>
 #include <vector>
-
-namespace {
-struct ButtonEntry {
-    GameObject* object = nullptr;
-    UIButton* button = nullptr;
-    AABB rect;
-    int canvasOrder = 0;
-    int order = 0;
-    std::size_t traversal = 0;
-};
-
-int CanvasOrder(GameObject* object) {
-    for (GameObject* node = object; node; node = node->GetParent()) {
-        if (auto* canvas = node->GetComponent<UICanvas>()) return canvas->GetSortingOrder();
-    }
-    return 0;
-}
-
-// 규칙의 사본은 하나다(UI/UIHierarchy.h). 여기에 두 번째 벌을 두면 배치가
-// 보는 "활성"과 입력이 보는 "활성"이 갈릴 수 있고, 그 어긋남은 관찰되지 않는다.
-using molga::ui::IsHierarchyActive;
-
-UICanvas* ActiveCanvas(GameObject* object) {
-    for (GameObject* node = object; node; node = node->GetParent()) {
-        if (auto* canvas = node->GetComponent<UICanvas>()) {
-            return canvas->IsEnabled() ? canvas : nullptr;
-        }
-    }
-    return nullptr;
-}
-
-bool IsHigher(const ButtonEntry& a, const ButtonEntry& b) {
-    return std::tie(a.canvasOrder, a.order, a.traversal) >
-           std::tie(b.canvasOrder, b.order, b.traversal);
-}
-
-std::vector<ButtonEntry> GatherButtons(
-    const std::vector<std::shared_ptr<GameObject>>& objects,
-    const Vector2& viewport) {
-    std::vector<ButtonEntry> result;
-    if (viewport.x <= 0.0f || viewport.y <= 0.0f) return result;
-    std::size_t traversal = 0;
-    for (const auto& object : objects) {
-        ++traversal;
-        if (!object) continue;
-        auto* button = object->GetComponent<UIButton>();
-        auto* rect = object->GetComponent<RectTransform>();
-        if (!button || !rect || !IsHierarchyActive(object.get()) ||
-            !button->IsEnabled() || !rect->IsEnabled() || !ActiveCanvas(object.get())) {
-            // 제외된 버튼만 여기서 비운다. 포함된 버튼은 ProcessInput이 매 프레임
-            // (clicked=false로) 다시 쓰므로 미리 비우면 steady hover가 true->false->true로
-            // 의미 세대를 두 번 올린다.
-            if (button) button->ApplyPointerState(false, false, false);
-            continue;
-        }
-        result.push_back({object.get(), button, rect->GetScreenRect(viewport),
-                          CanvasOrder(object.get()), button->GetSortingOrder(), traversal});
-    }
-    return result;
-}
-} // namespace
 
 UISystem::~UISystem() {
     molga::ui::SetUIWorldReleaseHandler(nullptr);
@@ -112,58 +49,6 @@ UISystem& UISystem::Get() {
     }();
     (void)releaseHandlerInstalled;
     return system;
-}
-
-void UISystem::ProcessInput(World& world, const Vector2& viewportSize,
-                            const UIPointerState& pointer) {
-    auto& objects = world.Objects();
-    auto buttons = GatherButtons(objects, viewportSize);
-    if (!pointer.valid) ResetPointerCapture();
-    ButtonEntry* topmost = nullptr;
-    if (pointer.valid) {
-        for (auto& entry : buttons) {
-            if (entry.button->IsInteractable() && entry.rect.Contains(pointer.position) &&
-                (!topmost || IsHigher(entry, *topmost))) {
-                topmost = &entry;
-            }
-        }
-    }
-
-    if (capturedOwner_ != &world) ResetPointerCapture();
-    if (pointer.pressedThisFrame && topmost) {
-        capturedOwner_ = &world;
-        capturedObjectId_ = topmost->object->GetID();
-    }
-
-    ButtonEntry* captured = nullptr;
-    for (auto& entry : buttons) {
-        if (entry.object->GetID() == capturedObjectId_) {
-            captured = &entry;
-            break;
-        }
-    }
-    unsigned int clickedId = 0;
-    for (auto& entry : buttons) {
-        const bool hovered = topmost && topmost->object == entry.object;
-        const bool isCaptured = captured == &entry;
-        const bool clicked = isCaptured && pointer.releasedThisFrame &&
-                             pointer.valid && entry.rect.Contains(pointer.position);
-        entry.button->ApplyPointerState(hovered, isCaptured && pointer.down, false);
-        if (clicked) clickedId = entry.object->GetID();
-    }
-
-    if (pointer.releasedThisFrame || (capturedObjectId_ != 0 && !captured)) {
-        ResetPointerCapture();
-    }
-    // Dispatch only after the raw-entry iteration has finished. A click callback
-    // may clear the world or transition scenes and invalidate every entry above.
-    if (clickedId != 0) {
-        if (GameObject* object = world.FindById(clickedId)) {
-            if (auto* button = object->GetComponent<UIButton>()) {
-                button->ApplyPointerState(topmost && topmost->object == object, false, true);
-            }
-        }
-    }
 }
 
 void UISystem::CollectRender(const molga::ui::UISnapshot& snapshot,
@@ -265,11 +150,6 @@ void UISystem::OnWorldReleased(std::uint64_t worldGeneration) {
     eraseGeneration(lastCompletedTickBySurface_);
     depsReported_.erase(worldGeneration);
     reflowDeferredReported_.erase(worldGeneration);
-}
-
-void UISystem::ResetPointerCapture() {
-    capturedOwner_ = nullptr;
-    capturedObjectId_ = 0;
 }
 
 // ── Task 12.3 Step 4: ProcessFrame ───────────────────────────────────────────

@@ -121,24 +121,6 @@ void UIButton::InvokeOnClick() {
     if (callback) callback();
 }
 
-void UIButton::ApplyPointerState(bool hovered, bool pressed, bool clicked) {
-    const bool h = interactable_ && hovered;
-    const bool p = interactable_ && pressed;
-    const bool c = interactable_ && clicked;
-    const auto identity = RuntimeIdentity();
-    if (identity) {
-        auto& table = molga::ui::UIInteractionStateTable::Get();
-        const molga::ui::UISurfaceKey key{molga::ui::kLegacyPointerSurfaceWindow,
-                                          identity.worldGeneration};
-        auto next = table.SurfaceOrEmpty(key);
-        next.buttons[identity] = molga::ui::UIButtonPointerState{h, p, c};
-        table.Apply(key, std::move(next), nullptr, "ui.legacy",
-                    identity.objectId);
-    }
-    // 식별자가 없는 버튼(월드 밖)도 레거시 의미 그대로 콜백을 받는다.
-    if (c) InvokeOnClick();
-}
-
 void UIButton::Serialize(nlohmann::json& j) const {
     j["schemaVersion"] = CurrentSchemaVersion;
     j["interactable"] = interactable_;

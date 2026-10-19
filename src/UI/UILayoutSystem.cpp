@@ -20,6 +20,7 @@
 #include "Rendering/TextureBindingRegistry.h"
 #include "Text/TextLayoutService.h"
 #include "UI/UIHierarchy.h"
+#include "UI/UIInteractionState.h"
 #include "UI/UILayoutTypes.h"
 #include "UI/UIRuntimeInvalidation.h"
 #include "UI/UIScrollSystem.h"
@@ -1652,12 +1653,12 @@ namespace {
 
 // ── 캔버스 배율을 확정된 서브트리에 정확히 한 번 적용한다 ───────────────────
 // 스냅샷의 모든 사각형은 *표면 논리 단위*다 — Build가 받은 logicalViewport와
-// 같은 공간이고, UISystem::CollectRender/HitTest가 쓰는
-// RectTransform::GetScreenRect가 내는 그 공간이다.
+// 같은 공간이고, 저작 쪽 float 경로인 RectTransform::GetScreenRect가 내는 그
+// 공간이다.
 //
 // ScaleWithViewport 캔버스(그리고 그것이 기본값이다)는 자기 서브트리를
 // viewport/scale 크기의 *캔버스* 논리 단위로 확정한다. 그 값을 그대로 게시하면
-// 스냅샷 경로와 레거시 경로가 배율만큼 어긋나고, 배율이 다른 캔버스가 한
+// 스냅샷 경로와 float 경로가 배율만큼 어긋나고, 배율이 다른 캔버스가 한
 // 표면에 둘 있으면 UISnapshot::logicalViewport 하나로는 둘 다 옳게 매핑할 수
 // 없다(Task 11.2의 UIPhysicalTransform은 표면마다 논리 뷰포트 하나만 받는다).
 //
@@ -3279,9 +3280,13 @@ UISnapshotPtr UILayoutSystem::Build(
         }
         if (auto* button = EnabledComponent<UIButton>(*object)) {
             UISolidRectSnapshot solid;
-            solid.color = button->CurrentColor();
+            const UIRuntimeTargetIdentity buttonSource = CaptureTarget(world, *button);
+            // 이 스냅샷의 표면 {창, 세대}만 읽는다: 다른 창(분리된 Game View, 같은 창을
+            // 나눠 쓰지 않는 Scene View)의 hover/눌림이 이 표면에 새지 않는다.
+            solid.color = button->ColorFor(UIInteractionStateTable::Get().ButtonState(
+                UISurfaceKey{surfaceWindowId, world.Generation()}, buttonSource));
             UIRenderItemSnapshot item;
-            item.source = CaptureTarget(world, *button);
+            item.source = buttonSource;
             item.canonicalSource = MakeStableKey(objectId, *button,
                                                  UIButton::CurrentSchemaVersion);
             item.order = makeOrder(button->GetSortingOrder());

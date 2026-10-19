@@ -635,11 +635,11 @@ TEST_CASE("SceneLoadButton restores its callback after re-enabling") {
     REQUIRE(runtime.SetInitialWorld(std::move(initial), "Scenes/a.json"));
 
     loader->SetEnabled(false);
-    button->ApplyPointerState(true, false, true);
+    button->InvokeOnClick();
     CHECK_FALSE(runtime.IsSceneLoadPending());
 
     loader->SetEnabled(true);
-    button->ApplyPointerState(true, false, true);
+    button->InvokeOnClick();
     CHECK(runtime.IsSceneLoadPending());
 }
 

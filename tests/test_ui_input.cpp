@@ -3370,47 +3370,17 @@ TEST_CASE("a scene replaced through Objects() clears a destroyed button without 
     UIFrozenInputFixture f;
     auto& table = molga::ui::UIInteractionStateTable::Get();
     const auto gen = f.World().Generation();
-    const molga::ui::UISurfaceKey legacy{molga::ui::kLegacyPointerSurfaceWindow, gen};
-    f.HighButton().ApplyPointerState(true, true, false);
-    REQUIRE(table.ButtonState(legacy, f.HighButtonIdentity()).pressed);
+    const molga::ui::UISurfaceKey key{kSurfaceWindow, gen};
+    auto pressed = table.SurfaceOrEmpty(key);
+    pressed.buttons[f.HighButtonIdentity()] =
+        molga::ui::UIButtonPointerState{true, true, false};
+    REQUIRE(table.Apply(key, pressed, &f.Diagnostics(), "test", 0));
+    REQUIRE(table.ButtonState(key, f.HighButtonIdentity()).pressed);
     // 편집기 장면 열기(SceneSerializer::DeserializeScene)처럼 벡터를 직접 비운다.
     // 앞 오브젝트가 먼저 해제되므로, OnDisable이 World::FindById로 소속을
     // 확인하면 해제된 메모리를 읽는다(ASan heap-use-after-free로 드러난다).
     f.World().Objects().clear();
     CHECK(table.SurfaceCountForWorld(gen) == 0);
-}
-
-TEST_CASE("legacy ApplyPointerState writes the legacy surface and the getters see it") {
-    UIFrozenInputFixture f;
-    auto& table = molga::ui::UIInteractionStateTable::Get();
-    const auto gen = f.World().Generation();
-    const molga::ui::UISurfaceKey legacy{molga::ui::kLegacyPointerSurfaceWindow, gen};
-    const auto high = f.HighButtonIdentity();
-
-    f.HighButton().ApplyPointerState(true, true, false);
-    CHECK(table.ButtonState(legacy, high).pressed);
-    CHECK(table.ButtonState(legacy, high).hovered);
-    CHECK(f.HighButton().IsPressed());
-    CHECK(table.SurfaceCountForWorld(gen) == 1);
-    // 이 경로는 실제 표면의 표를 만들지 않는다.
-    CHECK(table.Surface({kSurfaceWindow, gen}) == nullptr);
-
-    f.HighButton().ApplyPointerState(false, false, false);
-    CHECK_FALSE(f.HighButton().IsPressed());
-    CHECK(table.SurfaceCountForWorld(gen) == 0);
-
-    // 클릭은 콜백을 부르고, 클릭 비트는 읽힌다.
-    f.HighButton().ApplyPointerState(true, false, true);
-    CHECK(f.HighButtonClicks() == 1);
-    CHECK(f.HighButton().WasClickedThisFrame());
-    f.HighButton().ApplyPointerState(false, false, false);
-    CHECK_FALSE(f.HighButton().WasClickedThisFrame());
-
-    // 꺼진 버튼은 레거시 의미 그대로 아무것도 얻지 않고 콜백도 받지 않는다.
-    f.HighButton().SetInteractable(false);
-    f.HighButton().ApplyPointerState(true, true, true);
-    CHECK_FALSE(f.HighButton().IsPressed());
-    CHECK(f.HighButtonClicks() == 1);
 }
 
 TEST_CASE("releasing a world drops its interaction surfaces") {
@@ -3441,7 +3411,12 @@ TEST_CASE("the production release seam reclaims the interaction surfaces") {
     auto next = table.SurfaceOrEmpty({kSurfaceWindow, gen});
     next.focused = f.ComboSelectableIdentity();
     REQUIRE(table.Apply({kSurfaceWindow, gen}, next, nullptr, "test", 0));
-    f.HighButton().ApplyPointerState(true, true, false);  // 레거시 표면도 하나
+    // 분리 창의 표면도 하나 더 쓴다(표면마다 따로 회수돼야 한다).
+    const molga::ui::UISurfaceKey detached{kSurfaceWindow + 1, gen};
+    auto pressed = table.SurfaceOrEmpty(detached);
+    pressed.buttons[f.HighButtonIdentity()] =
+        molga::ui::UIButtonPointerState{true, true, false};
+    REQUIRE(table.Apply(detached, pressed, nullptr, "test", 0));
     REQUIRE(table.SurfaceCountForWorld(gen) == 2);
 
     // 직접 표를 부르지 않는다: World가 알리는 바로 그 길(UISystem)이다.

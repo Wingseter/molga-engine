@@ -995,8 +995,10 @@ TEST_CASE("a surface pointer departure keeps keyboard focus") {
     CHECK(f.Focused() == f.BSelectableIdentity());
 }
 
-// Task 12.3 Step 6: 프로덕션에서 라우터는 실제 표면 {창, 세대}에 hover/눌림을 쓰고, 레이아웃
-// 빌드(Step 8까지)는 표면 구분 없이 읽는다. 게시된 N+1의 버튼 색이 그것을 보여 줘야 한다.
+// 라우터는 실제 표면 {창, 세대}에 hover/눌림을 쓰고, 레이아웃 빌드는 **그 스냅샷의 표면**
+// 만 읽는다(정확한 표면 읽기). 게시된 N+1의 버튼 색이 그것을 보여 줘야 하고, 다른 표면의
+// 스냅샷은 같은 월드 세대의 같은 버튼이라도 기본 색이어야 한다 — 그래야 잘못된 표면에
+// 쓰는 라우터(또는 any-surface로 읽는 빌드)가 실패한다.
 namespace {
 const Color* SolidColorOf(const UISnapshot& snapshot,
                           const UIRuntimeTargetIdentity& source) {
@@ -1007,6 +1009,15 @@ const Color* SolidColorOf(const UISnapshot& snapshot,
         }
     }
     return nullptr;
+}
+
+// 다른 표면(분리 창)의 스냅샷에서 high의 색. 매번 새로 짓는다.
+Color HighColorOnSurface(UIFrameFixture& f, molga::WindowId window) {
+    const UISnapshotPtr snapshot = f.BuildN(window);
+    REQUIRE(snapshot != nullptr);
+    const Color* color = SolidColorOf(*snapshot, f.HighIdentity());
+    REQUIRE(color != nullptr);
+    return *color;
 }
 }  // namespace
 
@@ -1020,24 +1031,32 @@ TEST_CASE("the published render snapshot shows the router's hover and press colo
     REQUIRE(cold != nullptr);
     REQUIRE(SolidColorOf(*cold, f.HighIdentity()) != nullptr);
     CHECK(*SolidColorOf(*cold, f.HighIdentity()) == high.GetNormalColor());
+    CHECK(HighColorOnSurface(f, kDetachedWindow) == high.GetNormalColor());
 
     // 모션만: hover 색.
     const UIFrameResult hovered = f.Run({UIFrameFixture::Move(1, UIFrameFixture::OnHigh())});
     REQUIRE(hovered.renderSnapshot != nullptr);
     REQUIRE(SolidColorOf(*hovered.renderSnapshot, f.HighIdentity()) != nullptr);
     CHECK(*SolidColorOf(*hovered.renderSnapshot, f.HighIdentity()) == high.GetHoverColor());
+    // 같은 월드 세대의 다른 표면은 hover를 모른다. any-surface getter만 본다.
+    CHECK(HighColorOnSurface(f, kDetachedWindow) == high.GetNormalColor());
+    CHECK(high.CurrentColor() == high.GetHoverColor());
+    CHECK(high.IsHovered());
 
     // 누름: pressed 색.
     const UIFrameResult pressed = f.Run({UIFrameFixture::Down(2, UIFrameFixture::OnHigh())});
     REQUIRE(pressed.renderSnapshot != nullptr);
     REQUIRE(SolidColorOf(*pressed.renderSnapshot, f.HighIdentity()) != nullptr);
     CHECK(*SolidColorOf(*pressed.renderSnapshot, f.HighIdentity()) == high.GetPressedColor());
+    CHECK(HighColorOnSurface(f, kDetachedWindow) == high.GetNormalColor());
+    CHECK(high.CurrentColor() == high.GetPressedColor());
 
     // 놓기: hover 색으로 돌아온다(포인터는 아직 위에 있다).
     const UIFrameResult released = f.Run({UIFrameFixture::Up(3, UIFrameFixture::OnHigh())});
     REQUIRE(released.renderSnapshot != nullptr);
     REQUIRE(SolidColorOf(*released.renderSnapshot, f.HighIdentity()) != nullptr);
     CHECK(*SolidColorOf(*released.renderSnapshot, f.HighIdentity()) == high.GetHoverColor());
+    CHECK(HighColorOnSurface(f, kDetachedWindow) == high.GetNormalColor());
 
     // 표면 이탈 뒤 다시 지으면 기본 색이다.
     UISystem::Get().OnSurfacePointerDeparted(kSurfaceWindow, f.World().Generation(),
@@ -1046,6 +1065,83 @@ TEST_CASE("the published render snapshot shows the router's hover and press colo
     REQUIRE(after != nullptr);
     REQUIRE(SolidColorOf(*after, f.HighIdentity()) != nullptr);
     CHECK(*SolidColorOf(*after, f.HighIdentity()) == high.GetNormalColor());
+    CHECK(high.CurrentColor() == high.GetNormalColor());
+}
+
+TEST_CASE("a detached surface's hover and press colours stay on that surface") {
+    UIFrameFixture f;
+    UIButton& high = f.HighButton();
+    high.SetNormalColor(Color(0.1f, 0.1f, 0.1f, 1.0f));
+    high.SetHoverColor(Color(0.2f, 0.6f, 0.2f, 1.0f));
+    high.SetPressedColor(Color(0.7f, 0.2f, 0.2f, 1.0f));
+    REQUIRE(f.BuildN(kDetachedWindow) != nullptr);
+
+    // 분리 창에서 누른다: 그 창의 스냅샷만 pressed, 내장 창 스냅샷은 기본 색.
+    const UIFrameResult pressed = f.Process(f.Frame(
+        {UIFrameFixture::Down(40, UIFrameFixture::OnHigh(), kDetachedWindow)}, {},
+        std::nullopt, kDetachedWindow));
+    REQUIRE(pressed.renderSnapshot != nullptr);
+    REQUIRE(SolidColorOf(*pressed.renderSnapshot, f.HighIdentity()) != nullptr);
+    CHECK(*SolidColorOf(*pressed.renderSnapshot, f.HighIdentity()) == high.GetPressedColor());
+    CHECK(HighColorOnSurface(f, kSurfaceWindow) == high.GetNormalColor());
+    CHECK(HighColorOnSurface(f, kDetachedWindow) == high.GetPressedColor());
+    CHECK(high.CurrentColor() == high.GetPressedColor());
+}
+
+// ── 레거시 ProcessInput 시험에서 옮긴 의미 ──────────────────────────────────
+// (맨 위 캡처, 같은 hover의 세대, 밖에서 놓기, 콜백이 월드를 비움은 위의 라우터/프레임
+// 케이스가 이미 덮는다.)
+TEST_CASE("disabled canvases and inactive ancestors absorb no press") {
+    UIFrameFixture f;
+    UIButton& high = f.HighButton();
+
+    f.Object(kCanvasId).GetComponent<UICanvas>()->SetEnabled(false);
+    (void)f.Run({UIFrameFixture::Down(1, UIFrameFixture::OnHigh())});
+    CHECK_FALSE(high.IsPressed());
+    CHECK_FALSE(f.Surface().pointerCapture.has_value());
+
+    f.Object(kCanvasId).GetComponent<UICanvas>()->SetEnabled(true);
+    f.Object(kCanvasId).SetActive(false);
+    (void)f.Run({UIFrameFixture::Down(2, UIFrameFixture::OnHigh())});
+    CHECK_FALSE(high.IsPressed());
+    CHECK_FALSE(f.Surface().pointerCapture.has_value());
+
+    // 대조: 되살리면 같은 점에서 눌린다.
+    f.Object(kCanvasId).SetActive(true);
+    (void)f.Run({UIFrameFixture::Down(3, UIFrameFixture::OnHigh())});
+    CHECK(high.IsPressed());
+    CHECK(f.Surface().pointerCapture == f.HighIdentity());
+}
+
+TEST_CASE("disabling a pressed button clears its transient pointer state") {
+    UIFrameFixture f;
+    UIButton& high = f.HighButton();
+    (void)f.Run({UIFrameFixture::Down(1, UIFrameFixture::OnHigh())});
+    REQUIRE(high.IsPressed());
+    REQUIRE(f.Surface().pointerCapture == f.HighIdentity());
+
+    high.SetInteractable(false);
+    CHECK_FALSE(high.IsPressed());
+    CHECK_FALSE(high.IsHovered());
+    CHECK_FALSE(high.WasClickedThisFrame());
+    CHECK_FALSE(f.Surface().pointerCapture.has_value());
+}
+
+TEST_CASE("a pointer that leaves the surface releases capture so a later release never clicks") {
+    UIFrameFixture f;
+    (void)f.Run({UIFrameFixture::Down(1, UIFrameFixture::OnHigh())});
+    REQUIRE(f.HighButton().IsPressed());
+
+    // 표면 밖(유효하지 않은 논리점)으로 나간 움직임이 캡처를 푼다.
+    UIInputEvent gone = UIFrameFixture::Move(2, UIFrameFixture::OnHigh());
+    gone.logicalPointValid = false;
+    (void)f.Run({gone});
+    CHECK_FALSE(f.HighButton().IsPressed());
+    CHECK_FALSE(f.Surface().pointerCapture.has_value());
+
+    (void)f.Run({UIFrameFixture::Up(3, UIFrameFixture::OnHigh())}, {},
+                UIFrameFixture::OnHigh());
+    CHECK(f.HighClicks() == 0);
 }
 
 // Task 12.3 Step 7: 런타임 스모크는 호스트 배치 대신 합성 클릭으로 같은 ProcessFrame을

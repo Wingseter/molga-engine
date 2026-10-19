@@ -366,9 +366,10 @@ public:
     // 구체적 순환: 셋 다 cameraPass 1, 나머지 sortKey 필드는 기본값.
     //   U1{key=K_hi, submissionIndex 0}, L{키 없음, 1}, U2{key=K_lo, 2}
     //   comp(U2,U1)=참(완전한 키), comp(U1,L)=참(sortKey), comp(L,U2)=참.
-    // 그리고 그 L은 가상의 것이 아니다: 레거시 UISystem::CollectRender가
-    // cameraPass 1을 uiDrawOrder 없이 낸다. Task 12.3이 한 표면만 옮기는
-    // 그 첫 프레임이 정확히 이 큐다.
+    // 그리고 그 L은 가상의 것이 아니었다: (Task 12.3에서 지워진) 레거시
+    // UISystem::CollectRender가 cameraPass 1을 uiDrawOrder 없이 냈다. 한 표면만
+    // 옮기던 이행기의 첫 프레임이 정확히 이 큐였다. 규칙은 그대로 둔다 — 키 없는
+    // 명령을 내는 다른 생산자가 다시 생겨도 정렬은 안전해야 한다.
     //
     // 그래서 여기서는 (cameraPass, 키를 가졌는가, 그 무리의 순서) 사전식
     // 하나로 비교한다. "UI 명령은 다른 cameraPass를 쓴다"는 강제되지 않는

@@ -28,10 +28,6 @@ struct UISurfaceKey {
     }
 };
 
-// 레거시 UISystem::ProcessInput 경로가 쓰는 예약 표면. SDL 창 id는 0이 아니므로
-// 실제 표면과 겹치지 않는다. Task 12.3이 레거시 경로와 함께 지운다.
-inline constexpr molga::WindowId kLegacyPointerSurfaceWindow = 0;
-
 // 필드별로 섞는다(UIRuntimeIdentity.h의 패딩 경고 그대로).
 struct UIRuntimeIdentityHash {
     std::size_t operator()(const UIRuntimeTargetIdentity& id) const noexcept;
@@ -66,8 +62,8 @@ struct UISurfaceInteractionState {
 // 프로세스에 하나. UIScrollSystem::Get()과 같은 이유로 new 하고 파괴하지 않는다
 // (정적 World의 소멸자가 OnWorldReleased로 여기까지 온다).
 //
-// 쓰는 사람은 셋뿐이다: 입력 라우터(포인터 동작 상태), UIFocusSystem(포커스와
-// 정리), 레거시 UIButton::ApplyPointerState 어댑터. 읽는 쪽은 UIButton getter.
+// 쓰는 사람은 둘뿐이다: 입력 라우터(포인터 동작 상태)와 UIFocusSystem(포커스와
+// 정리). 읽는 쪽은 UIButton getter(any-surface)와 레이아웃 빌드(정확한 표면).
 class UIInteractionStateTable {
 public:
     static UIInteractionStateTable& Get();
@@ -81,7 +77,7 @@ public:
     UISurfaceInteractionState SurfaceOrEmpty(UISurfaceKey) const;
     UIButtonPointerState ButtonState(
         UISurfaceKey, const UIRuntimeTargetIdentity&) const noexcept;
-    // 같은 월드 세대의 모든 표면을 OR 한다. 창을 모르는 레거시 getter 전용.
+    // 같은 월드 세대의 모든 표면을 OR 한다. 창을 모르는 UIButton getter(IsHovered/IsPressed/WasClickedThisFrame/CurrentColor) 전용.
     UIButtonPointerState ButtonStateAnySurface(
         const UIRuntimeTargetIdentity&) const noexcept;
 

@@ -2254,15 +2254,16 @@ TEST_CASE("attaching and detaching a UI component republishes the surface") {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Task 10.2가 이 태스크에 넘긴 의무 (2): 레거시 즉시 경로와 스냅샷 경로의 일치
+// Task 10.2가 이 태스크에 넘긴 의무 (2): 저작 float 사각형과 스냅샷 경로의 일치
 // ─────────────────────────────────────────────────────────────────────────────
-// UISystem::CollectRender/HitTest는 RectTransform::ResolveLogical(float, 노드별
-// 재귀)로 사각형을 정하고, Build는 검증된 26.6과 한 번의 DFS로 정한다. 지금은
-// 레거시 경로만 화면에 나오므로 두 경로가 어긋나도 드러나지 않는다. 이 케이스가
-// 그 어긋남을 지금 잡는다.
+// 레거시 즉시 경로(UISystem::CollectRender(World&)/ProcessInput/HitTest)는 Task 12.3에서
+// 지워졌다. 남은 float 경로는 RectTransform::GetScreenRect(float, 노드별 재귀)뿐이고
+// 저작/에디터 도구가 쓴다. Build는 검증된 26.6과 한 번의 DFS로 정한다. 두 계산이
+// 어긋나면 에디터가 보여 주는 사각형과 게시된 사각형이 갈리므로 이 케이스가 그 어긋남을
+// 잡는다.
 //
 // 범위를 분명히 한다: 이 등식은 저작된 RectTransform만으로 이루어진 트리에
-// 대한 것이다. UILayoutGroup/UIContentSizeFitter/꺼진 RectTransform은 레거시
+// 대한 것이다. UILayoutGroup/UIContentSizeFitter/꺼진 RectTransform은 float
 // 경로가 애초에 구현한 적이 없으므로 두 경로가 의도적으로 다르며, 그 차이는
 // 스냅샷 경로가 옳다.
 TEST_CASE("the legacy float rect path and the snapshot path agree exactly") {
@@ -2360,8 +2361,8 @@ TEST_CASE("the legacy float rect path and the snapshot path agree exactly") {
         auto* rect = object->GetComponent<RectTransform>();
         REQUIRE(rect != nullptr);
         CAPTURE(node.rectTransform.objectId);
-        // UISystem::CollectRender와 HitTest가 실제로 부르는 그 함수다.
-        // 두 경로가 같은 저작 입력에서 같은 사각형을 내야 한다.
+        // 저작 쪽 float 경로(RectTransform::GetScreenRect). 두 경로가 같은 저작
+        // 입력에서 같은 사각형을 내야 한다.
         const AABB legacy = rect->GetScreenRect(viewport);
         CHECK(node.logicalRect.x.Raw() == rawOf(legacy.x));
         CHECK(node.logicalRect.y.Raw() == rawOf(legacy.y));

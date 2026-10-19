@@ -44,10 +44,6 @@ public:
     // 표를 읽지 않는 순수 선택: 상호작용 불가 > 눌림 > hover > 기본.
     Color ColorFor(const molga::ui::UIButtonPointerState& state) const noexcept;
 
-    // ── 레거시 포인터 경로(UISystem::ProcessInput) 전용 어댑터 ──────────────
-    // 입력 라우터는 이것을 부르지 않는다. 예약 표면 {0, worldGeneration}에 쓰고,
-    // clicked이면 콜백을 부른다. Task 12.3이 레거시 경로와 함께 지운다.
-    void ApplyPointerState(bool hovered, bool pressed, bool clicked);
     // 라우터가 Click을 판정한 **뒤에만** 부른다. 콜백 사본을 호출하고 멤버를
     // 건드리지 않는다(콜백이 이 컴포넌트를 지울 수 있다). 상호작용 여부는 여기서
     // 다시 묻지 않는다 — 그 권위는 스냅샷 N이다.

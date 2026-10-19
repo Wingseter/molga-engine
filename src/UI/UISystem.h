@@ -25,22 +25,10 @@ struct TextRasterPolicy;
 namespace molga { class RenderQueue; }
 namespace molga::text { class TextDiagnosticSink; class TextLayoutService; }
 
-struct UIPointerState {
-    Vector2 position;
-    bool down = false;
-    bool pressedThisFrame = false;
-    bool releasedThisFrame = false;
-    bool valid = true;
-};
-
 class UISystem {
 public:
     static UISystem& Get();
 
-    // Must run before script Update. Only the topmost button can capture a
-    // press; release clicks exactly once when still inside the captured rect.
-    void ProcessInput(World& world, const Vector2& viewportSize,
-                      const UIPointerState& pointer);
     // ── Task 12.3 Step 5: UI는 게시된 스냅샷으로만 그려진다 ─────────────────
     // 스냅샷과 물리 변환을 호출자가 건넨다. 월드를 다시 읽는 오버로드는 없다 —
     // 그런 경로가 하나라도 있으면 화면이 스냅샷과 갈리고, 그 차이는 스냅샷을
@@ -58,8 +46,6 @@ public:
     // 관찰 seam: 가장 최근 수집 하나의 회계.
     std::uint64_t RenderCollectorDroppedItemCountForTesting() const noexcept;
     std::uint64_t RenderCollectorSubmittedItemCountForTesting() const noexcept;
-
-    void ResetPointerCapture();
 
     // ── Task 10.2 Step 9a: 프로덕션 배치의 유일한 입구 ──────────────────────
     // UISystem이 하나뿐인 UILayoutSystem을 소유하고, 배치는 전부 여기를 지난다.
@@ -146,8 +132,6 @@ private:
     // 등록된 핸들러는 죽은 객체를 부른다. 파괴될 때 이름을 거둬들인다.
     ~UISystem();
 
-    const void* capturedOwner_ = nullptr;
-    unsigned int capturedObjectId_ = 0;
     molga::ui::UILayoutSystem layout_;
     // 값이 아니라 이름이다. 제공자도 서비스도 진입점이 프레임 루프보다 오래
     // 소유하며, 여기에 사본을 두면 그 사본이 진짜와 갈릴 수 있다.
