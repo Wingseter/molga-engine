@@ -86,6 +86,8 @@ private:
     ImGuiID platformViewportId_ = 0;
     bool imageValid_ = false;
     bool inputFocused_ = false;
+    // 직전 OnGUI에서 ImGui가 이미지 위라고 보고했는가(포커스를 만드는 눌림 판정용).
+    bool imageHovered_ = false;
     molga::WindowId inputSourceWindow_ = 0;
 
     // ── Task 12.3 Step 6 ────────────────────────────────────────────────────

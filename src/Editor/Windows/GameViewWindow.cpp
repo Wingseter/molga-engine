@@ -40,6 +40,7 @@ GameViewWindow::~GameViewWindow() {
     // 그래서 월드를 건드리는 ResetPlayInput 대신 스크립트 쪽 입력과 소유권만 놓는다.
     inputFocused_ = false;
     imageValid_ = false;
+    imageHovered_ = false;
     Input::DiscardPendingScroll(inputSourceWindow_);
     Input::ReleaseAll();
     ReleaseRetainedUISnapshots();
@@ -298,12 +299,15 @@ void GameViewWindow::OnGUI() {
         ImGui::Image(ImGuiTextureBridge::From(outputTarget_.ColorView().texture),
                      ImVec2(layout_.imageRect.width, layout_.imageRect.height),
                      ImVec2(0, 0), ImVec2(1, 1));
+        // 다음 프레임의 ProcessPlayInput이 "포커스를 만드는 눌림"을 판정하는 데 쓴다.
+        imageHovered_ = ImGui::IsItemHovered();
         if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
             Input::DiscardPendingScroll(inputSourceWindow_);
             inputFocused_ = true;
             ImGui::SetWindowFocus();
         }
     } else {
+        imageHovered_ = false;
         ImGui::Dummy(ImVec2(std::max(available.x, 1.0f),
                            std::max(available.y, 1.0f)));
     }
@@ -421,13 +425,33 @@ void GameViewWindow::ProcessPlayInput() {
             batch, nativeWindow, *mapping, pixelsPerPointX, pixelsPerPointY,
             *textDiagnostics_);
         if (input) {
-            if (!focusedOnEntry) molga::ui::DropUnfocusedPanelInput(*input);
+            if (!focusedOnEntry) {
+                // 포커스 없던 패널: 이전 프레임에 ImGui가 이미지 위라고 한 경우, 포커스를 만드는
+                // 눌림과 그 뒤는 UI에 전달한다(사용자 결정 Q6, 옛 동작의 느낌). 앞의 이벤트는
+                // 버린다. ImGui가 같은 프레임에 포커스를 확인하지 않으면 OnGUI의
+                // inputFocused_ && !IsWindowFocused 경로가 LoseInputFocus -> 이탈로
+                // 캡처를 풀어 잘못된 클릭이 남지 않는다.
+                if (imageHovered_ &&
+                    molga::ui::KeepFocusingPressSuffix(*input, nativeWindow)) {
+                    Input::DiscardPendingScroll(inputSourceWindow_);
+                    inputFocused_ = true;
+                } else {
+                    molga::ui::DropUnfocusedPanelInput(*input);
+                }
+            }
             input->logicalViewport = *uiViewport;
             // tick은 ProcessFrame을 부르는 프레임에서만 진행한다: 일시정지·편집 구간의
             // 시간은 UI 시간이 아니다.
             input->uiTicks = tickClock_.AdvanceElapsedNanoseconds(
                 Time::GetElapsedNanoseconds(), *textDiagnostics_);
             input->frameIndex = ++frameIndex_;
+            // 처리하는 표면이 바뀌면(내장 <-> 분리 창, 월드 교체) 옛 표면의 hover/capture/
+            // pressed를 먼저 푼다. 그러지 않으면 any-surface 읽기에 낡은 상태가 남는다.
+            if (molga::ui::PointerDepartureNeededOnSurfaceChange(
+                    uiSurfaceWindow_, uiSurfaceWorldGeneration_, nativeWindow,
+                    world_->Generation())) {
+                DepartUIPointer();
+            }
             uiSurfaceWindow_ = nativeWindow;
             uiSurfaceWorldGeneration_ = world_->Generation();
             molga::ui::UIFrameResult result = UISystem::Get().ProcessFrame(
@@ -489,6 +513,7 @@ void GameViewWindow::ProcessPlayInput() {
 void GameViewWindow::ResetPlayInput() {
     inputFocused_ = false;
     imageValid_ = false;
+    imageHovered_ = false;
     Input::DiscardPendingScroll(inputSourceWindow_);
     Input::ReleaseAll();
     DepartUIPointer();

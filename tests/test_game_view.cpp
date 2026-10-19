@@ -799,6 +799,120 @@ TEST_CASE("an unfocused panel drops its events and seeds but keeps its ticks") {
     CHECK(input.uiTicks.size() == 1);
 }
 
+namespace {
+molga::ui::UIInputEvent FocusingTestEvent(
+    std::uint64_t sequence, molga::ui::UIInputEventKind kind, molga::WindowId window,
+    std::uint32_t control, bool active, bool pointValid) {
+    molga::ui::UIInputEvent event;
+    event.sequence = sequence;
+    event.kind = kind;
+    event.windowId = window;
+    event.control = control;
+    event.active = active;
+    event.logicalPointValid = pointValid;
+    return event;
+}
+}  // namespace
+
+TEST_CASE("a focusing press keeps itself and everything after it") {
+    using molga::ui::UIInputEventKind;
+    constexpr molga::WindowId kWindow = 30;
+    constexpr auto kLeft = static_cast<std::uint32_t>(Input::MouseButton::Left);
+    constexpr auto kRight = static_cast<std::uint32_t>(Input::MouseButton::Right);
+
+    auto makeInput = [&](std::vector<molga::ui::UIInputEvent> events) {
+        molga::ui::UIFrameInput input;
+        input.frameIndex = 9;
+        input.windowId = kWindow;
+        input.orderedEvents = std::move(events);
+        input.uiTicks = {{1, molga::Fixed26_6::FromRaw(1)}};
+        input.pointerAtBatchStart = {molga::Fixed26_6::FromRaw(64),
+                                     molga::Fixed26_6::FromRaw(128)};
+        input.pointerAtBatchStartValid = true;
+        input.nativeWindowFocusedAtBatchStart = true;
+        return input;
+    };
+    auto sequences = [](const molga::ui::UIFrameInput& input) {
+        std::vector<std::uint64_t> out;
+        for (const auto& event : input.orderedEvents) out.push_back(event.sequence);
+        return out;
+    };
+
+    SUBCASE("events before the press are erased, real seeds survive") {
+        auto input = makeInput({
+            FocusingTestEvent(1, UIInputEventKind::PointerMotion, kWindow, 0, false, true),
+            FocusingTestEvent(2, UIInputEventKind::Key, kWindow, 4, true, false),
+            FocusingTestEvent(3, UIInputEventKind::PointerButton, kWindow, kLeft, true, true),
+            FocusingTestEvent(4, UIInputEventKind::PointerMotion, kWindow, 0, false, true),
+            FocusingTestEvent(5, UIInputEventKind::PointerButton, kWindow, kLeft, false, true),
+        });
+        CHECK(molga::ui::KeepFocusingPressSuffix(input, kWindow));
+        CHECK(sequences(input) == std::vector<std::uint64_t>{3, 4, 5});
+        CHECK(input.pointerAtBatchStartValid);
+        CHECK(input.pointerAtBatchStart.x.Raw() == 64);
+        CHECK(input.pointerAtBatchStart.y.Raw() == 128);
+        CHECK(input.nativeWindowFocusedAtBatchStart);
+        CHECK(input.uiTicks.size() == 1);
+        CHECK(input.frameIndex == 9);
+    }
+    SUBCASE("the first qualifying press wins") {
+        auto input = makeInput({
+            FocusingTestEvent(1, UIInputEventKind::PointerButton, kWindow, kLeft, true, true),
+            FocusingTestEvent(2, UIInputEventKind::PointerButton, kWindow, kLeft, false, true),
+            FocusingTestEvent(3, UIInputEventKind::PointerButton, kWindow, kLeft, true, true),
+        });
+        CHECK(molga::ui::KeepFocusingPressSuffix(input, kWindow));
+        CHECK(sequences(input) == std::vector<std::uint64_t>{1, 2, 3});
+    }
+    SUBCASE("non-qualifying presses are skipped and a later one qualifies") {
+        auto input = makeInput({
+            FocusingTestEvent(1, UIInputEventKind::PointerButton, kWindow, kRight, true, true),
+            FocusingTestEvent(2, UIInputEventKind::PointerButton, kWindow, kLeft, false, true),
+            FocusingTestEvent(3, UIInputEventKind::PointerButton, kWindow + 1, kLeft, true, true),
+            FocusingTestEvent(4, UIInputEventKind::PointerButton, kWindow, kLeft, true, false),
+            FocusingTestEvent(5, UIInputEventKind::Scroll, kWindow, 0, true, true),
+            FocusingTestEvent(6, UIInputEventKind::PointerButton, kWindow, kLeft, true, true),
+            FocusingTestEvent(7, UIInputEventKind::PointerButton, kWindow, kLeft, false, true),
+        });
+        CHECK(molga::ui::KeepFocusingPressSuffix(input, kWindow));
+        CHECK(sequences(input) == std::vector<std::uint64_t>{6, 7});
+    }
+    SUBCASE("without a qualifying press the panel input is dropped like before") {
+        // 오른쪽 버튼, 놓음, 다른 창, 잘못된 점, 휠만 있다.
+        auto input = makeInput({
+            FocusingTestEvent(1, UIInputEventKind::PointerButton, kWindow, kRight, true, true),
+            FocusingTestEvent(2, UIInputEventKind::PointerButton, kWindow, kLeft, false, true),
+            FocusingTestEvent(3, UIInputEventKind::PointerButton, kWindow + 1, kLeft, true, true),
+            FocusingTestEvent(4, UIInputEventKind::PointerButton, kWindow, kLeft, true, false),
+            FocusingTestEvent(5, UIInputEventKind::Scroll, kWindow, 0, true, true),
+        });
+        CHECK_FALSE(molga::ui::KeepFocusingPressSuffix(input, kWindow));
+        CHECK(input.orderedEvents.empty());
+        CHECK_FALSE(input.pointerAtBatchStartValid);
+        CHECK_FALSE(input.nativeWindowFocusedAtBatchStart);
+        CHECK(input.uiTicks.size() == 1);
+    }
+    SUBCASE("an empty batch is dropped") {
+        auto input = makeInput({});
+        CHECK_FALSE(molga::ui::KeepFocusingPressSuffix(input, kWindow));
+        CHECK_FALSE(input.pointerAtBatchStartValid);
+    }
+}
+
+TEST_CASE("a surface change departs the pointer from the previous surface only") {
+    using molga::ui::PointerDepartureNeededOnSurfaceChange;
+    // 아직 처리한 표면이 없으면 떠날 곳이 없다.
+    CHECK_FALSE(PointerDepartureNeededOnSurfaceChange(0, 0, 10, 4));
+    CHECK_FALSE(PointerDepartureNeededOnSurfaceChange(10, 0, 10, 4));
+    // 같은 표면이면 이탈하지 않는다.
+    CHECK_FALSE(PointerDepartureNeededOnSurfaceChange(10, 4, 10, 4));
+    // 패널이 분리 창으로 옮겨 가면(월드는 그대로) 옛 창의 표면에서 이탈한다.
+    CHECK(PointerDepartureNeededOnSurfaceChange(10, 4, 20, 4));
+    CHECK(PointerDepartureNeededOnSurfaceChange(20, 4, 10, 4));
+    // 월드가 바뀌어도(같은 창) 옛 세대 표면에서 이탈한다.
+    CHECK(PointerDepartureNeededOnSurfaceChange(10, 4, 10, 5));
+}
+
 TEST_CASE("MapNativeInputBatch preserves order, sequence and signed values") {
     using molga::platform::NativeInputBatch;
     using molga::platform::NativeInputEvent;

@@ -72,6 +72,20 @@ std::optional<UISurfaceCoordinateMapping> MakeStandaloneSurfaceMapping(
 // logicalViewport, uiTicks는 그대로다 — tick은 계속 흘러 관성이 가라앉는다.
 void DropUnfocusedPanelInput(UIFrameInput& input) noexcept;
 
+// 입력 포커스가 없던 패널의 프레임 입력에서 "포커스를 만드는 눌림"부터의 접미사만
+// 남긴다(Task 12.3 사용자 결정 Q6: 포커스를 만든 클릭도 UI에 전달한다). 포커스를 만드는
+// 눌림 = 이 창의, 주 버튼(Left)의, 눌림(active)이고, 보이는 이미지 안의 유효한
+// 논리점을 가진 PointerButton이다. 그 앞의 이벤트는 지우고 눌림과 그 뒤는 그대로
+// 둔다(씨앗도 그대로). 그런 눌림이 없으면 DropUnfocusedPanelInput과 같게 모두
+// 버리고 false를 돌려준다. true면 부르는 쪽이 패널 포커스를 가져간다.
+bool KeepFocusingPressSuffix(UIFrameInput& input, molga::WindowId nativeWindow) noexcept;
+
+// 패널이 처리하는 표면(창, 세대)이 바뀌었을 때(내장 <-> 분리 창, 월드 교체) 이전
+// 표면에서 포인터를 떠나야 하는가. 이전 표면이 없으면(창 0 또는 세대 0) 아니다.
+bool PointerDepartureNeededOnSurfaceChange(
+    molga::WindowId previousWindow, std::uint64_t previousWorldGeneration,
+    molga::WindowId nextWindow, std::uint64_t nextWorldGeneration) noexcept;
+
 // ── 스모크 모드(보이지 않는 창)의 합성 클릭 ─────────────────────────────────
 // 보이지 않는 창에는 실제 포인터가 없다. 런타임 스모크는 호스트 배치 대신 이 이벤트로
 // 같은 ProcessFrame 경로를 구동한다. 버튼은 항상 주 버튼(Left)이다 — 주 버튼만 누름,

@@ -164,6 +164,31 @@ void DropUnfocusedPanelInput(UIFrameInput& input) noexcept {
     input.nativeWindowFocusedAtBatchStart = false;
 }
 
+bool KeepFocusingPressSuffix(UIFrameInput& input, molga::WindowId nativeWindow) noexcept {
+    const auto left = static_cast<std::uint32_t>(Input::MouseButton::Left);
+    const auto first = std::find_if(
+        input.orderedEvents.begin(), input.orderedEvents.end(),
+        [&](const UIInputEvent& event) {
+            return event.kind == UIInputEventKind::PointerButton &&
+                   event.control == left && event.active &&
+                   event.windowId == nativeWindow && event.logicalPointValid;
+        });
+    if (first == input.orderedEvents.end()) {
+        DropUnfocusedPanelInput(input);
+        return false;
+    }
+    input.orderedEvents.erase(input.orderedEvents.begin(), first);
+    return true;
+}
+
+bool PointerDepartureNeededOnSurfaceChange(
+    molga::WindowId previousWindow, std::uint64_t previousWorldGeneration,
+    molga::WindowId nextWindow, std::uint64_t nextWorldGeneration) noexcept {
+    if (previousWindow == 0 || previousWorldGeneration == 0) return false;
+    return previousWindow != nextWindow ||
+           previousWorldGeneration != nextWorldGeneration;
+}
+
 UIInputEvent MakeSyntheticPrimaryButtonEvent(std::uint64_t sequence,
                                              molga::WindowId windowId,
                                              molga::FixedPoint canvasPoint,
