@@ -1529,7 +1529,12 @@ execution plan's (Step 1 ingest … Step 8 legacy deletion), not this task's che
   everything after it in the batch are delivered: events before it are erased, the real seeds are kept, the
   panel takes input focus (`Input::DiscardPendingScroll`) and `ProcessFrame` runs. If ImGui does not confirm
   focus the same frame, `OnGUI`'s existing `inputFocused_ && !IsWindowFocused` path calls `LoseInputFocus`
-  → `DepartUIPointer`, which clears the capture so no wrong click results. `imageHovered_` is stored after
+  → `DepartUIPointer`, which clears the capture so a release in a later batch does not click; a press and
+  release in the same batch are dispatched before ImGui's verdict, so that click is delivered (accepted as part
+  of Q6's legacy feel). `imageHovered_` is reset at the top of every `OnGUI`, so a closed or hidden panel never
+  selects a focusing press from a stale hover. Erasing the events before the focusing press also drops a
+  `WindowFocus(true)` earlier in the same batch; harmless today because nothing reads
+  `projected.nativeWindowFocused`. `imageHovered_` is stored after
   `ImGui::Image`. Scripts still receive no input in that frame (they start the next one). The suffix
   selection is the pure `KeepFocusingPressSuffix`.
 
@@ -1581,10 +1586,11 @@ amended by the plan review) is the baseline; items marked * were decided by the 
   setter-only mutations after publication are **not** silently deferred (every setter advances `SemanticDirty`
   through `UIComponent::Invalidate`), so `ReflowDeferred` is reported for any invalidation acquired after N+1
   publication; production never reaches it because nothing runs between the N+1 build and the return (Q4c).
-  **R10** the router reads `UIPlanningState::{surfaceWindowId, surfaceWorldGeneration}` and plans nothing for
+  **R10 (plan numbering; not the 12.1-record R10 of Q2)** the router reads `UIPlanningState::{surfaceWindowId, surfaceWorldGeneration}` and plans nothing for
   another surface (closes the 12.1 carry-forward). **R11** hover is reconciled by seeding the planning state from
   the table every frame; the projection inside a batch is scratch. **R12** `ClearClickedThisFrame`: a click set
-  in frame F is readable in F and cleared by F+1's `ProcessFrame` without advancing a generation. **R14**
+  in frame F is readable in F and cleared by F+1's `ProcessFrame` without advancing a generation. **R13** Game
+  View was already bound to `World&` (Task 10.2); no work. **R14**
   `GameOutputRequest::uiSnapshot`. **R15** closed (below). **R16** `TextRenderer.h` needed no change. **R17** the
   tick example is `{}`, `{1}`, `{2,3}` (concatenation `{1,2,3}`). **R18*** → Q4a.
 - **Plan-review amendments** applied: the host loops take (and, until Steps 6/7, discard) the batch right after
@@ -1603,7 +1609,10 @@ amended by the plan review) is the baseline; items marked * were decided by the 
   sequence; comment fixes. Also added beyond the plan: `ClipVisibleWindowPixels` (the visible-region clip),
   and `NativeTranslateContext{gamepadInstanceId, gamepadWindowId}` for `TranslateNativeInputEvent`.
 - **Steps 4–5 review: APPROVE, minor changes.** Of ten implementer deviations: 1, 2 (the plan's count was
-  wrong), 4, 6, 7, 8, 9, 10 accepted (7 and 8 subject to the review's window-0 guard and freeze-test items, both done
+  wrong), 4 (the "no layout dependencies" guard in `ProcessFrame` is untested — the singleton has no seam
+  to uninstall its dependencies — recorded), 6, 7, 8, 9, 10 (Game View and Scene View in one OS window share
+  the surface key `{windowId, gen}`, so the full-snapshot slot alternates every frame — performance only,
+  recorded for subplan 07) accepted (7 and 8 subject to the review's window-0 guard and freeze-test items, both done
   below). **3** — a callback that replaces the world
   mid-batch: the remaining plans are audited but not delivered, the ledgers of the retired generation are
   released, one `ReferenceInvalid` is reported from `ui.frame` and none from `ui.input` — accepted as internal
@@ -1697,13 +1706,13 @@ snapshot".
   the Game View shares its surface key and therefore shows the Game View's hover/pressed colours; script `Update`
   mutations show one frame later (Q4c); production never reaches `ReflowDeferred`; the 16-tick cap (Q5); the
   untested "no layout dependencies" guard in `ProcessFrame`; macOS runs of every item above; the macOS decision on
-  `test_text` (pre-existing failure, below).
+  `test_text` (pre-existing failure, see Verification above).
 - **Unassigned (authority silent):** see "Still open from 12.2" above.
 
 **Checkbox note.** Steps 1–1c are ticked because their cases exist and pass in the forms listed in the
 deviations (the red state was not observed separately: tests and code landed together per commit). Step 2 (the
 facade red gate) was not run as written, so it stays unticked. Step 8 stays unticked: `ctest --preset debug` does
-not report "all tests pass" in this environment (the three pre-existing failures below, plus GPU/display tests
+not report "all tests pass" in this environment (the three unit-suite failures in the Verification table above, plus GPU/display tests
 that cannot run). Step 9 stays unticked: the work landed as the commits above, not as the plan's single commit.
 
 ### Task 13.1: Build a platform-independent, idempotent per-window text-input arbiter
@@ -2058,8 +2067,8 @@ that cannot run). Step 9 stays unticked: the work landed as the commits above, n
 - Modify: `src/Systems/Input.h`
 - Modify: `src/Systems/Input.cpp`
 - Modify: `src/UI/UIInputEvent.h`
-- Create: `src/UI/UISurfaceCoordinateMapping.h`
-- Create: `src/UI/UISurfaceCoordinateMapping.cpp`
+- Modify: `src/UI/UISurfaceCoordinateMapping.h` (created by Task 12.3)
+- Modify: `src/UI/UISurfaceCoordinateMapping.cpp` (created by Task 12.3)
 - Modify: `src/Editor/Windows/GameViewWindow.h`
 - Modify: `src/Editor/Windows/GameViewWindow.cpp`
 - Modify: `src/Editor/ImGuiLayer.cpp`
@@ -2081,11 +2090,13 @@ that cannot run). Step 9 stays unticked: the work landed as the commits above, n
 
 - **R10.** The router ignores which mouse button was pressed, so right and middle clicks fire
   `onClick` and a second button's press steals capture. Recommended policy: primary only (a
-  recommendation of the 12.1 record, not yet an approved policy).
+  recommendation of the 12.1 record, not yet an approved policy). **Landed in Task 12.3 (user decision Q2,
+  2026-10-18); see "Inherited from Task 12.3" below.**
 - **`PointerButton.control = Input::MouseButton`.** User decision 2026-10-18: `UIInputEvent::control`
   carries the engine enums — `Key` = `Input::KeyCode`, `GamepadButton` = `Input::GamepadButton`,
   `GamepadAxis` = `Input::GamepadAxis` (12.2 consumes these through `UINavigationDirectionOf` and
-  `ScrollAxisOf`) — and this task fills `PointerButton.control` with `Input::MouseButton`.
+  `ScrollAxisOf`) — and this task fills `PointerButton.control` with `Input::MouseButton`. **Landed in Task
+  12.3 (user decision Q2, 2026-10-18); see "Inherited from Task 12.3" below.**
 - **Activation of the focused element (Q4b, user decision 2026-10-18).** Enter, Space and gamepad South
   → Click on the focused element is not implemented by 12.2 and had no owner in this subplan. This task
   owns it together with R10: it must go through the router's single click authority (R7) and the

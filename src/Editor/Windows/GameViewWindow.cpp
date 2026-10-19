@@ -168,6 +168,8 @@ void GameViewWindow::DrawToolbar() {
 }
 
 void GameViewWindow::OnGUI() {
+    // Image 분기만 참으로 만든다: 닫힘·숨김 프레임의 낡은 hover로 포커스 눌림을 고르지 않는다.
+    imageHovered_ = false;
     if (!isOpen) {
         LoseInputFocus();
         renderSnapshot_.reset();

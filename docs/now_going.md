@@ -19,9 +19,9 @@ arbiter)부터, 하위 계획 04 순서대로. 그 뒤 Milestone 14(텍스트 �
 저작·마이그레이션(05) → 패키징(06) → 최종 qualification(07).**
 
 Task 12.3은 2026-10-19에 구현·검증을 마쳤다(Linux GCC 13, 커밋 `e93c2a8`…`ee0c8da`).
-단위 suite(`ee0c8da` 기준)는 102개 중 99개 통과, 실패 3개는 기존 결함(아래 검증 현황)이다.
+단위 suite(`ee0c8da` 기준)는 102개 중 99개 통과, 실패 3개는 이 환경의 기존 실패(video device가 없는 `test_ui_render_clip`·`test_gpu_retirement`, 기존 결함 `test_text`)다(아래 검증 현황).
 `ctest --preset debug`는 111개 중 103개 통과, 실패 8개는 display/GPU가 없어서 실패하는 것 6개, 기존 결함 `test_text`,
-그리고 픽스처 mp3를 오디오 디코더가 거절하는 `smoke_end_to_end`(12.3 이전 기준선과는 비교하지 않았다)다. ASan은 UI 상호작용 6개 타깃(`test_ui_frame`·`test_ui_input`·`test_ui_focus`·`test_ui`·
+그리고 픽스처 mp3를 오디오 디코더가 거절하는 `smoke_end_to_end`다. 이 세션의 커밋은 오디오·임포터·smoke 파일을 건드리지 않았다(`AudioImporter.cpp`의 `ma_decoder_init_file` 실패, 픽스처는 `tests/smoke/create_fixture.cmake`가 생성) — 별도로 조사할 기존/환경 문제다. ASan은 UI 상호작용 6개 타깃(`test_ui_frame`·`test_ui_input`·`test_ui_focus`·`test_ui`·
 `test_ui_scroll`·`test_game_view`)만 실행해 통과했다. **GUI·픽셀·smoke·e2e·host 이벤트 테스트와 Release·UBSan·
 macOS 재실행은 하지 않았다.** 구현 상태와 검증 상태는 아래에서 별도로 기록한다.
 Task 12.2는 2026-10-18에 구현·검증을 마쳤다(커밋 `7f57c71`…`6c8431d`).
@@ -235,7 +235,7 @@ macOS 등 display가 있는 환경에서만 확인할 수 있는 항목(실제 G
 - **Q3** Scene View 선택은 스냅샷 기반: `DrawUI`의 스냅샷에서 맨 위 hit 기록(그린 순서의 역순, rect ∩ `logicalClip`)을 고른다. 레거시 `HitTest`는 삭제.
 - **Q4** (a) 씨앗은 권위의 모양: int32 창 물리 픽셀 = floor(점 × `SDL_GetWindowPixelDensity`), 검사 후 아니면 무효. (b) `UIButton::CurrentColor()` 유지(any-surface). (c) 스크립트 `Update` 변경은 한 프레임 뒤에 보인다; `ReflowDeferred`는 N+1 게시 뒤 얻은 무효화에만 보고, 프로덕션은 도달하지 않는다. (d) 창 없는 게임패드 이벤트는 `SDL_GetKeyboardFocus()`의 창으로 도장, 0이면 외부 이벤트.
 - **Q5** `UIFixedTickClock`은 호출당 16 tick(0.25초) 상한. 초과분은 버리고 carry = total % Step. 권위 문서(상한 없음)와 다른, 사용자가 승인한 편차.
-- **Q6** Game View에서 포커스를 만든 클릭을 UI에 전달한다(옛 느낌): 패널이 포커스가 없고 직전 프레임에 ImGui가 이미지 hover를 보고했다면, 첫 주 버튼 press와 그 뒤 이벤트를 전달하고 그 앞은 버린다. 같은 프레임에 ImGui가 포커스를 확인하지 않으면 기존 `LoseInputFocus` 경로가 capture를 풀어 잘못된 클릭이 남지 않는다.
+- **Q6** Game View에서 포커스를 만든 클릭을 UI에 전달한다(옛 느낌): 패널이 포커스가 없고 직전 프레임에 ImGui가 이미지 hover를 보고했다면, 첫 주 버튼 press와 그 뒤 이벤트를 전달하고 그 앞은 버린다. 같은 프레임에 ImGui가 포커스를 확인하지 않으면 기존 `LoseInputFocus` 경로가 capture를 풀어 뒤 배치의 release가 클릭이 되지 않는다(같은 배치 안의 press+release는 ImGui 판정 전에 발송된다).
 
 ### 4. 다음 작업: Milestone 13 — IME·텍스트 입력 (Task 13.1 → 13.2 → 13.3)
 
