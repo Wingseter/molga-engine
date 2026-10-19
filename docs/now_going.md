@@ -1,24 +1,30 @@
 # Molga Engine - 프로젝트 현황
 
-> 갱신일: **2026-10-18**
-> 확인 기준: branch `claude/brave-carson-cv9y49`, 코드 HEAD `b9c0444`(Task 12.2 Step E) 위에 이 문서 커밋(이 커밋)을 얹은 상태. 선행 기준은 `c72ac61`(Step 5e amendment 구현)과 `dcd0deb`(GCC 13 수정, PR #27 병합 `c7096dd` 위).
-> 검증 환경: **Linux GCC 13 Debug**. macOS는 이번에 다시 실행하지 않았다.
+> 갱신일: **2026-10-19**
+> 확인 기준: branch `claude/brave-carson-cv9y49`, 코드 HEAD `ee0c8da`(Task 12.3 Step 8, 레거시 포인터 경로 삭제) 위에 이 문서 커밋(이 커밋)을 얹은 상태. 선행 기준은 `5221344`(Task 12.2 기록)와 `c72ac61`(Step 5e amendment 구현), `dcd0deb`(GCC 13 수정, PR #27 병합 `c7096dd` 위).
+> 검증 환경: **Linux GCC 13 Debug**(+ UI 타깃 ASan). macOS는 이번에 다시 실행하지 않았다.
 > 이 문서는 진행 상태와 재개 지점의 요약이다. 승인된 설계와 실행 하위 계획을 대체하지 않는다.
 
 ## 현재 위치와 즉시 재개 지점
 
 현재 개발의 중심은 SDL_GPU/Metal 렌더러 전환 이후의 **UI/Text Production Backbone**이다.
 다국어 텍스트와 UI 레이아웃·렌더링 기반, `Task 12.1`의 입력 계획 및 포인터 소유권
-보완, `Task 12.2`의 identity 기반 포커스·캡처·탐색·단일 이벤트 스크롤까지 코드에
-반영돼 있다. 실제 프레임 입력 경로(`UISystem::ProcessFrame`)의 전환은 아직 남아 있다.
+보완, `Task 12.2`의 identity 기반 포커스·캡처·탐색·단일 이벤트 스크롤, 그리고
+**`Task 12.3`의 실제 프레임 입력 경로(`UISystem::ProcessFrame`)까지 코드에 반영돼 있다.**
+에디터 Game View와 standalone runtime의 UI 입력은 이제 이 하나의 순서 있는 루프를 지나며,
+레거시 `ProcessInput` 경로는 삭제됐다.
 
-**다음 순서: Task 12.3 → IME·텍스트 편집 → 에디터 저작·마이그레이션
-→ 패키징·최종 qualification.**
+**현재 위치: Task 12.3 완료. 다음: Milestone 13(IME·텍스트 입력) — Task 13.1(플랫폼 독립 텍스트 입력
+arbiter)부터, 하위 계획 04 순서대로. 그 뒤 Milestone 14(텍스트 편집·표시·접근성 트리) → 에디터
+저작·마이그레이션(05) → 패키징(06) → 최종 qualification(07).**
 
-Task 12.2는 2026-10-18에 구현·검증을 마쳤다(Linux GCC 13, 커밋 `7f57c71`…`6c8431d`).
-단위 suite(`b9c0444` 기준)는 101개 중 98개 통과, 실패 3개는 기존 결함(아래 검증 현황)이다. ASan은 UI
-상호작용 4개 타깃(`test_ui_focus`·`test_ui_input`·`test_ui`·`test_ui_scroll`)만 실행해 통과했다.
-**Release·UBSan·macOS 재실행과 나머지 단위 suite의 ASan은 하지 않았다.** 구현 상태와 검증 상태는 아래에서 별도로 기록한다.
+Task 12.3은 2026-10-19에 구현·검증을 마쳤다(Linux GCC 13, 커밋 `e93c2a8`…`ee0c8da`).
+단위 suite(`ee0c8da` 기준)는 102개 중 99개 통과, 실패 3개는 기존 결함(아래 검증 현황)이다.
+`ctest --preset debug`는 111개 중 103개 통과, 실패 8개는 display/GPU가 없어서 실패하는 것 6개, 기존 결함 `test_text`,
+그리고 픽스처 mp3를 오디오 디코더가 거절하는 `smoke_end_to_end`(12.3 이전 기준선과는 비교하지 않았다)다. ASan은 UI 상호작용 6개 타깃(`test_ui_frame`·`test_ui_input`·`test_ui_focus`·`test_ui`·
+`test_ui_scroll`·`test_game_view`)만 실행해 통과했다. **GUI·픽셀·smoke·e2e·host 이벤트 테스트와 Release·UBSan·
+macOS 재실행은 하지 않았다.** 구현 상태와 검증 상태는 아래에서 별도로 기록한다.
+Task 12.2는 2026-10-18에 구현·검증을 마쳤다(커밋 `7f57c71`…`6c8431d`).
 Task 11.3 Step 5e 스크롤 수렴성 amendment는 `c72ac61`에 반영돼 있다.
 
 ## 현재 권위와 지원 범위
@@ -51,15 +57,15 @@ signing/notarization, Intel/Universal 2, Linux, Windows, older-macOS qualificati
 아래의 **반영됨**은 커밋·코드·하위 계획의 구현 기록을 뜻한다. 이번 점검에서 해당
 단계의 모든 승인 기준을 새로 통과했다는 뜻은 아니다.
 
-| 실행 단계 | 범위 | 상태 (2026-10-04 기준, 03행과 12.2행은 2026-10-18 갱신) |
+| 실행 단계 | 범위 | 상태 (2026-10-04 기준, 03행과 12.2행은 2026-10-18, 12.3행은 2026-10-19 갱신) |
 |---|---|---|
 | 01 · Milestone 1–3 | 고정 의존성, ICU 수명주기, Unicode 분석, 26.6 고정소수점 | 선행 구현과 테스트 존재 |
 | 02 · Milestone 4–8 | 폰트·패밀리, shaping, atlas, 문단 배치·BiDi hit testing, 공통 텍스트 소비자 전환 | 반영됨. 하위 계획 종료 기록 존재 |
 | 03 · Milestone 9–11 | UI identity·스키마, 레이아웃 스냅샷, 클리핑, 스크롤 상태 | 반영됨. Step 5e 수렴성 amendment는 2026-10-18에 `c72ac61`로 반영 |
 | 04 · Task 12.1 | 순서 있는 UI 이벤트, 스냅샷 N 기준 타깃 계획·결과 합산 | `f9ac229`로 반영됨 |
 | 12.1 포인터 소유권 amendment | 장식 UI의 조상 라우팅, 클릭 차단, self-or-ancestor 스크롤 연결 | `5c2fc17`로 반영됨 |
-| 04 · Task 12.2 | identity 기반 포커스·캡처·탐색·단일 이벤트 스크롤 | 반영됨(2026-10-18). `7f57c71` `1717f46` `7aaf24d` `17263ee` `58f0b8c` `f1a5667` `b9c0444`. 실제 프레임 경로에는 아직 연결되지 않음(12.3) |
-| 04 · Task 12.3 | `UISystem::ProcessFrame`과 실제 입력 경로 통합 | 미구현 |
+| 04 · Task 12.2 | identity 기반 포커스·캡처·탐색·단일 이벤트 스크롤 | 반영됨(2026-10-18). `7f57c71` `1717f46` `7aaf24d` `17263ee` `58f0b8c` `f1a5667` `b9c0444` `6c8431d`. 실제 프레임 경로 연결은 12.3 |
+| 04 · Task 12.3 | `UISystem::ProcessFrame`과 실제 입력 경로 통합 | 반영됨(2026-10-19). `e93c2a8` `715ecbb` `b2e829e` `acb1b05` `520a711` `a36ad58` `43debe8` `c289455` `981243f` `419c14e` `ee0c8da`. macOS 미실행 항목은 아래 |
 | 04 · Milestone 13–14 | IME 소유권, native event/ImGui 연결, 텍스트 편집·표시, 내부 접근성 트리 | 후속 작업 |
 | 05 · Milestone 15 | UI/Text 에디터 저작과 명시적 legacy migration | 후속 작업 |
 | 06 · Milestone 16–17 | macOS resource-root·font/dependency 검증·패키징 정책 | 후속 작업 |
@@ -89,6 +95,17 @@ identity로 키를 잡는 프로세스 전역 표(`UIInteractionStateTable`)로 
 [하위 계획 04](superpowers/plans/2026-08-20-ui-text/04-ui-interaction-ime.md)의
 `Implementation record — Task 12.2 (2026-10-18)`에 있다.
 
+Task 12.3(2026-10-19)은 `UISystem::ProcessFrame`을 UI 이벤트 벡터의 유일한 처리 루프로 만들었다.
+호스트가 SDL 이벤트를 값(`NativeInputEvent`, 프로세스 전역 시퀀스)으로 모으고 소비자가 배치를 정확히 한 번
+가져가며(`EngineHost::TakeNativeInputBatch`), `UISurfaceCoordinateMapping`이 창 픽셀을 캔버스 논리점으로
+옮기고, `UIFixedTickClock`이 1/64초 tick을 만든다. `ProcessFrame`은 스냅샷 N 하나로 배치 전체를 계획한 뒤
+이벤트마다 라우터→포커스→스크롤로 발송하고, 많아야 한 번 N+1을 게시한다. UI는 게시된 스냅샷으로만 그려지고
+(Game View·runtime·Scene View), 버튼 색은 스냅샷 자신의 표면 `{창, 월드 세대}`에서만 읽힌다. Scene View
+선택은 같은 스냅샷의 맨 위 hit 기록이다. 우클릭·중클릭은 hover만 만든다(주 버튼만 press/capture/click). Game View에서
+포커스를 만든 클릭도 UI에 전달된다. 사용자 결정 Q1–Q6(2026-10-18)과 편차·검토 판정은
+[하위 계획 04](superpowers/plans/2026-08-20-ui-text/04-ui-interaction-ime.md)의
+`Implementation record — Task 12.3 (2026-10-19)`에 있다.
+
 Step 5e amendment(2026-10-18)는 속도 감쇠를 0 방향 절단(`MulQ6TowardZero`)으로 바꾸고,
 양수 감속률·복귀율의 최소 1 raw 바닥과 overscroll 보정의 `[1, |overscroll|]` 제한을
 추가해 탄성/감속 재귀가 유한 tick 안에 정지하게 했다. settle clause와 이미 못 박힌
@@ -96,19 +113,33 @@ Step 5e amendment(2026-10-18)는 속도 감쇠를 0 방향 절단(`MulQ6TowardZe
 [하위 계획 03](superpowers/plans/2026-08-20-ui-text/03-ui-layout-rendering.md)의
 `Implementation record — Step 5e amendment (2026-10-18)`에 있다.
 
-### 실제 입력 경로는 아직 legacy
+### 실제 입력 경로 (Task 12.3 이후)
 
-`UIInputRouter::PlanNext`·`HandleEvent`, `UIFocusSystem`, `UIScrollSystem::HandleEvent`와 새
-상호작용 상태 표(`UIInteractionStateTable`)는 존재하지만 Game View와 standalone runtime은 여전히
-`UISystem::ProcessInput`을 호출한다. `UISystem`에는 기존 `capturedOwner_`와 `capturedObjectId_`가
-남아 있고 `UISystem::ProcessFrame`은 없다. 레거시 경로는 `UIButton::ApplyPointerState` 어댑터를 통해
-표의 예약 표면 `{windowId = 0, worldGeneration}`에 쓸 뿐이며, 새 라우터·포커스 시스템을 프레임마다
-부르는 코드는 아직 없다(테스트만 부른다). 따라서 새 시스템의 구현을 실제 실행 경로 전환 완료로
-해석하지 않는다.
+프레임 순서는 다음과 같다.
+
+```text
+host PollEvents  → NativeInputEvent 값(프로세스 전역 시퀀스)과 창별 씨앗을 배치에 쌓는다
+프레임 소유자     → TakeNativeInputBatch()를 루프마다 정확히 한 번 (UI 월드가 없어도)
+                 → MapNativeInputBatch(...) → UIFrameInput,  UIFixedTickClock → uiTicks
+UISystem::ProcessFrame(world, input, textLayout, sink)
+                 → 스냅샷 N 빌드 → Revalidate → 클릭 가장자리 정리 + 표/씨앗으로 계획 상태 설정
+                 → 배치 시퀀스 검증 → 계획(PlanNext+ProjectEvent) → 발송(라우터→포커스→스크롤, 매번 Revalidate)
+                 → tick 배치 검증·소비 → N+1 (많아야 한 번) 게시
+프레임 소유자     → 스크립트 Update → GameOutputRenderer(request.uiSnapshot = N+1)
+```
+
+`UISystem::ProcessInput`, `UIPointerState`, `UIButton::ApplyPointerState`, 레거시 표면 키
+`kLegacyPointerSurfaceWindow`, `UISystem::{capturedOwner_, capturedObjectId_, ResetPointerCapture}`와 레거시
+즉시 `CollectRender(World&, …)`·`HitTest`는 삭제됐다. 상호작용 표의 쓰기 주체는 라우터와 `UIFocusSystem` 둘뿐이다.
+스크립트 `Update`가 만든 UI 변경은 설계대로 한 프레임 뒤에 보인다(사용자 결정 Q4c).
+
+macOS 등 display가 있는 환경에서만 확인할 수 있는 항목(실제 Game View/runtime 포인터·휠·키보드·게임패드,
+분리 뷰포트, letterbox, 포커스를 만든 클릭, 스냅샷 렌더링)은 이번에 실행하지 못했다. 아래 검증 현황 참조.
 
 근거: [`UISystem.h`](../src/UI/UISystem.h),
 [`GameViewWindow.cpp`](../src/Editor/Windows/GameViewWindow.cpp),
-[`runtime_main.cpp`](../src/runtime_main.cpp).
+[`runtime_main.cpp`](../src/runtime_main.cpp),
+[`UISurfaceCoordinateMapping.h`](../src/UI/UISurfaceCoordinateMapping.h).
 
 ## 다음 작업과 이월 사항
 
@@ -157,7 +188,7 @@ Step 5e amendment(2026-10-18)는 속도 감쇠를 0 방향 절단(`MulQ6TowardZe
 - [x] hover/pressed/clicked 상태가 router-owned 표로 이동했고 R7(두 클릭 권위, capture 상실 뒤 잔여 pressed)이 닫혔다.
 - [x] 보이는 상태 변경은 세대를 정확히 한 번 올리고 no-op은 올리지 않으며, 소진 시 fail closed(Blocker 1회).
 - [x] 스크롤 핸들러는 한 계획의 signed wheel/drag/axis 값을 보존하고 고정된 사슬을 안쪽부터 따라가 소비한 대상과 ordinal을 보고한다.
-- [ ] 실제 프레임 입력 경로 연결과 레거시 제거는 Task 12.3의 몫이다.
+- [x] 실제 프레임 입력 경로 연결과 레거시 제거는 Task 12.3에서 끝났다(2026-10-19, 아래 §3).
 
 사용자 결정(2026-10-18, 하위 계획 04 구현 기록에도 같은 날짜로 기록):
 
@@ -170,43 +201,58 @@ Step 5e amendment(2026-10-18)는 속도 감쇠를 0 방향 절단(`MulQ6TowardZe
 - **Q4** (a) 게임패드 스틱은 포커스를 옮기지 않는다 — 화살표 키와 D-pad만. (b) 포커스 요소 활성화(Enter/Space/게임패드 South → Click)는 12.2 밖이고 Task 13.2가 R10과 함께 맡는다. (c) 세대 소진은 fail closed(Press/Click/Focus 미전달, 이전 상태 유지, Blocker 1회). (d) 자동 탐색은 모드 `None` selectable을 목적지에서 제외하고, 모드 `None` 출발점은 목적지가 없다(포커스 유지, 진단 없음).
 - 사용자 질문이 아닌 설계 §8.2 귀결: 사슬의 낡은 항목은 `ReferenceInvalid` 한 번과 함께 건너뛰고 바깥쪽으로 계속한다.
 
-### 3. Task 12.3 — 실제 프레임 처리 통합 (다음 작업)
+### 3. Task 12.3 — 실제 프레임 처리 통합 (완료, 2026-10-19)
 
-`UISystem::ProcessFrame`이 ordered-event vector의 유일한 처리 루프가 되도록 하고,
-Game View와 standalone runtime을 새 경로에 연결한다. 콜백이 RenderSnapshot N+1을
-게시해도 같은 입력 묶음의 타깃 판단과 release arbitration은 끝까지 N을 사용한다.
+권위: [하위 계획 04](superpowers/plans/2026-08-20-ui-text/04-ui-interaction-ime.md)의 `Task 12.3`과 그 구현 기록.
+계획의 단일 커밋 대신 단계별 코드 8개 + 검토 후 수정 3개 커밋으로 반영됐다.
 
-12.2에서 이월되는 의무:
+| 커밋 | 내용 |
+|---|---|
+| `e93c2a8` | Step 1: `NativeInputEvent` 값, 시퀀스 할당기, `EngineHost::TakeNativeInputBatch`, 창별 씨앗, SDL 번역 |
+| `715ecbb` | Step 2: `UISurfaceCoordinateMapping`, `MapNativeInputBatch` |
+| `b2e829e` | Step 3: `UIFixedTickClock`, `Time::GetElapsedNanoseconds` |
+| `acb1b05` | 수정(1–3 검토): 밀도 조회 실패 시 씨앗 무효, 첫 프레임 경과 0, 배율 검증, tick 16개 상한(Q5) |
+| `520a711` | Step 4: `UISystem::ProcessFrame`, `ClearClickedThisFrame`, 라우터의 표면 검사, 주 버튼만 press/capture/click |
+| `a36ad58` | Step 5: 스냅샷으로만 렌더, Scene View 스냅샷 그리기·선택, `GameOutputRequest::uiSnapshot` |
+| `43debe8` | 수정(4–5 검토): 테스트 강화·주석 |
+| `c289455` | Step 6: Game View를 `ProcessFrame`으로 |
+| `981243f` | Step 7: standalone runtime을 `ProcessFrame`으로(smoke 합성 클릭 포함) |
+| `419c14e` | 수정(6–7 검토): 포커스를 만든 클릭 전달(Q6), 처리 표면이 바뀔 때 이전 표면에서 포인터 이탈 |
+| `ee0c8da` | Step 8: 레거시 포인터 경로 삭제, `Build`가 스냅샷의 표면 색을 정확히 읽음 |
 
-- `UIPlanningState`를 `UIInteractionStateTable::Surface`에서 세운다. 라우터가 쓰는 hover와
-  `PlanNext`가 투사하는 hover가 다른 경우(잡힌 이동/놓기가 대상 밖일 때 라우터는 "포인터 아래
-  대상 또는 없음", `PlanNext`는 잡힌 대상 유지; 잡히지 않은 놓기는 `PlanNext`만 hover 갱신)를 맞춘다.
-- 프레임 시작과 hierarchy/component를 바꿀 수 있는 콜백 뒤마다 `UIFocusSystem::Revalidate`를 부른다.
-  `ClearFrameTransients`(clickedThisFrame 프레임 초기화)는 12.2에 없다: 라우터 경로의 click 비트는
-  그 버튼의 항목이 다시 쓰일 때까지 남고 `WasClickedThisFrame()`은 표면 전체를 OR 한다.
-- `UILayoutSystem.cpp`의 `button->CurrentColor()`(any-surface OR)를
-  `ButtonState({surfaceWindowId, world.Generation()}, …)`로 바꾸고, 레거시 표면 키 `{0, gen}`,
-  `UIButton::ApplyPointerState`, `UISystem::{capturedOwner_, capturedObjectId_, ResetPointerCapture}`를 지운다.
-  파괴된 오브젝트의 `UIButton` 항목은 `OnDisable`이 지운다(`6c8431d`). 그 밖의 죽은 identity(포커스된
-  `UISelectable`, 다른 소유자가 붙든 채 월드에서 빠진 오브젝트, `OnDisable` 없이 꺼진 컴포넌트)와 레거시
-  표면은 `Revalidate`(라우터 표면만 순회)/월드 해제 전까지 표에 남는다.
-- `Revalidate`는 N이 더는 게시하지 않는 기록(예: 비활성 `UICanvas` 서브트리)의 포커스를 유지한다 —
-  key 계획이 대상 없이 끝날 뿐 무해하다. 자동 탐색은 clip/mask로 가려진 기록(빈 `logicalClip`)을 고를
-  수 있다 — 권위 문서가 침묵한다.
+- [x] `ProcessFrame`이 ordered-event 벡터의 유일한 루프이고, 라우팅·포커스·스크롤은 배치 내내 N만 보며, N+1은 많아야 한 번 게시된다(`rg` 게이트 포함).
+- [x] 배치 시퀀스·tick 장부가 표면별로 재생·역행을 거절하고 월드 세대 해제에 회수된다.
+- [x] Game View와 runtime이 같은 경로를 쓰고, 렌더는 게시된 스냅샷만 소비한다.
+- [x] 우클릭·중클릭은 hover만(R10), 12.2 이월(planning-state 씨앗, hover 조정, `Revalidate` 위치, `ClearClickedThisFrame`, 정확한 표면 색, 레거시 삭제)이 닫혔다.
+- [x] `DecodeUtf8` 이월 의무는 레거시 `CollectRender` 삭제로 닫혔다(프로덕션 호출자 없음).
+- [ ] 계획의 red gate(Step 2)와 `ctest --preset debug` "전부 통과"(Step 8), 단일 커밋(Step 9)은 그대로 수행되지 않았다.
+- [ ] display가 필요한 항목(GUI·픽셀·smoke·e2e·host 이벤트 테스트)은 이 환경에서 실행하지 못했다.
 
-`R6`의 N/N+1 회귀 테스트, `R11`의 planning-state 창·월드 검증을 포함한다.
-이미 구현된 `UIEventDispatchAccumulator`의 명시적 diagnostic sink와 non-fatal
-merge rejection 계약을 사용하고 재구현하지 않는다. 하위 계획의 오래된 생성자 예시와
-stored-plan vector를 금지하는 모순된 검색 검증도 실제 계약에 맞춰 확인한다.
+사용자 결정(2026-10-18, 하위 계획 04 구현 기록에도 같은 날짜로 기록):
 
-### 4. 후속 단계의 주의점
+- **Q1** 13.2의 non-text ingest 부분집합을 12.3에서 구현(13.1/13.2의 이름·필드 그대로): 값 이벤트, 전역 시퀀스, `TakeNativeInputBatch`, 표면 씨앗, `WindowPixelToCanvas`. 텍스트 도장·arbiter·2인자 observer·sink 진단은 13.2.
+- **Q2** 우클릭·중클릭(R10): 주(왼쪽) 버튼만. 그 밖의 버튼은 `PointerMotion`처럼 pointer+hover만 투사. R10은 13.2의 이월 목록에서 빠졌다.
+- **Q3** Scene View 선택은 스냅샷 기반: `DrawUI`의 스냅샷에서 맨 위 hit 기록(그린 순서의 역순, rect ∩ `logicalClip`)을 고른다. 레거시 `HitTest`는 삭제.
+- **Q4** (a) 씨앗은 권위의 모양: int32 창 물리 픽셀 = floor(점 × `SDL_GetWindowPixelDensity`), 검사 후 아니면 무효. (b) `UIButton::CurrentColor()` 유지(any-surface). (c) 스크립트 `Update` 변경은 한 프레임 뒤에 보인다; `ReflowDeferred`는 N+1 게시 뒤 얻은 무효화에만 보고, 프로덕션은 도달하지 않는다. (d) 창 없는 게임패드 이벤트는 `SDL_GetKeyboardFocus()`의 창으로 도장, 0이면 외부 이벤트.
+- **Q5** `UIFixedTickClock`은 호출당 16 tick(0.25초) 상한. 초과분은 버리고 carry = total % Step. 권위 문서(상한 없음)와 다른, 사용자가 승인한 편차.
+- **Q6** Game View에서 포커스를 만든 클릭을 UI에 전달한다(옛 느낌): 패널이 포커스가 없고 직전 프레임에 ImGui가 이미지 hover를 보고했다면, 첫 주 버튼 press와 그 뒤 이벤트를 전달하고 그 앞은 버린다. 같은 프레임에 ImGui가 포커스를 확인하지 않으면 기존 `LoseInputFocus` 경로가 capture를 풀어 잘못된 클릭이 남지 않는다.
 
-`Task 13.2`에는 우클릭·중클릭도 현재 router에서 클릭/캡처로 취급될 수 있는 `R10`이
-남아 있다. primary-only는 기존 기록의 권고안이지 이 현황 갱신으로 새로 승인한 정책이 아니다.
-13.2는 또 `PointerButton.control`을 `Input::MouseButton`으로 채우고, 포커스 요소의 활성화
-(Enter/Space/게임패드 South → Click, 사용자 결정 Q4b)를 R10과 함께 맡는다 — 하위 계획 04의
-Task 13.2 "Inherited obligations"에 기록했다. `UIInputEvent::control`의 도메인(Key/GamepadButton/
-GamepadAxis = 엔진 enum)은 12.2에서 확정돼 13.2/14.1이 그대로 따른다.
+### 4. 다음 작업: Milestone 13 — IME·텍스트 입력 (Task 13.1 → 13.2 → 13.3)
+
+하위 계획 04의 `Task 13.1`(플랫폼 독립 per-window 텍스트 입력 arbiter)부터 시작한다. 12.3이 미리 구현한 부분을
+하위 계획 04의 두 Task에 "Inherited from Task 12.3" 블록으로 적어 뒀다.
+
+- **13.1:** `src/Platform/NativeInputEvent.{h,cpp}`가 이미 있다 → Step 4b는 Create가 아니라 Modify(`text`, `textInputOwnerTransition` 추가; `NativeTextEvent`는 13.1이 만든다). 시퀀스 할당기·`NativeSurfaceBatchStart`(int32 픽셀 씨앗)·`NativeTranslateContext`가 있다. 비-UI SDL 이벤트는 시퀀스만 소비하고 배치에 넣지 않는다. SDL3의 `event.key.mod`.
+- **13.2:** R10과 `PointerButton.control = Input::MouseButton`은 12.3에서 끝났다. 포커스 요소 활성화(Q4b)는 여전히 13.2의 몫이다. 13.2가 남기는 일: 텍스트 도장·arbiter, 2인자 observer, 미수령 poll 거절(`Log::Warn`)·시퀀스 소진(`Log::Error`)을 sink로(`ReferenceInvalid`/Blocker), `CanvasRectToWindowPixels`·커서 매핑·`sdlWindowBoundsPixels`, `SDL_PushEvent` host 테스트. 픽셀 밀도의 출처는 `SDL_GetWindowPixelDensity` 하나다(14.3의 IME 사각형도 같은 값).
+- **14.x / 07로 이월:** ImGui 팝업이 이미지를 덮는 경우 포인터 종류를 이미지 hover로 거르기(13.2/14.3), Game View 매핑이 직전 프레임의 배율·클립·원점을 쓴다(DPI 변경 시 한 프레임 어긋남), smoke 합성 입력은 씨앗이 없고 창 포커스 false, 14.1이 텍스트 핸들러를 `Revalidate` 앞에 넣는다, 07: 같은 월드의 두 표면이 스냅샷 칸을 프레임마다 번갈아 쓴다(성능), Game View와 같은 OS 창에 도킹된 Scene View는 Game View의 hover/pressed 색을 보인다, tick 상한, macOS 실행.
+- **12.2에서 이월돼 소유자가 없는 항목(권위가 침묵):** 자동 탐색이 clip/mask로 가려진 기록을 고를 수 있음; `Revalidate`가 N이 더는 게시하지 않는 기록의 포커스를 유지; 버튼 아닌 컴포넌트의 죽은 identity는 `Revalidate`/월드 해제까지 남음.
+
+### 5. 후속 단계의 주의점
+
+`Task 13.2`는 포커스 요소의 활성화(Enter/Space/게임패드 South → Click, 사용자 결정 Q4b)를 맡는다 —
+하위 계획 04의 Task 13.2 "Inherited obligations"에 기록했다. 우클릭·중클릭 `R10`(주 버튼만)과
+`PointerButton.control = Input::MouseButton`은 12.3에서 반영됐다(사용자 결정 Q2). `UIInputEvent::control`의
+도메인(Key/GamepadButton/GamepadAxis/PointerButton = 엔진 enum)은 확정돼 13.2/14.1이 그대로 따른다.
 
 `Task 14.1`은 `UISelectable` 없는 bare `UITextInput`이 포인터 포커스를 얻지 못하는
 문제를 담당한다. `Task 15.3`의 ScrollView authoring preset에는 빈 viewport 영역에도
@@ -284,7 +330,7 @@ external/
 
 resources/text/                # locked ICU data와 dependency contract
 resources/licenses/            # text dependency notices/licenses
-tests/                         # Debug에 등록된 CTest 110개 (2026-10-18, `test_ui_focus` 추가)
+tests/                         # Debug에 등록된 CTest 111개 (2026-10-19, `test_ui_frame` 추가)
 docs/                          # 현재 권위, 계획과 이력
 ```
 
@@ -368,6 +414,29 @@ docked editor의 hierarchy/inspector/project browser, standalone package builder
 smoke report가 존재한다. 이 기능 목록은 이번 갱신에서 전부 재검증한 목록이 아니다.
 
 ## 검증 현황과 완료 기준
+
+### 2026-10-19 Task 12.3 검증 — Linux GCC 13 Debug + UI ASan (macOS 재실행 없음)
+
+환경은 Linux, GCC 13, Debug(`build/debug`)와 ASan(`build/asan`)이다. 이 컨테이너에는 display/GPU가 없다
+(`Failed to initialize SDL3: No available video device`). 아래는 `ee0c8da`(이후 소스 변경 없음)에서 실제로 실행한 결과다.
+
+| 검증 | 관찰 결과 |
+|---|---|
+| `cmake --build --preset debug -j4` | 전체 트리 빌드, 오류 0 |
+| 집중 테스트 `test_ui_frame` `test_ui_input` `test_ui_focus` `test_ui` `test_ui_layout` `test_ui_components` `test_game_view` `test_scene_runtime` `runtime_smoke` | 모두 통과. 케이스 수: `test_ui_frame` 22(신규), `test_ui_input` 76, `test_ui_focus` 17, `test_ui` 24, `test_game_view` 31(이전 13), `test_platform_sdl` 11(이전 4) |
+| `build/debug/tests/test_platform_sdl --test-case="native translation*,the native sequence allocator*"` | 3 cases / 104 assertions 통과(display 불필요) |
+| `test_rendering_sdlgpu` 소스 감사 케이스 | 통과(24 assertions). `EngineShutdown(host, sink)` 등 4개 카운트 불변 |
+| `ctest --test-dir build/debug -L unit -LE "smoke\|pixel\|e2e"` | 102개 중 **99개 통과, 3개 실패**, 473.7초: `test_ui_render_clip`·`test_gpu_retirement`(video device 없음), `test_text`(`test_text.cpp:1312`, 기존 결함 — 이번 작업 중 한 번은 통과, 나머지는 실패하는 환경 의존) |
+| `ctest --preset debug` (등록 111개, 프리셋 60초 제한) | **103개 통과, 8개 실패**, 950.5초. timeout으로 보고된 테스트 없음(`test_ui_scroll`은 `TIMEOUT 600`으로 통과). 실패: `test_ui_render_clip`·`test_gpu_retirement`·`test_rendering_sdlgpu`·`test_imgui_sdlgpu`·`test_platform_sdl`·`test_gpu_sdl`(display/GPU 필요), `test_text`(위), `smoke_end_to_end`(편집기 `--smoke-build`가 코드 3으로 종료: 픽스처 mp3를 오디오 디코더가 거절 — UI 경로 밖의 환경/픽스처 문제이며 12.3 이전 기준선과 비교하지는 않았다) |
+| ASan: `test_ui_frame` `test_ui_input` `test_ui_focus` `test_ui` `test_ui_scroll` `test_game_view` | 6/6 통과(`ASAN_OPTIONS=new_delete_type_mismatch=0`; `test_ui_scroll` 97.8초) |
+| `rg` 게이트 | `ProcessInput(`·`ResetPointerCapture`·`ApplyPointerState`·`kLegacyPointerSurfaceWindow`·`UIPointerState`·`capturedOwner_`: 0건. `Drain(Text\|NativeText)\|PendingTextEvents`: 0건. `vector<.*PlannedUIEvent`: `src/UI/UISystem.cpp:244`만. `DecodeUtf8`: `Utf8.{h,cpp}`와 주석 2건. `orderedEvents`: `UIInputEvent.h`·`UISystem.cpp`·`UISurfaceCoordinateMapping.cpp`(배치 매핑이 벡터를 만들고 Q6 도우미가 자른다) |
+| mutation | 이번 실행에서 `KeepFocusingPressSuffix` 8종·`PointerDepartureNeededOnSurfaceChange` 3종(각각 `test_game_view`의 지정 케이스를 실패시킴), `Build`가 any-surface/다른 창을 읽는 2종과 라우터가 다른 창에 쓰는 1종(각각 `test_ui_frame`의 색 케이스 2개를 실패시킴). 체크섬 백업으로 복원하고 전체 트리를 다시 빌드했다. 이전 단계의 mutation은 하위 계획 04의 기록 참조 |
+
+**실행하지 못한 것(macOS/display 필요):** `EngineHost::PollEvents`/`TakeNativeInputBatch` 실제 SDL 이벤트 테스트(`test_platform_sdl`
+host 케이스와 편집된 `test_imgui_sdlgpu`), `test_rendering_sdlgpu`의 UI 픽셀 케이스, `test_ui_render_clip`,
+`test_gpu_retirement`, `editor_smoke`·`build_smoke`·`smoke_end_to_end`, 눈에 보이는 Game View/Scene View UI(임베드·분리 뷰포트,
+Fit/100 %, letterbox), 포커스를 만든 클릭·분리 표면 이탈의 실제 동작(순수 판정 함수만 테스트), standalone runtime 포인터·휠·게임패드·키보드,
+UBSan, Release, UI 밖 타깃의 ASan.
 
 ### 2026-10-18 Task 12.2 검증 — Linux GCC 13 Debug (macOS 재실행 없음)
 
@@ -489,7 +558,20 @@ editor/runtime/copied app parity 증거는 하위 계획 07의 최종 qualificat
 
 | 커밋 | 날짜 | 의미 |
 |---|---|---|
-| (이 커밋) | 2026-10-18 | Task 12.2 구현 기록(하위 계획 04)과 이 현황 문서 갱신 |
+| (이 커밋) | 2026-10-19 | Task 12.3 구현 기록(하위 계획 04)과 이 현황 문서 갱신 |
+| `ee0c8da` | 2026-10-19 | Task 12.3 Step 8: 레거시 포인터 경로 삭제, 정확한 표면 버튼 색 |
+| `419c14e` | 2026-10-19 | 수정(6–7 검토): 포커스를 만든 클릭 전달(Q6), 처리 표면 변경 시 이전 표면 이탈 |
+| `981243f` | 2026-10-18 | Task 12.3 Step 7: standalone runtime이 `ProcessFrame` 사용 |
+| `c289455` | 2026-10-18 | Task 12.3 Step 6: Game View가 `ProcessFrame` 사용 |
+| `43debe8` | 2026-10-18 | 수정(4–5 검토): 프레임 테스트 강화·주석 |
+| `a36ad58` | 2026-10-18 | Task 12.3 Step 5: 스냅샷으로만 UI 렌더, Scene View 스냅샷 선택 |
+| `520a711` | 2026-10-18 | Task 12.3 Step 4: `UISystem::ProcessFrame` |
+| `acb1b05` | 2026-10-18 | 수정(1–3 검토): 씨앗·첫 프레임 경과·배율 검증·tick 상한 |
+| `b2e829e` | 2026-10-18 | Task 12.3 Step 3: `UIFixedTickClock` |
+| `715ecbb` | 2026-10-18 | Task 12.3 Step 2: `UISurfaceCoordinateMapping`, 배치 → `UIFrameInput` |
+| `e93c2a8` | 2026-10-18 | Task 12.3 Step 1: 네이티브 입력 값·전역 시퀀스·`TakeNativeInputBatch` |
+| `5221344` | 2026-10-18 | Task 12.2 ASan 실행 기록과 버튼 정리 수정(`6c8431d`) 문서화 |
+| `b2d2403` | 2026-10-18 | Task 12.2 구현 기록(하위 계획 04)과 이 현황 문서 갱신 |
 | `b9c0444` | 2026-10-18 | Task 12.2 Step E: `UIScrollSystem::HandleEvent` 한 이벤트 스크롤 |
 | `f1a5667` | 2026-10-18 | 수정: `Revalidate`의 다른 월드 스냅샷 방어, `ui.focus` 진단 사실당 1회 |
 | `58f0b8c` | 2026-10-18 | Task 12.2 Step D: 명시적/자동 방향 탐색 |

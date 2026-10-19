@@ -1307,7 +1307,7 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
 - Consumes: layout/render/hit snapshots, ordered frame values, one-event router/focus/scroll APIs, and runtime `World&`.
 - Produces: global `UISystem::{ProcessFrame,CollectRender,OnWorldReleased}`, `UIFixedTickClock`, exact coalesced N/N+1 publication, one shared action audit, sink-bearing rendering, and world-aware production/canonical tick calls.
 
-- [ ] **Step 1: Write the failing one-loop and N/N+1 test.**
+- [x] **Step 1: Write the failing one-loop and N/N+1 test.**
 
   Create events `[pointer-down, pointer-up, key-down]`; the click callback hides itself and requests layout twice before publication. Assert one plan per event, one pointer-only geometry hit, one vector-loop visit per sequence, one coalesced N+1 build, zero N+1 re-hit-tests, and no `ReflowDeferred` diagnostic for either pre-publication request.
 
@@ -1328,11 +1328,11 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
   }
   ```
 
-- [ ] **Step 1a2: Write a failing post-publication deferral test.**
+- [x] **Step 1a2: Write a failing post-publication deferral test.**
 
   Install a test publication observer that invalidates layout only after N+1 is atomically published. Require that mutation to remain dirty for the next frame, exactly one rate-limited `ReflowDeferred`, no N+2 build in the current frame, and one rebuild at the next `ProcessFrame`. The observer is test instrumentation around publication, not an implementation callback exposed to gameplay.
 
-- [ ] **Step 1b: Write a failing replayed-native-sequence test.**
+- [x] **Step 1b: Write a failing replayed-native-sequence test.**
 
   ```cpp
   TEST_CASE("ProcessFrame rejects a native batch replay before dispatch") {
@@ -1349,7 +1349,7 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
 
   Also pass `{42,42}` and `{44,43}` in fresh fixtures. Reject the complete batch before any callback; do not silently sort or partially dispatch it. Give detached surface 20 the same valid sequence values already completed by surface 10 and require independent acceptance, then replay them on surface 20 and require rejection. Pass a frame whose `UIFrameInput::windowId` differs from snapshot N's `surfaceWindowId` and require no planning/dispatch/publication. Canonical trace order remains the separate nonzero `traceOrdinal` field and never relaxes native `sequence` monotonicity.
 
-- [ ] **Step 1c: Write failing production/canonical deterministic-tick tests.**
+- [x] **Step 1c: Write failing production/canonical deterministic-tick tests.**
 
   Feed elapsed nanoseconds `{7'000'000, 9'000'000, 31'250'000}` through separate runtime and Game View `UIFixedTickClock` instances and require identical emitted values `{tickIndex 1,2,3; deltaSecondsRaw 1}` with the same carry. Encode/decode that exact vector through the canonical replay fixture and require byte/value equality. Add a frame with invalid `{tickIndex=0}`, duplicate/decreasing index, or delta outside `[1,64]`; require no scroll step, normal ordered-event audit preservation, and one `LayoutInvalid`.
 
@@ -1362,7 +1362,7 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
 
   Expected: compilation fails because the frame facade and world-aware render path are absent.
 
-- [ ] **Step 3: Define the production facade and delete generation-less overloads.**
+- [x] **Step 3: Define the production facade and delete generation-less overloads.**
 
   ```cpp
   class UISystem {
@@ -1385,7 +1385,7 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
   facade constructs/caches another service. Update tests through fixtures
   rather than keeping an identity-less compatibility path.
 
-- [ ] **Step 3b: Define the one production fixed-tick clock.**
+- [x] **Step 3b: Define the one production fixed-tick clock.**
 
   ```cpp
   class UIFixedTickClock {
@@ -1402,27 +1402,27 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
 
   Use checked integer addition only. Emit one `deltaSeconds=Fixed26_6::FromRaw(1)` per complete 1/64-second interval, keep the remainder, and check `nextTickIndex_` before increment so it never wraps. Runtime and `GameViewWindow` each own this same class and receive the same host monotonic elapsed-nanosecond sample; neither uses `float dt`/ImGui delta. Canonical replay bypasses the clock and supplies the recorded exact values to `UIFrameInput::uiTicks`.
 
-- [ ] **Step 4a: Seed projection state from snapshot-N and batch-start state.**
+- [x] **Step 4a: Seed projection state from snapshot-N and batch-start state.**
 
   Build snapshot N, then require nonzero `UIFrameInput::windowId == snapshotN->surfaceWindowId`; a mismatch fails the complete surface frame before projection. Create `UIPlanningState` from the revalidated focus/capture/hover identities plus `nativeWindowFocusedAtBatchStart`, `pointerAtBatchStart`, and `pointerAtBatchStartValid` mapped from the same take-once host batch and frozen surface-coordinate mapping. An invalid start point seeds no hover/capture and is never treated as logical zero. Add three first-scroll rows: a valid start point selects its frozen scroll chain; an invalid start is targetless; and a valid pointer motion before scroll replaces the seed and selects the new route. The state stores identities only and records the same surface window/world pair. Never seed from post-poll `Input` state; each matching `WindowFocus`/pointer event advances the projection sequentially from this start value.
 
-- [ ] **Step 4b: Validate the complete batch before dispatch.**
+- [x] **Step 4b: Validate the complete batch before dispatch.**
 
   During the one projection pass, require each native `sequence` to be nonzero, greater than the preceding entry, and greater than `lastCompletedNativeSequenceBySurface_[{input.windowId,world.Generation()}]`. If any check fails, discard the stored plans and fail the whole batch with `ReferenceInvalid` before dispatch. Advance that surface-owned scalar only after the batch passes this validation; foreign-window entries still advance the batch's one end sequence because they remain audited in the same vector. A detached surface uses its own scalar, and `OnWorldReleased` erases all keys for that world. This bounded ledger complements Task 13.2's host take-once API and prevents replay even if a caller retained a copy.
 
-- [ ] **Step 4b2: Validate the complete tick batch independently.**
+- [x] **Step 4b2: Validate the complete tick batch independently.**
 
   Require every tick index to be nonzero/strictly increasing past `lastCompletedTickBySurface_[{input.windowId,world.Generation()}]` and each raw delta in `[1,64]`. A bad tick batch executes no tick but does not discard valid native events; record one `LayoutInvalid`. A good batch advances only that bounded surface-owned scalar and is consumed once after event dispatch and before snapshot publication, calling `scrollSystem_.AdvanceTick` for each exact value. `OnWorldReleased` erases its tick keys. Task 14 adds `textInputSystem_.AdvanceTick` in the same tick loop; no subsystem receives the tick vector.
 
-- [ ] **Step 4c: Preplan the complete batch with sequential policy projection.**
+- [x] **Step 4c: Preplan the complete batch with sequential policy projection.**
 
   Call `PlanNext(N,input.windowId,event,planningState)` followed by mutable `focusSystem_.ProjectEvent(N,plan,planningState)` in native order and store every result before invoking any callback. The focus projector writes the exact snapshot-N navigation destination into the plan before updating `planningState`; the handler later commits only that frozen destination. Foreign-window plans stay targetless and cannot update projection. Matching pointer capture/focus/navigation transitions update only `planningState`; text/edit target identity comes from `ownerAtIngest` and does not alter or consult projected focus. Canonical replay may additionally provide nonzero `traceOrdinal`; planning stores no pointer and never observes callback mutations.
 
-- [ ] **Step 5a: Define exact accumulator merge rules.**
+- [x] **Step 5a: Define exact accumulator merge rules.**
 
   `UIEventDispatchAccumulator` is seeded from one `PlannedUIEvent` and its event-kind primary-target rule. `Merge` requires the same sequence, validates `resolvedStageTarget` against `TargetFor(stage,stageTargetOrdinal)`, ORs action masks/dirty/consumed/delivered fields, and stores the latest nonempty `resultingFocus` without making focus primary. A stage mismatch is a debug assertion plus `ReferenceInvalid`; it is never substituted. The first consumed valid scroll result sets the initially empty scroll primary. `Finish` may be called once and returns exactly one record.
 
-- [ ] **Step 5b: Dispatch each plan through one-event handlers and one accumulator.**
+- [x] **Step 5b: Dispatch each plan through one-event handlers and one accumulator.**
 
   ```cpp
   for (const PlannedUIEvent& planned : plannedEvents) {
@@ -1441,17 +1441,17 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
 
   `UISystem::ProcessFrame` is the only function that owns vector traversal: one projection pass over `orderedEvents`, followed by one dispatch pass over the resulting plans. No subsystem receives either vector. Even ignored/stale events append one record with their original sequence.
 
-- [ ] **Step 6: Publish at most one N+1 without retargeting.**
+- [x] **Step 6: Publish at most one N+1 without retargeting.**
 
   Accumulate every layout/visibility invalidation from all event handlers and deterministic ticks before publication; multiple requests coalesce into one dirty set with no diagnostic. After both loops finish, build and atomically publish at most one render snapshot N+1 from the final pre-publication state. Only an invalidation whose generation is acquired after that N+1 publication remains dirty for the next frame and reports one rate-limited `ReflowDeferred`. Return N for both fields when no pre-publication geometry/visibility changed.
 
-- [ ] **Step 7a: Extend the existing world-bearing output API.** Task 10.2
+- [x] **Step 7a: Extend the existing world-bearing output API.** Task 10.2
   already changed `GameOutputRenderer::Render`/`RenderLogical` and editor
   windows to take a real `World&`. Add the final UI snapshot as an explicit
   render input, use `world.Objects()` only for camera/world traversal, and
   never rebuild UI internally or restore an object-vector overload.
 
-- [ ] **Step 7b: Make Game View and standalone runtime retain the frame result.**
+- [x] **Step 7b: Make Game View and standalone runtime retain the frame result.**
 
   Bind Game View to `World&`. Both modes advance `UIFixedTickClock` from the same host monotonic elapsed-nanosecond sample, assign the returned values to `UIFrameInput::uiTicks`, call `ProcessFrame(world,input,textRenderer.LayoutService(),sink)` before script `Update`, retain `UIFrameResult::renderSnapshot`, render cameras, then call the sink-bearing `CollectRender` on that exact snapshot. Canonical replay assigns decoded ticks directly and executes the identical `ProcessFrame` path.
 
@@ -1477,6 +1477,235 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
   git commit -m "feat: process UI events through one frozen frame"
   ```
 
+#### Implementation record — Task 12.3 (2026-10-19)
+
+Landed as twelve commits on `claude/brave-carson-cv9y49` instead of Step 9's single commit (one
+commit per step, plus three fix commits after independent reviews). The step numbers below are the
+execution plan's (Step 1 ingest … Step 8 legacy deletion), not this task's checkbox numbers.
+
+| Commit | Content |
+|---|---|
+| `e93c2a8` | Step 1: `NativeInputEvent` values, process-global sequence allocator, `EngineHost::TakeNativeInputBatch`, per-window batch-start seeds, SDL → value translation (new `src/Platform/NativeInputEvent.{h,cpp}`) |
+| `715ecbb` | Step 2: `UISurfaceCoordinateMapping` (`WindowPixelToCanvas`, `MakeEmbeddedSurfaceMapping`, `MakeStandaloneSurfaceMapping`, `MapNativeInputBatch`) |
+| `b2e829e` | Step 3: `UIFixedTickClock` and `Time::GetElapsedNanoseconds` |
+| `acb1b05` | fix after the Steps 1–3 review: seed left invalid when the density lookup fails, first `Time::Update` records 0, unusable pixels-per-point rejected once, 16-tick cap (Q5), comments and host-test assertions |
+| `520a711` | Step 4: `UISystem::ProcessFrame` (the sole loop), `ClearClickedThisFrame`, router planning-state surface check, primary-button-only pointer buttons, `tests/test_ui_frame.cpp` |
+| `a36ad58` | Step 5: render only from the retained snapshot — `UISystem::CollectRender(snapshot, transform, …)`, `GameOutputRequest::uiSnapshot`, `UiLogicalViewport`, Scene View snapshot drawing and picking (`UISystem::PickObject`), `UIButton::ColorFor`, collector wiring |
+| `43debe8` | fix after the Steps 4–5 review: world-replaced test asserts its guard, freeze test observer, redundant ledger erase removed, Scene View comment |
+| `c289455` | Step 6: Game View on `ProcessFrame` (batch hand-over from `main`, embedded mapping, tick clock, unfocused-panel drop, native focus loss order, surface departure, scrollbar clip, snapshot releaser) |
+| `981243f` | Step 7: standalone runtime on `ProcessFrame` (standalone mapping, tick clock, smoke click synthesis, loop-local snapshot) |
+| `419c14e` | fix after the Steps 6–7 review: Game View focusing press delivered (Q6), departure from a replaced surface |
+| `ee0c8da` | Step 8: legacy path deleted, `Build` reads the snapshot's own surface |
+| (this commit) | this record and `docs/now_going.md` |
+
+**User decisions (2026-10-18).** The decisions file numbers them Q1–Q6; the plan's own open questions
+(plan Q1–Q5) are folded into these.
+- **Q1 — host ingest: land the non-text subset of 13.2's ingest in 12.3**, with exactly 13.1/13.2's
+  names and fields: ordered `NativeInputEvent` values in the 13.1 Step 4b shape minus `text` and
+  `textInputOwnerTransition`, the process-global sequence allocator, `EngineHost::TakeNativeInputBatch`,
+  the surface seed `NativeSurfaceBatchStart`, and `UISurfaceCoordinateMapping::WindowPixelToCanvas`. Text
+  stamping, the IME arbiter, the two-argument observer and sink diagnostics stay in 13.2. Recorded under
+  13.1 and 13.2 "Inherited from 12.3".
+- **Q2 — right/middle click (R10): primary (left) only.** A non-left `PointerButton` is projected like
+  `PointerMotion` (pointer + hover) with no press, capture, click or focus. R10 moves out of 13.2.
+- **Q3 — Scene View picking is snapshot-based.** `HandlePick` reuses the snapshot `DrawUI` built,
+  picks the topmost hit record (reverse draw order, point inside rect ∩ `logicalClip`) and returns its
+  object. The legacy float `UISystem::HitTest` is gone.
+- **Q4 (all recommended).** (a) The batch-start pointer seed is the authority's shape: int32 window
+  physical pixels, `floor(point × SDL_GetWindowPixelDensity)`, checked, else invalid. (b) `UIButton::CurrentColor()`
+  stays public, re-implemented as `ColorFor(ButtonStateAnySurface(...))`. (c) The design's one-frame
+  UI latency for script `Update` mutations is accepted; `ReflowDeferred` is reported only for an
+  invalidation acquired after N+1 publication (the test observer window), and production never reaches
+  it. (d) A gamepad event has no SDL window; the host stamps it with `SDL_GetKeyboardFocus()`'s window id
+  at dequeue time, 0 (no focus window) is foreign and ignored; there is no mapper special case.
+- **Q5 — `UIFixedTickClock` is capped at 16 ticks (0.25 s) per `AdvanceElapsedNanoseconds` call.**
+  Implemented inside the clock (pure function of its inputs, so both owners stay identical). Time beyond 16
+  complete steps is discarded and the carry becomes `total % Step`; no diagnostic (stalls are normal).
+  1 s → 16 ticks with carry 0. Canonical replay bypasses the clock. **A deviation from the authority
+  (04 Step 3b has no cap), approved by the user.**
+- **Q6 — the Game View focusing press is delivered to the UI (legacy feel).** When the panel was not
+  input-focused and ImGui reported the image hovered on the previous frame, the first `PointerButton`
+  (control Left, active, `windowId` == the native window, valid logical point inside the clipped image) and
+  everything after it in the batch are delivered: events before it are erased, the real seeds are kept, the
+  panel takes input focus (`Input::DiscardPendingScroll`) and `ProcessFrame` runs. If ImGui does not confirm
+  focus the same frame, `OnGUI`'s existing `inputFocused_ && !IsWindowFocused` path calls `LoseInputFocus`
+  → `DepartUIPointer`, which clears the capture so no wrong click results. `imageHovered_` is stored after
+  `ImGui::Image`. Scripts still receive no input in that frame (they start the next one). The suffix
+  selection is the pure `KeepFocusingPressSuffix`.
+
+**What the code does now.**
+- *Frame order.* Host `PollEvents` appends `NativeInputEvent` values (one process-global sequence each) and
+  per-window seeds → the frame owner takes the batch exactly once per loop iteration (even with no UI world) →
+  `MapNativeInputBatch` → `UIFixedTickClock` → `UISystem::ProcessFrame` → script `Update` → render from the
+  retained N+1. `ProcessFrame`: dependency and `windowId != 0` guards; build N and guard its surface/world;
+  `Revalidate`; `ClearClickedThisFrame` and seed `UIPlanningState` from the surface table and the host seed
+  (every frame, so the router's/planner's hover divergence cannot persist); validate the whole batch's
+  sequences against the per-surface ledger (`0`, repeated, decreasing or already-processed → reject the whole
+  batch, one `ReferenceInvalid`); plan every event against N (`PlanNext` + `ProjectEvent`); dispatch each plan
+  through router → focus → scroll in one `UIEventDispatchAccumulator`, with `Revalidate` after each; validate
+  and consume the tick batch once; build N+1 once (the cache returns the identical pointer when nothing
+  changed) and never again. The std::vector of plans is a local of `ProcessFrame` only.
+- *Ingest.* `PollEvents` copies SDL fields into values: key modifiers from the event, the wheel flip applied
+  exactly once, gamepad events filtered to the opened pad and stamped with the keyboard-focus window.
+  Non-UI SDL events consume a sequence number but are not appended. A second poll while a batch is untaken
+  does not poll (one `Log::Warn`); sequence exhaustion reports once (`Log::Error`), processes one event per
+  poll and appends nothing.
+- *Mapping.* Game View and runtime share one pixels-per-point value, the SDL pixel density, for the host
+  seed, the layout and the mapping (fallback per `ResolveWindowPixelsPerPoint`: density first, then
+  pixel/logical per axis). Seeds are already physical pixels and are never multiplied again; event points are
+  multiplied exactly once. Letterbox bars, the half-open edge, crop and the panel's visible region (including
+  the part hidden under the Game View scrollbar) give `nullopt` → pointer departure.
+- *Render.* UI is drawn only from a published snapshot (`GameOutputRequest::uiSnapshot`, non-owning;
+  `GameOutputRenderer::UiLogicalViewport` is the one definition of the snapshot's logical viewport). Edit mode
+  and unfocused play frames build a render-only snapshot with `BuildLayout`. `UIRenderCollector` finally has a
+  production owner and its `OnWorldReleased` is wired.
+- *Colour.* `UILayoutSystem::Build` reads `ButtonState({surfaceWindowId, world.Generation()}, …)`: only the
+  snapshot's own surface colours the button. `UIButton::IsHovered/IsPressed/WasClickedThisFrame/CurrentColor`
+  keep the any-surface OR (Q4b).
+- *Deleted (Step 8).* `UISystem::ProcessInput`, `UIPointerState`, `UISystem::{capturedOwner_, capturedObjectId_,
+  ResetPointerCapture}`, `UIButton::ApplyPointerState`, `kLegacyPointerSurfaceWindow`, the legacy immediate
+  `CollectRender(World&, …)` and `HitTest` (Step 5), and every caller in `GameViewWindow`, `runtime_main.cpp`
+  and `SceneViewWindow`. The table now has two writers: the router and `UIFocusSystem`.
+
+**Deviations from the plan text, with reviewer rulings.** The plan's reconciliation table R1–R18 (as
+amended by the plan review) is the baseline; items marked * were decided by the user above.
+- **R1/R3** the real accumulator API (sink-bearing constructor, status-returning non-fatal `Merge`) and
+  `Revalidate(World&, const UISnapshot&, TextDiagnosticSink&)`; no assertions. **R2** the plan vector is a local of
+  `ProcessFrame`; the Final Verification `rg` line is amended below. **R4*** → Q1. **R5*** → Q3, plus the three
+  extra files (`SceneViewWindow.*`, `UIRenderCollector.*`). **R6** there is no hit-test counter: the N/N+1 freeze is
+  observed through behaviour (a callback publishes N+1 mid-batch and the tests tell N from N+1 by which button
+  receives the next press; a callback that removes its target; coalescing of several geometry mutations into
+  one N+1 build, with "build after every dispatch" and "plan lazily against the latest snapshot" as mutants).
+  **R7** the reachable rejection is `windowId == 0`. **R8** an empty tick vector is "no time elapsed"; only a
+  non-empty invalid batch reports. **R9** the observer is `SetUIFramePublicationObserverForTest`;
+  setter-only mutations after publication are **not** silently deferred (every setter advances `SemanticDirty`
+  through `UIComponent::Invalidate`), so `ReflowDeferred` is reported for any invalidation acquired after N+1
+  publication; production never reaches it because nothing runs between the N+1 build and the return (Q4c).
+  **R10** the router reads `UIPlanningState::{surfaceWindowId, surfaceWorldGeneration}` and plans nothing for
+  another surface (closes the 12.1 carry-forward). **R11** hover is reconciled by seeding the planning state from
+  the table every frame; the projection inside a batch is scratch. **R12** `ClearClickedThisFrame`: a click set
+  in frame F is readable in F and cleared by F+1's `ProcessFrame` without advancing a generation. **R14**
+  `GameOutputRequest::uiSnapshot`. **R15** closed (below). **R16** `TextRenderer.h` needed no change. **R17** the
+  tick example is `{}`, `{1}`, `{2,3}` (concatenation `{1,2,3}`). **R18*** → Q4a.
+- **Plan-review amendments** applied: the host loops take (and, until Steps 6/7, discard) the batch right after
+  `PollEvents` so Step 1 cannot freeze the editor/runtime (host tests updated); `NativeInputEvent` in the 13.1
+  shape; gamepad filtering by the opened pad inside the existing switch; production mapping factored into pure,
+  tested functions with exact expected raw values; the tick sample is one per-loop `Time::GetElapsedNanoseconds`
+  (0 on the first frame); the snapshot releaser only drops ownership; the colour switch moved to Step 8;
+  `CurrentColor` kept; Game View native focus loss keeps `LoseInputFocus`'s `DiscardPendingScroll/ReleaseAll`
+  and runs after `ProcessFrame`; `ProcessFrame` needs only `inputVisualStates_`; `traceOrdinal` is canonical-replay
+  only and 0 in production (the `UIInputEvent.h` comment says so).
+- **Steps 1–3 review: APPROVE.** Deviations (a)–(e) and (g) accepted; (f) (no tick cap) resolved by Q5. Fixed
+  in `acb1b05`: seed must not become a valid `(0,0)` when `SDL_GetWindowPixelDensity` fails (valid only for a
+  finite positive density); the first `Time::Update` after `Init` records 0 instead of time since `Init`;
+  `MapNativeInputBatch` requires both pixels-per-point values finite and positive, else one `LayoutInvalid`
+  with every pointer invalid; the 16-tick cap; the host test asserts that a TEXT_INPUT event consumes a
+  sequence; comment fixes. Also added beyond the plan: `ClipVisibleWindowPixels` (the visible-region clip),
+  and `NativeTranslateContext{gamepadInstanceId, gamepadWindowId}` for `TranslateNativeInputEvent`.
+- **Steps 4–5 review: APPROVE, minor changes.** Of ten implementer deviations: 1, 2 (the plan's count was
+  wrong), 4, 6, 7, 8, 9, 10 accepted (7 and 8 subject to the review's window-0 guard and freeze-test items, both done
+  below). **3** — a callback that replaces the world
+  mid-batch: the remaining plans are audited but not delivered, the ledgers of the retired generation are
+  released, one `ReferenceInvalid` is reported from `ui.frame` and none from `ui.input` — accepted as internal
+  fail-closed robustness (no user approval needed; one-line FYI to the user). **5** — the visible draw (and pick)
+  order changed in Step 5: the legacy path drew by `{canvas order, component sorting order}`; the snapshot orders by
+  canvas sort → sibling path → component sort. Between Step 5 and Steps 6/7 the legacy `ProcessInput` still
+  prioritised by `sortingOrder` (`IsHigher`) while drawing followed the hierarchy, so a mismatch existed in those
+  intermediate commits only. Fixed in `43debe8`: the world-replaced test asserts its guard (guard off → `ui.frame`
+  0 and `ui.input` 2; on → 1 and 0), the freeze test installs a counting observer so its `ReflowDeferred == 0` can
+  fail, the redundant ledger erase is gone, and the Scene View colour comment is corrected.
+- **Steps 6–7 review: APPROVE.** Deviations 1–6 accepted, 7 → Q6: the departure uses the last processed surface
+  name (`uiSurfaceWindow_`, `uiSurfaceWorldGeneration_`) and never reads a possibly destroyed `world_`; the
+  destructor and the shutdown releaser (`ReleaseRetainedUISnapshots`) drop ownership only; `lastFrameResult_` and
+  `tickSampleValid_` were not added and the tick clock is monotonic and never reset (the ledgers reject an index
+  `<=` the last, and a new world's key starts at 0); the clock advances only on frames that call `ProcessFrame`, so
+  idle/paused time is dropped; the runtime snapshot is loop-local (the plan's runtime releaser and amendment 8's
+  `lastFrameResult_` are superseded); smoke mode ignores the host batch and synthesizes primary press/release at
+  the centre of the target's hit record (no seed; `nativeWindowFocusedAtBatchStart = false`); pixels-per-point
+  resolves density first, then pixel/logical per axis. Fixed in `419c14e`: Q6, and a departure from the previous
+  surface when the processed surface changes while the world stays (docked ↔ detached viewport) or the world
+  changes — decided by the pure `PointerDepartureNeededOnSurfaceChange`.
+- **Q5 and Q6 are approved deviations from the authority** (no tick cap; the focusing press is delivered).
+
+**Closed obligations.**
+- *`DecodeUtf8` (inherited from subplan 01).* The legacy immediate `CollectRender` was the per-frame
+  `textRenderer.Layout` caller. It is deleted; the layout cache is consulted before decoding and `molga::DecodeUtf8`
+  has no production caller (`rg DecodeUtf8 src` finds `Utf8.{h,cpp}` and two comments). The lazy-diagnostic
+  change is therefore not needed and not made.
+- *Subplan 03 carry-forwards.* `UIRenderCollector` has its owner (`UISystem`) and its `OnWorldReleased` is wired;
+  `SceneViewWindow` draws from `BuildLayout` snapshots; the engine-shutdown releaser is registered once (no second
+  `EngineShutdown`, source-audit counts unchanged).
+- *12.2 carry-forwards.* Planning state seeded from the table; hover reconciliation; `Revalidate` at frame start and
+  after every callback; `ClearClickedThisFrame`; exact-surface colour; legacy surface key,
+  `UIButton::ApplyPointerState` and `UISystem::{capturedOwner_, capturedObjectId_, ResetPointerCapture}` deleted;
+  12.1 R11 (`UIPlanningState` surface fields) read by the router; R10 (primary-only) landed here.
+- *Still open from 12.2 (the authority is silent; no owner is assigned here):* automatic navigation may pick a
+  clipped or masked-out record (empty `logicalClip`); `Revalidate` keeps a focus whose record N no longer
+  publishes; dead identities of non-button components stay until `Revalidate` or world release.
+
+**Verification (Linux GCC 13, 2026-10-19; macOS not run).**
+Environment: Linux, GCC 13, Debug (`build/debug`, Ninja) and ASan (`build/asan`); no display and no GPU
+(`Failed to initialize SDL3: No available video device`). Results are from this final pass at `ee0c8da` (no source
+change after it); results of the earlier steps are in the commit messages and reviews.
+
+| Check | Observed |
+|---|---|
+| `cmake --build --preset debug -j4` | whole tree builds, 0 errors (after the final state; the tree was rebuilt after every mutation run) |
+| Focused: `ctest --test-dir build/debug -R '^(test_ui_frame\|test_ui_input\|test_ui_focus\|test_ui\|test_ui_layout\|test_ui_components\|test_game_view\|test_scene_runtime\|runtime_smoke)$'` | all passed; case counts now `test_ui_frame` 22 (new in 12.3), `test_ui_input` 76 (was 75), `test_ui_focus` 17, `test_ui` 24 (was 30: seven legacy `ProcessInput` cases deleted, the "UI hit testing" and collector cases rewritten/added), `test_game_view` 31 (was 13), `test_platform_sdl` 11 (was 4), `test_ui_layout` 46, `test_ui_components` 41 (was 40), `test_scene_runtime` 16 |
+| `build/debug/tests/test_platform_sdl --test-case="native translation*,the native sequence allocator*"` | 3 cases, 104 assertions passed (no display needed) |
+| `test_rendering_sdlgpu -tc="the production entry points keep one shutdown order and one collection"` | 1 case, 24 assertions passed (the source audit of `src/main.cpp` and `src/runtime_main.cpp`: counts unchanged) |
+| `ctest --test-dir build/debug -L unit -LE "smoke\|pixel\|e2e"` | 102 tests, **99 passed, 3 failed**, 473.7 s: `test_ui_render_clip` and `test_gpu_retirement` (no video device) and `test_text` (`test_text.cpp:1312`, "an authored family wins over a legacy single-face pick": pre-existing since `c72ac61`, environment-dependent — it passed in one earlier run of this task and failed in the others) |
+| `ctest --preset debug` (111 registered tests, 60 s preset timeout) | **103 passed, 8 failed**, 950.5 s; no test reported a timeout (`test_ui_scroll` has `TIMEOUT 600` and passed). Failures: `test_ui_render_clip`, `test_gpu_retirement`, `test_rendering_sdlgpu`, `test_imgui_sdlgpu`, `test_platform_sdl`, `test_gpu_sdl` (all need a video device/GPU; `test_platform_sdl`, `test_imgui_sdlgpu`, `test_gpu_sdl` print `Failed to initialize SDL3: No available video device`), `test_text` (as above), and `smoke_end_to_end` (the editor's `--smoke-build` exits 3 with "audio decoder rejected file" for the fixture's `music_intro.mp3`/`music_loop.mp3` — an environment/fixture problem outside the UI path; not compared against a pre-12.3 baseline) |
+| ASan (`build/asan`, `ASAN_OPTIONS=new_delete_type_mismatch=0`): `test_ui_frame`, `test_ui_input`, `test_ui_focus`, `test_ui`, `test_ui_scroll`, `test_game_view` | 6/6 passed (`test_ui_scroll` 97.8 s) after Step 8 |
+| `rg` source checks after Step 8 | `rg -n 'ProcessInput\(\|ResetPointerCapture\|ApplyPointerState\|kLegacyPointerSurfaceWindow\|UIPointerState' src tests` and the same for `capturedOwner_\|capturedObjectId_`: no matches. `rg -n 'Drain(Text\|NativeText)\|PendingTextEvents' src`: none. `rg -n 'vector<.*PlannedUIEvent' src/UI src/Platform src/Core`: only `src/UI/UISystem.cpp:244`. `rg -n 'DecodeUtf8' src`: `Utf8.{h,cpp}` and two comments (`Utf8.h`, `Text/UnicodeTextBuffer.h`). `rg -n 'UISystem::Get\(\)\.CollectRender\(' src`: `GameOutputRenderer.cpp:159` and `SceneViewWindow.cpp:793`, both with a snapshot first argument. `rg -n 'orderedEvents' src/UI`: `UIInputEvent.h` (field and comment), `UISystem.cpp` (the sequence check and plan pass), and `UISurfaceCoordinateMapping.cpp` (the batch mapping builds the vector; `DropUnfocusedPanelInput` and `KeepFocusingPressSuffix` clear/trim it) — the plan's "only `UIInputEvent.h` and `UISystem.cpp`" expectation predates the mapping/Q6 helpers |
+
+**Not run here / macOS-only (compiled where noted, never executed):** `EngineHost::PollEvents` and
+`TakeNativeInputBatch` with real SDL events (`test_platform_sdl` host cases incl. "EngineHost hands a native batch
+over exactly once", `SeedPointerFromWindowPoint` host-level, sequence-exhaustion host case); the edited host tests
+(`test_platform_sdl`, `test_imgui_sdlgpu`); `test_rendering_sdlgpu` UI-only pixel case (red `UIImage` through
+`GameOutputRenderer` with `uiSnapshot`); `test_ui_render_clip`; `test_gpu_retirement`; visible Game View and
+Scene View UI rendering from snapshots (embedded and detached viewport, Fit/100 %, letterbox); Game View play
+click/hover/scroll/keyboard navigation docked and detached; the focus-loss order; the scrollbar clip; the Q6
+focusing click; the detached-surface departure (only its pure decision helper is tested here); `editor_smoke`,
+`build_smoke`, `smoke_end_to_end`; standalone runtime pointer, wheel, gamepad and keyboard interaction; UBSan;
+Release; ASan for non-UI targets.
+
+**Mutation evidence.** This pass (checksummed backups, each restored and checked, whole tree rebuilt afterwards):
+`KeepFocusingPressSuffix` — drop the `active` check, drop the Left check, drop the window check, drop the
+valid-point check, erase one event too many, erase nothing, clear the seeds on success, skip the fallback drop —
+and `PointerDepartureNeededOnSurfaceChange` — always false, ignore the generation, ignore the window: each turned
+a named `test_game_view` case red (11 mutants). `Build` reading `ButtonStateAnySurface`, `Build` reading
+`window + 1`, and the router writing `window + 1`: each turned both colour cases in `test_ui_frame` red (3
+mutants). Earlier passes (not re-run for this record, as reported by their implementers/reviewers): the
+world-replaced guard off (`ui.frame` 0 / `ui.input` 2), the freeze-test clock compared before dispatch,
+sequence ledger removed, `ClearClickedThisFrame` removed, after-callback `Revalidate` removed, table seed removed,
+N+1 replaced by N, `ReflowDeferred` report removed, wheel flip applied twice, mapping clamping instead of
+`nullopt`, tick batch validated per element, "build after every dispatch" and "plan lazily against the latest
+snapshot".
+
+**Carried forward, each with an owner.**
+- **Task 13.1 / 13.2.** The "Inherited from Task 12.3" blocks under those tasks.
+- **Task 13.2 / 14.3.** Gate pointer kinds on the ImGui *image* being hovered: an ImGui popup or menu over the
+  Game View image is not treated as covering it (pre-existing; the frame uses `imageHovered_` only for the Q6 focus
+  decision). The Game View mapping uses the previous frame's `framebufferScale`, child clip and image origin, so a
+  DPI change gives a one-frame mismatch. Smoke-mode synthetic input carries no seed and
+  `nativeWindowFocusedAtBatchStart = false`: 13.2/14.x must set that deliberately.
+- **Task 14.1.** The text handler is inserted before the per-event `Revalidate` in `ProcessFrame`; a tick-loop call
+  for text editing joins `UIScrollSystem::AdvanceTick`.
+- **Subplan 07 (performance/qualification).** Two surfaces on one world alternate the single full-snapshot slot
+  every frame (Game View + Scene View in different viewport windows); a Scene View docked in the *same* OS window as
+  the Game View shares its surface key and therefore shows the Game View's hover/pressed colours; script `Update`
+  mutations show one frame later (Q4c); production never reaches `ReflowDeferred`; the 16-tick cap (Q5); the
+  untested "no layout dependencies" guard in `ProcessFrame`; macOS runs of every item above; the macOS decision on
+  `test_text` (pre-existing failure, below).
+- **Unassigned (authority silent):** see "Still open from 12.2" above.
+
+**Checkbox note.** Steps 1–1c are ticked because their cases exist and pass in the forms listed in the
+deviations (the red state was not observed separately: tests and code landed together per commit). Step 2 (the
+facade red gate) was not run as written, so it stays unticked. Step 8 stays unticked: `ctest --preset debug` does
+not report "all tests pass" in this environment (the three pre-existing failures below, plus GPU/display tests
+that cannot run). Step 9 stays unticked: the work landed as the commits above, not as the plan's single commit.
+
 ### Task 13.1: Build a platform-independent, idempotent per-window text-input arbiter
 
 **Files:**
@@ -1494,6 +1723,24 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
 
 - Consumes: `WindowId`, runtime target identity, `PixelRectU32`, and typed diagnostics.
 - Produces: value-owned native input/text events, `ITextInputPlatform`, C++17-comparable authority/owner/token/area values, `TextInputOwnerTransition`, and idempotent `TextInputArbiter` behavior without direct SDL calls or retired-generation history.
+
+**Inherited from Task 12.3 (landed 2026-10-18/19; user decision Q1):**
+
+- **`src/Platform/NativeInputEvent.h` and `.cpp` already exist** (commit `e93c2a8`), so Step 4b's "Create" is a
+  **Modify**: add `text` (`NativeTextEvent`, a new type that this task still creates in
+  `src/Platform/NativeTextEvent.h`) and `textInputOwnerTransition`. Landed fields: `sequence, windowId,
+  timestampNanoseconds, kind, nativeType, x, y, deltaX, deltaY, axisValue, control, keyModifiers, active`;
+  `NativeInputEventKind` already lists `TextEditing` and `TextCommit` (the host does not produce them yet);
+  `NativeSurfaceBatchStart{windowId, nativeWindowFocused, pointerWindowPixelX/Y (int32), pointerWindowPixelValid}`
+  and `NativeInputBatch::{events, surfaceStarts, FindSurface}` exist, as do `AcquireNativeInputSequence`,
+  `ScopedNativeInputSequenceForTesting` and `PeekNativeInputSequenceForTesting` (process-global, nonzero,
+  non-wrapping, exhausted at `UINT64_MAX`).
+- Non-UI SDL events (including `TEXT_INPUT`/`TEXT_EDITING` until 13.2 translates them) **consume a sequence number
+  but are not appended**; this task's text events must take theirs from the same allocator in the same position.
+- `TranslateNativeInputEvent(const void*, sequence, const NativeTranslateContext&)` takes
+  `NativeTranslateContext{gamepadInstanceId, gamepadWindowId}`; the SDL3 key modifier is read from `event.key.mod`
+  (13.2's "keysym.mod" wording is SDL2 and should be read as `event.key.mod`).
+- `UIInputEvent::traceOrdinal` is canonical-replay only; production batches leave it 0 and `sequence` orders.
 
 - [ ] **Step 1a: Write a failing platform call-audit test.**
 
@@ -1843,6 +2090,36 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
   → Click on the focused element is not implemented by 12.2 and had no owner in this subplan. This task
   owns it together with R10: it must go through the router's single click authority (R7) and the
   `UIFocusSystem` focus, not through `UIButton`.
+
+**Inherited from Task 12.3 (landed 2026-10-18/19; user decisions Q1, Q2, Q4(a), Q4(d), Q6):**
+
+- **R10 and `PointerButton.control` landed in 12.3 and are no longer obligations of this task.** The router
+  projects a non-left `PointerButton` like `PointerMotion` (pointer + hover only; no press, capture, click or
+  focus), and the host fills `PointerButton.control` with `Input::MouseButton`. **Activation of the focused element
+  (Q4b) remains owned by this task** (above).
+- **Already landed from this task's Files/Interfaces (non-text subset):** `EngineHost::TakeNativeInputBatch`
+  (take-once; a second poll while a batch is untaken does not poll and logs one `Log::Warn`), the ordered
+  `NativeInputEvent` values and sequence allocator, the surface seed in the authority's shape (int32 physical
+  pixels = floor(point × `SDL_GetWindowPixelDensity`), invalid when the density lookup fails or the value does not
+  fit), gamepad events filtered to the opened pad and stamped with `SDL_GetKeyboardFocus()`'s window at dequeue
+  time (0 = foreign), the one-time wheel flip, key modifiers copied from `event.key.mod`,
+  `src/UI/UISurfaceCoordinateMapping.{h,cpp}` with `UISurfaceCoordinateMapping::WindowPixelToCanvas`,
+  `ClipVisibleWindowPixels`, `MakeEmbeddedSurfaceMapping`, `MakeStandaloneSurfaceMapping`, `MapNativeInputBatch`
+  (event points × pixels-per-point exactly once; seeds never multiplied; unusable scale → one `LayoutInvalid`, every
+  pointer invalid), `DropUnfocusedPanelInput`, `KeepFocusingPressSuffix`, `PointerDepartureNeededOnSurfaceChange`
+  and the smoke-click helpers; `src/main.cpp` and `src/runtime_main.cpp` take the batch right after `PollEvents`.
+- **Still this task's:** text event stamping and the arbiter; the two-argument observer (the one-argument
+  `eventObserver(&event)` is still in `PollEvents`, as the Final Verification search expects); moving the
+  untaken-poll refusal (`Log::Warn`) and the sequence-exhaustion report (`Log::Error`) to the sink as
+  `ReferenceInvalid` / a Blocker; on exhaustion the host currently processes one event per poll and appends
+  nothing; `CanvasRectToWindowPixels`/cursor mapping and `sdlWindowBoundsPixels` (kept separate from the panel clip
+  `visibleWindowPixels*`); the `SDL_PushEvent` host tests, including "EngineHost hands a native batch over exactly
+  once" (compiled in 12.3, macOS-run only).
+- **One pixels-per-point source.** The host seed, the Game View layout and `MapNativeInputBatch` all use
+  `SDL_GetWindowPixelDensity` (fallback: pixel/logical per axis). IME rectangle mapping (14.3) must use the same
+  value from the same mapping object.
+- The smoke-mode synthesized input carries no seed and `nativeWindowFocusedAtBatchStart = false`; set it
+  deliberately when the smoke path gains a real host batch.
 
 - [ ] **Step 1: Write the failing native order integration test.**
 
@@ -3286,14 +3563,15 @@ Debug figures above are from `b9c0444`. **Not run:** Release, UBSan, macOS, ASan
 
   ```bash
   rg -n 'orderedEvents' src/UI
-  rg -n 'Drain(Text|NativeText)|PendingTextEvents|vector<.*PlannedUIEvent' src/UI src/Platform src/Core
+  rg -n 'Drain(Text|NativeText)|PendingTextEvents' src/UI src/Platform src/Core
+  rg -n 'vector<.*PlannedUIEvent' src/UI src/Platform src/Core
   rg -n '\bNativeInputEvents\(\)|eventObserver\(&event\)|function<void\(const void\*\)>' \
     src tests
   rg -n 'SDL_(StartTextInput|StopTextInput|ClearComposition|SetTextInputArea)' \
     src external/imgui/backends/imgui_impl_sdl3.cpp
   ```
 
-  Expected: `orderedEvents` iteration appears only in `UISystem::ProcessFrame`; the drain/second-vector and old reusable-batch/one-argument observer searches have no production matches; compiled `src/` lifecycle calls appear only in `SdlTextInputPlatform.cpp`.
+  Expected: the single-pass iteration of `orderedEvents` appears only in `UISystem::ProcessFrame` (the host-batch mapping in `UISurfaceCoordinateMapping.cpp` builds the vector and the Game View focusing-press helper trims it, neither iterates it to dispatch); the drain searches have no matches; `vector<...PlannedUIEvent>` appears **only** as the local plan vector in `src/UI/UISystem.cpp` (Task 12.3 R2 — the plan-level audit of 12.1 requires it); the old reusable-batch/one-argument observer searches have no production matches once Task 13.2 has landed; compiled `src/` lifecycle calls appear only in `SdlTextInputPlatform.cpp`.
 
 ## Execution Handoff
 
